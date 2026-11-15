@@ -27,6 +27,7 @@ import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.ItemUseTransaction;
 import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket;
 import org.geysermc.geyser.registry.type.GeyserBedrockBlock;
@@ -103,6 +104,7 @@ public class GeyserItemUseTest {
             h.player.getInventory().inventory.getSlot(36).set((OfflineCultTestBootstrap.item("minecraft:sand", 61)));
             h.position(2369.6301, 65.75320, -40.47053);
             var click = useOn(support, 1);
+            click.setClientInteractPrediction(ItemUseTransaction.PredictedResult.FAILURE);
             GeyserItemUse.observe(h.session, h.player, click, 0);
             assertTrue(DataTables.defaults()
                     .registry()
@@ -110,6 +112,7 @@ public class GeyserItemUseTest {
                     .has(ac.cult.blocksim.data.StateFacts.AIR));
 
             h.position(2369.6301, 66.00134, -40.471252);
+            click.setClientInteractPrediction(ItemUseTransaction.PredictedResult.SUCCESS);
             GeyserItemUse.observe(h.session, h.player, click, 0);
             assertTrue(DataTables.defaults()
                     .registry()
@@ -144,6 +147,37 @@ public class GeyserItemUseTest {
                     .registry()
                     .facts(h.player.compensatedWorld.getBlockStateIdAt(support.above()))
                     .has(ac.cult.blocksim.data.StateFacts.AIR));
+        }
+    }
+
+    @Test
+    public void useTheClientReportsAsFailedChangesNothing() {
+        try (var h = new Harness()) {
+            // The same click that places sand once the client reports it placed.
+            var support = new BlockPos(2369, 64, -41);
+            h.seed(support);
+            h.player.getInventory().inventory.getSlot(36).set((OfflineCultTestBootstrap.item("minecraft:sand", 61)));
+            h.position(2369.6301, 66.00134, -40.471252);
+            var click = useOn(support, 1);
+            click.setClientInteractPrediction(ItemUseTransaction.PredictedResult.FAILURE);
+            GeyserItemUse.observe(h.session, h.player, click, 0);
+            assertTrue(DataTables.defaults()
+                    .registry()
+                    .facts(h.player.compensatedWorld.getBlockStateIdAt(support.above()))
+                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+            assertFalse(h.player.compensatedWorld.isBedrockClientWritten(
+                    support.getX(), support.getY() + 1, support.getZ()));
+            assertEquals(
+                    61, h.player.getInventory().inventory.getSlot(36).getItem().getCount());
+
+            click.setClientInteractPrediction(ItemUseTransaction.PredictedResult.SUCCESS);
+            GeyserItemUse.observe(h.session, h.player, click, 0);
+            assertEquals(
+                    "minecraft:sand",
+                    DataTables.defaults()
+                            .registry()
+                            .block(h.player.compensatedWorld.getBlockStateIdAt(support.above()))
+                            .key());
         }
     }
 
@@ -230,7 +264,8 @@ public class GeyserItemUseTest {
 
             var corrections = new GeyserBlockUpdates();
             List<Consumer<CultPlayer>> receipts = new ArrayList<>();
-            Map<Integer, Integer> palette = Map.of(99, BlockIds.AIR.defaultState());
+            var palette =
+                    new GeyserBlockStateMappings.Tables(Map.of(99, BlockIds.AIR.defaultState()), new int[] {0});
             corrections.begin();
             for (int layer = 0; layer < 2; layer++) {
                 var restore = new UpdateBlockPacket();
@@ -261,8 +296,9 @@ public class GeyserItemUseTest {
         packet.setBlockPosition(Vector3i.from(pos.getX(), pos.getY(), pos.getZ()));
         packet.setBlockFace(face);
         packet.setClickPosition(Vector3f.from(.63f, 1, .53f));
-        // Deliberately do not supply a claimed result or item: prediction must derive
-        // placement from the compensated inventory, world and player collision box.
+        // The client reports that its use succeeded. Deliberately do not supply an item: what the
+        // use changes derives from the compensated inventory, world and player collision box.
+        packet.setClientInteractPrediction(ItemUseTransaction.PredictedResult.SUCCESS);
         return packet;
     }
 

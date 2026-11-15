@@ -71,7 +71,7 @@ class JavaLandingBedStepTest {
         f.player.compensatedWorld.updateBlock(
                 new BlockPos(1, FLOOR_Y, 0),
                 DataTables.defaults().registry().block("minecraft:blue_bed").defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(new Vec3(0.2D, FLOOR_Y + DROP, 0.5D), new Vec3(SLIDE, FALL, 0.0D));
         f.player.onGround = false;
         f.player.lastOnGround = false;

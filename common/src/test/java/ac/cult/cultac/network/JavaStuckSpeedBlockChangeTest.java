@@ -124,12 +124,10 @@ class JavaStuckSpeedBlockChangeTest {
         assertExact(f.tick(new Vec3(0.5, y, 0.5), false));
     }
 
-    /** The move after the web arrived is slowed; the next starts from zero and is slowed again. */
-    private static void stuckThenFromZero(JavaTickFixture f, double y) {
-        y += fall(-1.0) * WEB_Y;
-        assertExact(f.tick(new Vec3(0.5, y, 0.5), false));
-        y += fall(0) * WEB_Y;
-        assertExact(f.tick(new Vec3(0.5, y, 0.5), false));
+    /** A move from {@code y} at {@code velocity} that the web already slows is not the client's. */
+    private static void assertSlowedMoveRejected(JavaTickFixture f, double y, double velocity) {
+        PredictionResult slowed = f.tick(new Vec3(0.5, y + velocity * WEB_Y, 0.5), false);
+        assertFalse(exact(slowed), describe(slowed));
     }
 
     @ParameterizedTest
@@ -144,15 +142,20 @@ class JavaStuckSpeedBlockChangeTest {
         }
     }
 
+    /**
+     * MultiPlayerGameMode#useItemOn places the web in Minecraft#handleKeybinds, before that tick's travel. The travel
+     * starts with the multiplier the tick before left, none, and LivingEntity#aiStep's applyEffectsFromBlocks after it
+     * is the first to find the web: the next move is never the slowed one.
+     */
     @ParameterizedTest
     @EnumSource(
             value = ClientVersion.class,
             names = {"V_1_21_2", "V_1_21_4", "V_1_21_7"})
-    void aWebPlacedIntoTheLastMoveMaySlowTheNextMove(ClientVersion version) throws Exception {
+    void aWebPlacedIntoTheLastMoveDoesNotSlowTheNextMove(ClientVersion version) throws Exception {
         try (var f = new JavaTickFixture()) {
             double y = fallIntoWeb(f, version);
             predictWeb(f, INSIDE);
-            stuckThenFromZero(f, y);
+            assertSlowedMoveRejected(f, y, fall(-1.0));
         }
     }
 
@@ -209,7 +212,7 @@ class JavaStuckSpeedBlockChangeTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(bx, 84, z), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(new Vec3(x, y, 0.5), new Vec3(0, fall(0), 0));
             f.input(NONE);
             for (int tick = 0; tick < 3; tick++) f.statusTick(true, false);
@@ -282,7 +285,7 @@ class JavaStuckSpeedBlockChangeTest {
         for (int y = 80; y <= 95; y++) {
             f.player.compensatedWorld.updateBlock(new BlockPos(1, y, 0), BlockIds.COBWEB.defaultState());
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return f;
     }
 
@@ -293,8 +296,12 @@ class JavaStuckSpeedBlockChangeTest {
         return dx / distance * Math.min(1.0, 1.0 / distance) * 0.05;
     }
 
+    /**
+     * The client answers the ping after the update once the last move's tick has ended, so the web was not there for
+     * that tick's applyEffectsFromBlocks: the next move is not slowed, the one after it is.
+     */
     @Test
-    void aServerWebIntoTheLastMoveKeepsBothOutcomesOpen() throws Exception {
+    void aServerWebIntoTheLastMoveSlowsTheMoveAfterTheNext() throws Exception {
         try (var f = new JavaTickFixture()) {
             double y = fallIntoWeb(f, ClientVersion.V_1_21_4);
             f.pongThrough(sendBlock(f, INSIDE, BlockIds.COBWEB.defaultState()));
@@ -303,13 +310,14 @@ class JavaStuckSpeedBlockChangeTest {
         try (var f = new JavaTickFixture()) {
             double y = fallIntoWeb(f, ClientVersion.V_1_21_4);
             f.pongThrough(sendBlock(f, INSIDE, BlockIds.COBWEB.defaultState()));
-            stuckThenFromZero(f, y);
+            assertSlowedMoveRejected(f, y, fall(-1.0));
         }
     }
 
     /**
      * The client handles the update with the ping that follows it, three ticks after it was sent: the web takes
-     * effect from the moves after that pong, and the fall before it is not slowed.
+     * effect from the moves after that pong, and the fall before it is not slowed. The first move after the pong
+     * started before any applyEffectsFromBlocks found the web, so it is not the slowed one.
      */
     @Test
     void aWebProvenThreeMovesLateTakesEffectAfterItsPong() throws Exception {
@@ -332,10 +340,7 @@ class JavaStuckSpeedBlockChangeTest {
                 }
                 f.pongThrough(proofs[proofs.length - 1]);
                 if (stuck) {
-                    y += v * WEB_Y;
-                    assertExact(f.tick(new Vec3(0.5, y, 0.5), false));
-                    y += fall(0) * WEB_Y;
-                    assertExact(f.tick(new Vec3(0.5, y, 0.5), false));
+                    assertSlowedMoveRejected(f, y, v);
                 } else {
                     y += v;
                     assertExact(f.tick(new Vec3(0.5, y, 0.5), false));
@@ -347,9 +352,12 @@ class JavaStuckSpeedBlockChangeTest {
         }
     }
 
-    /** Forty held pongs answered at once after the stall: the web applies in their order, both outcomes stay open. */
+    /**
+     * Forty held pongs answered at once after the stall: the web applies in their order, after the last move's tick, so
+     * the next move is not slowed and the one after it is.
+     */
     @Test
-    void aWebInsideAHeldBurstOfPongsKeepsBothOutcomesOpen() throws Exception {
+    void aWebInsideAHeldBurstOfPongsSlowsTheMoveAfterTheNext() throws Exception {
         for (boolean stuck : new boolean[] {false, true}) {
             try (var f = new JavaTickFixture()) {
                 double y = fallIntoWeb(f, ClientVersion.V_1_21_4);
@@ -359,7 +367,7 @@ class JavaStuckSpeedBlockChangeTest {
                 for (int i = 0; i < 20; i++) last = f.player.sendTrailingTransaction();
                 f.pongThrough(last);
                 if (stuck) {
-                    stuckThenFromZero(f, y);
+                    assertSlowedMoveRejected(f, y, fall(-1.0));
                 } else {
                     unslowedThenStuck(f, y);
                 }
@@ -370,9 +378,25 @@ class JavaStuckSpeedBlockChangeTest {
     /** A web broken under a player it slowed: the move it set the multiplier for is slowed, the next one is not. */
     @Test
     void aWebBrokenUnderAStuckPlayerKeepsItsLastSlowedMove() throws Exception {
+        brokenWeb(false);
+    }
+
+    /**
+     * ClientLevel#setServerVerifiedBlockState only records a server update for a block whose prediction is not yet
+     * acknowledged (BlockStatePredictionHandler#updateKnownServerState): the web the client placed stays in its level
+     * and keeps slowing it.
+     */
+    @Test
+    void aServerUpdateUnderAnUnacknowledgedPlacementLeavesTheWeb() throws Exception {
+        brokenWeb(true);
+    }
+
+    /** Breaks the web the player is stuck in, one the server sent or one the client {@code predicted} and still owns. */
+    private static void brokenWeb(boolean predicted) throws Exception {
         try (var f = new JavaTickFixture()) {
             double y = fallIntoWeb(f, ClientVersion.V_1_21_4);
-            predictWeb(f, INSIDE);
+            if (predicted) predictWeb(f, INSIDE);
+            else f.pongThrough(sendBlock(f, INSIDE, BlockIds.COBWEB.defaultState()));
             y += fall(-1.0);
             assertExact(f.tick(new Vec3(0.5, y, 0.5), false));
             y += fall(fall(-1.0)) * WEB_Y;
@@ -380,7 +404,7 @@ class JavaStuckSpeedBlockChangeTest {
             f.pongThrough(sendBlock(f, INSIDE, BlockIds.AIR.defaultState()));
             y += fall(0) * WEB_Y;
             assertExact(f.tick(new Vec3(0.5, y, 0.5), false));
-            y += fall(0);
+            y += predicted ? fall(0) * WEB_Y : fall(0);
             assertExact(f.tick(new Vec3(0.5, y, 0.5), false));
         }
     }
@@ -401,7 +425,7 @@ class JavaStuckSpeedBlockChangeTest {
                     for (int y = 65; y <= 105; y++) {
                         f.player.compensatedWorld.updateBlock(new BlockPos(1, y, 0), BlockIds.COBWEB.defaultState());
                     }
-                    for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                    for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
                     double x = 1.0 - 0.3 - 5.0E-6;
                     double y = 100;
                     double v = 0;

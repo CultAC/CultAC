@@ -3,24 +3,21 @@ package ac.cult.cultac.bedrock.prediction.world;
 import java.util.Objects;
 import java.util.Optional;
 
-public record BounceBlockState(BounceBlockType type, double surfaceY) {
+public record BounceBlockState(BounceBlockType type) {
     private static final String SLIME_BLOCK_IDENTIFIER = "minecraft:slime";
     private static final String JAVA_SLIME_BLOCK_IDENTIFIER = "minecraft:slime_block";
     private static final String BED_BLOCK_IDENTIFIER = "minecraft:bed";
+    private static final String SHELF_MUSHROOM_IDENTIFIER = "minecraft:shelf_mushroom";
     private static final float BED_BOUNCE_SCALE = -0.75F;
-    private static final float BED_BOUNCE_CAP = 0.75F;
 
     public BounceBlockState {
         type = Objects.requireNonNull(type, "type");
-        if (!Double.isFinite(surfaceY)) {
-            throw new IllegalArgumentException("bounce block surface Y must be finite");
-        }
     }
 
-    public static Optional<BounceBlockState> fromCollisionBlock(PlacedBlockCollision block, double surfaceY) {
+    public static Optional<BounceBlockState> fromCollisionBlock(PlacedBlockCollision block) {
         Objects.requireNonNull(block, "block");
         BounceBlockType type = collisionBlockType(block);
-        return type == BounceBlockType.NONE ? Optional.empty() : Optional.of(new BounceBlockState(type, surfaceY));
+        return type == BounceBlockType.NONE ? Optional.empty() : Optional.of(new BounceBlockState(type));
     }
 
     public double reboundVelocityY(double fallingVelocityY) {
@@ -33,15 +30,29 @@ public record BounceBlockState(BounceBlockType type, double surfaceY) {
         return switch (type) {
             case NONE -> 0.0D;
             case SLIME -> -(float) fallingVelocityY;
-            case BED -> Math.min((float) fallingVelocityY * BED_BOUNCE_SCALE, BED_BOUNCE_CAP);
+            // A bed returns three quarters of the fall speed, however fast the fall.
+            case BED -> (float) fallingVelocityY * BED_BOUNCE_SCALE;
         };
     }
 
     private static BounceBlockType collisionBlockType(PlacedBlockCollision block) {
-        if (isSlimeBlockIdentifier(block.bedrockIdentifier()) || isSlimeBlockIdentifier(block.javaState())) {
+        // A moving block bounces a landing as the block its piston carries.
+        if (BedrockBlockMetadata.value(block.bedrockState(), BedrockBlockMetadata.MOVING_BLOCK_CARRIED)
+                instanceof String carried) {
+            return identifierType(carried, carried);
+        }
+        return identifierType(block.bedrockIdentifier(), block.javaState());
+    }
+
+    private static BounceBlockType identifierType(String bedrockIdentifier, String javaState) {
+        if (isSlimeBlockIdentifier(bedrockIdentifier) || isSlimeBlockIdentifier(javaState)) {
             return BounceBlockType.SLIME;
         }
-        if (isBedBlockIdentifier(block.bedrockIdentifier()) || isBedBlockIdentifier(block.javaState())) {
+        // A shelf mushroom returns a fall the way a bed does.
+        if (isBedBlockIdentifier(bedrockIdentifier)
+                || isBedBlockIdentifier(javaState)
+                || isShelfMushroomIdentifier(bedrockIdentifier)
+                || isShelfMushroomIdentifier(javaState)) {
             return BounceBlockType.BED;
         }
         return BounceBlockType.NONE;
@@ -52,6 +63,10 @@ public record BounceBlockState(BounceBlockType type, double surfaceY) {
                 || JAVA_SLIME_BLOCK_IDENTIFIER.equals(identifier)
                 || identifier.startsWith(SLIME_BLOCK_IDENTIFIER + "[")
                 || identifier.startsWith(JAVA_SLIME_BLOCK_IDENTIFIER + "[");
+    }
+
+    private static boolean isShelfMushroomIdentifier(String identifier) {
+        return SHELF_MUSHROOM_IDENTIFIER.equals(identifier) || identifier.startsWith(SHELF_MUSHROOM_IDENTIFIER + "[");
     }
 
     private static boolean isBedBlockIdentifier(String identifier) {

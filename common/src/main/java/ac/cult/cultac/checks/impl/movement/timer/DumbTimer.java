@@ -46,12 +46,20 @@ public class DumbTimer extends CultProcessor implements PositionListener {
         if (!player.isBedrockMovement()) return;
         final TeleportAcceptData teleportData = positionUpdate.getTeleportData();
         if (teleportData.isTeleport()) {
-            final double teleportDistance = positionUpdate.getFrom().distanceTo(positionUpdate.getTo());
-            if (teleportData.isInitialSpawnTeleport() || teleportDistance > 32) {
-                this.lastLongTeleport = System.nanoTime();
-                this.balance = System.nanoTime() - 2000e6;
-                debug(() -> "long teleport");
-            }
+            onTeleportAccepted(
+                    teleportData.isInitialSpawnTeleport(),
+                    positionUpdate.getFrom().distanceTo(positionUpdate.getTo()));
+        }
+    }
+
+    /** The client accepted a teleport over this distance. A Bedrock client accepts one in its auth input. */
+    public void onTeleportAccepted(final boolean spawnTeleport, final double teleportDistance) {
+        // Preserve the existing two-second spawn/long-teleport allowance.
+        if (spawnTeleport || teleportDistance > 32) {
+            this.lastLongTeleport = System.nanoTime();
+            this.balance = System.nanoTime() - 2000e6;
+            final String teleportNote = "long teleport";
+            debug(() -> teleportNote);
         }
     }
 

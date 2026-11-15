@@ -132,7 +132,7 @@ class JavaSneakTurnBesideBoatTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(WALL_X, y, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** Sneaks at {@link #YAW} to a steady speed, then turns to {@link #TURNED_YAW} with {@code turningFactor}. */

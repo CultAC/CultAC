@@ -13,13 +13,10 @@ public class TeleportAcceptData {
     SetBackData setback;
     TeleportData teleportData;
     VehicleTeleportData vehicleTeleportData;
+    Integer vehicleTeleportId;
     /**
      * The position a Java player's answer tells the server, in place of the coordinates the client reported: the exact
      * target it was moved to, or the seat a passenger stayed in. Null when the answer carries no position to forward.
      */
     Vec3 forwardedPosition;
-    /** The yaw the ClientboundMoveVehicle this answers snaps the root to; NaN for an answer to another teleport. */
-    float answerSnapYaw = Float.NaN;
-    /** The root was farther than the snap distance from that ClientboundMoveVehicle when it was sent. */
-    boolean answerSnaps;
 }

@@ -27,8 +27,7 @@ final class BedrockVerticalCollisionClassifier {
                 claimedCollision,
                 result.getCollideAxisData(),
                 validMovements == null ? null : validMovements.getCollisionIgnoredMaxStartingVelExtents(),
-                result.getTarget() == null ? 0.0D : result.getTarget().y,
-                validMovements != null && validMovements.isCanStep());
+                result.getTarget() == null ? 0.0D : result.getTarget().y);
         if (claimedCollision
                 && verdict == BedrockVerticalCollisionVerdict.MANUFACTURED_COLLISION
                 && predictedState != null
@@ -42,13 +41,8 @@ final class BedrockVerticalCollisionClassifier {
             boolean claimedCollision,
             CollideAxisData collision,
             SimpleCollisionBox attemptedMovement,
-            double targetY,
-            boolean canStep) {
+            double targetY) {
         if (collision == null) {
-            return BedrockVerticalCollisionVerdict.LEGAL;
-        }
-
-        if (collision.getUnknown() != null && !collision.getUnknown().isEmpty()) {
             return BedrockVerticalCollisionVerdict.LEGAL;
         }
 
@@ -58,7 +52,7 @@ final class BedrockVerticalCollisionClassifier {
         boolean canCollideDown = likely(down);
 
         if (claimedCollision) {
-            return canCollideUp || canCollideDown || canStep
+            return canCollideUp || canCollideDown
                     ? BedrockVerticalCollisionVerdict.LEGAL
                     : BedrockVerticalCollisionVerdict.MANUFACTURED_COLLISION;
         }

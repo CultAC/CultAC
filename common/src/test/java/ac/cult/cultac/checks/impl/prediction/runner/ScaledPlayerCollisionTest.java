@@ -11,6 +11,7 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.network.TestUsers;
@@ -22,14 +23,15 @@ import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.grim.grimac.api.config.ConfigManager;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -39,7 +41,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 /**
  * Entity#collide clips a scaled player at its scaled box. A recorded player at scale 2 sprint-jumps beside a
@@ -66,9 +67,6 @@ class ScaledPlayerCollisionTest {
     static void bootstrap() throws ReflectiveOperationException {
         OfflineCultTestBootstrap.installConfig();
         Class.forName(VerboseCodecs.class.getName());
-        ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
-        Mockito.when(config.getLongElse(Mockito.anyString(), Mockito.anyLong()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
         dataStore = CultAPI.class.getDeclaredField("dataStoreLifecycle");
         dataStore.setAccessible(true);
         previousDataStore = dataStore.get(CultAPI.INSTANCE);
@@ -112,6 +110,10 @@ class ScaledPlayerCollisionTest {
                 522.4961F,
                 50.3948F,
                 false));
+        // LocalPlayer#aiStep stops the sprint on the tick after a horizontalCollision that is not minor, and
+        // LocalPlayer#sendPosition reports it before the move.
+        var stop = new ServerboundPlayerCommand(player.entityID, PlayerCommandAction.STOP_SPRINTING, 0);
+        new PacketEntityAction().onPlayerCommand(event(player, ServerboundPackets.PLAYER_COMMAND, stop), player, stop);
         assertExact(tick(
                 player,
                 null,

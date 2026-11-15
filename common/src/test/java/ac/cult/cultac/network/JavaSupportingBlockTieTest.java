@@ -65,7 +65,7 @@ class JavaSupportingBlockTieTest {
     }
 
     private static boolean walksForward(JavaTickFixture f, Vec3 position, double forward) throws Exception {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         // A client standing still: LivingEntity#travelInAir's gravity, (0 - 0.08) * 0.98F.
         f.place(position, new Vec3(0.0, (0.0 - 0.08) * (double) 0.98F, 0.0));
         f.player.onGround = true;

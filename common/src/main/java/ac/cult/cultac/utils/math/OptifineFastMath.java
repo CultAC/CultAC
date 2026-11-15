@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.math;
 
+/** OptiFine's rounded 4096-entry Mth fastMath profile (verified against the 1.20.1 client implementation). */
 public class OptifineFastMath {
     private static final float[] SIN_TABLE_FAST = new float[4096];
     private static final float radToIndex = roundToFloat(651.8986469044033D);

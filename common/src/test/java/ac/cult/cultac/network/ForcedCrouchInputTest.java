@@ -164,7 +164,8 @@ class ForcedCrouchInputTest {
             int refusal = f.player.lastTransactionSent.get();
             f.player.compensatedWorld.queueServerBlockUpdate(0, FLOOR_Y + 1, 0, TOP_SLAB, refusal);
             f.player.compensatedWorld.handlePredictionConfirmation(1, refusal);
-            walk(f, state[0], state[1], 1.0F, 2, "refusal in flight");
+            // One more upright tick would walk the standing box into the slabs around the mined block.
+            walk(f, state[0], state[1], 1.0F, 1, "refusal in flight");
         }
     }
 
@@ -228,7 +229,7 @@ class ForcedCrouchInputTest {
             f.player.compensatedWorld.updateBlock(piston, stickyPiston);
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 2, 0), head);
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 1, 0), TOP_SLAB);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3[] state = walk(f, new Vec3(0.5, FLOOR_Y, 0.5), Vec3.ZERO, 0.3F, 2, "under");
             JavaPistonSlimeLaunchTest.blockEvent(f, piston, 1, Direction.DOWN.get3DDataValue(), stickyPiston);
             state = walk(f, state[0], state[1], 0.3F, 1, "event tick");
@@ -296,7 +297,7 @@ class ForcedCrouchInputTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y + 1, z), ceiling);
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(new Vec3(0.5, FLOOR_Y, 0.5), Vec3.ZERO);
         f.player.xRot = YAW;
         f.input(FORWARD);

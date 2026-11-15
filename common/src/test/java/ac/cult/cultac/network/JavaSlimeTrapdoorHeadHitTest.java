@@ -116,7 +116,7 @@ class JavaSlimeTrapdoorHeadHitTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y + 2, z), slab);
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 landFrom = onTrapdoor(269.544388380157, 62.200000047683716, 135.67242006482167);
             Vec3 landTo = onTrapdoor(269.54245684321427, 62.1875, 135.440965736047);
@@ -165,7 +165,7 @@ class JavaSlimeTrapdoorHeadHitTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y + 1, z), trapdoor);
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
         Vec3 jumpFrom = recorded(269.3992434403807, 62.0, 148.8933003526408);
         Vec3 jumpTo = recorded(269.4309727524378, 62.012500047683716, 149.15548685817885);

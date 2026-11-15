@@ -40,7 +40,6 @@ import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import ac.cult.cultac.utils.visibility.BedrockEye;
-import ac.cult.cultac.utils.visibility.BedrockPickBlocks;
 import ac.cult.cultac.utils.visibility.ClientVisibility;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import java.util.*;
@@ -84,13 +83,6 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     // InputMode ordinals of a Bedrock client that picks at a screen point rather than along its view.
     private static final int BEDROCK_TOUCH = 2;
     private static final int BEDROCK_MOTION_CONTROLLER = 4;
-    private static final int BEDROCK_MOUSE = 1;
-    private static final int BEDROCK_GAMEPAD = 3;
-    // The length of a Bedrock client's pick ray by input mode; other modes reach farther in creative.
-    private static final double BEDROCK_MOUSE_RAY = 5.7F;
-    private static final double BEDROCK_GAMEPAD_RAY = 5.6F;
-    private static final double BEDROCK_OTHER_RAY = 6.7F;
-    private static final double BEDROCK_CREATIVE_RAY = 12.0F;
     // How far /cult debug reach lets the measured reach exceed the client's claimed reach before showing it red.
     private static final double REACH_DEBUG_TOLERANCE = 0.001;
     private final ClientVisibilityProcessor visibility;
@@ -310,22 +302,11 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 tickYaw,
                 tickPitch,
                 inputMode == BEDROCK_TOUCH || inputMode == BEDROCK_MOTION_CONTROLLER,
-                bedrockRayLength(inputMode),
                 bedrockEyes());
     }
 
     private List<BedrockEye> bedrockEyes() {
         return BedrockEye.of(player).eyes();
-    }
-
-    // How far along its pick ray the input mode's block pick meets a block that drops a hit in the pick margin: the
-    // shortest ray it may have used, and none for a touch screen, which keeps such a hit whatever lies along its ray.
-    private double bedrockRayLength(int inputMode) {
-        if (inputMode == BEDROCK_TOUCH) return 0;
-        if (inputMode == BEDROCK_MOUSE) return BEDROCK_MOUSE_RAY;
-        if (inputMode == BEDROCK_MOTION_CONTROLLER)
-            return player.gamemode == GameMode.CREATIVE ? BEDROCK_CREATIVE_RAY : BEDROCK_OTHER_RAY;
-        return BEDROCK_GAMEPAD_RAY;
     }
 
     /** The attacks this check measured at the client's last tick end, in packet order; kept while observed. */
@@ -377,8 +358,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     }
 
     // BedrockPlayerReach and BedrockEntityReach flag an attack whose hit lies beyond the client's range from every eye
-    // on its path; their hitboxes checks one whose hit lies off the target's box, that no view the client could have
-    // turned to that frame looks at, or that the client would have dropped for a block its ray met.
+    // on its path; their hitboxes checks one whose hit lies off the target's box, or that no view the client could
+    // have turned to that frame looks at.
     private void judgeBedrock(QueuedAttack attack) {
         BedrockAttackPick pick = attack.pick();
         SimpleCollisionBox box = measuredBox(attack.targetBox());
@@ -393,20 +374,9 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         if (tooFar) {
             flag(String.format("%.5f blocks, max=%.5f", distance, max) + type + attack.context());
         }
-        String missed;
-        if (!hitOnBox(pick, box)) {
-            missed = "hit off box";
-        } else if (!pick.looksAtHit(nextYaw, nextPitch, box)) {
-            missed = "look off hit";
-        } else if (keepsMarginHitsPastBlocks()) {
-            missed = null;
-        } else {
-            SimpleCollisionBox raw = box.copy();
-            raw.expand(-BEDROCK_PICK_MARGIN);
-            boolean kept =
-                    pick.keptPastBlocks(box, raw, (from, to, edge) -> BedrockPickBlocks.blocks(player, from, to, edge));
-            missed = kept ? null : "hit in pick margin";
-        }
+        String missed = !hitOnBox(pick, box)
+                ? "hit off box"
+                : !pick.looksAtHit(nextYaw, nextPitch, box) ? "look off hit" : null;
         if (missed != null) {
             player.checkManager.getCheck(hitboxes()).flag((missed + type + attack.context()).strip());
         }
@@ -566,7 +536,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     private List<Vec3> getMountedPacketDerivedOrigins(PacketEntity self, PacketEntity riding) {
         List<Vec3> candidates = new ArrayList<>();
-        for (SimpleCollisionBox vehicleBox : riding.getPossibleMovementCollisionBoxCandidates()) {
+        // Entity#positionRider seats from the vehicle's position, not a shell a shulker's peek opened.
+        for (SimpleCollisionBox vehicleBox : riding.getPositionCollisionBoxCandidates()) {
             candidates.add(BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player, vehicleBox));
         }
         if (candidates.isEmpty()) {
@@ -587,7 +558,10 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 isPrediction);
     }
 
-    /** {@code reachEntity}'s lag-compensated box as the client's pick sees it. */
+    /**
+     * {@code reachEntity}'s lag-compensated box as the client's pick sees it. An end crystal's is its 2 by 2 type box,
+     * which a crystal riding another entity holds at the seat Entity#positionRider gives it, not at its last packet.
+     */
     public SimpleCollisionBox getReachBox(PacketEntity reachEntity) {
         SimpleCollisionBox box = getTargetBox(reachEntity);
         if (player.isBedrockMovement()) box.expand(BEDROCK_PICK_MARGIN);
@@ -609,13 +583,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     }
 
     private SimpleCollisionBox getTargetBox(PacketEntity reachEntity) {
-        if (reachEntity.type == EntityTypeIds.END_CRYSTAL && !player.isBedrockMovement()) { // Hardcode end crystal box
-            return new SimpleCollisionBox(
-                    reachEntity.desyncClientPos.subtract(1, 0, 1), reachEntity.desyncClientPos.add(1, 2, 1));
-        }
-
-        // For a Bedrock client Cult models float positions and the range of positions a pending move spans; the
-        // packet-position margin covers neither.
+        // For a Bedrock client Cult models the one float position the client shows, so no packet-position margin.
         SimpleCollisionBox movementBox = reachEntity.toBoundingBox(
                 player,
                 player.isBedrockMovement()
@@ -642,8 +610,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             double width = reachEntity.leastPoseWidth();
             return new Vec3(width, reachEntity.leastPoseHeight(), width);
         }
-        // BoundingBoxSize scales linearly; the camel's sitting, the goat's long jump and the warden's digging and
-        // emerging poses still take the standing size.
+        // BoundingBoxSize scales linearly and sizes a sitting camel by its pose; the goat's long jump and the warden's
+        // digging and emerging poses still take the standing size.
         double least = reachEntity.leastScale() / reachEntity.scale;
         double width = least
                 * Math.max(
@@ -1208,8 +1176,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
         if (entity.type == EntityTypeIds.ARMOR_STAND) return false;
 
-        // Riders outside the local player's own riding tree have no simulated position.
-        if (player.compensatedEntities.isUntrackedRider(entity)) return false;
+        if (player.isBedrockMovement() && player.compensatedEntities.isUntrackedRider(entity)) return false;
 
         return player.gamemode != GameMode.SPECTATOR;
     }
@@ -1236,12 +1203,6 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         return target.isLivingEntity()
                 && target.type != EntityTypeIds.SHULKER
                 && target.type != EntityTypeIds.ENDER_DRAGON;
-    }
-
-    // Whether a hit only in the pick margin counts whatever blocks its ray meets: before 1.26.60.
-    private boolean keepsMarginHitsPastBlocks() {
-        return player.bedrockState == null
-                || player.bedrockState.getProtocolVersion().compareTo(BedrockProtocolVersion.V1_26_60) < 0;
     }
 
     private boolean lerpsEveryTarget() {

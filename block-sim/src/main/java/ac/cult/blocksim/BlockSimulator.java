@@ -64,6 +64,15 @@ public final class BlockSimulator {
         return snapshots.apply(received);
     }
 
+    /**
+     * The client Level for writes no player action makes, such as a received block event's PistonBaseBlock#triggerEvent,
+     * with {@code tags} deciding its shape updates' tag predicates as an action's input would.
+     */
+    public SimLevel level(SimWorldView world, HolderSets.Overlay tags, ac.cult.blocksim.engine.BlockSimClientVersion clientVersion) {
+        if (!this.tags.equals(tags)) return withTags(tags).level(world, tags, clientVersion);
+        return new SimLevel(world, data.registry(), blocks, clientVersion);
+    }
+
     public SimResult simulate(SimAction action, SimInput input) {
         if (!tags.equals(input.tags())) return withTags(input.tags()).simulate(action, input);
         var fork = input.fork();

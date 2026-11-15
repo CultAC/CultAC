@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockStandingBlockResolver;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockStandingSurfaceBlock;
 import ac.cult.cultac.bedrock.prediction.world.BedrockBlockFriction;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
@@ -15,8 +16,6 @@ import java.util.Objects;
 import java.util.Set;
 
 final class BedrockStandingSurfaceResolver {
-    // The vanilla standing-support helper lowers the actor AABB by 0.2
-    // before selecting support.
     private BedrockStandingSurfaceResolver() {}
 
     public static StandingSurfaceState fromBlockWorld(Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld) {
@@ -90,8 +89,7 @@ final class BedrockStandingSurfaceResolver {
 
     private static java.util.Optional<PlacedBlockCollision> currentlyStandingOn(
             Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld, PlayerDimensionsState playerDimensions) {
-        return BedrockStandingBlockResolver.resolve(physicalFeetPosition, blockWorld, playerDimensions)
-                .map(BedrockStandingBlockResolver.StandingSupport::block);
+        return BedrockStandingSurfaceBlock.resolve(physicalFeetPosition, blockWorld, playerDimensions);
     }
 
     private static StandingSurfaceState fromStandingBlock(PlacedBlockCollision block) {

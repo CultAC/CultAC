@@ -15,7 +15,8 @@ final class BedrockLiquidFlowResolver {
     static BedrockLiquidFlowVector flowVector(
             PlacedBlockCollision block,
             BedrockLiquidKind liquidKind,
-            Map<BlockPosition, PlacedBlockCollision> byPosition) {
+            Map<BlockPosition, PlacedBlockCollision> byPosition,
+            Map<BlockPosition, PlacedBlockCollision> liquidByPosition) {
         Optional<BedrockLiquidFlowVector> explicitFlow = explicitFlowVector(block);
         if (explicitFlow.isPresent()) {
             return explicitFlow.get();
@@ -30,10 +31,14 @@ final class BedrockLiquidFlowResolver {
         int rawCurrentDepth = depth.getAsInt();
         int currentDepth = BedrockLiquidGeometry.normalizedLiquidDepth(rawCurrentDepth);
         BlockPosition position = block.position();
-        BedrockLiquidFlowVector positiveX = horizontalFlowDelta(position, 1, 0, currentDepth, liquidKind, byPosition);
-        BedrockLiquidFlowVector negativeX = horizontalFlowDelta(position, -1, 0, currentDepth, liquidKind, byPosition);
-        BedrockLiquidFlowVector positiveZ = horizontalFlowDelta(position, 0, 1, currentDepth, liquidKind, byPosition);
-        BedrockLiquidFlowVector negativeZ = horizontalFlowDelta(position, 0, -1, currentDepth, liquidKind, byPosition);
+        BedrockLiquidFlowVector positiveX = horizontalFlowDelta(
+                position, 1, 0, currentDepth, liquidKind, byPosition, liquidByPosition);
+        BedrockLiquidFlowVector negativeX = horizontalFlowDelta(
+                position, -1, 0, currentDepth, liquidKind, byPosition, liquidByPosition);
+        BedrockLiquidFlowVector positiveZ = horizontalFlowDelta(
+                position, 0, 1, currentDepth, liquidKind, byPosition, liquidByPosition);
+        BedrockLiquidFlowVector negativeZ = horizontalFlowDelta(
+                position, 0, -1, currentDepth, liquidKind, byPosition, liquidByPosition);
         x += positiveX.x() + negativeX.x() + positiveZ.x() + negativeZ.x();
         z += positiveX.z() + negativeX.z() + positiveZ.z() + negativeZ.z();
         if (rawCurrentDepth > 7 && hasFallingLiquidSide(position, byPosition)) {
@@ -71,10 +76,14 @@ final class BedrockLiquidFlowResolver {
             int dz,
             int currentDepth,
             BedrockLiquidKind liquidKind,
-            Map<BlockPosition, PlacedBlockCollision> byPosition) {
+            Map<BlockPosition, PlacedBlockCollision> byPosition,
+            Map<BlockPosition, PlacedBlockCollision> liquidByPosition) {
         BlockPosition neighborPosition = new BlockPosition(position.x() + dx, position.y(), position.z() + dz);
-        OptionalInt neighborDepth = neighborDepth(neighborPosition, liquidKind, byPosition);
-        if (neighborDepth.isPresent()) {
+        OptionalInt neighborDepth = neighborDepth(neighborPosition, liquidKind, liquidByPosition);
+        // A liquid neighbour behind a closed face shapes the flow as if it held no liquid.
+        if (neighborDepth.isPresent()
+                && BedrockLiquidFaces.passes(byPosition, neighborPosition, -dx, -dz)
+                && BedrockLiquidFaces.passes(byPosition, position, dx, dz)) {
             int delta = BedrockLiquidGeometry.normalizedLiquidDepth(neighborDepth.getAsInt()) - currentDepth;
             return new BedrockLiquidFlowVector(dx * delta, 0.0D, dz * delta);
         }
@@ -83,7 +92,7 @@ final class BedrockLiquidFlowResolver {
         }
         BlockPosition belowNeighborPosition =
                 new BlockPosition(neighborPosition.x(), neighborPosition.y() - 1, neighborPosition.z());
-        OptionalInt belowDepth = neighborDepth(belowNeighborPosition, liquidKind, byPosition);
+        OptionalInt belowDepth = neighborDepth(belowNeighborPosition, liquidKind, liquidByPosition);
         if (belowDepth.isEmpty()) {
             return BedrockLiquidFlowVector.NONE;
         }
@@ -126,9 +135,13 @@ final class BedrockLiquidFlowResolver {
         return BedrockBlockMaterials.bundled().isSolid(block);
     }
 
+    // A waterlogged block, kelp or a bubble column samples as its block plus a separate source-water entry at the
+    // same position; only the liquid index holds that water, so a neighbour's depth must come from there.
     private static OptionalInt neighborDepth(
-            BlockPosition position, BedrockLiquidKind liquidKind, Map<BlockPosition, PlacedBlockCollision> byPosition) {
-        PlacedBlockCollision neighbor = byPosition.get(position);
+            BlockPosition position,
+            BedrockLiquidKind liquidKind,
+            Map<BlockPosition, PlacedBlockCollision> liquidByPosition) {
+        PlacedBlockCollision neighbor = liquidByPosition.get(position);
         if (neighbor == null || BedrockLiquidGeometry.liquidKind(neighbor) != liquidKind) {
             return OptionalInt.empty();
         }

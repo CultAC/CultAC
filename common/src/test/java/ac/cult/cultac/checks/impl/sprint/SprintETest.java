@@ -170,8 +170,7 @@ class SprintETest {
                     new CollideResult(false, target.x, 0),
                     new CollideResult(false, 0),
                     new CollideResult(false, target.y, 0),
-                    new CollideResult(true, target.z, 1),
-                    List.of());
+                    new CollideResult(true, target.z, 1));
             List<PredictionResult> realities = new ArrayList<>();
             PredictionResult selected = rig.reality(85, new Vec3(-0.15000000596046448, 0, -0.2), target, wall, realities);
             realities.add(rig.climb(85, new Vec3(-0.3, 0, 0), target, target.z, realities));
@@ -213,7 +212,7 @@ class SprintETest {
             PredictionResult result = ClientHorizontalCollisionTest.result(
                     yaw, attemptedMomentum, target, ClientHorizontalCollisionTest.wallAtPositiveZ());
             WorldData world = mock(WorldData.class);
-            doReturn(DesyncStatus.FALSE).when(world).getInWater();
+            doReturn(false).when(world).isInWater();
             doReturn(DesyncStatus.FALSE).when(world).getClimbingAtStart();
             doReturn(world).when(result.getSimulationContext()).getWorldData();
             return result;
@@ -227,7 +226,7 @@ class SprintETest {
             doReturn(yaw).when(context).getXRot();
             doReturn(0.02F * 1.3D).when(context).getHorizontalInputRadius(any(), any());
             WorldData world = mock(WorldData.class);
-            doReturn(DesyncStatus.FALSE).when(world).getInWater();
+            doReturn(false).when(world).isInWater();
             doReturn(DesyncStatus.FALSE).when(world).getClimbingAtStart();
             doReturn(world).when(context).getWorldData();
             ValidMovements valid = mock(ValidMovements.class);
@@ -291,7 +290,7 @@ class SprintETest {
             doReturn(yaw).when(context).getXRot();
             doReturn(0.13F * 1.3D).when(context).getHorizontalInputRadius(any(), any());
             WorldData world = mock(WorldData.class);
-            doReturn(DesyncStatus.FALSE).when(world).getInWater();
+            doReturn(false).when(world).isInWater();
             doReturn(DesyncStatus.TRUE).when(world).getClimbingAtStart();
             doReturn(world).when(context).getWorldData();
             ValidMovements valid = mock(ValidMovements.class);
@@ -305,8 +304,7 @@ class SprintETest {
                     new CollideResult(false, target.x, 0),
                     new CollideResult(false, 0),
                     new CollideResult(false, target.y, 0),
-                    new CollideResult(true, wallZ, 1),
-                    List.of()));
+                    new CollideResult(true, wallZ, 1)));
             return result;
         }
 
@@ -319,8 +317,7 @@ class SprintETest {
                     new CollideResult(false, target.x, 0),
                     new CollideResult(false, 0),
                     new CollideResult(false, target.y, 0),
-                    new CollideResult(true, wallZ, 1),
-                    List.of());
+                    new CollideResult(true, wallZ, 1));
         }
     }
 }

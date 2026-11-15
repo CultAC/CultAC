@@ -16,6 +16,7 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -266,6 +267,42 @@ public final class PacketPlayerRespawnLifecycleTest {
         }
     }
 
+    /**
+     * ClientPacketListener#handleRespawn copies a dead Java player's zero health to the new LocalPlayer only with
+     * KEEP_ENTITY_DATA. Geyser's JavaRespawnTranslator restores a Bedrock player's health on every respawn.
+     */
+    @Test
+    public void onlyAJavaRespawnKeepingEntityDataKeepsTheDeadPlayersHealth() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        for (boolean bedrock : new boolean[] {false, true}) {
+            for (byte kept = 0; kept < 4; kept++) {
+                CultPlayer player = offlinePlayer(bedrock);
+                String label = (bedrock ? "bedrock" : "java") + " kept " + kept;
+                try {
+                    PacketPlayerRespawn listener = new PacketPlayerRespawn();
+                    ClientboundSetHealth lethal = new ClientboundSetHealth(0.0F, 20, 5.0F);
+                    listener.onSetHealth(sendEvent(player, ClientboundPackets.SET_HEALTH, lethal), player, lethal);
+                    player.lastTransactionReceived.set(1);
+                    player.latencyUtils.handleNettySyncTransaction(1);
+                    assertFalse(label, player.compensatedEntities.getSelf().actionAlive);
+
+                    ClientboundRespawn respawn = respawnPacket(kept);
+                    listener.onRespawn(sendEvent(player, ClientboundPackets.RESPAWN, respawn), player, respawn);
+                    player.lastTransactionReceived.set(2);
+                    player.latencyUtils.handleNettySyncTransaction(2);
+
+                    boolean dead = !bedrock && (kept & ClientboundRespawn.KEEP_ENTITY_DATA) != 0;
+                    var self = player.compensatedEntities.getSelf();
+                    assertEquals(label, !dead, self.actionAlive);
+                    assertEquals(label, dead, self.isDead);
+                    assertFalse(label, self.isRemovedFromLevel());
+                } finally {
+                    OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+                }
+            }
+        }
+    }
+
     @Test
     public void seaLevelAndBiomeSeedChangeOnlyWhenAnAcknowledgedRespawnCreatesANewClientLevel() throws Exception {
         OfflineCultTestBootstrap.installConfig();
@@ -409,20 +446,21 @@ public final class PacketPlayerRespawnLifecycleTest {
         }
     }
 
-    /** ClientPacketListener#handleRespawn copies the boosted delta movement into the new level with KEEP_ENTITY_DATA. */
+    /**
+     * ClientPacketListener#handleRespawn copies the delta movement, which holds the boost FireworkRocketEntity#tick
+     * last gave, into the new level only with KEEP_ENTITY_DATA. The new ClientLevel holds none of the old level's
+     * rockets.
+     */
     @Test
     public void aDimensionChangeKeepsTheLastBoostOnlyWithKeptEntityData() throws Exception {
         OfflineCultTestBootstrap.installConfig();
+        Vec3 boosted = new Vec3(0.4, 0.1, 1.2);
         for (byte kept : new byte[] {ClientboundRespawn.KEEP_ENTITY_DATA, 0}) {
             CultPlayer player = offlineJavaPlayer();
             try {
-                player.compensatedFireworks.attachmentChanged(
-                        7, OptionalInt.of(player.entityID), player.lastTransactionSent.get() + 1);
-                SimulationContext gliding = mock(SimulationContext.class);
-                when(gliding.isGliding()).thenReturn(true);
-                PredictionResult tick = mock(PredictionResult.class);
-                when(tick.getSimulationContext()).thenReturn(gliding);
-                player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
+                player.compensatedFireworks.addNewFirework(7);
+                SimulationProcessor simulation = player.checkManager.getListener(SimulationProcessor.class);
+                simulation.seedStartingVelocity(boosted);
                 assertEquals(1, player.compensatedFireworks.getMaxFireworksAppliedPossible());
 
                 var nether = new ClientboundRespawn(
@@ -437,12 +475,11 @@ public final class PacketPlayerRespawnLifecycleTest {
                 player.lastTransactionReceived.set(1);
                 player.latencyUtils.handleNettySyncTransaction(1);
 
+                assertEquals("kept " + kept, 0, player.compensatedFireworks.getMaxFireworksAppliedPossible());
                 assertEquals(
                         "kept " + kept,
-                        kept != 0 ? 1 : 0,
-                        player.compensatedFireworks.getMaxFireworksAppliedPossible());
-                player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
-                assertEquals(0, player.compensatedFireworks.getMaxFireworksAppliedPossible());
+                        java.util.Set.of(kept != 0 ? boosted : Vec3.ZERO),
+                        simulation.getValidPlayerStartingVels());
             } finally {
                 OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
             }
@@ -455,14 +492,15 @@ public final class PacketPlayerRespawnLifecycleTest {
         CultPlayer player = offlineJavaPlayer();
         try {
             int attachedAt = player.lastTransactionSent.get() + 1;
-            player.compensatedFireworks.attachmentChanged(7, OptionalInt.of(player.entityID), attachedAt);
-            player.compensatedFireworks.attachmentChanged(8, OptionalInt.of(player.entityID), attachedAt);
+            player.compensatedFireworks.addNewFirework(7);
+            player.compensatedFireworks.addNewFirework(8);
             SimulationContext gliding = mock(SimulationContext.class);
             when(gliding.isGliding()).thenReturn(true);
             PredictionResult tick = mock(PredictionResult.class);
             when(tick.getSimulationContext()).thenReturn(gliding);
             player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
-            player.compensatedFireworks.removalHandled(List.of(8), player.lastTransactionSent.get() + 1);
+            player.latencyUtils.addRealTimeTask(
+                    player.lastTransactionSent.get() + 1, () -> player.compensatedFireworks.removeFirework(8));
             ClientboundLogin login = loginPacket(true);
             var loginEvent = sendEvent(player, ClientboundPackets.LOGIN, login);
             int receipt = player.lastTransactionSent.get() + 1;
@@ -503,6 +541,7 @@ public final class PacketPlayerRespawnLifecycleTest {
         for (boolean bedrock : new boolean[] {false, true}) {
             CultPlayer player = offlinePlayer(bedrock);
             try {
+                player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
                 var entities = player.compensatedEntities;
                 entities.addEntity(7, EntityTypeIds.ZOMBIE, new Vec3(1, 64, 1), 0, 0, 0);
                 ClientboundRespawn respawn = respawnPacket();

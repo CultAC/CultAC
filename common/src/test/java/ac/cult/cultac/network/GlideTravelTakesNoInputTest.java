@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
+import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static ac.cult.cultac.network.JavaTickFixture.setField;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -60,9 +61,17 @@ class GlideTravelTakesNoInputTest {
     void aGlideIntoWaterKeepsTheFluidInput() throws Exception {
         try (var f = start(ClientVersion.V_26_3)) {
             f.water(new BlockPos(-8, FLOOR_Y, -8), new BlockPos(8, FLOOR_Y + 3, 8));
-            f.place(new Vec3(0.5, FLOOR_Y + 2.5, 0.5), Vec3.ZERO);
-            PredictionResult inWater = f.tick(new Vec3(0.5, FLOOR_Y + 2.5, 0.5), false);
-            assertTrue(inWater.getHorizontalInputRadius() > 0, describe(inWater));
+            Vec3 start = new Vec3(0.5, FLOOR_Y + 2.5, 0.5);
+            f.place(start, Vec3.ZERO);
+            f.input(FluidPools.NONE);
+            // LivingEntity#travelInWater moves by the still deltaMovement; a glide would have fallen.
+            PredictionResult still = f.tick(start, false);
+            assertTrue(exact(still), describe(still));
+            f.input(FluidPools.FORWARD);
+            // The still tick left the fluid's gravity / 16; moveRelative adds the forward key at the water speed.
+            Vec3 input = ClientMoveInput.of(f, FluidPools.FORWARD, 1.0F, 0.02F, YAW);
+            PredictionResult swum = f.tick(start.add(input.x, -0.005, input.z), false);
+            assertTrue(exact(swum), describe(swum));
         }
     }
 

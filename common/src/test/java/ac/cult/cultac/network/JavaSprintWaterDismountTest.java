@@ -11,11 +11,16 @@ import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
+import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
@@ -44,7 +49,10 @@ class JavaSprintWaterDismountTest {
 
     /**
      * The last ride tick runs its baseTick at the seat over the previous vehicle position, y 57.8758 + 0.5375, so the
-     * standing eye at 60.0333 is in the water and the first tick off the nautilus is under water.
+     * standing eye at 60.0333 is in the water and the first tick off the nautilus is under water. The server's
+     * nautilus stayed at the vehicle move before the last one and its move_entity packets bring the client's back
+     * there: from the second tick off it the player's feet are inside its box, LivingEntity#pushEntities pushes the
+     * player back by nearly the speed it carries, and LivingEntity#aiStep drops the rest, under 0.003.
      */
     @Test
     void sprintingUnderwaterAfterDismountingANautilusIsNotSprintG() throws Exception {
@@ -61,8 +69,9 @@ class JavaSprintWaterDismountTest {
                 at(-394.21441583727466, 57.80246710244432, 685.8875883000821)
             };
             f.place(ride[0], Vec3.ZERO);
-            f.player.compensatedEntities.addEntity(
-                    VEHICLE, EntityTypes.defaults().byKey("minecraft:nautilus").id(), ride[0], 0, 0, 0);
+            f.player.packetEntityReplication.addEntity(
+                    VEHICLE, EntityTypes.defaults().byKey("minecraft:nautilus").id(), ride[0], 0, 0, 0, -1);
+            f.pongThrough(f.player.lastTransactionSent.get());
             var nautilus = (PacketEntityNautilus) f.player.compensatedEntities.getEntity(VEHICLE);
             nautilus.hasSaddle = true;
             nautilus.isTame = true;
@@ -100,7 +109,26 @@ class JavaSprintWaterDismountTest {
             };
             PredictionResult[] results = new PredictionResult[moves.length];
             for (int tick = 0; tick < moves.length; tick++) {
-                if (tick == 1) f.input(FORWARD_SPRINT);
+                if (tick == 1) {
+                    f.input(FORWARD_SPRINT);
+                    f.entityMotion(VEHICLE, new Vec3(0.02612464139656967, 0.0, -0.009277910028688274));
+                    moveNautilus(f, -2228, -592, 792, 3, false, 0, 0);
+                }
+                if (tick == 2) {
+                    f.entityMotion(
+                            VEHICLE, new Vec3(0.04571812244399687, 0.0041506439602025935, -0.019288286638588836));
+                    moveNautilus(f, 63, 19, -31, 1, true, 80.15625F, 1.40625F);
+                    f.entityMotion(
+                            VEHICLE, new Vec3(0.07129341390465727, 0.008423365683940753, -0.03473112372581333));
+                    moveNautilus(f, 142, 38, -79, 1, true, 90.0F, -1.40625F);
+                }
+                if (tick == 3) {
+                    f.entityMotion(
+                            VEHICLE, new Vec3(0.1030336324238541, 0.012207776353537314, -0.05652200451687728));
+                    moveNautilus(f, 248, 56, -151, 1, true, 99.84375F, -1.40625F);
+                    f.player.xRot = -1729.0563F;
+                }
+                f.pongThrough(f.player.lastTransactionSent.get());
                 results[tick] = f.tick(moves[tick], false);
             }
             assertEquals(0.0, sprintG.violations, "SprintG after the dismount");
@@ -136,6 +164,23 @@ class JavaSprintWaterDismountTest {
             PredictionResult first = f.rideTick(position, true);
             assertFalse(first.getSimulationContext().getWorldData().isEyeInWater(), "first ride tick eye");
         }
+    }
+
+    /** The server's move_entity for the nautilus the player left, in 1/4096 of a block over {@code ticks} steps. */
+    private static void moveNautilus(
+            JavaTickFixture f, int x, int y, int z, int ticks, boolean rotates, float yaw, float pitch) {
+        var move = new ClientboundMoveEntity(
+                VEHICLE,
+                new EntityDelta.Stepped(List.of(new EntityDelta.Step((short) x, (short) y, (short) z, ticks))),
+                yaw,
+                pitch,
+                false,
+                true,
+                rotates);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.MOVE_ENTITY, move, false);
+        f.player.packetEntityReplication.onMoveEntity(event, f.player, move);
+        event.tasksAfter().forEach(Runnable::run);
     }
 
     private static Vec3 at(double x, double y, double z) {

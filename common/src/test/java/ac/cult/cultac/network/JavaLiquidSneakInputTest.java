@@ -94,7 +94,7 @@ class JavaLiquidSneakInputTest {
                                 new BlockPos(x, FLOOR_Y + 1, z), BlockIds.STONE.defaultState());
                     }
                 }
-                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
                 rotate(f, 0.0F);
                 Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
                 Vec3 velocity = Vec3.ZERO;
@@ -131,7 +131,7 @@ class JavaLiquidSneakInputTest {
                                 new BlockPos(x, FLOOR_Y, z), registry.with(water, "level", Integer.toString(level)));
                     }
                 }
-                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
                 f.player.compensatedEntities.updateAttributes(
                         f.player.entityID,
                         List.of(new AttributeSnapshot(
@@ -199,7 +199,7 @@ class JavaLiquidSneakInputTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return f;
     }
 

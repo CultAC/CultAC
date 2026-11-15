@@ -23,6 +23,8 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
  * <ul>
  *   <li>A teleport completes only on the exact HANDLE_TELEPORT input after its receipt and its origin are proven, and
  *       that answer moves the active frame.
+ *   <li>A link that seats the player before the client handles a teleport puts the rider on its seat: the client
+ *       handles the teleport on its first tick from that vehicle, which travels on.
  *   <li>Input coordinates resolve from the active frame or a proven echo, never from the input's own claim.
  *   <li>Only a Cult-owned emission can complete a Cult correction.
  *   <li>Paper's last accepted position is kept for the corrections that must return there.
@@ -142,20 +144,21 @@ public final class BedrockTeleportTracker {
         Vec3 actual = VectorUtils.clampVector(physicalFeetPosition);
         TeleportData matching = null;
         for (TeleportData pending : pendingTeleports) {
-            if (isConfirmedBedrockTeleport(pending)
-                    && (frame == null
+            if (!isConfirmedBedrockTeleport(pending)
+                    || !(frame == null
                             ? pending.getBedrockCoordinateFrame().equals(BedrockCoordinateFrame.IDENTITY)
                             : pending.getBedrockCoordinateFrame().equals(frame.getCoordinateFrame()))
-                    && (pending.getBedrockLocalPacketTarget() == null || frame == null
-                            ? samePosition(VectorUtils.clampVector(pending.getLocation()), actual)
-                            : sameLocalPacket(pending.getBedrockLocalPacketTarget(), frame.getPacketPosition()))) {
-                // One HANDLE_TELEPORT acknowledges the latest identical
-                // outbound teleport. Reliable packet order proves that every
-                // earlier identical boundary was processed first, so retaining
-                // those entries would wait for acknowledgements Geyser consumes
-                // and never projects to Java.
-                matching = pending;
-            }
+                    || !answersTeleport(pending, actual, frame)) continue;
+            // One HANDLE_TELEPORT acknowledges the first identical outbound
+            // teleport and every later one whose receipt came back before
+            // this input: the client took those before the tick. Reliable
+            // packet order proves that every earlier identical boundary was
+            // processed first, so retaining those entries would wait for
+            // acknowledgements Geyser consumes and never projects to Java.
+            // A later identical teleport whose receipt is still out is
+            // answered by an input of its own.
+            if (matching != null && !pending.isBedrockOriginConfirmed()) break;
+            matching = pending;
         }
         if (matching == null) {
             return accepted;
@@ -174,10 +177,31 @@ public final class BedrockTeleportTracker {
 
         // The Bedrock receipt and exact HANDLE_TELEPORT frame prove this boundary.
         activeBedrockCoordinateFrame = matching.getBedrockCoordinateFrame();
-        return answers.complete(matching, actual, true);
+        // A seated rider's frame reports its vehicle: the teleport's own position is where the server put the player.
+        return matching.isBedrockSeated()
+                ? answers.complete(matching, VectorUtils.clampVector(matching.getLocation()), false)
+                : answers.complete(matching, actual, true);
     }
 
-    public Runnable captureBedrockVehicleMount() {
+    /** Whether a HANDLE_TELEPORT input at {@code actual} answers {@code pending}. */
+    private static boolean answersTeleport(TeleportData pending, Vec3 actual, BedrockAuthInputFrame frame) {
+        // The rider's seat, not the teleport, places it: the first input from the seating vehicle answers.
+        if (pending.isBedrockSeated()) {
+            return frame != null
+                    && frame.hasRawInputFlag(PlayerAuthInputData.IN_CLIENT_PREDICTED_IN_VEHICLE)
+                    && frame.getPredictedVehicleId() != null
+                    && frame.getPredictedVehicleId() == pending.getBedrockSeatVehicle();
+        }
+        return pending.getBedrockLocalPacketTarget() == null || frame == null
+                ? samePosition(VectorUtils.clampVector(pending.getLocation()), actual)
+                : sameLocalPacket(pending.getBedrockLocalPacketTarget(), frame.getPacketPosition());
+    }
+
+    /**
+     * The client handles a link that seats the player on the vehicle {@code vehicleRuntimeId}. The teleports written
+     * before it that the client has not handled yet stay pending on that seat.
+     */
+    public Runnable captureBedrockVehicleMount(long vehicleRuntimeId) {
         long revision = bedrockTeleportRevision.get();
         SetBackData setback = corrections.required();
         int transaction = setback == null ? -1 : setback.getTeleportData().getTransaction();
@@ -194,7 +218,9 @@ public final class BedrockTeleportTracker {
                         && pending.getBedrockCoordinateFrame().revision() >= activeBedrockCoordinateFrame.revision()) {
                     activeBedrockCoordinateFrame = pending.getBedrockCoordinateFrame();
                 }
-                return true;
+                if (owned) return true;
+                pending.setBedrockSeatVehicle(vehicleRuntimeId);
+                return false;
             });
             forgetEarlierVehicles.run();
             if (setback != null
@@ -204,9 +230,11 @@ public final class BedrockTeleportTracker {
                 vehicles.clearBedrockVehicleSetback();
             }
             gate.setLoaded(true);
+            // A link that seats the player again on the vehicle it predicts leaves the client's corrections of it.
             if (corrections.required() == setback
                     && (setback == null || setback.getTeleportData().getTransaction() == transaction)
-                    && player.bedrockState.movementCorrections.generation() == correctionGeneration) {
+                    && player.bedrockState.movementCorrections.generation() == correctionGeneration
+                    && !player.bedrockState.movementCorrections.predicts(vehicleRuntimeId)) {
                 player.bedrockState.movementCorrections.clear();
             }
         };
@@ -241,6 +269,22 @@ public final class BedrockTeleportTracker {
                 && operation.setbackTransaction() != null
                 && isCurrentBedrockSetback(operation.setbackTransaction())
                 && pendingTeleports.stream().anyMatch(pending -> operation.equals(pending.getBedrockOperation()));
+    }
+
+    /**
+     * The pending Geyser or GFP position teleport with transport revision {@code revision} that only a HANDLE_TELEPORT
+     * answers, or null. Cult setbacks, seats and dimension changes resolve elsewhere.
+     */
+    public TeleportData unansweredBedrockTransport(long revision) {
+        for (TeleportData pending : pendingTeleports) {
+            if (pending.getBedrockTransportRevision() == revision
+                    && revision >= 0L
+                    && !pending.isRotationOnly()
+                    && !pending.mayCompleteCultSetback()
+                    && !pending.isBedrockSeated()
+                    && !pending.isBedrockDimensionChange()) return pending;
+        }
+        return null;
     }
 
     public boolean mustAcknowledgeBedrockTransportTeleport() {
@@ -307,8 +351,10 @@ public final class BedrockTeleportTracker {
                     pending -> pending.getBedrockProvenance() == BedrockTeleportProvenance.CULT_SETBACK
                             && !operation.equals(pending.getBedrockOperation()));
         }
-        // A retry is another emission of the same operation, not a new transport-only move.
-        if (operation != null) {
+        // A setback's retry is another emission of the same setback, not a new transport-only move. Any other retry,
+        // such as Geyser's for a teleport its client has not confirmed yet, is a teleport of its own: the client takes
+        // every emission it receives, after it took and answered any earlier one, and answers each.
+        if (operation != null && provenance == BedrockTeleportProvenance.CULT_SETBACK) {
             for (TeleportData pending : pendingTeleports) {
                 if (operation.equals(pending.getBedrockOperation())) {
                     boolean confirmed = pending.isBedrockOriginConfirmed()
@@ -351,10 +397,13 @@ public final class BedrockTeleportTracker {
             BedrockCoordinateFrame frame,
             Vec3 localPacketTarget) {
         for (TeleportData pending : pendingTeleports) {
-            // A receipt for an earlier identical emission still proves this operation's origin.
-            // Operation identity alone is insufficient if a later emission changed its destination.
+            // A receipt for an earlier identical emission of a setback still proves the setback's origin. Operation
+            // identity alone is insufficient if a later emission changed its destination. Another emission's receipt
+            // proves only that emission: a later one can still be on its way.
             if ((pending.getBedrockTransportRevision() == transportRevision
-                            || operation != null && operation.equals(pending.getBedrockOperation()))
+                            || operation != null
+                                    && operation.provenance() == BedrockTeleportProvenance.CULT_SETBACK
+                                    && operation.equals(pending.getBedrockOperation()))
                     && sameBedrockDestination(pending, frame, localPacketTarget)) {
                 pending.setBedrockOriginConfirmed(true);
             }

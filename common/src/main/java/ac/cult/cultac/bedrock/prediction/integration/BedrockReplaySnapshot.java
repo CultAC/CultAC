@@ -35,7 +35,7 @@ final class BedrockReplaySnapshot {
                     b.paddleTick(),
                     b.left(),
                     b.right(),
-                    b.analogPaddles()));
+                    b.paddleInput()));
         } else if (live != null) {
             state = state.withAcknowledgedPlayerDimensions(live.acknowledgedPlayerDimensions());
         }

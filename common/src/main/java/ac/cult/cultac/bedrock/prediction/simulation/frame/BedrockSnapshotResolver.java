@@ -33,8 +33,12 @@ public final class BedrockSnapshotResolver {
                 context.equipmentState().leatherBoots());
         StandingSurfaceState standing = BedrockStandingSurfaceResolver.fromBlockWorld(
                 state.physicalFeetPosition(), snapshot.blockCollisionWorld(), dimensions);
-        BlockMovementSlowdownState slowdown =
-                BedrockBlockMovementSlowdownResolver.nextState(context, state.physicalFeetPosition(), dimensions);
+        // A move is slowed by what the previous tick's post-move pass left pending, so a block placed on the
+        // actor slows it from its second tick and a removed one for one tick more. Only a state that has
+        // not ticked has nothing pending and reads the blocks around its box.
+        BlockMovementSlowdownState slowdown = state.simulationTick() == 0L
+                ? BedrockBlockMovementSlowdownResolver.nextState(context, state.physicalFeetPosition(), dimensions)
+                : state.pendingBlockMovementSlowdownState();
         return snapshot.withInitialContacts(
                 climbable, powderSnow, standing, slowdown, honeySlide(snapshot, dimensions.width()));
     }

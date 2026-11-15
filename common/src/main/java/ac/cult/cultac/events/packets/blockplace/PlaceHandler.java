@@ -73,7 +73,8 @@ public class PlaceHandler {
         player.y = player.packetStateData.clientSidePosition.y;
         player.z = player.packetStateData.clientSidePosition.z;
 
-        if (player.compensatedEntities.getSelf().getRiding() != null) {
+        boolean riding = player.compensatedEntities.getSelf().getRiding() != null;
+        if (riding) {
             Vec3 posFromVehicle = BoundingBoxSize.getRidingOffsetFromVehicle(
                     player.compensatedEntities.getSelf().getRiding(), player);
             player.x = posFromVehicle.x;
@@ -86,7 +87,10 @@ public class PlaceHandler {
             player.yRot = pitch;
         }
 
-        if (player.isBedrockMovement()) {
+        // A Java rider's boundingBox is its vehicle's, which the movement engine moves. Entity#positionRider gave the
+        // rider its own box at the seat: EntityGetter#isUnobstructed and the placement CollisionContext read that one.
+        boolean ownBox = player.isBedrockMovement() || riding;
+        if (ownBox) {
             player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, player.x, player.y, player.z);
         }
 
@@ -98,7 +102,7 @@ public class PlaceHandler {
             player.z = lastZ;
             player.xRot = lastXRot;
             player.yRot = lastYRot;
-            if (player.isBedrockMovement()) player.boundingBox = lastBoundingBox;
+            if (ownBox) player.boundingBox = lastBoundingBox;
         }
     }
 

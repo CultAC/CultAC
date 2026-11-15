@@ -15,22 +15,27 @@ final class BedrockPostMoveVerticalEffects {
             BedrockPostMoveContext input,
             BedrockMovementContext effectContext,
             Vec3d velocity,
-            boolean includeVerticalDrag) {
+            boolean includeVerticalDrag,
+            boolean onGround) {
         return switch (medium(input)) {
-            case WATER -> waterDrag(input, effectContext, velocity, includeVerticalDrag);
+            case WATER -> waterDrag(input, effectContext, velocity, includeVerticalDrag, onGround);
             case LAVA -> lavaDrag(input, velocity, includeVerticalDrag);
             case AIR, NONE -> new DragResult(velocity, input.horizontalFriction());
         };
     }
 
     static Vec3d applyLevitation(BedrockPostMoveContext input, BedrockMovementContext effectContext, Vec3d velocity) {
-        if (medium(input) != EffectMedium.AIR || input.effectState().levitationLevel() <= 0) {
+        // In water the client levitates the velocity its water drag left.
+        EffectMedium medium = medium(input);
+        if (medium != EffectMedium.AIR && medium != EffectMedium.WATER
+                || input.effectState().levitationLevel() <= 0) {
             return velocity;
         }
         return new Vec3d(
                 velocity.x(),
+                // The client levitates the velocity its move and collisions left, not the one the tick began with.
                 BedrockAerialMovement.levitationVelocityBeforeVerticalDrag(
-                        input.startingVelocity().y(), input.effectState().levitationLevel()),
+                        velocity.y(), input.effectState().levitationLevel()),
                 velocity.z());
     }
 
@@ -40,7 +45,10 @@ final class BedrockPostMoveVerticalEffects {
         }
         return switch (medium(input)) {
             case LAVA -> lavaGravity(velocity);
-            case AIR -> input.effectState().levitationLevel() > 0 ? velocity : airGravity(input, velocity);
+            case AIR ->
+                input.effectState().levitationLevel() > 0 || !input.actorHasGravity()
+                        ? velocity
+                        : airGravity(input, velocity);
             case WATER ->
                 input.current().isHorse()
                         ? new Vec3d(
@@ -57,14 +65,16 @@ final class BedrockPostMoveVerticalEffects {
             return BedrockFlyingTravelMovement.applyVerticalDrag(velocity);
         }
         return switch (medium(input)) {
-            case AIR -> airVerticalDrag(velocity);
+            // Without the gravity flag the client skips the vertical drag on the ground and in the air.
+            case AIR -> input.actorHasGravity() ? airVerticalDrag(velocity) : velocity;
             case WATER, LAVA, NONE -> velocity;
         };
     }
 
     static Vec3d applyPlayerWaterGravity(
             BedrockPostMoveContext input, BedrockMovementContext effectContext, Vec3d velocity) {
-        if (input.playerFlying() || input.current().isHorse()) {
+        // A levitating player takes no water gravity.
+        if (input.playerFlying() || input.current().isHorse() || input.effectState().levitationLevel() > 0) {
             return velocity;
         }
         return switch (medium(input)) {
@@ -88,8 +98,10 @@ final class BedrockPostMoveVerticalEffects {
             BedrockPostMoveContext input,
             BedrockMovementContext effectContext,
             Vec3d velocity,
-            boolean includeVerticalDrag) {
-        double horizontalFriction = input.waterDragHorizontalFriction(effectContext);
+            boolean includeVerticalDrag,
+            boolean onGround) {
+        // The water drag reads the ground flag the move just left.
+        double horizontalFriction = input.waterDragHorizontalFriction(effectContext, onGround);
         return new DragResult(
                 new Vec3d(
                         BedrockMath.f(velocity.x() * horizontalFriction),
@@ -134,11 +146,12 @@ final class BedrockPostMoveVerticalEffects {
     }
 
     private static Vec3d airGravity(BedrockPostMoveContext input, Vec3d velocity) {
+        // Slow falling is chosen from the velocity after the move: a player standing on the ground has
+        // none left and takes full gravity.
         return new Vec3d(
                 velocity.x(),
                 (float) velocity.y()
-                        - (float) BedrockAerialMovement.airGravity(
-                                input.startingVelocity(), input.effectState().slowFalling()),
+                        - (float) BedrockAerialMovement.airGravity(velocity, input.effectState().slowFalling()),
                 velocity.z());
     }
 

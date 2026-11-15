@@ -62,13 +62,9 @@ public final class BedrockBlockBreakActions {
                 continue;
             }
             switch (action.getAction()) {
-                case START_BREAK, BLOCK_CONTINUE_DESTROY -> {
-                    breaking = pos;
-                    if (canDestroy(player, pos) && BlockBreakSpeed.getBlockDamage(player, pos) >= 1.0) {
-                        ClientBlockActions.breakBlock(player, pos);
-                        breaking = null;
-                    }
-                }
+                // The client keeps the block until it reports the destroy, however fast the block breaks. One the
+                // server breaks sooner leaves with the server's update.
+                case START_BREAK, BLOCK_CONTINUE_DESTROY -> breaking = pos;
                 case BLOCK_PREDICT_DESTROY -> {
                     if (!pos.equals(breaking)) continue;
                     breaking = null;

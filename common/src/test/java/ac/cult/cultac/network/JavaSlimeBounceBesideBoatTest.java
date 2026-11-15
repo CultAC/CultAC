@@ -54,10 +54,11 @@ class JavaSlimeBounceBesideBoatTest {
     private static final Vec3 BOAT_BESIDE = IN_PLACE.add(1.0, 0.0, 0.0);
     private static final double[] FALL_HEIGHTS = {1.0D, 2.5D};
     private static final double[] REPORTED_ABOVE = {2.0E-7D, 1.0E-4D};
-    // Boats clear of the player's box, one to two and a half blocks away.
+    // Boats clear of the player's box and of the 0.2 by which AbstractBoat#tick inflates its own to push an entity
+    // standing level with it, up to two and a half blocks away.
     private static final Vec3[] BOAT_OFFSETS = {
-        new Vec3(1.0, 0.0, 0.0),
-        new Vec3(0.0, 0.0, 1.0),
+        new Vec3(1.2, 0.0, 0.0),
+        new Vec3(0.0, 0.0, 1.2),
         new Vec3(1.2, 0.0, 1.2),
         new Vec3(-1.6, 0.0, 0.4),
         new Vec3(0.3, 0.0, -2.0),
@@ -282,6 +283,6 @@ class JavaSlimeBounceBesideBoatTest {
                         new BlockPos(x, FLOOR_Y - 1, z), BlockIds.SLIME_BLOCK.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 }

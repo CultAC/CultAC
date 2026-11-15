@@ -220,6 +220,8 @@ tasks.test {
     useJUnitPlatform()
     // The combined transport/replay fixtures share the offline worker heap.
     maxHeapSize = "2g"
+    // One JVM for the whole suite runs out of compressed class space part-way and silently skips the rest.
+    forkEvery = 200
     jvmArgs("--add-opens", "java.base/java.lang=ALL-UNNAMED")
     System.getProperty("exportBedrockFixtures")?.let {
         systemProperty("exportBedrockFixtures", it)

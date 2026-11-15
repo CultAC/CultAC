@@ -369,7 +369,7 @@ class BoatYawFollowsControlTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), block);
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /**
@@ -434,7 +434,7 @@ class BoatYawFollowsControlTest {
                             new BlockPos(x, WATER_Y - 1, z), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.input(RELEASED);
             f.tickEnd();
             for (int tick = 0; tick < 3; tick++) {

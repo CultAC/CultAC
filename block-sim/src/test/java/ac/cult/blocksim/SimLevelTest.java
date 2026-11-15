@@ -41,6 +41,23 @@ class SimLevelTest {
         assertEquals(state("air"), level.retainedStates().get(snow));
     }
 
+    /** MovingPistonBlock keeps BlockBehaviour#getBlockSupportShape, its block entity's collision, for sturdy faces. */
+    @Test void aFenceConnectsToAMovingPistonThroughItsBlockEntitysCollision() {
+        var piston = new BlockPos(0, 64, 0);
+        var fence = piston.relative(Direction.EAST);
+        World world = new World();
+        world.states.put(fence, state("oak_fence"));
+        world.movingPiston = ac.cult.blocksim.engine.shapes.Shapes.empty();
+        SimLevel level = new SimLevel(world, DATA.registry(), new BehaviorRegistry(DATA));
+        int moving = state("moving_piston");
+        assertTrue(level.setBlock(piston, moving, 3));
+        assertEquals("false", DATA.registry().value(level.stateAt(fence), "west"));
+        // PistonBaseBlock#triggerEvent updates the source's neighbors once its block entity collides as the base.
+        world.movingPiston = ac.cult.blocksim.engine.shapes.Shapes.block();
+        level.updateNeighborShapes(moving, piston, 2);
+        assertEquals("true", DATA.registry().value(level.stateAt(fence), "west"));
+    }
+
     @Test void shapeUpdateToAirDoesNotDestroyOnClient() {
         var pos = new BlockPos(0, 64, 0);
         var torch = pos.relative(Direction.UP);
@@ -154,7 +171,11 @@ class SimLevelTest {
 
     private final class World implements StubWorldView {
         private final Map<BlockPos, Integer> states = new HashMap<>();
+        private ac.cult.blocksim.engine.shapes.VoxelShape movingPiston;
         public int stateAt(BlockPos pos) { return states.getOrDefault(pos, state("air")); }
+        @Override public ac.cult.blocksim.engine.shapes.VoxelShape movingPistonCollisionAt(BlockPos pos) {
+            return movingPiston == null ? StubWorldView.super.movingPistonCollisionAt(pos) : movingPiston;
+        }
         public boolean isLoaded(BlockPos pos) { return true; }
         public boolean isSectionEmpty(BlockPos pos) {
             return states.entrySet().stream().noneMatch(e -> (e.getKey().x() >> 4) == (pos.x() >> 4)

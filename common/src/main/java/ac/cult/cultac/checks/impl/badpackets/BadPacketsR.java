@@ -27,7 +27,6 @@ public class BadPacketsR extends Check implements CheckListener {
     private int positions = 0;
     private long clock = 0;
     private long lastTransTime;
-    private int oldTransId = 0;
     private long windowTickNanos = ItemUseBurst.periodNanos(20F, false);
 
     public BadPacketsR(final CultPlayer player) {
@@ -60,11 +59,9 @@ public class BadPacketsR extends Check implements CheckListener {
                 reward();
             }
 
-            player.compensatedWorld.removeInvalidPistonLikeStuff(oldTransId);
             positions = 0;
             clock = player.getPlayerClockAtLeast();
             lastTransTime = System.currentTimeMillis();
-            oldTransId = player.lastTransactionSent.get();
         }
     }
 
@@ -91,8 +88,9 @@ public class BadPacketsR extends Check implements CheckListener {
             positions++;
             return;
         }
-        // LocalPlayer#sendChanges sends a passenger's Rot every tick, and a MoveVehicle only for a vehicle it controls,
-        // so the Rot is the update of a passenger the vehicle does not require to move it.
+        // LocalPlayer#sendChanges sends a passenger's Rot every tick, and a MoveVehicle only for the root vehicle it
+        // controls, so the Rot is the update of a passenger whose vehicle does not require one, such as a boat that
+        // itself rides a minecart.
         if (!player.compensatedEntities.vehicles.mustEchoMoveVehicle(
                 player.compensatedEntities.getSelf().getRiding())) {
             positions++;

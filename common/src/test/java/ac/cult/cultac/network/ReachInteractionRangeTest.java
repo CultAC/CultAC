@@ -16,11 +16,13 @@ import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketListenerPriority;
@@ -40,6 +42,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundExplode;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveMinecart;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundTeleportEntity;
@@ -67,6 +70,7 @@ import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.event.events.FlagEvent;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -514,9 +518,12 @@ class ReachInteractionRangeTest {
             var result = setup.player.checkManager.getSimulationProcessor().getLastPrediction();
             assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
             // The first travel leaves the motion times the air drag .91: from 5 back to 4.91, past a box from 4.1 to
-            // 4.7 and inside one from 4.5 to 5.1.
-            assertEquals(List.of("PlayerReach"), setup.attackAlong(0, 4.1, 0));
-            assertEquals(List.of(), setup.attackAlong(0, 4.5, 0));
+            // 4.7.
+            assertEquals(List.of("PlayerReach"), setup.attackAlong(0, 4.1, () -> setup.fall(1)));
+            result = setup.exactTickAfter(result);
+            // The second leaves .91 of that: from 5 back to 4.17, inside a box from 4.5 to 5.1.
+            assertEquals(List.of(), setup.attackAlong(0, 4.5, () -> setup.fall(2)));
+            setup.exactTickAfter(result);
         }
     }
 
@@ -557,9 +564,11 @@ class ReachInteractionRangeTest {
             var result = setup.player.checkManager.getSimulationProcessor().getLastPrediction();
             assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
             assertEquals(0, setup.player.checkManager.getExplosionHandler().violations);
-            // The pushes cancel out, and the first travel leaves 1 times the air drag .91.
-            assertEquals(List.of("PlayerReach"), setup.attackAlong(0, 4.1, 0));
-            assertEquals(List.of(), setup.attackAlong(0, 4.5, 0));
+            // The pushes cancel out, and the first travel leaves 1 times the air drag .91; the second .91 of that.
+            assertEquals(List.of("PlayerReach"), setup.attackAlong(0, 4.1, () -> setup.fall(1)));
+            result = setup.exactTickAfter(result);
+            assertEquals(List.of(), setup.attackAlong(0, 4.5, () -> setup.fall(2)));
+            setup.exactTickAfter(result);
         }
     }
 
@@ -763,7 +772,7 @@ class ReachInteractionRangeTest {
             setup.rotate(0);
             setup.tickEnd();
             // ClientPacketListener#handleRotatePlayer turns the rider backwards; positionRider clamps only its yaw.
-            setup.rotate(180);
+            setup.forcedRotation(180);
             setup.rotate(255);
             setup.tickEnd();
             assertEquals(List.of(), setup.attackAlong(180, 4.0, 255));
@@ -774,7 +783,7 @@ class ReachInteractionRangeTest {
             setup.board(0);
             setup.rotate(0);
             setup.tickEnd();
-            setup.rotate(180);
+            setup.forcedRotation(180);
             setup.rotate(255);
             setup.tickEnd();
             assertEquals(List.of("PlayerReach"), setup.attackAlong(180, 4.8, 255));
@@ -882,8 +891,8 @@ class ReachInteractionRangeTest {
     private static void snapAwayAndBack(Setup setup, PacketEntity entity) {
         setup.moveAwayAndBack(entity, 2);
         Vec3 at = entity.newPacketLocation.targetPosition();
-        setup.bundledPositionSync(entity.getEntityId(), at.add(100, 0, 0));
-        setup.bundledPositionSync(entity.getEntityId(), at);
+        setup.positionSync(entity.getEntityId(), at.add(100, 0, 0));
+        setup.positionSync(entity.getEntityId(), at);
         setup.moveAwayAndBack(entity, 2);
     }
 
@@ -1090,8 +1099,20 @@ class ReachInteractionRangeTest {
             setup.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, new Vec3(.5, 64, 1), 0, 0, 0);
             PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
             entity.onPositionPath(EntityPositionPath.linear(new Vec3(1.5, 64, 1)), true, null, null, setup.player);
-            entity.onMovement(setup.player, true);
-            setup.bundledPositionSync(id, new Vec3(-63.3, 64, 1));
+            entity.onMovement(setup.player);
+            setup.positionSync(id, new Vec3(-63.3, 64, 1));
+            assertFalse(entity.newPacketLocation.hasExactPosition());
+        }
+    }
+
+    // Answering the ping before an unbundled sync does not prove the client handled it.
+    @Test
+    void anUnbundledFarSyncAtItsFirstBoundaryKeepsTheMargin() throws Exception {
+        try (var setup = new Setup()) {
+            int id = 101;
+            setup.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, new Vec3(.5, 64, 1), 0, 0, 0);
+            PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
+            setup.pongThrough(setup.sendUnbundledPositionSync(id, new Vec3(100.5, 64, 1)));
             assertFalse(entity.newPacketLocation.hasExactPosition());
         }
     }
@@ -1309,7 +1330,7 @@ class ReachInteractionRangeTest {
                     player.compensatedWorld.updateBlock(new BlockPos(x, 63, z), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff();
             player.onGround = player.lastOnGround = true;
             player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
         }
@@ -1359,6 +1380,25 @@ class ReachInteractionRangeTest {
                             fixture.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet),
                     player,
                     packet);
+        }
+
+        // A player_rotation to this yaw and the Rot ClientPacketListener#handleRotatePlayer answers it with, before
+        // the ping after the packet. A client tick sends one Rot of its own, so a second one needs this packet.
+        void forcedRotation(float yaw) {
+            bind();
+            // Pings this fixture answered before it wrote them are written now, so the packet's own follows them.
+            int answered = player.lastTransactionReceived.get();
+            for (int sent = player.lastTransactionSent.get(); sent < answered; sent++) player.sendTransaction();
+            var packet = new ClientboundPlayerRotation(yaw, false, 0, false);
+            var event = new PacketSendEvent<>(
+                    fixture.user, ConnectionPhase.PLAY, ClientboundPackets.PLAYER_ROTATION, packet, false);
+            new PacketServerTeleport().onPlayerRotation(event, player, packet);
+            event.getTasksAfterSend().forEach(Runnable::run);
+            var pending = player.getSetbackTeleportUtil().pendingTeleports;
+            assertEquals(1, pending.size(), "the rotation awaits its Rot");
+            rotate(yaw);
+            assertTrue(pending.isEmpty(), "the Rot answers the rotation");
+            pongThrough(player.lastTransactionSent.get());
         }
 
         // Stone from the feet to above the eye, 1.5 blocks down the look.
@@ -1573,6 +1613,26 @@ class ReachInteractionRangeTest {
                     packet);
         }
 
+        // The client tick this many ticks after a travel that started in the air at 1 along +z with no input:
+        // LivingEntity#travelInAir leaves the horizontal movement times .91F and the vertical one, less the gravity
+        // .08, times .98F, and the next tick moves by what it left.
+        void fall(int ticksAfter) {
+            double y = 0, z = 1;
+            for (int tick = 0; tick < ticksAfter; tick++) {
+                y = (y - .08) * .98F;
+                z *= .91F;
+            }
+            move(new Vec3(player.x, player.y + y, player.z + z));
+        }
+
+        // The client tick that just ended committed a prediction of its own, and its movement matched it exactly.
+        PredictionResult exactTickAfter(PredictionResult before) {
+            PredictionResult result = player.checkManager.getSimulationProcessor().getLastPrediction();
+            assertNotSame(before, result, "the tick committed no prediction");
+            assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
+            return result;
+        }
+
         // One client tick attacking a player whose hitbox face is this far straight ahead, then sending this yaw.
         List<String> attackAhead(double distance, float yaw) {
             return attackAt(new Vec3(.5, 64, distance - 1.2), yaw);
@@ -1614,9 +1674,10 @@ class ReachInteractionRangeTest {
             return attackBelow(type, 2.7, () -> player.compensatedEntities.getEntity(nextEntity - 1).actionPose = pose);
         }
 
-        // A horse 3.5 ahead scaled by 2 while it was the player's vehicle, its proof answered, then left and its later
-        // pings answered, attacked with an item of minimum reach 2.7 and no margin after a tick ending at yaw 90 and
-        // sending yaw 0: the view hit through its near face is at 2.1. afterProof and beforeAttack see the horse then.
+        // A horse 3.5 ahead scaled by 2 while it was the player's vehicle, its proof answered and its next tick ended,
+        // then left and its later pings answered, attacked with an item of minimum reach 2.7 and no margin after a
+        // tick ending at yaw 90 and sending yaw 0: the view hit through its near face is at 2.1. afterProof and
+        // beforeAttack see the horse then.
         List<String> attackDismountedScaledHorse(
                 Consumer<PacketEntity> afterProof, Consumer<PacketEntity> beforeAttack) {
             hold("{\"min_reach\":2.7,\"max_reach\":4.5,\"hitbox_margin\":0}");
@@ -1633,7 +1694,7 @@ class ReachInteractionRangeTest {
                         player.compensatedEntities.vehicles.serverPlayerVehicle = id;
                         scale(id, 2);
                         pongThrough(player.lastTransactionSent.get());
-                        afterProof.accept(horse);
+                        afterProof.accept(refreshed(id));
                         player.compensatedEntities.vehicles.serverPlayerVehicle = null;
                         for (int tick = 0; tick < 3; tick++) tickEnd();
                         pongThrough(player.lastTransactionSent.get());
@@ -1645,6 +1706,14 @@ class ReachInteractionRangeTest {
         // An update_attributes setting this entity's scale base.
         private void scale(int id, double base) {
             attribute(id, "minecraft:scale", base);
+        }
+
+        // The end of this entity's next LivingEntity#tick: refreshDirtyAttributes sizes its box by the scale attribute
+        // it holds by then, which until that tick was only dirty.
+        private PacketEntity refreshed(int id) {
+            PacketEntity entity = player.compensatedEntities.getEntity(id);
+            entity.refreshDimensions(player);
+            return entity;
         }
 
         // An update_attributes setting this base of this entity's attribute.
@@ -1672,7 +1741,7 @@ class ReachInteractionRangeTest {
             scale(id, 2);
             assertNull(player.compensatedEntities.getEntity(id));
             pongThrough(player.lastTransactionSent.get() + 1);
-            PacketEntity horse = player.compensatedEntities.getEntity(id);
+            PacketEntity horse = refreshed(id);
             assertEquals(2F, horse.scale);
             assertEquals(2F, horse.leastScale());
             rotate(0, 0);
@@ -1888,6 +1957,33 @@ class ReachInteractionRangeTest {
             for (int move = 1; move <= moves; move++) {
                 Vec3 to = move % 2 == 0 ? at : at.add(0, 0, .5);
                 entity.onPositionPath(EntityPositionPath.linear(to), true, null, null, player);
+            }
+        }
+
+        // A position sync outside any bundle, its first and second transactions answered.
+        void positionSync(int id, Vec3 to) {
+            pongThrough(sendUnbundledPositionSync(id, to) + 1);
+        }
+
+        // Sends a position sync outside any bundle; returns its first transaction, unanswered.
+        int sendUnbundledPositionSync(int id, Vec3 to) {
+            bind();
+            useBundleDelimiter(false);
+            try {
+                sendPositionSync(id, to);
+                return player.lastTransactionSent.get();
+            } finally {
+                useBundleDelimiter(true);
+            }
+        }
+
+        private void useBundleDelimiter(boolean use) {
+            try {
+                Field field = player.packetEntityReplication.getClass().getDeclaredField("useReachBundleDelimiter");
+                field.setAccessible(true);
+                field.setBoolean(player.packetEntityReplication, use);
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
             }
         }
 

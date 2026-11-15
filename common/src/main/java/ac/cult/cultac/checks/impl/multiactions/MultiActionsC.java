@@ -33,7 +33,7 @@ public class MultiActionsC extends Check implements CheckListener {
         if (last == null || last.getSimulationContext() == null) return true;
 
         WorldData world = last.getSimulationContext().getWorldData();
-        return !(world.getInWater().determineOptimistically()
+        return !(world.isInWater()
                 && world.getLastOnGround().determineOptimistically());
     }
 

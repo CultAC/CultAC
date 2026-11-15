@@ -14,7 +14,6 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.PacketServerTickingState;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -31,11 +30,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Vec3d;
-import ac.cult.cultac.utils.latency.CompensatedBlockEntities;
-import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
-import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -132,7 +127,7 @@ class JavaShulkerLidPushTest {
     /** ClientPacketListener#handleMovePlayer leaves a passenger in place, so the last tick's shoves still apply. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void onlyATeleportThatMovesThePlayerReplacesTheLastTicksShoves(boolean mounted) throws Exception {
+    void onlyATeleportThatMovesThePlayerReplacesTheShovedPosition(boolean mounted) throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_26_1);
             int box = REGISTRY.block("minecraft:shulker_box").defaultState();
@@ -140,7 +135,9 @@ class JavaShulkerLidPushTest {
             f.place(new Vec3(0.5, lidTop(0.0F), 0.5), Vec3.ZERO);
             blockEvent(f, BOX, 1, 1, box, true);
             f.tickEnd();
-            assertEquals(1, pendingShoves(f));
+            // The refactored runner commits the whole pass at tick end rather than deferring lid shoves.
+            Vec3 shoved = new Vec3(f.player.x, f.player.y, f.player.z);
+            assertTrue(shoved.y > lidTop(0.0F));
             if (mounted) {
                 f.player.compensatedEntities.addEntity(
                         BOAT, EntityTypeIds.OAK_BOAT, new Vec3(3.5, FLOOR_Y, 3.5), 0, 0, 0);
@@ -150,7 +147,7 @@ class JavaShulkerLidPushTest {
             }
             Vec3 target = new Vec3(0.5, FLOOR_Y + 3.0, 0.5);
             serverTeleport(f, target, new RelativeFlag(0), target);
-            assertEquals(mounted ? 1 : 0, pendingShoves(f));
+            assertEquals(mounted ? shoved : target, new Vec3(f.player.x, f.player.y, f.player.z));
         }
     }
 
@@ -361,7 +358,7 @@ class JavaShulkerLidPushTest {
         try (var f = new JavaTickFixture()) {
             int box = REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east");
             f.player.compensatedWorld.updateBlock(BOX, box);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(minX + (double) (0.6F / 2.0F), FLOOR_Y + 0.5, 0.5);
             f.place(position, new Vec3(0, 0, 0));
             f.player.xRot = yaw;
@@ -405,7 +402,7 @@ class JavaShulkerLidPushTest {
         try (var f = new JavaTickFixture()) {
             int box = REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east");
             for (int z = -3; z <= 3; z++) f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, z), box);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(1.0 + (double) (0.6F / 2.0F), FLOOR_Y, maxZ - (double) (0.6F / 2.0F));
             f.place(position, new Vec3(0, -FALL, 0));
             f.player.xRot = 45.0F;
@@ -459,7 +456,7 @@ class JavaShulkerLidPushTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), west);
                 f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(minX + (double) (0.6F / 2.0F), FLOOR_Y, 0.5);
             f.place(position, new Vec3(0, -FALL, 0));
             f.player.xRot = yaw;
@@ -493,7 +490,7 @@ class JavaShulkerLidPushTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(1, FLOOR_Y, 0),
                     REGISTRY.block("minecraft:stone").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(1.0 + (double) (0.6F / 2.0F), lidTop(0.0F), 0.5);
             f.place(position, new Vec3(0, -FALL, 0));
             f.player.xRot = WEST;
@@ -541,7 +538,7 @@ class JavaShulkerLidPushTest {
             f.player.compensatedWorld.updateBlock(BOX, box);
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), stone);
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y + 1, 0), stone);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             double halfWidth = (double) (0.6F / 2.0F);
             double x = 1.0 + halfWidth;
             f.place(new Vec3(x, FLOOR_Y, 0.5), new Vec3(0, -FALL, 0));
@@ -863,7 +860,6 @@ class JavaShulkerLidPushTest {
         var packet = new ClientboundBlockEvent(pos, action, parameter, REGISTRY.blockIndex(state));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         if (handled) f.pongThrough(f.player.lastTransactionSent.get());
@@ -888,14 +884,6 @@ class JavaShulkerLidPushTest {
         var event = f.event(ServerboundPackets.ACCEPT_TELEPORTATION, packet);
         new PacketServerTeleport().onAcceptTeleportation(event, f.player, packet);
         assertFalse(event.isCancelled(), "the teleport acceptance was rejected");
-    }
-
-    private static int pendingShoves(JavaTickFixture f) throws Exception {
-        Field field = CompensatedWorld.class.getDeclaredField("clientBlockEntities");
-        field.setAccessible(true);
-        List<CompensatedBlockEntities.ShulkerShove> shoves = new ArrayList<>();
-        ((CompensatedBlockEntities) field.get(f.player.compensatedWorld)).shulkerShoves(false, true, shoves);
-        return shoves.size();
     }
 
     private static void assertExact(PredictionResult result) {

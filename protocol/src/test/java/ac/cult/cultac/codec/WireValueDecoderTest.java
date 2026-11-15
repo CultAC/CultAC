@@ -643,6 +643,30 @@ class WireValueDecoderTest {
         }
     }
 
+    /** TamableAnimal's DATA_OWNERUUID_ID: an optional UUID, an optional living entity reference from 1.21.5. */
+    @Test
+    void metadataOptionalUuidsAreDecoded() throws Exception {
+        var owner = new java.util.UUID(0x0123456789abcdefL, -2L);
+        for (var version : ProtocolVersion.values()) {
+            var types = PrivateCodecService.types(version);
+            var uuid = field(types.entityDataTypes(), "optionalUUIDType");
+            var entries = List.of(new EntityData(18, uuid, owner), new EntityData(19, uuid, null));
+            var input = Unpooled.buffer();
+            try {
+                types.entityDataList().write(input, entries);
+                var decoded = decoder.metadata(version, input, names(version));
+                assertEquals(2, decoded.size());
+                assertEquals("optional_uuid", decoded.get(0).kind(), version.toString());
+                assertEquals(owner, decoded.get(0).value(), version.toString());
+                assertEquals("optional_uuid", decoded.get(1).kind(), version.toString());
+                assertNull(decoded.get(1).value(), version.toString());
+                assertFalse(input.isReadable());
+            } finally {
+                input.release();
+            }
+        }
+    }
+
     @Test
     void metadataOfEveryLengthIsAnImmutableListInWireOrder() throws Exception {
         for (var version : ProtocolVersion.values()) {

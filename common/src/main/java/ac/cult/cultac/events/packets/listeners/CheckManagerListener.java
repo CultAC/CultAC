@@ -2,7 +2,6 @@ package ac.cult.cultac.events.packets.listeners;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
@@ -13,6 +12,7 @@ import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.checks.type.LegacyPacketEventSemantics;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
@@ -47,6 +47,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
@@ -66,7 +67,6 @@ import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.latency.CompensatedVehicleState;
@@ -228,8 +228,9 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         if (event.getPhase() != ConnectionPhase.PLAY) return;
         try {
-            // Reject raw non-finite values before teleport matching or last-sent tick state can consume them.
-            player.checkManager.getCheck(CrashC.class).onMovePlayer(event, player, packet);
+            // Reject raw non-finite values before teleport matching or last-sent tick state can consume them. CrashC
+            // is also an early receive check, so a routed packet it rejected arrives here already cancelled.
+            if (!event.isCancelled()) player.checkManager.getCheck(CrashC.class).onMovePlayer(event, player, packet);
             if (event.isCancelled()) {
                 breakPassengerRotationPair(event, player);
                 return;
@@ -288,9 +289,15 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                     && player.user.getCultConnection().runtime().supports(ServerboundPackets.CLIENT_TICK_END);
             // Before the pre-prediction checks: a setback they raise rejects this movement.
             setbacks.movementReceived();
+            // The entities ticking before the player have moved it by the time LocalPlayer#tick sends this. A rider's
+            // Rot carries no travel: the MoveVehicle LocalPlayer#sendPosition sends after it predicts the root's.
+            if (!state.receivedMovementThisClientTick && !passengerRotation)
+                player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
             state.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             state.playerLoadedIntoLevel = true;
+            // Its tickDeath has run: a removal drops this move before prediction (SetbackBlocker).
+            startLocalPlayerTick(player);
             if (packet.hasPosition()) state.lastSentTickPosition = position;
             if (!passengerRotation) state.lastSendPositionOnGround = packet.onGround();
             if (!laterMovementThisClientTick) state.sentPositionCache.onTickMovement(packet.hasPosition(), position);
@@ -362,6 +369,10 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         event.setTeleportPositionResponse(legacyWire
                 && packet.hasRotation()
                 && !teleport.getTeleportData().isPositionOnly());
+        event.setAuthoredTeleportResponse(packet.hasRotation()
+                && teleport.getTeleportData().isAuthored()
+                && !teleport.getTeleportData().isPositionOnly()
+                && !teleport.getTeleportData().isRotationOnly());
         Vec3 forwarded = teleport.getForwardedPosition();
         if (forwarded != null) {
             // The answer is itself a server movement packet. Forward the accepted target, or the seat a passenger
@@ -477,7 +488,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     // LocalPlayer#aiStep ran: the sprint state settles, and a respawned LocalPlayer's KeyboardInput#tick read the held
     // shift its kept lastSentInput holds.
     private static void onAiStepObserved(CultPlayer player) {
-        if (!player.localPlayerTicks() || player.localPlayerRemovedThisTick()) return;
+        // After startLocalPlayerTick: the tick LocalPlayer#tickDeath removes the player in skips aiStep.
+        if (!player.localPlayerTicks()) return;
         if (player.packetStateData.respawnShiftPending) {
             player.packetStateData.respawnShiftPending = false;
             player.isSneaking = true;
@@ -488,16 +500,55 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         if (vehicle != null) {
             player.onMountedClientTick(vehicle);
             player.sprintState.onClientTick(player.isClientSprinting());
+            // A silent setSprinting(false) while riding still removes the modifier the player dismounts with.
+            switch (JavaAiStepSprint.clearsModifierRiding(player, vehicle)) {
+                case TRUE -> player.sprintState.onModifierCleared();
+                case UNKNOWN -> player.sprintState.onModifierPossiblyCleared();
+                case FALSE -> {}
+            }
             return;
         }
         if (player.compensatedEntities.getSelf().inVehicle()) return;
         player.onFootClientTick();
+        // The travel decides whether this aiStep's setSprinting(false) removed the modifier (JavaAiStepSprint).
         player.sprintState.onClientTick(player.isSprinting);
+    }
+
+    /**
+     * LocalPlayer#tick starts with LivingEntity#baseTick's LocalPlayer#tickDeath, before aiStep and before any
+     * movement the tick sends: through 26.2 the tick whose tickDeath removes the player skips aiStep but still runs
+     * sendPosition. Applied once per client tick, at its first LocalPlayer#tick movement or else at its tick end;
+     * returns whether LocalPlayer#tick ran in this client tick.
+     */
+    private static boolean startLocalPlayerTick(CultPlayer player) {
+        return startLocalPlayerTick(player, true);
+    }
+
+    /** {@code clientTick}: false for the watchdog's synthetic tick end, a timeout that advances no deathTime. */
+    private static boolean startLocalPlayerTick(CultPlayer player, boolean clientTick) {
+        PacketStateData state = player.packetStateData;
+        if (!state.localPlayerTickStarted) {
+            state.localPlayerTickStarted = true;
+            state.localPlayerTickRan = player.localPlayerTicks() && rideTickReached(player);
+            if (state.localPlayerTickRan && clientTick)
+                player.compensatedEntities.getSelf().tickDeath();
+        }
+        return state.localPlayerTickRan;
+    }
+
+    // ClientLevel#tickPassenger reaches a rider only from a root ClientLevel#tickEntities ticks.
+    private static boolean rideTickReached(CultPlayer player) {
+        PacketEntity vehicle = player.compensatedEntities.getSelf().getRiding();
+        return vehicle == null || player.compensatedEntities.ticksInClientTick(vehicle);
+    }
+
+    /** {@link CultPlayer#localPlayerTicks()}. */
+    public static boolean localPlayerTicked(CultPlayer player) {
+        return player.localPlayerTicks();
     }
 
     // Player#tick advances the attack ticker every client tick, including Entity#rideTick.
     private static void onLocalPlayerAttackTick(CultPlayer player) {
-        if (!player.localPlayerTicks()) return;
         player.attackStrength.onClientTick(
                 player.getInventory().getHeldItem(), player.packetStateData.carriedItemChangedThisClientTick);
     }
@@ -583,7 +634,19 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         boolean firstTickMove = !state.clientTickVehicleMoveThisClientTick;
         boolean fromClientTick = paired || (state.hasPassengerRotationThisClientTick() && firstTickMove);
         PacketEntity root = currentVehicleRoot(player, fromClientTick);
-        if (!fromClientTick && firstTickMove) {
+        TeleportAcceptData teleport = setbacks.vehicleTeleports()
+                .checkVehicleTeleportQueue(
+                        // Handler responses precede the mount's pong, so the acknowledged graph may still name
+                        // the preceding vehicle. The ordered response queue identifies which entity answered.
+                        !fromClientTick || root == null ? null : root.getEntityId(),
+                        newPos.x,
+                        newPos.y,
+                        newPos.z,
+                        fromClientTick);
+        if (teleport.isTeleport() && teleport.getVehicleTeleportId() != null) {
+            root = player.compensatedEntities.getEntity(teleport.getVehicleTeleportId());
+        }
+        if (!teleport.isTeleport() && !fromClientTick && firstTickMove) {
             // While the vehicle-switch buffer covers a root this client controls, its move counts as this tick's.
             PacketEntity buffered = bufferedLocalAuthoritativeRoot(player, root);
             if (buffered != null) {
@@ -599,14 +662,18 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             vehicles.markVehicleSwitchMovementPacketBoundary();
         }
         // After the boundary above, which can open the buffer for this root.
-        boolean canMove = vehicles.canServerPlayerVehicleBeLocalAuthoritativeForMovementPacket(fromClientTick)
+        boolean canMove = vehicles.canClientAuthoritativelyMoveVehicleForMovementPacket(root, fromClientTick)
                 || (fromClientTick && vehicles.isVehicleSwitchBufferActiveFor(root));
-        TeleportAcceptData teleport = setbacks.vehicleTeleports()
-                .checkVehicleTeleportQueue(
-                        root == null ? null : root.getEntityId(), newPos.x, newPos.y, newPos.z, paired);
-        boolean tickMove = fromClientTick && root != null && canMove && !teleport.isTeleport();
+        // LocalPlayer#sendChanges reports only Entity#getRootVehicle, so no client tick moves a vehicle that rides
+        // another entity, even one the player controls.
+        boolean clientRoot = root != null && root.getRiding() == null;
+        boolean tickMove = fromClientTick && clientRoot && canMove && !teleport.isTeleport();
         if (!teleport.isTeleport() && !tickMove) {
-            rejectVehicleMove(event, player, packet, root, fromClientTick);
+            rejectVehicleMove(event, player, packet, clientRoot ? root : null, root, fromClientTick);
+            return;
+        }
+        if (tickMove && !reportedRootTicked(player, root)) {
+            receiveUntickedRootReport(event, player, root, packet, newPos);
             return;
         }
 
@@ -625,18 +692,34 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 event.replace(packet);
                 newPos = forwarded;
             }
-            float answerYaw = answerYaw(player, teleport, root, packet.yaw());
-            if (!Float.isNaN(answerYaw)) packet = correctYawClaim(event, player, packet, answerYaw);
         }
         state.markVehicleMove(tickMove);
         if (fromClientTick) {
             state.clientTickVehicleMoveThisClientTick = true;
-            if (!teleport.isTeleport()) state.receivedMovementThisClientTick = true;
+            if (!teleport.isTeleport()) {
+                // The rider's Rot before this move left the root's pre-travel pass to it.
+                if (!state.receivedMovementThisClientTick
+                        || firstTickMove && state.hasPassengerRotationThisClientTick())
+                    player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
+                state.receivedMovementThisClientTick = true;
+            }
         }
 
         player.checkManager.dispatchPrePredictionReceive(event);
+        // 1.21.2/1.21.3 MoveVehicle has no on-ground field. ViaBackwards
+        // 1.21.4 -> 1.21.2 appends literal true when upgrading that packet,
+        // so the observed codec's field presence alone is not client evidence.
+        // Keep the raw packet intact and use collision-derived ground carry
+        // unless both the original client and observed layout report the bit.
+        boolean clientReportsOnGround =
+                packet.hasOnGround() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_4);
         // A timer rejection must take effect before interpolation, boat state, or pig/strider boost advances.
-        if (event.isCancelled() && !teleport.isTeleport()) return;
+        if (event.isCancelled() && !teleport.isTeleport()) {
+            if (tickMove && clientReportsOnGround && setbackBlocksVehicleMovement(player)) {
+                vehicles.applyWithheldTickGround(root, packet.onGround());
+            }
+            return;
+        }
         // A paired move is a client tick move, never a teleport answer, so it has a root.
         if (paired
                 && root instanceof PacketEntityRideable rideable
@@ -647,21 +730,19 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             // Count even if its prediction subsequently requires a correction.
             rideable.boost.tick(state.acceptedClientTick);
         }
-        // 1.21.2/1.21.3 MoveVehicle has no on-ground field. ViaBackwards
-        // 1.21.4 -> 1.21.2 appends literal true when upgrading that packet,
-        // so the observed codec's field presence alone is not client evidence.
-        // Keep the raw packet intact and use collision-derived ground carry
-        // unless both the original client and observed layout report the bit.
-        boolean clientReportsOnGround =
-                packet.hasOnGround() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_4);
         state.vehicleMovementStartOnGround = root == null ? packet.onGround() : root.onGround;
         state.vehicleMovementOnGroundPresent = clientReportsOnGround;
+        state.vehicleMovementReportedOnGround = clientReportsOnGround && packet.onGround();
         if (root != null) {
-            if (tickMove && firstTickMove) root.interpolateBeforeLocalTravel(player);
-            Vec3 from = currentVehiclePhysicalPosition(root, new Vec3(player.x, player.y, player.z));
+            // Through 26.2 AbstractBoat#tick takes getStatus() and runs super.tick()'s fluid update before its own
+            // InterpolationHandler#interpolate moves the boat. From 26.3 Entity#commonTick interpolates before tick().
+            boolean interpolatesBeforeBoatTick = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
+            if (interpolatesBeforeBoatTick && tickMove && firstTickMove) root.interpolateBeforeLocalTravel(player);
             if (tickMove && root.isBoat()) player.boatData.tick(player);
-            float yaw = vehicles.saddleHandOverTravelYaw(root, packet.yaw());
-            float pitch = packet.pitch();
+            if (!interpolatesBeforeBoatTick && tickMove && firstTickMove) root.interpolateBeforeLocalTravel(player);
+            Vec3 from = currentVehiclePhysicalPosition(root, new Vec3(player.x, player.y, player.z));
+            float yaw = vehicles.controlledTravelYaw(root, packet.yaw());
+            float pitch = vehicles.controlledTravelPitch(root, packet.pitch());
             double lastX = player.lastX, lastY = player.lastY, lastZ = player.lastZ;
             double x = player.x, y = player.y, z = player.z;
             player.lastX = x;
@@ -677,12 +758,17 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 // ground state from the movement collision.
                 boolean reportedOnGround =
                         clientReportsOnGround ? packet.onGround() : state.vehicleMovementStartOnGround;
-                Boolean correctedOnGround = predictVehicleTick(
-                        player,
-                        new VehiclePositionUpdate(from, newPos, yaw, pitch, reportedOnGround, clientReportsOnGround));
-                float correctedYaw = player.checkManager
-                        .getListener(VehiclePredictionRunner.class)
-                        .takeCorrectedYaw();
+                VehiclePositionUpdate update =
+                        new VehiclePositionUpdate(from, newPos, yaw, pitch, reportedOnGround, clientReportsOnGround);
+                setbacks.holdSafePosition();
+                try {
+                    player.checkManager.onVehiclePositionUpdate(update);
+                } finally {
+                    setbacks.releaseSafePosition();
+                }
+                VehiclePredictionRunner runner = player.checkManager.getListener(VehiclePredictionRunner.class);
+                Boolean correctedOnGround = runner.takeCorrectedOnGround();
+                float correctedYaw = runner.takeCorrectedYaw();
                 if (setbackBlocksVehicleMovement(player)) {
                     event.setCancelled(true);
                     player.lastX = lastX;
@@ -694,111 +780,89 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                     return;
                 }
                 if (!Float.isNaN(correctedYaw)) {
+                    // The boat's yaw is the one AbstractBoat#controlBoat turned it to, which the next tick turns on.
                     yaw = correctedYaw;
                     packet = correctYawClaim(event, player, packet, yaw);
                 }
+                // The root's ground is the one its own move set; the prediction stages it where the report differs.
                 boolean onGround = correctedOnGround != null
                         ? correctedOnGround
-                        : clientReportsOnGround ? packet.onGround() : root.onGround;
+                        : clientReportsOnGround ? state.desiredOnGroundOr(packet.onGround()) : root.onGround;
                 if (correctedOnGround != null) correctOnGroundClaim(event, player, packet, onGround);
                 vehicles.applyControlledVehicleMove(root, newPos, onGround, yaw, pitch);
             } else {
                 applyAcceptedVehicleTeleportState(player, root, newPos, packet, teleport);
+                float answerYaw = answerYaw(teleport, root);
+                if (!Float.isNaN(answerYaw)) packet = correctYawClaim(event, player, packet, answerYaw);
                 // ServerboundMoveVehiclePacket#fromEntity echoes the root's onGround, which the response handler
                 // took from the server or left as it was. The server reads the echo's bit, so it gets that one.
                 if (clientReportsOnGround) correctOnGroundClaim(event, player, packet, root.onGround);
             }
         }
 
+        // ServerGamePacketListenerImpl#handleMoveVehicle moves whatever root the server has the player controlling.
+        // A checked move still reaches it only while that root is the vehicle the client moved; across a sent
+        // mount, dismount or stacking the client has not answered yet, the server never sees it.
+        if (!vehicles.serverMovesVehicleFor(root)) event.setCancelled(true);
+
         player.checkManager.dispatchReceiveHandlers(event);
     }
 
-    /** Runs the root's prediction for {@code update}; the on-ground state the prediction corrected the claim to. */
-    @Nullable
-    private static Boolean predictVehicleTick(CultPlayer player, VehiclePositionUpdate update) {
-        SetbackTeleportUtil setbacks = player.getSetbackTeleportUtil();
-        setbacks.holdSafePosition();
-        try {
-            player.checkManager.onVehiclePositionUpdate(update);
-        } finally {
-            setbacks.releaseSafePosition();
-        }
-        return player.checkManager.getListener(VehiclePredictionRunner.class).takeCorrectedOnGround();
+    /**
+     * Whether the client tick that sent this checked MoveVehicle ran its root's entity tick. Before 26.3
+     * LocalPlayer#tick sends it from the rider's Entity#rideTick, which ClientLevel#tickPassenger only runs under the
+     * root's tick. From 26.3 Minecraft#tick runs LocalPlayer#sendChanges after ClientLevel#tickEntities whether or not
+     * that skipped the root. The report has not moved the root yet, so its ticking section is the one the tick began
+     * with.
+     */
+    private static boolean reportedRootTicked(CultPlayer player, PacketEntity root) {
+        return player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
+                || player.compensatedEntities.ticksInClientTick(root);
     }
 
     /**
-     * LocalPlayer#sendChanges follows the passenger Rot with MoveVehicle whenever the root is local-authoritative, so
-     * a client tick that ends without it is a tick in which the controlled root travelled yet reports no movement.
-     * Null when the client cannot be shown to control this root in that tick.
+     * A 26.3 LocalPlayer#sendChanges report of a root ClientLevel#tickEntities skipped. Neither AbstractBoat#tick nor
+     * LivingEntity#travel ran, so the report advances no vehicle state, and ServerboundMoveVehiclePacket#fromEntity
+     * states the root where it was: any other position is a move the client cannot make.
      */
-    @Nullable
-    private static PacketEntity rootMissingTickMove(PacketReceiveEvent<?> event, CultPlayer player) {
+    private static void receiveUntickedRootReport(
+            PacketReceiveEvent<ServerboundMoveVehicle> event,
+            CultPlayer player,
+            PacketEntity root,
+            ServerboundMoveVehicle packet,
+            Vec3 reported) {
         PacketStateData state = player.packetStateData;
-        if (event.isSynthetic()
-                || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)
-                || !state.hasPassengerRotationThisClientTick()
-                || state.clientTickVehicleMoveThisClientTick
-                || setbackBlocksVehicleMovement(player)) {
-            return null;
-        }
-        CompensatedVehicleState vehicles = player.compensatedEntities.vehicles;
-        PacketEntity root = player.compensatedEntities.getSelf().getRiding();
-        // Pig and strider control follows the held item, which the vehicle-switch buffer owns.
-        if (root == null
-                || root.getRiding() != null
-                || root.type == EntityTypeIds.PIG
-                || root.type == EntityTypeIds.STRIDER
-                || !root.actionAlive
-                || !vehicles.mayLocalPlayerControl(root)
-                || vehicles.isVehicleSwitchBufferActiveFor(root)
-                || vehicles.serverVehicleEntity() != root
-                || !vehicles.hasClientObservedServerVehicle()
-                || vehicles.hasPendingServerDismount()
-                || root.hasActiveLocalRootInterpolation()
-                || root.clientPhysicalPosition == null
-                || !root.clientPhysicalPositionExact
-                || !root.clientPhysicalYawCurrent) {
-            return null;
-        }
-        return root;
-    }
-
-    /** Predicts the root's tick against its unchanged position, as a MoveVehicle repeating that position would be. */
-    private static void advanceRootWithoutTickMove(CultPlayer player, PacketEntity root) {
-        PacketStateData state = player.packetStateData;
-        state.markVehicleMove(true);
+        state.markVehicleMove(false);
         state.clientTickVehicleMoveThisClientTick = true;
         state.receivedMovementThisClientTick = true;
-        state.vehicleMovementStartOnGround = root.onGround;
-        state.vehicleMovementOnGroundPresent = false;
-        Vec3 at = root.clientPhysicalPosition;
-        float yaw = root.clientPhysicalYaw;
-        float pitch = root.clientPhysicalPitch;
-        if (root.isBoat()) player.boatData.tick(player);
-        double lastX = player.lastX, lastY = player.lastY, lastZ = player.lastZ;
-        double x = player.x, y = player.y, z = player.z;
-        player.lastX = x;
-        player.lastY = y;
-        player.lastZ = z;
-        player.x = at.x;
-        player.y = at.y;
-        player.z = at.z;
-        Boolean correctedOnGround =
-                predictVehicleTick(player, new VehiclePositionUpdate(at, at, yaw, pitch, root.onGround, false));
-        float correctedYaw =
-                player.checkManager.getListener(VehiclePredictionRunner.class).takeCorrectedYaw();
-        if (!Float.isNaN(correctedYaw)) yaw = correctedYaw;
-        if (setbackBlocksVehicleMovement(player)) {
-            player.lastX = lastX;
-            player.lastY = lastY;
-            player.lastZ = lastZ;
-            player.x = x;
-            player.y = y;
-            player.z = z;
+        if (!reportsUnmovedRoot(player, root, reported)) {
+            player.checkManager.getCheck(VehicleTimer.class).onMoveVehicle(event, player, packet);
+            event.setCancelled(true);
+            if (!setbackBlocksVehicleMovement(player)) {
+                player.compensatedEntities.vehicles.forceResyncVehicleSwitchBuffer(root, "unticked-root-moved");
+                player.checkManager.getCheck(BadPacketsVehicle.class).handleInvalidVehiclePacket(true);
+            }
             return;
         }
-        boolean onGround = correctedOnGround != null ? correctedOnGround : root.onGround;
-        player.compensatedEntities.vehicles.applyControlledVehicleMove(root, at, onGround, yaw, pitch);
+
+        player.checkManager.dispatchPrePredictionReceive(event);
+        // ServerGamePacketListenerImpl#handleMoveVehicle applies the reported ground; the root kept its own.
+        if (packet.hasOnGround()) state.stageDesiredOnGround(root.onGround);
+        if (!player.compensatedEntities.vehicles.serverMovesVehicleFor(root)) event.setCancelled(true);
+        player.checkManager.dispatchReceiveHandlers(event);
+    }
+
+    /**
+     * ServerboundMoveVehiclePacket#fromEntity of a root that did not move: its interpolation target while it has one,
+     * read back from the target's box, or else its position.
+     */
+    private static boolean reportsUnmovedRoot(CultPlayer player, PacketEntity root, Vec3 reported) {
+        var interpolation = root.newPacketLocation;
+        if (interpolation != null && interpolation.hasActiveInterpolationTarget()) {
+            return reported.distanceToSqr(interpolation.targetPosition()) < 1.0E-12D;
+        }
+        Vec3 position = currentVehiclePhysicalPosition(root, new Vec3(player.x, player.y, player.z));
+        return reported.x == position.x && reported.y == position.y && reported.z == position.z;
     }
 
     /** A MoveVehicle that is neither a teleport answer nor a checkable LocalPlayer#tick move of this client's root. */
@@ -806,6 +870,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             PacketReceiveEvent<ServerboundMoveVehicle> event,
             CultPlayer player,
             ServerboundMoveVehicle packet,
+            @Nullable PacketEntity clientRoot,
             @Nullable PacketEntity root,
             boolean fromClientTick) {
         PacketStateData state = player.packetStateData;
@@ -822,7 +887,10 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             player.checkManager.getCheck(BadPacketsVehicle.class).handleInvalidVehiclePacket(fromClientTick);
         }
         if (fromClientTick) {
-            if (root != null && !state.clientTickVehicleMoveThisClientTick) root.interpolateBeforeLocalTravel(player);
+            // LocalPlayer#sendChanges reports only Entity#getRootVehicle: a vehicle riding another entity has no
+            // client tick move to interpolate before.
+            if (clientRoot != null && !state.clientTickVehicleMoveThisClientTick)
+                clientRoot.interpolateBeforeLocalTravel(player);
             state.clientTickVehicleMoveThisClientTick = true;
             state.receivedMovementThisClientTick = true;
         }
@@ -836,6 +904,24 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             TeleportAcceptData teleportData) {
         VehicleTeleportData vehicleTeleportData = teleportData.getVehicleTeleportData();
         if (vehicleTeleportData != null && vehicleTeleportData.getEntityId() == packetRoot.getEntityId()) {
+            if (vehicleTeleportData.getApplication() != VehicleTeleportData.Application.ENTITY_TELEPORT) {
+                player.compensatedEntities.vehicles.applyAcceptedVehicleCorrection(packetRoot, vehicleTeleportData);
+                SetBackData setback = teleportData.getSetback();
+                DesyncStatus horseOnGround = setback == null ? null : setback.getHorseOnGround();
+                if (horseOnGround != null && !player.isBedrockMovement()) {
+                    // The horse leaves the setback with the onGround of the move that reached its position, so
+                    // AbstractHorse#tickRidden starts no jump there from the air.
+                    packetRoot.onGround = horseOnGround.determinePessimistically();
+                    player.checkManager
+                            .getSimulationProcessor()
+                            .setLastOnGround(DesyncStatus.fromBoolean(packetRoot.onGround));
+                }
+                Vec3 physical = packetRoot.clientPhysicalPosition;
+                player.x = physical.x;
+                player.y = physical.y;
+                player.z = physical.z;
+                return;
+            }
             player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
                     vehicleTeleportData.getEntityId(),
                     vehicleTeleportData.getPosition(),
@@ -861,39 +947,29 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                     player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.fromBoolean(onGround));
                 }
             }
-            float answerYaw = answerYaw(player, teleportData, packetRoot, vehiclePacket.yaw());
-            float yaw = Float.isNaN(answerYaw) ? vehiclePacket.yaw() : answerYaw;
             player.compensatedEntities.vehicles.applyVehiclePacketPosition(
-                    packetRoot, position, onGround, yaw, vehiclePacket.pitch());
-            if (!player.isBedrockMovement() && !Float.isNaN(teleportData.getAnswerSnapYaw())) {
-                if (teleportData.isAnswerSnaps() && packetRoot instanceof PacketEntityTrackXRot yawTrackedRoot) {
-                    // ClientPacketListener#handleMoveVehicle snaps rotation with position.
-                    yawTrackedRoot.packetYaw = yaw;
-                    yawTrackedRoot.interpYaw = yaw;
-                    yawTrackedRoot.steps = 0;
-                }
-                // The snapped yaw is the one AbstractBoat#controlBoat turns in the client's next tick.
-                if (packetRoot.isBoat() && packetRoot == player.compensatedEntities.getSelf().getRiding()) {
-                    player.boatYawBeforeTurn = yaw;
-                }
-            }
+                    packetRoot, position, onGround, vehiclePacket.yaw(), vehiclePacket.pitch());
         }
     }
 
     /**
-     * The yaw ServerboundMoveVehiclePacket#fromEntity echoes for an answered ClientboundMoveVehicle: the snapped yaw when
-     * ClientPacketListener#handleMoveVehicle snapped the root, its own yaw otherwise. Ticks still in flight when the
-     * move was sent decide which, so a claim that is either is kept. NaN when neither is known.
+     * The yaw ServerboundMoveVehiclePacket#fromEntity echoes for an answered ClientboundMoveVehicle: the yaw
+     * ClientPacketListener#handleMoveVehicle snapped the root to, or the root's own yaw when it did not snap. NaN for
+     * an answer to another teleport, and while the root's yaw is not known or it reports an interpolation target.
      */
-    private static float answerYaw(
-            CultPlayer player, TeleportAcceptData teleport, @Nullable PacketEntity root, float claimed) {
-        // Geyser writes a Bedrock rider's answer from its own state.
-        if (player.isBedrockMovement()) return Float.NaN;
-        float snapped = teleport.getAnswerSnapYaw();
-        if (Float.isNaN(snapped)) return Float.NaN;
-        float own = root != null && root.clientPhysicalYawCurrent ? root.clientPhysicalYaw : Float.NaN;
-        if (Float.compare(claimed, snapped) == 0 || Float.compare(claimed, own) == 0) return claimed;
-        return teleport.isAnswerSnaps() ? snapped : own;
+    private static float answerYaw(TeleportAcceptData teleport, PacketEntity root) {
+        VehicleTeleportData correction = teleport.getVehicleTeleportData();
+        if (correction == null
+                || correction.getEntityId() != root.getEntityId()
+                || correction.getApplication() == VehicleTeleportData.Application.ENTITY_TELEPORT) {
+            return Float.NaN;
+        }
+        if (correction.getApplication() == VehicleTeleportData.Application.MOVE_VEHICLE_SNAP) {
+            return correction.getYaw();
+        }
+        return root.clientPhysicalYawCurrent && !root.hasActiveLocalRootInterpolation()
+                ? root.clientPhysicalYaw
+                : Float.NaN;
     }
 
     /** Forwards {@code packet} with the yaw the engine holds for the root when the claim differs; the packet sent on. */
@@ -904,8 +980,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             float yaw) {
         if (Float.compare(packet.yaw(), yaw) == 0
                 || !player.checkManager.getCheck(VehicleOffset.class).shouldModifyPackets()) return packet;
-        ServerboundMoveVehicle corrected =
-                new ServerboundMoveVehicle(packet.position(), yaw, packet.pitch(), packet.onGround(), packet.hasOnGround());
+        ServerboundMoveVehicle corrected = new ServerboundMoveVehicle(
+                packet.position(), yaw, packet.pitch(), packet.onGround(), packet.hasOnGround());
         event.replace(corrected);
         return corrected;
     }
@@ -922,13 +998,13 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 packet.position(), packet.yaw(), packet.pitch(), onGround, packet.hasOnGround()));
     }
 
-    private static boolean setbackBlocksVehicleMovement(CultPlayer player) {
+    static boolean setbackBlocksVehicleMovement(CultPlayer player) {
         SetbackTeleportUtil setbacks = player.getSetbackTeleportUtil();
         return setbacks.vehicleTeleports().hasUnacknowledgedSetbackVehicleTeleport()
                 || setbacks.shouldBlockVehicleMovement();
     }
 
-    private static Vec3 currentVehiclePhysicalPosition(PacketEntity root, Vec3 fallback) {
+    static Vec3 currentVehiclePhysicalPosition(PacketEntity root, Vec3 fallback) {
         Vec3 physical = root.clientPhysicalPosition == null ? root.desyncClientPos : root.clientPhysicalPosition;
         return physical == null ? fallback : physical;
     }
@@ -1119,6 +1195,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             // closes that frame's Java projection.
             if (!player.isBedrockMovement() && !endJavaClientTick(event, player)) return;
             state.receivedMovementThisClientTick = false;
+            state.localPlayerTickStarted = false;
+            state.glidingBeforeClientAction = null;
             state.bedrockTranslatedMovement.clear();
             state.clearMountedMovementTickState();
             if (state.serverFrozenTickStepsRemaining > 0) state.serverFrozenTickStepsRemaining--;
@@ -1131,24 +1209,34 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     /**
      * Ends a Java client tick in its order: the timer judges the boundary, then the look, LocalPlayer#aiStep's effects
      * and the receive checks, then the tick counters and per-tick state. Returns false when the timer cancelled the
-     * boundary, which then ends no tick.
+     * boundary, which then ends no tick: it neither starts nor closes one, nor runs the tick-end simulation, and the
+     * next accepted tick end closes the tick. The watchdog's synthetic tick end is a recovery boundary and always
+     * closes.
      */
     private static boolean endJavaClientTick(PacketReceiveEvent<?> event, CultPlayer player) {
         PacketStateData state = player.packetStateData;
         // The timer must judge the boundary before it advances idle physics, attack cooldown, or the tick index.
         player.checkManager.dispatchPrePredictionReceive(event);
-        if (event.isCancelled()) return false;
-        PacketEntity unmoved = rootMissingTickMove(event, player);
-        if (unmoved != null) advanceRootWithoutTickMove(player, unmoved);
+        if (event.isCancelled() && !event.isSynthetic()) return false;
+        // Where a loaded client's LocalPlayer#sendChanges would have sent this tick's MoveVehicle.
+        if (!event.isSynthetic()) JavaLoadingRootTick.travel(player);
+        // Where a loaded client's LocalPlayer#sendChanges must have sent it and did not.
+        if (!event.isSynthetic()) JavaUnreportedRootTick.travel(player);
+        // LivingEntity#baseTick runs LocalPlayer#tickDeath first. Its removal skips this tick's aiStep, while the
+        // rest of Player#tick, attack ticker included, still runs. A synthetic tick end is a timeout, not a client
+        // tick.
+        boolean playerTicked = startLocalPlayerTick(player, !event.isSynthetic());
         // A tick whose LocalPlayer#sendPosition sent no movement ends with its look unchanged.
         player.checkManager.doChecksWithKnownLook();
         // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
         onAiStepObserved(player);
-        onLocalPlayerAttackTick(player);
+        if (playerTicked) onLocalPlayerAttackTick(player);
         player.checkManager.dispatchReceiveHandlers(event);
-        boolean ticked = player.localPlayerTicks();
+        // Player#tick assigned noPhysics from isSpectator; the next tick's early pushes read it.
+        if (playerTicked) state.localPlayerNoPhysics = player.gamemode == GameMode.SPECTATOR;
         // LivingEntity#tick skips aiStep on the tick LocalPlayer#tickDeath removes the player.
-        boolean aiStep = ticked && !player.localPlayerRemovedThisTick();
+        boolean aiStep = player.localPlayerTicks();
+        boolean ticked = aiStep || player.localPlayerRemovedThisTick();
         // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
         if (aiStep) FlightToggle.onClientTick(player);
         if (aiStep && !event.isSynthetic() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
@@ -1162,8 +1250,6 @@ public class CheckManagerListener implements OpaqueReceiveListener {
 
         player.endCountedClientTick();
         if (ticked) state.localPlayerTickedSinceSpawn = true;
-        // A synthetic tick end is a timeout, not a client tick.
-        if (ticked && !event.isSynthetic()) player.tickLocalPlayerDeath();
         // ClientLevel#tickPassenger runs Entity#rideTick even while LocalPlayer#tick waits for the client to load.
         if (aiStep || player.compensatedEntities.getSelf().inVehicle()) {
             state.lastDeltaConsumedTickEndTransaction = player.lastTransactionReceived.get();
@@ -1299,6 +1385,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 player.y = clampVector.y;
                 player.z = clampVector.z;
 
+                if (teleport) player.compensatedEntities.observeLocalPlayerPosition(clampVector);
+
                 player.checkManager.onPositionUpdate(update);
             } else if (teleport) {
                 // Mojang doesn't use their own exit vehicle field to leave vehicles, manually call the setback handler
@@ -1319,7 +1407,10 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             }
             player.checkManager.dispatchEarlyReceive(event);
             // An early cancel ends this packet's dispatch before the ordinary route.
-            if (event.isCancelled()) breakPassengerRotationPair(event, player);
+            if (event.isCancelled()) {
+                player.checkManager.onEarlyCancel(packet);
+                breakPassengerRotationPair(event, player);
+            }
             if (!reachesServer(event)) player.blockActionReconciler.rejectEarly(packet);
         }
     }

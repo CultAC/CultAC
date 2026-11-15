@@ -356,7 +356,14 @@ public final class PrivateCodecService implements WireValueDecoder {
                 factory);
     }
 
-    record MetadataTypes(int floatingPoint, int pose, int optionalInt, int painting, int particle, int particles) {}
+    record MetadataTypes(
+            int floatingPoint,
+            int pose,
+            int optionalInt,
+            int painting,
+            int particle,
+            int particles,
+            int optionalUuid) {}
 
     private static final Map<ProtocolVersion, MetadataTypes> METADATA_TYPES = new ConcurrentHashMap<>();
 
@@ -373,7 +380,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes1_21_5 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -381,7 +389,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes1_21_9 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -389,7 +398,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes1_21_11 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -397,7 +407,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes26_1 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -405,7 +416,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes26_3 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -413,7 +425,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             default -> throw new IllegalStateException("Unsupported entity metadata schema");
         };
     }
@@ -471,6 +484,7 @@ public final class PrivateCodecService implements WireValueDecoder {
         int pose = serializers.pose(), optional = serializers.optionalInt();
         int painting = serializers.painting();
         int particle = serializers.particle(), particles = serializers.particles();
+        int optionalUuid = serializers.optionalUuid();
         for (int index; (index = input.readUnsignedByte()) != 255; ) {
             int start = input.readerIndex() - 1;
             int id = Types.VAR_INT.readPrimitive(input);
@@ -484,6 +498,7 @@ public final class PrivateCodecService implements WireValueDecoder {
             else if (id == 12) kind = "direction";
             else if (id == painting) kind = "painting_variant";
             else if (id == 11) kind = "optional_position";
+            else if (id == optionalUuid) kind = "optional_uuid";
             else if (id == particle) kind = "particle";
             else if (id == particles) kind = "particles";
             Object value = null;

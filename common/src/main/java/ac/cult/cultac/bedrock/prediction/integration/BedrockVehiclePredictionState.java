@@ -13,6 +13,7 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -44,6 +45,37 @@ public record BedrockVehiclePredictionState(PredictionCommit commit, PredictionR
                         BedrockNextTickVelocityDerivation.profileStateVelocities(entries)),
                 null);
         commitTransform(vehicle, vehicle.bedrockPrediction.commit().carry());
+    }
+
+    /**
+     * The client's first tick predicting {@code vehicle}: the actor first takes the lerp step it takes as a remote
+     * actor, toward the moves the client handled before that tick, and the prediction starts there with no velocity.
+     * Returns whether a lerp step was left to take: that step then drops the motion the tick carries in.
+     *
+     * <p>Cult models a client before 1.26.60 as showing an actor other than a player at its spawn position until the
+     * actor's first tick: the moves it handled before then are not shown yet. A vehicle such a client starts
+     * predicting before that tick starts where it spawned, with no lerp step to take.
+     */
+    public static boolean beginClientPrediction(CultPlayer player, PacketEntity vehicle) {
+        boolean spawnPosition = showsSpawnPosition(player, vehicle);
+        vehicle.beginBedrockPredictedTick();
+        if (spawnPosition) {
+            vehicle.deltaMovement = Vec3.ZERO;
+            applyVelocity(vehicle, Vec3.ZERO);
+            return false;
+        }
+        boolean lerpStep =
+                vehicle.newPacketLocation != null && vehicle.newPacketLocation.hasActiveInterpolationTarget();
+        vehicle.onMovement(player, true);
+        vehicle.deltaMovement = Vec3.ZERO;
+        applyVelocity(vehicle, Vec3.ZERO);
+        return lerpStep;
+    }
+
+    private static boolean showsSpawnPosition(CultPlayer player, PacketEntity vehicle) {
+        if (vehicle.hasBedrockClientTick() || player.bedrockState == null) return false;
+        BedrockProtocolVersion version = player.bedrockState.getProtocolVersion();
+        return version.isKnown() && version.compareTo(BedrockProtocolVersion.V1_26_60) < 0;
     }
 
     public static void applyVelocity(PacketEntity vehicle, Vec3 velocity) {

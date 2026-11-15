@@ -317,7 +317,7 @@ class JavaBounceUpBeforeRestitutionTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), state);
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return f;
     }
 

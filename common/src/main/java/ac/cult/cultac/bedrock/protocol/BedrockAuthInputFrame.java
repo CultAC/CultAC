@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Predicate;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
@@ -185,6 +186,24 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     // Horizontal movement input is evaluated after simulation as required input, not spent before prediction.
     public BedrockMoveVector getMoveVector() {
         return moveVector;
+    }
+
+    /**
+     * A jump is asked for by held jump, by the automatic jump in water and by the ascend control of a block that is
+     * climbed by jumping. The jump key and the start of a jump ask for none on their own.
+     */
+    public static boolean requestsJump(Predicate<PlayerAuthInputData> held) {
+        return held.test(PlayerAuthInputData.JUMPING)
+                || held.test(PlayerAuthInputData.AUTO_JUMPING_IN_WATER)
+                || held.test(PlayerAuthInputData.ASCEND_BLOCK);
+    }
+
+    /**
+     * A player sneaks while its sneak control is down. With sneak set to toggle that control stays down from one press
+     * of the sneak button to the next, so the button's own press, hold and release bits say nothing about sneaking.
+     */
+    public static boolean holdsSneak(Predicate<PlayerAuthInputData> held) {
+        return held.test(PlayerAuthInputData.SNEAK_DOWN);
     }
 
     public boolean hasRawInputFlag(PlayerAuthInputData input) {

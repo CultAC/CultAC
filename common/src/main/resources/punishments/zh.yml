@@ -19,6 +19,7 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
+      - "Phase"
     # 最大vl:下一次执行需要的vl
     #
     # 这是个例子, 当到达100VL时为了以 "incorrect movement!" 为理由踢出玩家
@@ -132,4 +133,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 5
+cult-config-version: 6

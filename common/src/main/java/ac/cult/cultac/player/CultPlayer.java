@@ -13,11 +13,11 @@ import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderProcessor;
 import ac.cult.cultac.checks.impl.ping.TransactionOrder;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UnknownCollisionProvider;
 import ac.cult.cultac.checks.verdict.FlagArbiter;
 import ac.cult.cultac.events.packets.PacketEntityReplication;
 import ac.cult.cultac.manager.LastInstanceManager;
@@ -52,11 +52,10 @@ import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.ClientSwimState;
 import ac.cult.cultac.utils.data.PacketStateData;
-import ac.cult.cultac.utils.data.ServerSwingEcho;
 import ac.cult.cultac.utils.data.RidingJumpCharge;
+import ac.cult.cultac.utils.data.ServerSwingEcho;
 import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.latency.CompensatedCameraEntity;
@@ -71,8 +70,10 @@ import ac.cult.cultac.utils.math.TrigHandler;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoatRiderYaw;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.EntityCollisionSelection;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
 import ac.cult.cultac.utils.visibility.VisibilityDebug;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.GrimUser;
@@ -307,6 +308,13 @@ public class CultPlayer implements GrimUser {
     public final @NotNull KeepAliveProcessor keepAliveProcessor;
     public final @NotNull NettyScheduler nettyScheduler;
     public @NotNull TrigHandler trigHandler;
+    /** Scoped to one complete Java simulation state; null before a fluid-tag order is needed. */
+    public ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder clientFluidTagOrder;
+    /** The client's JVM order, once an accepted movement distinguishes it; survives world/vehicle changes. */
+    public ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder provenClientFluidTagOrder;
+    /** A protocol 773 client's bubble-column rule, once an accepted movement distinguishes 1.21.9 from 1.21.10. */
+    public ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch provenMovementPatch;
+
     public @NotNull PacketStateData packetStateData;
     public ClientComponentRegistries registryState;
     public final @NotNull KnockbackHandler knockbackHandler;
@@ -347,6 +355,7 @@ public class CultPlayer implements GrimUser {
     public @MonotonicNonNull GameMode gamemode;
     /** The mode of the last packet the server sent, which the client only adopts once it acknowledges that packet. */
     public @MonotonicNonNull GameMode serverGamemode;
+
     public @MonotonicNonNull String dimension;
     public @Nullable String world;
     public @Nullable Vec3 bedPosition;
@@ -378,24 +387,18 @@ public class CultPlayer implements GrimUser {
      */
     public boolean localPlayerTicks() {
         return !isBedrockMovement()
-                && !packetStateData.localPlayerRemoved
-                && (packetStateData.playerLoadedIntoLevel || getClientVersion().isOlderThan(ClientVersion.V_1_21_4));
-    }
-
-    /** LocalPlayer#tickDeath reaches deathTime 20 in this client tick, whose LivingEntity#tick then skips aiStep. */
-    public boolean localPlayerRemovedThisTick() {
-        return localPlayerTicks()
-                && packetStateData.localPlayerDeathTime == 19
-                && !compensatedEntities.getSelf().actionAlive;
+                && (packetStateData.playerLoadedIntoLevel || getClientVersion().isOlderThan(ClientVersion.V_1_21_4))
+                && !compensatedEntities.getSelf().isRemovedFromLevel();
     }
 
     /**
-     * Advances LocalPlayer#deathTime for a client tick that ran LocalPlayer#tick, from the health its packets left;
-     * ServerboundClientTickEndPacket marks every client tick from 1.21.2.
+     * LocalPlayer#tickDeath reached deathTime 20 in this client tick, whose LivingEntity#tick then skips aiStep.
+     * PacketEntitySelf#tickDeath counts the ticks, applied where the client tick's LocalPlayer#tick starts.
      */
-    public void tickLocalPlayerDeath() {
-        if (compensatedEntities.getSelf().actionAlive || getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return;
-        if (++packetStateData.localPlayerDeathTime == 20) packetStateData.localPlayerRemoved = true;
+    public boolean localPlayerRemovedThisTick() {
+        return packetStateData.localPlayerTickStarted
+                && packetStateData.localPlayerTickRan
+                && compensatedEntities.getSelf().isRemovedFromLevel();
     }
 
     /** A client tick the model counts ended: a Java tick end, or a Bedrock auth-input frame. */
@@ -415,8 +418,7 @@ public class CultPlayer implements GrimUser {
     /** A login or respawn replaced the LocalPlayer, which has not ticked yet. */
     public void onLocalPlayerCreated() {
         packetStateData.localPlayerTickedSinceSpawn = false;
-        packetStateData.localPlayerDeathTime = 0;
-        packetStateData.localPlayerRemoved = false;
+        packetStateData.localPlayerNoPhysics = false;
         packetStateData.lastSentTickYaw = 0;
         packetStateData.lastSentTickPitch = 0;
         packetStateData.lastSendPositionYaw = 0;
@@ -668,8 +670,6 @@ public class CultPlayer implements GrimUser {
         }
     }
 
-    private long lastCheckedFlying = 0;
-
     // Players can get 0 ping by repeatedly sending invalid transaction packets, but that will only hurt them
     // The design is allowing players to miss transaction packets, which shouldn't be possible
     // But if some error made a client miss a packet, then it won't hurt them too bad.
@@ -713,8 +713,6 @@ public class CultPlayer implements GrimUser {
         if (packetTracker != null) {
             packetTracker.setIntervalPackets(packetTracker.getIntervalPackets() - 1);
         }
-
-        pruneStalePistonStateWhenIdle();
 
         // A transaction response marks a new tick boundary for latency-compensated tasks
         latencyUtils.handleNettySyncTransaction(lastTransactionReceived.get());
@@ -763,16 +761,6 @@ public class CultPlayer implements GrimUser {
         return current;
     }
 
-    private void pruneStalePistonStateWhenIdle() {
-        long now = System.currentTimeMillis();
-        // When flying packets stop for 2s, the cleanup they normally trigger never runs
-        if (now - lastCheckedFlying <= 2000 || now - actionManager.lastFlyingPacketTime <= 2000) {
-            return;
-        }
-        lastCheckedFlying = now;
-        compensatedWorld.removeInvalidPistonLikeStuff(lastTransactionReceived.get());
-    }
-
     public float getMaxUpStep() {
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
         if (riding == null) {
@@ -780,15 +768,18 @@ public class CultPlayer implements GrimUser {
             return stepHeight == null ? 0.6f : stepHeight.floatValue();
         }
 
+        // Entity#maxUpStep: a boat is not a LivingEntity.
         if (EntityTypeUtil.isBoat(riding.type)) {
             return 0f;
         }
 
+        // LivingEntity#maxUpStep: the vehicle's STEP_HEIGHT, at least 1.0 while a player controls it, which it does
+        // for any vehicle the player moves. A step_height update below 1.0 therefore cannot lower it.
         if (riding.stepHeightAttribute != null) {
-            return riding.stepHeightAttribute.floatValue();
+            return Math.max(riding.stepHeightAttribute.floatValue(), 1.0f);
         }
 
-        // Pigs, horses, striders, and other vehicles all have 1 stepping height
+        // No controllable vehicle's type default exceeds 1.0; the camel family carries its 1.5 as the attribute.
         return 1.0f;
     }
 
@@ -981,6 +972,13 @@ public class CultPlayer implements GrimUser {
     @Nullable
     public TrackedTransaction appendResponseProofTransaction(PacketSendEvent<?> event) {
         return writeTrailingProofTransaction(event, List.of());
+    }
+
+    /** As {@link #appendResponseProofTransaction(PacketSendEvent)}, after {@code packetsBeforeProof}. */
+    @Nullable
+    public TrackedTransaction appendResponseProofTransaction(
+            PacketSendEvent<?> event, List<CultWrite> packetsBeforeProof) {
+        return writeTrailingProofTransaction(event, packetsBeforeProof);
     }
 
     @Nullable
@@ -1249,7 +1247,12 @@ public class CultPlayer implements GrimUser {
     }
 
     public void refreshPlayerPose() {
-        pose = determineCurrentPoseLikeVanilla();
+        refreshPlayerPose(determineCurrentPoseLikeVanilla());
+    }
+
+    /** Installs the pose Player#updatePlayerPose already chose before a later block-entity move. */
+    public void refreshPlayerPose(Pose chosenPose) {
+        pose = chosenPose;
         dimensionScale = getScale();
 
         if (isInBed) {
@@ -1269,7 +1272,12 @@ public class CultPlayer implements GrimUser {
 
     /** Player#updatePlayerPose with the player at {@code (x, y, z)} and Entity#isSwimming {@code swimming}. */
     public Pose updatedPose(boolean swimming, double x, double y, double z) {
-        Pose desiredPose = getDesiredPoseLikeVanilla(swimming);
+        return updatedPose(swimming, isGliding, x, y, z);
+    }
+
+    /** The pose update after travel uses the fall-flying flag that travel left. */
+    public Pose updatedPose(boolean swimming, boolean gliding, double x, double y, double z) {
+        Pose desiredPose = getDesiredPoseLikeVanilla(swimming, gliding);
         if (compensatedWorld == null || compensatedEntities == null) {
             return desiredPose;
         }
@@ -1278,6 +1286,7 @@ public class CultPlayer implements GrimUser {
         // swimming box, then falls back from the desired pose to crouching and finally
         // to swimming based on exact collision tests at the current position.
         if (!canPlayerFitWithinBlocksAndEntitiesWhen(Pose.SWIMMING, x, y, z)) {
+            // Player#updatePlayerPose does not call setPose at all in this case.
             return isBedrockMovement() ? desiredPose : pose;
         }
 
@@ -1294,7 +1303,11 @@ public class CultPlayer implements GrimUser {
         return Pose.SWIMMING;
     }
 
-    private Pose getDesiredPoseLikeVanilla(boolean swimming) {
+    private Pose getDesiredPoseLikeVanilla(boolean swimming, boolean gliding) {
+        // Through 1.21.4 Player#updatePlayerPose tests fall flying before sleeping and swimming.
+        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_21_5) && gliding) {
+            return Pose.FALL_FLYING;
+        }
         if (isInBed) {
             return Pose.SLEEPING;
         }
@@ -1302,7 +1315,7 @@ public class CultPlayer implements GrimUser {
         if (swimming && !isFlying && gamemode != GameMode.SPECTATOR) {
             return Pose.SWIMMING;
         }
-        if (isGliding) {
+        if (gliding) {
             return Pose.FALL_FLYING;
         }
         if (isRiptidePose) {
@@ -1313,8 +1326,6 @@ public class CultPlayer implements GrimUser {
 
     // Fit-query scratch: read only within one query on the player's thread, never stored or returned.
     private final SimpleCollisionBox fitBox = new SimpleCollisionBox();
-    private final SimpleCollisionBox fitStandingBox = new SimpleCollisionBox();
-    private final SimpleCollisionBox fitBandBox = new SimpleCollisionBox();
     private final SimpleCollisionBox fitEntityBox = new SimpleCollisionBox();
     private final SimpleCollisionBox fitEntityScratch = new SimpleCollisionBox();
 
@@ -1326,112 +1337,31 @@ public class CultPlayer implements GrimUser {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
                         fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
-        return Collisions.isEmpty(this, box, y) && hasNoEntityCollision(box);
+        return Collisions.isEmpty(this, box, y) && hasNoEntityCollision(box, new Vec3(x, y, z));
     }
 
     /**
-     * Whether the {@code newPose} box at the position may fit within blocks and entities: false when blocks or an
-     * entity at each of its possible positions overlap it.
+     * Whether the {@code newPose} box fits. Java uses the same exact test as vanilla pose selection; Bedrock keeps
+     * its existing candidate test.
      * Call on this player's packet thread only: the query uses per-player scratch boxes.
      */
     public boolean mayPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
+        if (!isBedrockMovement()) return canPlayerFitWithinBlocksAndEntitiesWhen(newPose, x, y, z);
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
                         fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
         if (!Collisions.isEmpty(this, box, y)) return false;
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        PacketEntity rootOfSelf = compensatedEntities.rootOfSelf();
         SimpleCollisionBox entityBox = fitEntityBox;
-        SimpleCollisionBox scratch = fitEntityScratch;
         List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
         for (int i = 0, size = candidates.size(); i < size; i++) {
             PacketEntity entity = candidates.get(i);
-            if (canCollideWithForPoseCheck(riding, entity)
-                    && collidesWithPoseBox(entity, box, entityBox, scratch)
+            if (canCollideWithForPoseCheck(rootOfSelf, entity)
                     && overlapsAtEachPossiblePosition(entity, box, entityBox)) {
                 return false;
             }
         }
         return true;
-    }
-
-    /**
-     * Whether at some possible position of each entity the crouching box at the position fits blocks and entities while
-     * the standing box does not: the standing box is the crouching one with a band above it, so something must overlap
-     * that band without overlapping the crouching box.
-     * Call on this player's packet thread only: the query uses per-player scratch boxes.
-     */
-    public boolean mayFitOnlyCrouchingWhen(double x, double y, double z) {
-        if (!mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, x, y, z)) return false;
-        SimpleCollisionBox crouching = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        fitBox, x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
-                .expand(-1.0E-7D);
-        SimpleCollisionBox standing = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        fitStandingBox, x, y, z, Pose.STANDING.width * getScale(), Pose.STANDING.height * getScale())
-                .expand(-1.0E-7D);
-        SimpleCollisionBox band = fitBandBox.set(
-                standing.minX, crouching.maxY, standing.minZ, standing.maxX, standing.maxY, standing.maxZ);
-        if (!Collisions.isEmpty(this, band, y)) return true;
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = fitEntityBox;
-        SimpleCollisionBox scratch = fitEntityScratch;
-        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
-        for (int c = 0, size = candidates.size(); c < size; c++) {
-            PacketEntity entity = candidates.get(c);
-            if (!canCollideWithForPoseCheck(riding, entity)
-                    || !collidesWithPoseBox(entity, standing, entityBox, scratch)) {
-                continue;
-            }
-            for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
-                SimpleCollisionBox candidate = entity.possibleMovementCollisionBoxCandidate(i, entityBox);
-                if (candidate.isIntersected(band) && !candidate.isIntersected(crouching)) return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * {@link #canPlayerFitWithinBlocksAndEntitiesWhen} for the crouching pose where the crouching box at the position
-     * is known to be empty of blocks: only its entity part is left to test.
-     * Call on this player's packet thread only: the query uses per-player scratch boxes.
-     */
-    public boolean crouchFitsGivenBlocksEmpty(double x, double y, double z) {
-        SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        fitBox, x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
-                .expand(-1.0E-7D);
-        return hasNoEntityCollision(box);
-    }
-
-    /**
-     * {@link #mayFitOnlyCrouchingWhen} where {@link #mayPlayerFitWithinBlocksAndEntitiesWhen} is known to hold for the
-     * crouching pose at the position.
-     * Call on this player's packet thread only: the query uses per-player scratch boxes.
-     */
-    public boolean mayFitOnlyCrouchingGivenCrouchMayFit(double x, double y, double z) {
-        SimpleCollisionBox crouching = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        fitBox, x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
-                .expand(-1.0E-7D);
-        SimpleCollisionBox standing = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        fitStandingBox, x, y, z, Pose.STANDING.width * getScale(), Pose.STANDING.height * getScale())
-                .expand(-1.0E-7D);
-        SimpleCollisionBox band = fitBandBox.set(
-                standing.minX, crouching.maxY, standing.minZ, standing.maxX, standing.maxY, standing.maxZ);
-        if (!Collisions.isEmpty(this, band, y)) return true;
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = fitEntityBox;
-        SimpleCollisionBox scratch = fitEntityScratch;
-        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
-        for (int c = 0, size = candidates.size(); c < size; c++) {
-            PacketEntity entity = candidates.get(c);
-            if (!canCollideWithForPoseCheck(riding, entity)
-                    || !collidesWithPoseBox(entity, standing, entityBox, scratch)) {
-                continue;
-            }
-            for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
-                SimpleCollisionBox candidate = entity.possibleMovementCollisionBoxCandidate(i, entityBox);
-                if (candidate.isIntersected(band) && !candidate.isIntersected(crouching)) return true;
-            }
-        }
-        return false;
     }
 
     private static boolean overlapsAtEachPossiblePosition(
@@ -1443,14 +1373,21 @@ public class CultPlayer implements GrimUser {
     }
 
     private boolean hasNoEntityCollision(SimpleCollisionBox playerBox) {
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        return hasNoEntityCollision(playerBox, new Vec3(x, y, z));
+    }
+
+    private boolean hasNoEntityCollision(SimpleCollisionBox playerBox, Vec3 position) {
+        if (!isBedrockMovement())
+            return RootVehicleInterpolationCollision.noEntityCollision(
+                            this, compensatedEntities.getSelf(), position, playerBox)
+                    == DesyncStatus.TRUE;
+        PacketEntity rootOfSelf = compensatedEntities.rootOfSelf();
         SimpleCollisionBox entityBox = fitEntityBox;
         SimpleCollisionBox scratch = fitEntityScratch;
         List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
         for (int i = 0, size = candidates.size(); i < size; i++) {
             PacketEntity entity = candidates.get(i);
-            if (!canCollideWithForPoseCheck(riding, entity)
-                    || !collidesWithPoseBox(entity, playerBox, entityBox, scratch)) {
+            if (!canCollideWithForPoseCheck(rootOfSelf, entity)) {
                 continue;
             }
 
@@ -1462,16 +1399,6 @@ public class CultPlayer implements GrimUser {
         return true;
     }
 
-    /** Whether the entity collides with this player in {@code playerBox}, which HappyGhast#canBeCollidedWith limits. */
-    private static boolean collidesWithPoseBox(
-            PacketEntity entity, SimpleCollisionBox playerBox, SimpleCollisionBox entityBox, SimpleCollisionBox scratch) {
-        if (!(entity instanceof PacketEntityHappyGhast ghast)) return true;
-        Vec3 position = new Vec3(
-                (playerBox.minX + playerBox.maxX) / 2.0D, playerBox.minY, (playerBox.minZ + playerBox.maxZ) / 2.0D);
-        return UnknownCollisionProvider.canBeCollidedWith(
-                ghast, ghast.getPossibleMovementCollisionBoxes(entityBox, scratch), null, position);
-    }
-
     private static boolean overlapsAtAPossiblePosition(
             PacketEntity entity, SimpleCollisionBox playerBox, SimpleCollisionBox entityBox) {
         for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
@@ -1480,12 +1407,27 @@ public class CultPlayer implements GrimUser {
         return false;
     }
 
-    /** The box at each possible position of each entity Entity#collide stops this player against. */
+    /** The exact box of each entity Entity#collide stops a Java player against. */
     public List<SimpleCollisionBox> entityCollisionBoxes() {
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        if (!isBedrockMovement()) {
+            List<SimpleCollisionBox> boxes = new ArrayList<>();
+            var selection = new EntityCollisionSelection(this, compensatedEntities.getSelf(), new Vec3(x, y, z));
+            for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+                if (!selection.mayCollide(entity)) continue;
+                // A rider outside the player's riding trees collides at the place its vehicle chain gives it.
+                SimpleCollisionBox position = compensatedEntities.isUntrackedRider(entity)
+                        ? compensatedEntities.untrackedRiderCollisionBox(entity)
+                        : entity.getClientMovementCollisionBox();
+                if (position == null) continue;
+                SimpleCollisionBox box = selection.collisionBox(entity, position);
+                if (selection.collidesAt(entity, box)) boxes.add(box);
+            }
+            return boxes;
+        }
+        PacketEntity rootOfSelf = compensatedEntities.rootOfSelf();
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
-            if (canCollideWithForPoseCheck(riding, entity)) {
+            if (canCollideWithForPoseCheck(rootOfSelf, entity)) {
                 boxes.addAll(entity.getPossibleMovementCollisionBoxCandidates());
             }
         }
@@ -1494,9 +1436,10 @@ public class CultPlayer implements GrimUser {
 
     /**
      * Entity#canBeCollidedWith admits this player for boats, shulkers and happy ghasts; AbstractMinecart keeps its
-     * false, so a minecart never blocks a pose or a move.
+     * false, so a minecart never blocks a pose or a move. An entity of the player's own riding tree, whose root is
+     * {@code rootOfSelf}, never does either, however many vehicles lie between them.
      */
-    private boolean canCollideWithForPoseCheck(@Nullable PacketEntity riding, PacketEntity entity) {
+    private boolean canCollideWithForPoseCheck(@Nullable PacketEntity rootOfSelf, PacketEntity entity) {
         if (entity == null || !(entity.isBoat() || entity.type == EntityTypeIds.SHULKER || entity.isHappyGhast())) {
             return false;
         }
@@ -1509,7 +1452,7 @@ public class CultPlayer implements GrimUser {
             return false;
         }
 
-        return riding == null || !(riding == entity || riding.hasPassenger(entity) || entity.hasPassenger(riding));
+        return !compensatedEntities.sharesRootVehicleWithSelf(entity, rootOfSelf);
     }
 
     public void closeInventorySafely() {
@@ -1657,6 +1600,9 @@ public class CultPlayer implements GrimUser {
     public boolean throwError = false;
     public boolean chunkDebug = false;
     public boolean debugNoSlow = false;
+    // Temporary command override, owned by the player's model thread and discarded on reconnect.
+    public Vec3 debugUncertainty = Vec3.ZERO;
+    public double debugUncertaintyChancePercent = 100.0D;
     // end config
 
     public void onReload() {
@@ -1702,23 +1648,9 @@ public class CultPlayer implements GrimUser {
         return 0.0002;
     }
 
-    // Alright, someone at mojang decided to not send a flying packet every tick with 1.9
-    // Thanks for wasting my time to save 1 MB an hour
-    //
-    // MEANING, to get an "acceptable" 1.9+ reach check, we must only treat it like a 1.8 clients
-    // when it is acting like one and sending a packet every tick.
-    //
-    // There are two predictable scenarios where this happens:
-    // 1. The player moves more than 0.03/0.0002 blocks every tick
-    //     - This code runs after the prediction engine to prevent a false when immediately switching back to 1.9-like
-    // movements
-    //     - 3 ticks is a magic value, but it should buffer out incorrect predictions somewhat.
-    // 2. The player is in a vehicle
+    /** Supported Java clients close every tick with CLIENT_TICK_END; Bedrock reports every authored tick. */
     public boolean isTickingReliablyFor(int ticks) {
-        if (compensatedEntities.getSelf().inVehicle()) {
-            return true;
-        }
-        return !checkManager.getSimulationProcessor().getLastTickSkip().hasOccurredSince(ticks);
+        return true;
     }
 
     @Contract(pure = true)
@@ -1846,15 +1778,27 @@ public class CultPlayer implements GrimUser {
      * then handles both in one task, and the client is never in the packet's state before the proof's pong.
      */
     public boolean runAtTrailingProof(PacketSendEvent<?> event, Runnable task) {
+        return runAtTrailingProof(event, task, task);
+    }
+
+    /**
+     * As {@link #runAtTrailingProof(PacketSendEvent, Runnable)}, but {@code bundled} runs only at a proof that shares
+     * the packet's bundle, where the client applied the packet exactly before the proof's pong. Otherwise
+     * {@code unbundled} runs at the proof, or at the ping sent after it, and false is returned.
+     */
+    public boolean runAtTrailingProof(PacketSendEvent<?> event, Runnable bundled, Runnable unbundled) {
         TrackedTransaction proof = appendTrailingProofTransaction(event);
         if (proof == null) {
-            latencyUtils.addRealTimeTaskNext(task);
+            latencyUtils.addRealTimeTaskNext(unbundled);
             event.getTasksAfterSend().add(this::sendTransaction);
             return false;
         }
-        latencyUtils.addRealTimeTask(proof.transaction(), task);
         if (PacketBundlePolicy.requiresStandalone(event.getPacketType())
-                || !MovementProfiles.forPlayer(this).shouldUseBundledPacketProof(this)) return false;
+                || !MovementProfiles.forPlayer(this).shouldUseBundledPacketProof(this)) {
+            latencyUtils.addRealTimeTask(proof.transaction(), unbundled);
+            return false;
+        }
+        latencyUtils.addRealTimeTask(proof.transaction(), bundled);
         if (!event.isInsideBundle()) event.bundle();
         return true;
     }
@@ -2037,6 +1981,40 @@ public class CultPlayer implements GrimUser {
             }
             user.write(new ac.cult.cultac.network.packet.EntityMetadata(entityID, List.of(flags)));
         });
+    }
+
+    // The player's own DATA_LIVING_ENTITY_FLAGS entry as most recently sent by the server.
+    public volatile ac.cult.cultac.network.packet.EntityMetadata.Entry serverSentSelfLivingFlags;
+    // Whether the self living flags being written are resyncItemUse's resend rather than the server's.
+    public boolean resendingSelfLivingFlags;
+
+    /**
+     * Resends the server's living flags for this player. SynchedEntityData#assignValues calls
+     * LocalPlayer#onSyncedDataUpdated even for an unchanged byte, which starts or stops the client's use to match the
+     * server's, so an item use the client and Cult disagree on ends at this packet's proof.
+     */
+    public void resyncItemUse() {
+        runSafely(this::writeSelfLivingFlags);
+    }
+
+    /** Dispatches at the outbound position, where the send handlers run inside the write and see the flag. */
+    private void writeSelfLivingFlags() {
+        if (!canSendPlayPackets()) return;
+        if (!user.isPreparingWrites()) {
+            user.executeAfterWrites(this::writeSelfLivingFlags);
+            return;
+        }
+        var flags = serverSentSelfLivingFlags;
+        if (flags == null) {
+            flags = ac.cult.cultac.network.packet.EntityMetadata.Entry.byteValue(
+                    ac.cult.cultac.utils.nmsutil.WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 0);
+        }
+        resendingSelfLivingFlags = true;
+        try {
+            user.write(new ac.cult.cultac.network.packet.EntityMetadata(entityID, List.of(flags)));
+        } finally {
+            resendingSelfLivingFlags = false;
+        }
     }
 
     @Nullable

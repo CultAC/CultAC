@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -46,7 +45,7 @@ class JavaStickyPistonRideTest {
             int extended = REGISTRY.with(piston, "extended", "true");
             f.player.compensatedWorld.updateBlock(BASE, piston);
             f.player.compensatedWorld.updateBlock(BASE.above(), REGISTRY.block("minecraft:stone").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             double y = FLOOR_Y + 2;
             f.place(new Vec3(0.5, y, 0.5), new Vec3(0, -FALL, 0));
@@ -122,7 +121,7 @@ class JavaStickyPistonRideTest {
             int stone = REGISTRY.block("minecraft:stone").defaultState();
             f.player.compensatedWorld.updateBlock(BASE, piston);
             f.player.compensatedWorld.updateBlock(BASE.above(), stone);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             double y = FLOOR_Y + 2;
             f.place(new Vec3(0.5, y, 0.5), new Vec3(0, -FALL, 0));
@@ -166,7 +165,6 @@ class JavaStickyPistonRideTest {
         var packet = new ClientboundBlockEvent(BASE, action, Direction.UP.get3DDataValue(), REGISTRY.blockIndex(state));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         if (answered) f.pongThrough(f.player.lastTransactionSent.get());

@@ -416,11 +416,10 @@ class SettledInterpolationParityTest {
             int kind = random.nextInt(100);
             if (kind < 55) {
                 int ticks = 1 + random.nextInt(4);
-                boolean reliably = random.nextInt(5) != 0;
                 for (int t = 0; t < ticks; t++) {
                     countSkips(entities, counts, () -> {
                         for (int id = 10; id < 10 + DIRECT_TYPES.length; id++)
-                            entities.getEntity(id).onMovement(player, reliably);
+                            entities.getEntity(id).onMovement(player);
                     });
                 }
             } else if (kind < 70) {
@@ -476,7 +475,7 @@ class SettledInterpolationParityTest {
                 case 5 -> data.setExactRotation(yaw, pitch);
                 case 6 -> data.setCurrentAndTargetRotation(yaw, pitch);
                 case 7 -> data.updatePossibleStartingLocation(box(entity, random));
-                case 8 -> data.tickMovement(random.nextBoolean(), random.nextBoolean());
+                case 8 -> data.tickMovement(random.nextBoolean());
                 default -> {
                     if (!data.usesSteppedInterpolation()) return;
                     data.setPhysicalBeforePathAppend(

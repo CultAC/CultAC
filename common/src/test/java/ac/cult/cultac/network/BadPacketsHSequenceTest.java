@@ -103,7 +103,7 @@ class BadPacketsHSequenceTest {
     }
 
     @Test
-    void aDimensionRespawnRestartsIdsAtItsBundledProof() {
+    void aDimensionRespawnRestartsIdsAtItsTrailingProof() {
         useThrough(5);
         int nether = ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:the_nether");
         var respawn = new ClientboundRespawn(
@@ -111,7 +111,9 @@ class BadPacketsHSequenceTest {
         var event = sendEvent(player, ClientboundPackets.RESPAWN, respawn);
         int proof = player.lastTransactionSent.get() + 1;
         new PacketPlayerRespawn().onRespawn(event, player, respawn);
-        assertTrue(event.isBundleRequested());
+        // ClientPacketListener#handleRespawn replaces the level and may render a loading frame, so the respawn stays
+        // outside a bundle and its ping follows it.
+        assertFalse(event.isBundleRequested());
         assertInstanceOf(ClientboundPing.class, event.writesAfter().getLast().packet());
 
         assertFalse(use(Hand.MAIN_HAND, 6), "handled in the old level");

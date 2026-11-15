@@ -36,7 +36,7 @@ class EntityViewCountParityTest {
                 new View(
                         "pose",
                         entities::poseCollisionCandidates,
-                        e -> e.isBoat() || e.type == EntityTypeIds.SHULKER || e.isHappyGhast()),
+                        e -> e.isBoat() || e.isMinecart() || e.type == EntityTypeIds.SHULKER || e.isHappyGhast()),
                 new View("unknown", entities::unknownCollisionCandidates, unknown),
                 new View(
                         "collisionOrPlayer",

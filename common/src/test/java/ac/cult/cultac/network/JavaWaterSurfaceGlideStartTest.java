@@ -51,7 +51,7 @@ class JavaWaterSurfaceGlideStartTest {
     /** One tick holding jump at the surface: LivingEntity#jumpInLiquid adds 0.04 before LivingEntity#travelInFluid. */
     private static void bob(JavaTickFixture f, double velocityY) {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.WATER.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player
                 .getInventory()
                 .inventory

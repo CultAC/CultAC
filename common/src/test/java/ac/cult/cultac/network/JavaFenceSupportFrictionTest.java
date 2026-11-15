@@ -38,7 +38,7 @@ class JavaFenceSupportFrictionTest {
         try (var f = new JavaTickFixture()) {
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y - 1, 1), BlockIds.SLIME_BLOCK.defaultState());
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y - 1, 2), OAK_FENCE);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             // A client standing on the fence: LivingEntity#travelInAir's gravity, (0 - 0.08) * 0.98F.
             f.place(

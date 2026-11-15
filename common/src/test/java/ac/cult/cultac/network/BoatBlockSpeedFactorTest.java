@@ -77,7 +77,7 @@ class BoatBlockSpeedFactorTest {
                         (block.equals("soul_sand") ? BlockIds.SOUL_SAND : BlockIds.HONEY_BLOCK).defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         Vec3 seat = seat(block);
         f.place(seat, Vec3.ZERO);
         f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, seat, 0, 0, 0);

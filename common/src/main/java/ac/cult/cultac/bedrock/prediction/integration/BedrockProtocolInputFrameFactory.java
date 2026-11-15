@@ -1,11 +1,13 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
+import ac.cult.cultac.bedrock.prediction.input.BedrockInputMode;
 import ac.cult.cultac.bedrock.prediction.input.BedrockPoseInputData;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
 import java.util.Set;
 import java.util.TreeSet;
+import org.cloudburstmc.protocol.bedrock.data.InputMode;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 final class BedrockProtocolInputFrameFactory {
@@ -62,6 +64,8 @@ final class BedrockProtocolInputFrameFactory {
         add(inputData, frame.isUsingItem(), "START_USING_ITEM");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.START_SPIN_ATTACK), "START_SPIN_ATTACK");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.STOP_SPIN_ATTACK), "STOP_SPIN_ATTACK");
+        add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.ASCEND_BLOCK), "ASCEND_BLOCK");
+        add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.DESCEND_BLOCK), "DESCEND_BLOCK");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.WANT_DOWN), "WANT_DOWN");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.DESCEND), "DESCEND");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.SNEAK_DOWN), "SNEAK_DOWN");
@@ -71,6 +75,16 @@ final class BedrockProtocolInputFrameFactory {
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.SNEAK_PRESSED_RAW), "SNEAK_PRESSED_RAW");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.SNEAK_TOGGLE_DOWN), "SNEAK_TOGGLE_DOWN");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.STOP_SNEAKING), BedrockPoseInputData.STOP_SNEAKING);
+        BedrockInputMode inputMode = inputMode(frame.getInputMode());
+        add(inputData, inputMode != BedrockInputMode.MOUSE, inputMode.inputData());
+    }
+
+    /** A frame that carries no input mode is read as keyboard and mouse. */
+    private static BedrockInputMode inputMode(int protocolInputMode) {
+        if (protocolInputMode < 0 || protocolInputMode == InputMode.MOUSE.ordinal()) return BedrockInputMode.MOUSE;
+        if (protocolInputMode == InputMode.TOUCH.ordinal()) return BedrockInputMode.TOUCH;
+        if (protocolInputMode == InputMode.GAMEPAD.ordinal()) return BedrockInputMode.GAMEPAD;
+        return BedrockInputMode.OTHER;
     }
 
     private static void add(Set<String> inputData, boolean condition, String value) {

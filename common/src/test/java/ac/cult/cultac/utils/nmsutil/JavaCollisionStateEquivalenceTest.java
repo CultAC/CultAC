@@ -24,12 +24,13 @@ class JavaCollisionStateEquivalenceTest {
     @Test
     void everyStateMatchesAFreshRecordBitForBit() {
         for (double distance : DISTANCES) {
-            for (int flags = 0; flags < 8; flags++) {
+            for (int flags = 0; flags < 16; flags++) {
                 boolean walks = (flags & 1) != 0;
                 boolean descending = (flags & 2) != 0;
                 boolean falling = (flags & 4) != 0;
-                JavaCollisionState expected = new JavaCollisionState(distance, walks, descending, falling);
-                JavaCollisionState actual = JavaCollisionState.of(distance, walks, descending, falling);
+                boolean strider = (flags & 8) != 0;
+                JavaCollisionState expected = new JavaCollisionState(distance, walks, descending, falling, strider);
+                JavaCollisionState actual = JavaCollisionState.of(distance, walks, descending, falling, strider);
                 String inputs = distance + " " + flags;
                 assertEquals(
                         Double.doubleToRawLongBits(expected.fallDistance()),
@@ -38,6 +39,7 @@ class JavaCollisionStateEquivalenceTest {
                 assertEquals(expected.walksOnPowderSnow(), actual.walksOnPowderSnow(), inputs);
                 assertEquals(expected.descending(), actual.descending(), inputs);
                 assertEquals(expected.fallingBlock(), actual.fallingBlock(), inputs);
+                assertEquals(expected.strider(), actual.strider(), inputs);
                 assertEquals(expected, actual, inputs);
             }
         }

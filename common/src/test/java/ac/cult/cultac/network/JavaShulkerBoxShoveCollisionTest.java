@@ -10,7 +10,6 @@ import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -204,6 +203,27 @@ class JavaShulkerBoxShoveCollisionTest {
     }
 
     /**
+     * A rider standing still on a box that opens and later closes. Whenever its travel leaves it where it last
+     * reported, LocalPlayer#sendPosition withholds the position, and that tick's travel is predicted at its tick end,
+     * after the model has advanced the lid through the tick's Level#tickBlockEntities. The travel still collides with
+     * the lid as it was before that pass: before 26.3 on the closed lid of the first opening tick, whose shove lands
+     * after the report, and on every version on the open lid of the first closing tick.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_5", "V_26_1", "V_26_3"})
+    void aStillRiderWithholdsItsPositionOnTheLidBeforeEachLidUpdate(ClientVersion version) throws Exception {
+        Scenario still = new Scenario(version, 30);
+        still.withholdIdle = true;
+        still.boxes.get(0).closeTick = 14;
+        still.run();
+        if (!version.isNewerThanOrEquals(ClientVersion.V_26_3))
+            assertTrue(still.withheld.contains(0), "the first opening tick sent a position: " + still.withheld);
+        assertTrue(still.withheld.contains(14), "the first closing tick sent a position: " + still.withheld);
+    }
+
+    /**
      * A 26.3 player lands next to an opening box while a piston's moving block passes over its head: the
      * PistonMovingBlockEntity#moveCollidedEntities and ShulkerBoxBlockEntity#moveCollidedEntities calls after the
      * travel never reach it, so the travel's Entity#move is the last to set Entity#onGround, and a landing reported in
@@ -259,13 +279,15 @@ class JavaShulkerBoxShoveCollisionTest {
         }
     }
 
-    /** A client ShulkerBoxBlockEntity, opened at {@code openTick}. */
+    /** A client ShulkerBoxBlockEntity, opened at {@code openTick} and closed at {@code closeTick}. */
     private static final class Lid {
         final BlockPos pos;
         final String facing;
         final int[] step;
         int openTick;
+        int closeTick = -1;
         boolean opening;
+        boolean closing;
         float progress;
         float progressOld;
 
@@ -433,9 +455,14 @@ class JavaShulkerBoxShoveCollisionTest {
             velocityX *= friction;
         }
 
-        /** ShulkerBoxBlockEntity#updateAnimation while OPENING, with moveCollidedEntities. */
+        /** ShulkerBoxBlockEntity#updateAnimation while OPENING, with moveCollidedEntities, or CLOSING, without. */
         void tickBlockEntities() {
             for (Lid lid : lids) {
+                if (lid.closing) {
+                    lid.progressOld = lid.progress;
+                    lid.progress = Math.max(lid.progress - 0.1F, 0.0F);
+                    continue;
+                }
                 if (!lid.opening) continue;
                 lid.progressOld = lid.progress;
                 if (lid.progress >= 1.0F) continue;
@@ -467,7 +494,10 @@ class JavaShulkerBoxShoveCollisionTest {
         double fakeX;
         double fakeY;
         Boolean fakeOnGround;
+        // Whether a tick whose position LocalPlayer#sendPosition would withhold ends without one.
+        boolean withholdIdle;
         final List<Boolean> grounds = new ArrayList<>();
+        final List<Integer> withheld = new ArrayList<>();
 
         Scenario(ClientVersion version, int ticks) {
             this.version = version;
@@ -485,8 +515,9 @@ class JavaShulkerBoxShoveCollisionTest {
         }
 
         /**
-         * Opens every box at its open tick and reports each tick the stepper reaches, asserting it exact, except at the
-         * fake tick, whose result it returns with the reported position moved by the fake offset.
+         * Opens every box at its open tick, closes it at its close tick, and reports each tick the stepper reaches,
+         * asserting it exact, except at the fake tick, whose result it returns with the reported position moved by the
+         * fake offset. With {@code withholdIdle} a tick whose position would be withheld ends without one.
          */
         PredictionResult run() throws Exception {
             try (var f = new JavaTickFixture()) {
@@ -533,7 +564,7 @@ class JavaShulkerBoxShoveCollisionTest {
                             new BlockPos(piston.getX() + 1, piston.getY(), piston.getZ()),
                             REGISTRY.block("minecraft:stone").defaultState());
                 }
-                for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
                 stepper.x = startX;
                 stepper.y = startY;
                 stepper.velocityY = startVelocityY;
@@ -544,12 +575,23 @@ class JavaShulkerBoxShoveCollisionTest {
                 stepper.travel();
                 f.input(NONE);
                 assertExact(f.tick(new Vec3(stepper.x, stepper.y, stepper.z), stepper.onGround));
+                ServerboundPlayerInput sentInput = NONE;
+                Vec3 sent = new Vec3(stepper.x, stepper.y, stepper.z);
+                boolean sentOnGround = stepper.onGround;
+                int positionReminder = 0;
 
                 for (int tick = 0; tick < ticks; tick++) {
                     for (int i = 0; i < boxes.size(); i++) {
-                        if (boxes.get(i).openTick != tick) continue;
-                        blockEvent(f, boxes.get(i).pos, 1, 1, states.get(i));
-                        boxes.get(i).opening = true;
+                        Lid lid = boxes.get(i);
+                        if (lid.openTick == tick) {
+                            blockEvent(f, lid.pos, 1, 1, states.get(i));
+                            lid.opening = true;
+                        }
+                        if (lid.closeTick == tick) {
+                            blockEvent(f, lid.pos, 1, 0, states.get(i));
+                            lid.opening = false;
+                            lid.closing = true;
+                        }
                     }
                     // PistonBaseBlock#triggerEvent EXTEND toward east (Direction#get3DDataValue 5).
                     if (tick == pistonTick) blockEvent(f, piston, 0, 5, pistonState);
@@ -557,13 +599,34 @@ class JavaShulkerBoxShoveCollisionTest {
                     stepper.travel();
                     stepper.updatePlayerPose(shift);
                     if (stepper.shoveAfterTravel) stepper.tickBlockEntities();
-                    f.input(new ServerboundPlayerInput(false, false, false, false, false, shift, false));
+                    var input = new ServerboundPlayerInput(false, false, false, false, false, shift, false);
+                    // LocalPlayer#tick sends the input only when it changed.
+                    if (!withholdIdle || !input.equals(sentInput)) f.input(input);
+                    sentInput = input;
                     if (tick == fakeTick) {
                         return f.tick(
                                 new Vec3(stepper.x + fakeX, stepper.y + fakeY, stepper.z),
                                 fakeOnGround == null ? stepper.onGround : fakeOnGround);
                     }
-                    assertExact(f.tick(new Vec3(stepper.x, stepper.y, stepper.z), stepper.onGround));
+                    Vec3 at = new Vec3(stepper.x, stepper.y, stepper.z);
+                    // LocalPlayer#sendPosition: a position within 2.0E-4 of the last sent one waits for the reminder.
+                    boolean move = at.distanceToSqr(sent) > 2.0E-4 * 2.0E-4 || ++positionReminder >= 20;
+                    if (!withholdIdle || move) {
+                        assertExact(f.tick(at, stepper.onGround));
+                        sent = at;
+                        positionReminder = 0;
+                    } else {
+                        PredictionResult before =
+                                f.player.checkManager.getSimulationProcessor().getLastPrediction();
+                        if (stepper.onGround != sentOnGround) f.statusTick(stepper.onGround, false);
+                        else f.tickEnd();
+                        PredictionResult idle =
+                                f.player.checkManager.getSimulationProcessor().getLastPrediction();
+                        assertTrue(idle != before, tick + ": the withheld travel committed no prediction");
+                        assertExact(idle);
+                        withheld.add(tick);
+                    }
+                    sentOnGround = stepper.onGround;
                     grounds.add(stepper.onGround);
                     if (!stepper.shoveAfterTravel) stepper.tickBlockEntities();
                 }
@@ -577,7 +640,6 @@ class JavaShulkerBoxShoveCollisionTest {
         var packet = new ClientboundBlockEvent(pos, action, parameter, REGISTRY.blockIndex(state));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());

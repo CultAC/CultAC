@@ -212,7 +212,7 @@ class CancelledUseCorrectionTest {
         var f = new JavaTickFixture();
         f.player.setExperimentalChecks(false);
         f.player.compensatedWorld.updateBlock(LAVA, LAVA_SOURCE);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(STANDING_LAVA, Vec3.ZERO);
         f.player.xRot = 0;
         f.player.yRot = 0;

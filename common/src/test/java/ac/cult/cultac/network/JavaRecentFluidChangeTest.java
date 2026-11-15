@@ -43,28 +43,36 @@ class JavaRecentFluidChangeTest {
         }
     }
 
+    /** A feet cell the client has changed to air holds no fluid in the tick after: the client walks on land. */
     @Test
-    void aChangedFeetCellMayHoldEitherState() throws Exception {
+    void aChangedFeetCellHoldsItsNewState() throws Exception {
         for (BlockDefinition fluid : List.of(BlockIds.WATER, BlockIds.LAVA)) {
-            for (float speed : new float[] {LAND_SPEED, FLUID_SPEED}) {
-                try (var f = FluidPools.pool(fluid, FLOOR_Y)) {
-                    f.player.compensatedWorld.updateBlock(FEET, BlockIds.AIR.defaultState());
-                    PredictionResult result = walk(f, speed);
-                    assertTrue(exact(result), fluid + " " + speed + " " + describe(result));
-                }
+            try (var f = FluidPools.pool(fluid, FLOOR_Y)) {
+                f.player.compensatedWorld.updateBlock(FEET, BlockIds.AIR.defaultState());
+                PredictionResult land = walk(f, LAND_SPEED);
+                assertTrue(exact(land), fluid.key() + " " + describe(land));
+            }
+            try (var f = FluidPools.pool(fluid, FLOOR_Y)) {
+                f.player.compensatedWorld.updateBlock(FEET, BlockIds.AIR.defaultState());
+                PredictionResult swim = walk(f, FLUID_SPEED);
+                assertFalse(exact(swim), fluid.key() + " " + describe(swim));
             }
         }
     }
 
+    /** A fluid the client has set in its feet cell holds it in the tick after. */
     @Test
-    void aFluidPouredAtTheFeetMayNotHaveReachedTheClient() throws Exception {
+    void aFluidPouredAtTheFeetHoldsTheClient() throws Exception {
         for (BlockDefinition fluid : List.of(BlockIds.WATER, BlockIds.LAVA)) {
-            for (float speed : new float[] {LAND_SPEED, FLUID_SPEED}) {
-                try (var f = new JavaTickFixture()) {
-                    f.player.compensatedWorld.updateBlock(FEET, fluid.defaultState());
-                    PredictionResult result = walk(f, speed);
-                    assertTrue(exact(result), fluid + " " + speed + " " + describe(result));
-                }
+            try (var f = new JavaTickFixture()) {
+                f.player.compensatedWorld.updateBlock(FEET, fluid.defaultState());
+                PredictionResult swim = walk(f, FLUID_SPEED);
+                assertTrue(exact(swim), fluid.key() + " " + describe(swim));
+            }
+            try (var f = new JavaTickFixture()) {
+                f.player.compensatedWorld.updateBlock(FEET, fluid.defaultState());
+                PredictionResult land = walk(f, LAND_SPEED);
+                assertFalse(exact(land), fluid.key() + " " + describe(land));
             }
         }
     }

@@ -287,7 +287,7 @@ public final class VanillaDataGenerator {
                 "AGE_25", "AGE_4", "BELL_ATTACHMENT", "BOTTOM", "CANDLES", "CHEST_TYPE", "DOWN",
                 "DOUBLE_BLOCK_HALF", "DRAG", "EAST", "EGGS", "EXTENDED", "FACING", "FALLING",
                 "HALF", "HORIZONTAL_FACING", "LAYERS", "NORTH", "OPEN", "PICKLES", "PISTON_TYPE",
-                "POTENT_SULFUR_STATE", "ROTATION_16", "SHORT", "SLAB_TYPE", "SOUTH", "STABILITY_DISTANCE", "TILT", "UP",
+                "POTENT_SULFUR_STATE", "ROTATION_16", "SHORT", "SLAB_TYPE", "SOUTH", "STABILITY_DISTANCE", "STAIRS_SHAPE", "TILT", "UP",
                 "WATERLOGGED", "WEST")) {
             var property = (net.minecraft.world.level.block.state.properties.Property<?>)
                 net.minecraft.world.level.block.state.properties.BlockStateProperties.class.getField(name).get(null);
@@ -320,8 +320,8 @@ public final class VanillaDataGenerator {
                 "NETHER_PORTAL", "OBSIDIAN", "PALE_MOSS_CARPET", "PISTON", "PISTON_HEAD", "PITCHER_CROP", "PLAYER_HEAD",
                 "PLAYER_WALL_HEAD", "POINTED_DRIPSTONE", "POTENT_SULFUR", "POWDER_SNOW", "REDSTONE_WIRE", "REINFORCED_DEEPSLATE", "RESPAWN_ANCHOR",
                 "SCAFFOLDING", "SEA_LANTERN", "SEA_PICKLE", "SHELF_MUSHROOM", "SLIME_BLOCK", "SNOW", "SOUL_SAND",
-                "SOUL_SOIL", "STICKY_PISTON", "STONE", "STRAW_BED", "SWEET_BERRY_BUSH", "TRAPPED_CHEST", "TURTLE_EGG",
-                "TWISTING_VINES", "TWISTING_VINES_PLANT", "VINE", "WATER", "WEEPING_VINES", "WEEPING_VINES_PLANT")) {
+                "SOUL_SOIL", "STICKY_PISTON", "STONE", "STRAW_BED", "SULFUR_SPIKE", "SWEET_BERRY_BUSH", "TRAPPED_CHEST",
+                "TURTLE_EGG", "TWISTING_VINES", "TWISTING_VINES_PLANT", "VINE", "WATER", "WEEPING_VINES", "WEEPING_VINES_PLANT")) {
             Block block = (Block) net.minecraft.world.level.block.Blocks.class.getField(name).get(null);
             source.append("    public static final BlockDefinition ").append(name).append(" = REGISTRY.block(")
                 .append(Block.getId(block.defaultBlockState())).append(");\n");

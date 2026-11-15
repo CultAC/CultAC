@@ -62,7 +62,7 @@ class JavaFlowingWaterFloorJumpTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), water);
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return f;
     }
 

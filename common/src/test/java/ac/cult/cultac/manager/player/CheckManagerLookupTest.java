@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.checks.NoSlow;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InvalidStep;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
@@ -49,7 +48,6 @@ class CheckManagerLookupTest {
         assertSame(manager.getListener(NoSlow.class), present(manager.getNoSlow()));
         assertSame(manager.getListener(JavaAutoJump.class), present(manager.getJavaAutoJump()));
         assertSame(manager.getListener(NoFallPseudo.class), present(manager.getNoFallPseudo()));
-        assertSame(manager.getListener(InvalidStep.class), present(manager.getInvalidStep()));
         assertSame(manager.getListener(VerticalOffset.class), present(manager.getVerticalOffset()));
         assertSame(manager.getCheck(Speed.class), present(manager.getSpeed()));
         assertSame(manager.getCheck(Strafe.class), present(manager.getStrafe()));

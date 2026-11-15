@@ -4,18 +4,19 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
 import ac.cult.cultac.checks.CultProcessor;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.debug.DebugText;
+import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
@@ -441,7 +442,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             appendStuckSpeedDebug(sb, "Last stuck-speed sources", lastResult.getSimulationContext());
         }
 
-        appendExternalMovementDetails(sb, result, lastResult);
+        if (!player.isBedrockMovement()) appendBlockEntityPassDetails(sb, result);
 
         sb.append("\n\n");
         sb.append("Alternative results (diagnostic candidates; final effective flags are below): \n");
@@ -480,11 +481,9 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
 
         sb.append("\n\npistons: \n");
-        for (PistonData piston : player.compensatedWorld.pistons.activePistons()) {
-            for (SimpleCollisionBox box : piston.getBoxes()) {
-                sb.append(box);
-                sb.append(", ");
-            }
+        for (ClientBlockEntityPass.Mover mover :
+                player.compensatedWorld.nextBlockEntityPass().movers()) {
+            sb.append(mover).append(", ");
         }
 
         sb.append("\n\n");
@@ -668,7 +667,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         List<Vec3> vectors = new ArrayList<>(4);
         boolean anyFluid = false;
 
-        for (boolean water : context.getWorldData().getInWater().getStates()) {
+        for (boolean water : context.getWorldData().waterStates()) {
             if (!water) {
                 continue;
             }
@@ -680,7 +679,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
                             context, riddenInput, context.getMoveRelativeSpeed(player, false, true, false)));
         }
 
-        for (boolean lava : context.getWorldData().getInLava().getStates()) {
+        for (boolean lava : context.getWorldData().lavaStates()) {
             if (!lava) {
                 continue;
             }
@@ -721,55 +720,22 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         vectors.add(candidate);
     }
 
-    private void appendExternalMovementDetails(
-            DebugText.Builder sb, PredictionResult result, PredictionResult lastResult) {
-        ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(result, lastResult);
-        Vec3 positionOnlyDelta = result.getPositionOnlyDelta();
-        if (!snapshot.hasExternalMove() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
+    /** The block-entity pass the Java prediction replayed after its travel, from 26.3. */
+    private static void appendBlockEntityPassDetails(DebugText.Builder sb, PredictionResult result) {
+        ClientBlockEntityPass pass = result.getSimulationContext().getPassAfterTravel();
+        if (pass == null) return;
+        sb.append("\n\n========= block-entity pass after travel =========\n\n");
+        sb.append("Movers (ticker order) at game time ").append(pass.gameTime()).append(":\n");
+        for (ClientBlockEntityPass.Mover mover : pass.movers())
+            sb.append(" ").append(mover).append('\n');
+        JavaPassAfterTravel replayed = JavaMovementEngine.passAfterTravel(result);
+        if (replayed == null) {
+            sb.append("The selected travel's pass left the player in place.\n");
             return;
         }
-
-        sb.append("\n\n======= external movement uncertainty =======\n\n");
-        sb.append("Target-space max abs external delta: ")
-                .append(ExternalMovementUncertainty.formatVector(snapshot.maxAbsTargetDelta()))
-                .append('\n');
-        sb.append("Client/raw max abs position-only delta: ")
-                .append(ExternalMovementUncertainty.formatVector(snapshot.maxAbsClientPositionOnlyDelta()))
-                .append('\n');
-        sb.append("Closest trace position-only delta: ")
-                .append(ExternalMovementUncertainty.formatVector(positionOnlyDelta))
-                .append('\n');
-
-        if (snapshot.hasExternalMove()) {
-            SimpleCollisionBox allowedTarget =
-                    snapshot.combinedTargetEnvelopeCopy().offset(result.getInitialStartingVel());
-            sb.append("Allowed target-space movement envelope around starting velocity: ")
-                    .append(ExternalMovementUncertainty.formatBox(allowedTarget))
-                    .append('\n');
-        }
-
-        sb.append("Combined target-space external envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.combinedTargetEnvelope()))
-                .append('\n');
-        sb.append("Combined client/raw position-only envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.combinedClientPositionOnlyEnvelope()))
-                .append('\n');
-        sb.append("Last tick piston target-space envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.lastPistonTargetEnvelope()))
-                .append('\n');
-        sb.append("Last tick shulker target-space envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.lastShulkerTargetEnvelope()))
-                .append('\n');
-        sb.append("This tick piston target-space envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.currentPistonTargetEnvelope()))
-                .append('\n');
-        sb.append("This tick shulker target-space envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.currentShulkerTargetEnvelope()))
-                .append('\n');
-        sb.append("Last stuck-speed multiplier: ")
-                .append(ExternalMovementUncertainty.formatVector(
-                        result.getSimulationContext().getLastStuckSpeed()))
-                .append('\n');
+        sb.append("Travel end: ").append(replayed.travel().position()).append('\n');
+        sb.append("Pass result: ").append(replayed.result()).append('\n');
+        sb.append("Pass movement: ").append(replayed.movement()).append('\n');
     }
 
     private void appendNearbyEntityBoxes(DebugText.Builder sb, PredictionResult result) {
@@ -778,7 +744,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
         sb.append("\nNearby packet entity boxes:\n");
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-            if (player.compensatedEntities.isUntrackedRider(entity)) continue;
+            if (player.isBedrockMovement() && player.compensatedEntities.isUntrackedRider(entity)) continue;
             SimpleCollisionBox box = entity.getPossibleCollisionBoxes(entityBox, entityScratch);
             if (!box.isCollided(queryBox)) {
                 continue;

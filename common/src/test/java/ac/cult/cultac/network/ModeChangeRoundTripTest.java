@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.PacketPlayerAbilities;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
@@ -25,11 +26,11 @@ import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.config.ConfigManager;
+import java.lang.reflect.Proxy;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 /**
  * Creative to survival as ServerPlayer#setGameMode sends it: player_abilities, the game event, player_abilities. The
@@ -72,8 +73,6 @@ class ModeChangeRoundTripTest {
                 assertNotNull(first[0]);
                 assertEquals(HOVER, first[0].getTeleportData().getLocation());
                 assertEquals(violations, violations(f), "the setback flags nothing");
-            } finally {
-                setLimit(DEFAULT_LIMIT_MS);
             }
         }
     }
@@ -204,9 +203,18 @@ class ModeChangeRoundTripTest {
         return new int[] {first, mode, f.player.lastTransactionSent.get()};
     }
 
-    private static void setLimit(int limitMs) {
-        ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
-        Mockito.when(config.getIntElse("max-ping-out-of-flying", 1000)).thenReturn(limitMs);
+    /** Sets max-ping-out-of-flying in the config of the open fixture, which is dropped when the fixture closes. */
+    private static void setLimit(int limitMs) throws Exception {
+        BaseConfigManager manager = CultAPI.INSTANCE.getConfigManager();
+        ConfigManager config = manager.getConfig();
+        Object limited = Proxy.newProxyInstance(
+                ConfigManager.class.getClassLoader(),
+                new Class<?>[] {ConfigManager.class},
+                (proxy, method, args) ->
+                        method.getName().equals("getIntElse") && "max-ping-out-of-flying".equals(args[0])
+                                ? (Object) limitMs
+                                : method.invoke(config, args));
+        JavaTickFixture.setField(BaseConfigManager.class, manager, "config", limited);
     }
 
     private static void gameMode(JavaTickFixture f, GameMode mode) {

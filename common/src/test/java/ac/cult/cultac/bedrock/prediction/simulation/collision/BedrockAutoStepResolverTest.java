@@ -26,7 +26,7 @@ public final class BedrockAutoStepResolverTest {
                 BlockCollision.raw(new WorldCollisionBox(0.8D, 1.0D, 0.2D, 1.0D, 1.25D, 0.8D)));
 
         BedrockEntityMove.CollisionMove move = BedrockEntityMove.collide(
-                current, requestedMove, rawShapes, PlayerDimensionsState.DEFAULT, true, 0.5625D);
+                current, requestedMove, rawShapes, PlayerDimensionsState.DEFAULT, true, 0.5625D, false);
 
         assertTrue(move.stepRetryAllowed());
         assertTrue(move.steppedUp());

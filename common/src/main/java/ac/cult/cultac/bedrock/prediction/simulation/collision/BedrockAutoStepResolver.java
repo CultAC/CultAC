@@ -12,8 +12,6 @@ import java.util.List;
 import java.util.Optional;
 
 final class BedrockAutoStepResolver {
-    private static final double EPSILON = BedrockCollisionSweep.EPSILON;
-
     private BedrockAutoStepResolver() {}
 
     static Optional<BedrockCollisionSweep.MoveResult> resolve(
@@ -30,12 +28,14 @@ final class BedrockAutoStepResolver {
         Vec3d startFeet = current.physicalFeetPosition();
         WorldCollisionBox startBox = current.collisionBox(dimensions);
         List<BlockCollision> stepShapes = shapesIgnoringCeiling(startBox, obstacles);
+        BedrockDepenetrationLimit maximumDepenetration =
+                BedrockCollisionClipper.maximumDepenetration(current, obstacles);
         BedrockCollisionSweep.MoveResult upMove = BedrockCollisionSweep.sweep(
                 startBox,
                 new Vec3d(requestedDelta.x(), maxUpStep, requestedDelta.z()),
                 stepShapes,
                 current.coordinateFrame(),
-                BedrockCollisionClipper.maximumDepenetration(current));
+                maximumDepenetration);
 
         double acceptedRise = upMove.appliedDelta().y();
         BedrockCollisionClipper.ClipResult downClip = BedrockCollisionClipper.clip(
@@ -43,7 +43,7 @@ final class BedrockAutoStepResolver {
                 new Vec3d(0.0D, -acceptedRise, 0.0D),
                 stepShapes,
                 current.coordinateFrame(),
-                BedrockCollisionClipper.maximumDepenetration(current));
+                maximumDepenetration);
         Vec3d finalDelta = addFloat(upMove.appliedDelta(), downClip.move());
         WorldCollisionBox finalBox = BedrockCollisionSweep.moveBedrock(
                 upMove.finalBox(),
@@ -51,9 +51,9 @@ final class BedrockAutoStepResolver {
                 downClip.move().y(),
                 downClip.move().z(),
                 current.coordinateFrame());
+        // The step is kept only when it moves strictly farther horizontally than the move without it.
         if (collides(finalBox, obstacles)
-                || horizontalDistanceSquared(finalDelta)
-                        <= horizontalDistanceSquared(baseMove.appliedDelta()) + EPSILON) {
+                || horizontalDistanceSquared(finalDelta) <= horizontalDistanceSquared(baseMove.appliedDelta())) {
             return Optional.empty();
         }
 
@@ -73,7 +73,10 @@ final class BedrockAutoStepResolver {
                 finalDelta.y() != requested.y(),
                 finalDelta.z() != requested.z(),
                 yCollisionBlock,
-                current.coordinateFrame()));
+                current.coordinateFrame(),
+                false,
+                BedrockActorOrderCrossing.then(
+                        upMove.actorOrder() == null ? null : upMove.actorOrder().later(), downClip.actorOrder())));
     }
 
     private static List<BlockCollision> shapesIgnoringCeiling(
@@ -103,7 +106,9 @@ final class BedrockAutoStepResolver {
         return false;
     }
 
-    private static double horizontalDistanceSquared(Vec3d move) {
-        return move.x() * move.x() + move.z() * move.z();
+    private static float horizontalDistanceSquared(Vec3d move) {
+        float x = (float) move.x();
+        float z = (float) move.z();
+        return x * x + z * z;
     }
 }

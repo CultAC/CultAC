@@ -1,0 +1,344 @@
+package ac.cult.cultac.bedrock.replay.offline;
+
+import static org.junit.Assert.*;
+
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
+import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext;
+import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
+import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
+import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
+import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
+import ac.cult.cultac.utils.collisions.ClientBlockShapes;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
+import org.junit.Before;
+import org.junit.Test;
+
+/**
+ * Bamboo, pointed dripstone and sulfur spikes are shifted on X and Z by a hash of the position the session's coordinate
+ * frame gives them: one of sixteen steps across 0.25 either way for bamboo and 0.125 either way for the spikes. A
+ * dripstone tip at (20113, 120, 20030) so reaches x 20113.6458 in a session whose frame starts at (20080, 19984) and
+ * x 20113.6125 in one that starts at (20032, 20000): a player whose box begins at x 20113.63895 stands on the first
+ * tip and falls past the second.
+ */
+public class BedrockOffsetBlockShapeTest {
+    private static final int TIP = DataTables.defaults()
+            .registry()
+            .with(
+                    DataTables.defaults()
+                            .registry()
+                            .block("minecraft:pointed_dripstone")
+                            .defaultState(),
+                    "thickness",
+                    "tip");
+    private static final int BAMBOO =
+            DataTables.defaults().registry().block("minecraft:bamboo").defaultState();
+    private static final double TIP_TOP = 120.6875;
+    /** The step between floats from x 16384 to 32768. */
+    private static final double FLOAT_STEP = 1.0 / 512.0;
+    private static final float GRAVITY_TICK = -0.0784F;
+    private static final long FIRST_TICK = 7947;
+
+    @Before
+    public void loadShapes() {
+        OfflineCultTestBootstrap.installConfig();
+    }
+
+    @Test
+    public void pointedDripstoneTakesItsStepOfAnEighthEitherWay() {
+        // (20113, 20030) hashes to steps 6 and 5 of 0..15: -0.025 and -0.041667. Each face is the float sum of its
+        // sixteenth and the float of the shifted position, so in steps of 1/512 this far out.
+        WorldCollisionBox tip = box(TIP, new BlockPosition(20113, 120, 20030), BedrockCoordinateFrame.IDENTITY);
+        assertEquals(20113.287109375, tip.minX(), 0.0);
+        assertEquals(20113.662109375, tip.maxX(), 0.0);
+        assertEquals(20030.271484375, tip.minZ(), 0.0);
+        assertEquals(20030.646484375, tip.maxZ(), 0.0);
+        assertEquals(120.0, tip.minY(), 0.0);
+        assertEquals(120.6875, tip.maxY(), 1.0E-6);
+    }
+
+    @Test
+    public void everyPointedDripstoneStateTakesTheOffsetOfItsPosition() {
+        var position = new BlockPosition(20113, 120, 20030);
+        for (String direction : List.of("up", "down")) {
+            for (String thickness : List.of("tip_merge", "tip", "frustum", "middle", "base")) {
+                WorldCollisionBox box = box(dripstone(thickness, direction), position, BedrockCoordinateFrame.IDENTITY);
+                String state = thickness + " " + direction;
+                assertEquals(state, 20113.5 - 0.025, (box.minX() + box.maxX()) / 2.0, FLOAT_STEP);
+                assertEquals(state, 20030.5 - 0.041667, (box.minZ() + box.maxZ()) / 2.0, FLOAT_STEP);
+            }
+        }
+    }
+
+    @Test
+    public void everySulfurSpikeStateTakesTheOffsetOfPointedDripstone() {
+        var position = new BlockPosition(20113, 120, 20030);
+        for (String direction : List.of("up", "down")) {
+            for (String thickness : List.of("tip_merge", "tip", "frustum", "middle", "base")) {
+                int spike = spike("minecraft:sulfur_spike", thickness, direction);
+                WorldCollisionBox box = box(spike, position, BedrockCoordinateFrame.IDENTITY);
+                String state = thickness + " " + direction;
+                assertEquals(state, 20113.5 - 0.025, (box.minX() + box.maxX()) / 2.0, FLOAT_STEP);
+                assertEquals(state, 20030.5 - 0.041667, (box.minZ() + box.maxZ()) / 2.0, FLOAT_STEP);
+            }
+        }
+        // As BDS 26.50 gives the tip it maps to at (100, 100, 100).
+        WorldCollisionBox tip = box(
+                spike("minecraft:sulfur_spike", "tip_merge", "up"),
+                new BlockPosition(100, 100, 100),
+                BedrockCoordinateFrame.IDENTITY);
+        assertEquals(100.287498, tip.minX(), 1.0E-5);
+        assertEquals(100.304169, tip.minZ(), 1.0E-5);
+        assertEquals(100.662498, tip.maxX(), 1.0E-5);
+        assertEquals(100.679169, tip.maxZ(), 1.0E-5);
+    }
+
+    @Test
+    public void bambooTakesItsStepOfAQuarterEitherWay() {
+        // (20107, 20032) hashes to steps 15 and 7: 0.25 and -0.016667.
+        WorldCollisionBox bamboo = box(BAMBOO, new BlockPosition(20107, 120, 20032), BedrockCoordinateFrame.IDENTITY);
+        assertEquals(20107.75, bamboo.minX(), 0.0);
+        assertEquals(20107.875, bamboo.maxX(), 0.0);
+        assertEquals(20032.482421875, bamboo.minZ(), 0.0);
+        assertEquals(20032.607421875, bamboo.maxZ(), 0.0);
+    }
+
+    /**
+     * Flag 11 (2026-11-15): a player gliding east past the thick stalk at (2203, 106, 1588) kept all of its south move.
+     * The X of the position is multiplied into the hash in 64 bits, so the stalk takes steps 6 and 4 and ends at
+     * x 2203.6375, west of the box. Multiplied in 32 bits as Java edition's seed is, X wraps and the stalk took steps 13
+     * and 7: x 2203.6833 to 2203.8708, across the box, whose south move it stopped at z 1588.4833.
+     */
+    @Test
+    public void theHashMultipliesXIn64Bits() {
+        var registry = DataTables.defaults().registry();
+        WorldCollisionBox stalk = box(
+                registry.with(BAMBOO, "age", "1"),
+                new BlockPosition(2203, 106, 1588),
+                BedrockCoordinateFrame.IDENTITY);
+        assertEquals(2203.449951171875, stalk.minX(), 0.0);
+        assertEquals(2203.637451171875, stalk.maxX(), 0.0);
+        assertEquals(1588.38330078125, stalk.minZ(), 0.0);
+        assertEquals(1588.57080078125, stalk.maxZ(), 0.0);
+    }
+
+    @Test
+    public void theHashReadsThePositionTheCoordinateFrameGivesTheBlock() {
+        var frame = new BedrockCoordinateFrame(20080, 19984, 1);
+        for (int state : new int[] {TIP, BAMBOO}) {
+            WorldCollisionBox local = box(state, new BlockPosition(33, 120, 46), BedrockCoordinateFrame.IDENTITY);
+            WorldCollisionBox world = box(state, new BlockPosition(20113, 120, 20030), frame);
+            assertEquals(local.minX() + 20080, world.minX(), 1.0E-9);
+            assertEquals(local.maxX() + 20080, world.maxX(), 1.0E-9);
+            assertEquals(local.minZ() + 19984, world.minZ(), 1.0E-9);
+            assertEquals(local.maxZ() + 19984, world.maxZ(), 1.0E-9);
+        }
+        // (33, 46) hashes to step 5 on X where (20113, 20030) hashes to step 6.
+        assertEquals(20113.645833, box(TIP, new BlockPosition(20113, 120, 20030), frame).maxX(), 1.0E-5);
+    }
+
+    /**
+     * Flag 94 (2026-11-13): a frustum at (20121, 120, 20178) in a frame from (20064, 20176) is shifted by steps 13 and
+     * 9, 0.091667 and 0.025, so its north face is the float 2.775 of the frame. The catalog keeps its bounds rounded
+     * to six decimals after the shift of position (0, 0); taken as they are, they put the face one float step further.
+     */
+    @Test
+    public void aShiftedFaceIsTheFloatOfItsSixteenthAndStep() {
+        var frame = new BedrockCoordinateFrame(20064, 20176, 3);
+        WorldCollisionBox frustum = box(dripstone("frustum", "up"), new BlockPosition(20121, 120, 20178), frame);
+        assertEquals(2.775F, frame.localZ(frustum.maxZ()), 0.0F);
+        assertEquals(2.275F, frame.localZ(frustum.minZ()), 0.0F);
+        assertEquals(57.341667F, frame.localX(frustum.minX()), 0.0F);
+        assertEquals(57.841667F, frame.localX(frustum.maxX()), 0.0F);
+    }
+
+    /** The player of flag 94 walks into that face and stays flush with it: nothing pushes it back out. */
+    @Test
+    public void aPlayerFlushWithAShiftedFaceIsNotPushedOutOfIt() {
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
+            for (int x = 20118; x <= 20124; x++)
+                for (int z = 20175; z <= 20182; z++) {
+                    player.compensatedWorld.ensureValidationChunkLoaded(x >> 4, z >> 4);
+                    player.compensatedWorld.updateBlock(x, 119, z, stone);
+                }
+            player.compensatedWorld.updateBlock(20121, 120, 20178, dripstone("frustum", "up"));
+            var coordinates = new BedrockCoordinateFrame(20064, 20176, 3);
+            var feet = new Vec3(20121.332927703857, 120.0, 20179.075000047684);
+            player.x = player.lastX = feet.x;
+            player.y = player.lastY = feet.y;
+            player.z = player.lastZ = feet.z;
+            player.onGround = player.lastOnGround = true;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, feet.x, feet.y, feet.z);
+            var local = coordinates.toLocal(feet);
+            var velocity = new Vec3(0, GRAVITY_TICK, 0);
+            for (long tick = 2409; tick < 2414; tick++) {
+                var frame = BedrockAuthInputFrame.builder(player.playerUUID)
+                        .protocolVersion(2225)
+                        .clientTick(tick)
+                        .inputMode(1)
+                        .playMode(2)
+                        .deviceId(3)
+                        .coordinateFrame(coordinates)
+                        .position(feet)
+                        .packetPosition(new Vec3((float) local.x, (float) (feet.y + 1.62001), (float) local.z))
+                        .rotation(180, 45, 180)
+                        .moveVector(0, 1)
+                        .delta(velocity)
+                        .reportedEndOfTickVelocity(velocity)
+                        .rawInputFlags(1L << PlayerAuthInputData.VERTICAL_COLLISION.ordinal())
+                        .build();
+                player.bedrockState.offerAuthInputFrame(frame);
+                var result = player.checkManager
+                        .getSimulationProcessor()
+                        .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.OFFLINE_REPLAY);
+                assertNotNull("tick " + tick, result);
+                var state = result.getProfileResult(BedrockPredictionResult.class).nextTickBaseState();
+                assertNotNull("tick " + tick, state);
+                assertEquals("tick " + tick + " velocity " + state.velocity(), 0.0, state.velocity().z(), 1.0E-6);
+                assertEquals(
+                        "tick " + tick, 0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+            }
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void aPlayerOverTheTipOfItsOwnSessionStandsOnIt() {
+        withTip(player -> {
+            var frame = new BedrockCoordinateFrame(20080, 19984, 1);
+            clientTick(player, frame, FIRST_TICK, TIP_TOP, GRAVITY_TICK, true);
+            clientTick(player, frame, FIRST_TICK + 1, TIP_TOP, GRAVITY_TICK, true);
+            clientTick(player, frame, FIRST_TICK + 2, TIP_TOP, GRAVITY_TICK, true);
+        });
+    }
+
+    @Test
+    public void aPlayerBesideTheTipOfItsOwnSessionFallsPastIt() {
+        withTip(player -> {
+            var frame = new BedrockCoordinateFrame(20032, 20000, 1);
+            clientTick(player, frame, FIRST_TICK, TIP_TOP, GRAVITY_TICK, false);
+            clientTick(player, frame, FIRST_TICK + 1, TIP_TOP - 0.0784, -0.155232F, false);
+            clientTick(player, frame, FIRST_TICK + 2, TIP_TOP - 0.0784 - 0.155232, -0.23052737F, false);
+        });
+    }
+
+    @Test
+    public void theBoxOtherChecksReadIsTheOneOfTheSession() {
+        withTip(player -> {
+            clientTick(player, new BedrockCoordinateFrame(20080, 19984, 1), FIRST_TICK, TIP_TOP, GRAVITY_TICK, true);
+            List<SimpleCollisionBox> boxes = new ArrayList<>();
+            ClientBlockShapes.movement(player, TIP, 20113, 120, 20030).downCast(boxes);
+            assertEquals(1, boxes.size());
+            assertEquals(20113.270833, boxes.getFirst().minX, 1.0E-5);
+            assertEquals(20113.645833, boxes.getFirst().maxX, 1.0E-5);
+            assertEquals(TIP_TOP, boxes.getFirst().maxY, 1.0E-6);
+        });
+    }
+
+    private static int dripstone(String thickness, String direction) {
+        return spike("minecraft:pointed_dripstone", thickness, direction);
+    }
+
+    private static int spike(String block, String thickness, String direction) {
+        var registry = DataTables.defaults().registry();
+        int state = registry.block(block).defaultState();
+        return registry.with(registry.with(state, "thickness", thickness), "vertical_direction", direction);
+    }
+
+    private static WorldCollisionBox box(int state, BlockPosition position, BedrockCoordinateFrame frame) {
+        var context = new BedrockBlockShapeContext(
+                at -> 0.0F,
+                BedrockBlockShapeContext.NONE.movingBlockBoxes(),
+                BedrockBlockShapeContext.NONE.pistonProgress(),
+                frame);
+        var boxes = new BedrockCollisionWorldBuilder(BedrockClientBlockShapeMappings.catalog(), context)
+                .block(position, state, BedrockCollisionShapeQuery.NONE)
+                .collisionBoxes();
+        assertEquals(1, boxes.size());
+        return boxes.getFirst();
+    }
+
+    private static void withTip(Consumer<CultPlayer> test) {
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
+            for (int x = 20111; x <= 20116; x++)
+                for (int z = 20028; z <= 20032; z++) {
+                    player.compensatedWorld.ensureValidationChunkLoaded(x >> 4, z >> 4);
+                    player.compensatedWorld.updateBlock(x, 119, z, stone);
+                }
+            player.compensatedWorld.updateBlock(20113, 120, 20030, TIP);
+            test.accept(player);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    /** One client tick ending with the feet at {@code y} and the box starting at x 20113.63895, predicted exactly. */
+    private static void clientTick(
+            CultPlayer player,
+            BedrockCoordinateFrame coordinates,
+            long tick,
+            double y,
+            float velocityY,
+            boolean verticalCollision) {
+        var local = new Vec3((float) (20113.93895 - coordinates.originX()), (float) y, (float)
+                (20030.5 - coordinates.originZ()));
+        var feet = coordinates.toWorld(local);
+        if (tick == FIRST_TICK) {
+            player.x = player.lastX = feet.x;
+            player.y = player.lastY = feet.y;
+            player.z = player.lastZ = feet.z;
+            player.onGround = player.lastOnGround = verticalCollision;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, feet.x, feet.y, feet.z);
+        }
+        var velocity = new Vec3(0, velocityY, 0);
+        var frame = BedrockAuthInputFrame.builder(player.playerUUID)
+                .protocolVersion(2193)
+                .clientTick(tick)
+                .inputMode(1)
+                .playMode(2)
+                .deviceId(3)
+                .coordinateFrame(coordinates)
+                .position(feet)
+                .packetPosition(new Vec3(local.x, (float) (y + 1.62001), local.z))
+                .rotation(0, 0, 0)
+                .moveVector(0, 0)
+                .delta(velocity)
+                .reportedEndOfTickVelocity(velocity)
+                .rawInputFlags(verticalCollision ? 1L << PlayerAuthInputData.VERTICAL_COLLISION.ordinal() : 0L)
+                .build();
+        player.bedrockState.offerAuthInputFrame(frame);
+        var result = player.checkManager
+                .getSimulationProcessor()
+                .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.OFFLINE_REPLAY);
+        assertNotNull("tick " + tick, result);
+        var state = result.getProfileResult(BedrockPredictionResult.class).nextTickBaseState();
+        assertNotNull("tick " + tick, state);
+        assertEquals(
+                "tick " + tick, 0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        double offset = state.physicalFeetPosition()
+                .subtract(new Vec3d(feet.x, feet.y, feet.z))
+                .length();
+        assertTrue("tick " + tick + " position offset " + offset, offset <= 0.001);
+        double velocityOffset =
+                state.velocity().subtract(new Vec3d(0, velocityY, 0)).length();
+        assertTrue("tick " + tick + " velocity offset " + velocityOffset, velocityOffset <= 0.001);
+    }
+}

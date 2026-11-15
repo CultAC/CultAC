@@ -12,7 +12,6 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -90,13 +89,11 @@ class JavaClosestSpacePushTest {
     /**
      * A shift-holding client on a floor's east rim whose feet cell fills with stone, walled on its other sides: the
      * push points east at the drop, and Player#maybeBackOffFromEdge shortens the pushed delta in the same travel.
+     * Without shift the push carries the box past the rim; Entity#collideWithShapes resolves Y first, from the box
+     * that still overlaps the rim, so that move stays on the ground.
      */
     @ParameterizedTest
-    @CsvSource({
-        "true, 0.0, 0.0, true, true",
-        "false, 0.1, -0.0784000015258789, false, true",
-        "false, 0.0, 0.0, true, false"
-    })
+    @CsvSource({"true, 0.0, 0.0, true, true", "false, 0.1, 0.0, true, true", "false, 0.0, 0.0, true, false"})
     void aPushTowardTheDropIsBackedOffWhileShiftIsHeld(
             boolean shift, double dx, double dy, boolean onGround, boolean vanilla) throws Exception {
         try (var f = new JavaTickFixture()) {
@@ -175,9 +172,10 @@ class JavaClosestSpacePushTest {
     }
 
     /**
-     * A gliding client centred on one stone block in the air: LocalPlayer#aiStep's last probe sets deltaMovement x to
-     * 0.1 before LivingEntity#travelFallFlying turns that velocity toward the look, so the glide moves by the pushed
-     * velocity's glide, not by the push itself.
+     * A gliding client on one stone block in the air, north of its centre after the first glide: LocalPlayer#aiStep's
+     * two northern probes set deltaMovement z to -0.1 and its last probe sets x to 0.1 before
+     * LivingEntity#travelFallFlying turns that velocity toward the look, so the glide moves by the pushed velocity's
+     * glide, not by the push itself.
      */
     @Test
     void aGlideStartsFromThePushedVelocity() throws Exception {
@@ -196,7 +194,8 @@ class JavaClosestSpacePushTest {
             assertTrue(exact(first), describe(first));
             stone(f, 0, (int) Math.floor(at.y), 0);
             settle(f);
-            Vec3 pushed = new Vec3(0.1, carried.y, carried.z);
+            assertTrue(at.z < from.z);
+            Vec3 pushed = new Vec3(0.1, carried.y, -0.1);
             Vec3 move = ElytraTransform.getElytraMovement(f.player, pushed, look, GLIDE_PITCH, 0.08);
             PredictionResult result = f.tick(at.add(move), false);
             assertTrue(exact(result), describe(result));
@@ -237,13 +236,12 @@ class JavaClosestSpacePushTest {
                 pos, action, parameter, DataTables.defaults().registry().blockIndex(state));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         if (handled) f.pongThrough(f.player.lastTransactionSent.get());
     }
 
     private static void settle(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 }

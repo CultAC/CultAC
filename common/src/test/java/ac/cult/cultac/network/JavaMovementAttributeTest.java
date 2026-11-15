@@ -78,7 +78,7 @@ class JavaMovementAttributeTest {
     void aScaledPlayerLandsOnABlockOnlyItsScaledBoxReaches() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             attribute(f, "minecraft:scale", 1.0, 1.0);
             // The box takes a new scale at a tick end, long past here.
             f.player.refreshPlayerPose();
@@ -99,7 +99,7 @@ class JavaMovementAttributeTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, y, 1), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             attribute(f, "minecraft:scale", 1.0, 1.0);
             f.player
                     .getInventory()
@@ -112,7 +112,8 @@ class JavaMovementAttributeTest {
             ride(f, 100);
 
             f.input(NONE);
-            assertExact(f.rideTick(seat, true));
+            // The pig mounts with no velocity: its first Entity#move does not collide below and reports it airborne.
+            assertExact(f.rideTick(seat, false));
             assertExact(f.rideTick(seat, true));
         }
     }

@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.aim.AimDuplicateLook;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.PacketPlayerAbilities;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
@@ -22,12 +23,12 @@ import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.config.ConfigManager;
+import java.lang.reflect.Proxy;
 import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 /**
  * A flight revocation the client leaves unanswered past max-ping-out-of-flying sets the player back, without a flag, to
@@ -74,8 +75,7 @@ class FlightRevocationLatencyTest {
     void aLimitOfZeroOrLessIsOff() throws Exception {
         for (int limit : new int[] {0, -1}) {
             try (var f = flying()) {
-                ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
-                Mockito.when(config.getIntElse("max-ping-out-of-flying", 1000)).thenReturn(limit);
+                maxPingOutOfFlying(limit);
                 revoke(f);
                 Vec3 at = HOVER;
                 for (int tick = 0; tick < 40; tick++) {
@@ -90,9 +90,6 @@ class FlightRevocationLatencyTest {
                 SetBackData probe = f.player.getSetbackTeleportUtil().getRequiredSetBack();
                 assertNotNull(probe);
                 assertNotEquals(HOVER, probe.getTeleportData().getLocation(), limit + ": safe positions held");
-            } finally {
-                ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
-                Mockito.when(config.getIntElse("max-ping-out-of-flying", 1000)).thenReturn(1000);
             }
         }
     }
@@ -191,6 +188,20 @@ class FlightRevocationLatencyTest {
         f.pongThrough(f.player.lastTransactionSent.get());
         assertTrue(f.tick(HOVER, false).isExempt());
         return f;
+    }
+
+    /** Sets max-ping-out-of-flying in the config of the open fixture, which is dropped when the fixture closes. */
+    private static void maxPingOutOfFlying(int limit) throws Exception {
+        BaseConfigManager manager = CultAPI.INSTANCE.getConfigManager();
+        ConfigManager config = manager.getConfig();
+        Object limited = Proxy.newProxyInstance(
+                ConfigManager.class.getClassLoader(),
+                new Class<?>[] {ConfigManager.class},
+                (proxy, method, args) ->
+                        method.getName().equals("getIntElse") && "max-ping-out-of-flying".equals(args[0])
+                                ? (Object) limit
+                                : method.invoke(config, args));
+        JavaTickFixture.setField(BaseConfigManager.class, manager, "config", limited);
     }
 
     /** A survival player_abilities after flight; the ping it applies at. */

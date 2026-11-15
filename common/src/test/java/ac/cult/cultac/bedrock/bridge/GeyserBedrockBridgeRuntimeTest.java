@@ -21,6 +21,7 @@ import java.util.NoSuchElementException;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.cloudburstmc.protocol.bedrock.netty.BedrockPacketWrapper;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityLinkData;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
@@ -704,6 +705,73 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
         assertEquals(MovePlayerPacket.Mode.TELEPORT, packet.getMode());
         assertEquals(MovePlayerPacket.TeleportationCause.BEHAVIOR, packet.getTeleportationCause());
+    }
+
+    @Test
+    public void selfCorrectionAnsweringAPistonMoveIsNotSent() {
+        MovePlayerPacket correction = new MovePlayerPacket();
+        correction.setMode(MovePlayerPacket.Mode.NORMAL);
+        assertTrue(GeyserBedrockBridgeRuntime.answersPistonMove(correction, true));
+        assertFalse(GeyserBedrockBridgeRuntime.answersPistonMove(correction, false));
+
+        MovePlayerPacket teleport = new MovePlayerPacket();
+        teleport.setMode(MovePlayerPacket.Mode.TELEPORT);
+        assertFalse(GeyserBedrockBridgeRuntime.answersPistonMove(teleport, true));
+    }
+
+    @Test
+    public void onlyATeleportNamingNoVehicleStopsTheRidingClient() {
+        var riding = new GeyserClientRiding();
+        MovePlayerPacket packet = new MovePlayerPacket();
+        packet.setMode(MovePlayerPacket.Mode.TELEPORT);
+        riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.RIDER, false, false, 0.0F));
+
+        packet.setRidingRuntimeEntityId(3847);
+        assertFalse(riding.stopsRiding(packet));
+        packet.setRidingRuntimeEntityId(0);
+        packet.setMode(MovePlayerPacket.Mode.RESPAWN);
+        assertFalse(riding.stopsRiding(packet));
+        packet.setMode(MovePlayerPacket.Mode.HEAD_ROTATION);
+        assertFalse(riding.stopsRiding(packet));
+
+        packet.setMode(MovePlayerPacket.Mode.TELEPORT);
+        assertTrue(riding.stopsRiding(packet));
+        // The client is on foot after it.
+        assertFalse(riding.stopsRiding(packet));
+    }
+
+    /**
+     * A capture of a boat mount shows the rider's teleport to the seat written before the link that seats it: the
+     * client handles it on foot and predicts the boat from its next tick.
+     */
+    @Test
+    public void aTeleportWrittenBeforeTheLinkDoesNotStopTheRide() {
+        var riding = new GeyserClientRiding();
+        MovePlayerPacket packet = new MovePlayerPacket();
+        packet.setMode(MovePlayerPacket.Mode.TELEPORT);
+
+        assertFalse(riding.stopsRiding(packet));
+        assertTrue(riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.RIDER, false, false, 0.0F)));
+        assertFalse(riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.REMOVE, false, false, 0.0F)));
+        assertFalse(riding.stopsRiding(packet));
+        riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.RIDER, false, false, 0.0F));
+        riding.clear();
+        assertFalse(riding.stopsRiding(packet));
+    }
+
+    @Test
+    public void onlyALinkToAClientOffTheVehicleSeatsIt() {
+        var riding = new GeyserClientRiding();
+        var rider = new EntityLinkData(7, 3, EntityLinkData.Type.RIDER, false, false, 0.0F);
+        assertTrue(riding.link(rider));
+        // The server sends the passengers of a ridden vehicle again.
+        assertFalse(riding.link(rider));
+        riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.REMOVE, false, false, 0.0F));
+        assertTrue(riding.link(rider));
+        MovePlayerPacket teleport = new MovePlayerPacket();
+        teleport.setMode(MovePlayerPacket.Mode.TELEPORT);
+        assertTrue(riding.stopsRiding(teleport));
+        assertTrue(riding.link(rider));
     }
 
     @Test

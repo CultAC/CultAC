@@ -58,7 +58,7 @@ class VehicleCorrectionAnswerTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, y, 2), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(FLUSH, Vec3.ZERO);
         f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, FLUSH, 0, 0, 0);
         f.setPassengers(BOAT, List.of(f.player.entityID));
@@ -106,11 +106,37 @@ class VehicleCorrectionAnswerTest {
         }
     }
 
+    /**
+     * Whether the client snapped onto the correction or already stood at its target, ServerboundMoveVehiclePacket
+     * #fromEntity answers with the target itself. An answer beside it is dropped and the correction sent again; the
+     * boat stays at the target, and the exact answer completes the setback.
+     */
     @Test
     void aSetbackAnswerBesideItsTargetLeavesTheBoatAtTheTarget() throws Exception {
         Rig r = rig(FORWARD);
         try (JavaTickFixture f = r.f()) {
-            Vec3 target = setbackAndAnswer(r, 9.9E-6);
+            PredictionResult push = f.rideTick(FLUSH.add(0, 0, 0.3), true);
+            assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), JavaTickFixture.describe(push));
+            SetBackData setback = f.player.getSetbackTeleportUtil().getRequiredSetBack();
+            Vec3 target = setback.getTeleportData().getLocation();
+            f.pongThrough(f.player.lastTransactionSent.get());
+            ClientboundMoveVehicle snap = r.moves().getLast();
+            int sent = r.moves().size();
+            PacketReceiveEvent<ServerboundMoveVehicle> beside =
+                    f.moveVehicle(target.add(0, 0, 9.9E-6), snap.yaw(), snap.pitch(), true);
+            assertFalse(setback.isComplete(), "an answer beside the target completed the setback");
+            assertTrue(beside.isCancelled());
+            assertEquals(sent + 1, r.moves().size(), "the correction was not sent again");
+            assertPosition(target, r.moves().getLast().position());
+            assertEquals(target, r.root());
+            f.tickEnd();
+
+            f.pongThrough(f.player.lastTransactionSent.get());
+            ClientboundMoveVehicle again = r.moves().getLast();
+            PacketReceiveEvent<ServerboundMoveVehicle> answer = f.moveVehicle(target, again.yaw(), again.pitch(), true);
+            assertFalse(answer.isCancelled());
+            assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback(), "the exact answer was not accepted");
+            f.tickEnd();
             assertEquals(target, r.root());
             JavaTickFixture.assertRejected(f.rideTick(target.add(0, 0, 9.9E-6 + 0.04), true), "VehicleOffset");
         }

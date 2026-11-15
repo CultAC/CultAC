@@ -65,31 +65,13 @@ final class OfflineBedrockAuthInputCapture {
                 .moveVector(moveVector[0], moveVector[1])
                 .rawInputFlags(rawInputFlags.low())
                 .rawInputFlagsHigh(rawInputFlags.high())
-                .jumping(hasAnyFlag(
-                        rawInputFlags,
-                        PlayerAuthInputData.JUMP_DOWN,
-                        PlayerAuthInputData.JUMPING,
-                        PlayerAuthInputData.START_JUMPING,
-                        PlayerAuthInputData.AUTO_JUMPING_IN_WATER))
+                .jumping(BedrockAuthInputFrame.requestsJump(flag -> hasFlag(rawInputFlags, flag)))
                 .jumpStarted(hasFlag(rawInputFlags, PlayerAuthInputData.START_JUMPING))
                 .jumpPressedRaw(hasFlag(rawInputFlags, PlayerAuthInputData.JUMP_PRESSED_RAW))
                 .jumpCurrentRaw(hasFlag(rawInputFlags, PlayerAuthInputData.JUMP_CURRENT_RAW))
                 .wantUp(hasFlag(rawInputFlags, PlayerAuthInputData.WANT_UP))
-                .sneaking(hasAnyFlag(
-                        rawInputFlags,
-                        PlayerAuthInputData.SNEAK_CURRENT_RAW,
-                        PlayerAuthInputData.SNEAK_DOWN,
-                        PlayerAuthInputData.SNEAKING,
-                        PlayerAuthInputData.START_SNEAKING,
-                        PlayerAuthInputData.DESCEND,
-                        PlayerAuthInputData.SNEAK_TOGGLE_DOWN))
-                .startSneaking(hasAnyFlag(
-                        rawInputFlags,
-                        PlayerAuthInputData.START_SNEAKING,
-                        PlayerAuthInputData.SNEAK_PRESSED_RAW,
-                        PlayerAuthInputData.SNEAKING,
-                        PlayerAuthInputData.SNEAK_DOWN,
-                        PlayerAuthInputData.SNEAK_CURRENT_RAW))
+                .sneaking(BedrockAuthInputFrame.holdsSneak(flag -> hasFlag(rawInputFlags, flag)))
+                .startSneaking(hasFlag(rawInputFlags, PlayerAuthInputData.START_SNEAKING))
                 .stopSneaking(hasFlag(rawInputFlags, PlayerAuthInputData.STOP_SNEAKING))
                 .sprinting(hasFlag(rawInputFlags, PlayerAuthInputData.SPRINTING))
                 .startSwimming(hasFlag(rawInputFlags, PlayerAuthInputData.START_SWIMMING))

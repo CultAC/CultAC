@@ -11,7 +11,6 @@ import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.Map;
@@ -78,7 +77,7 @@ class HappyGhastRiddenTurnTest {
             f.place(seat, Vec3.ZERO);
             f.player.compensatedWorld.applyClientTime(new WorldPackets.TimeUpdate(24_000L, Map.of()));
             f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.HAPPY_GHAST, seat, s.ghastYaw(), 0, 0);
-            ((PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(VEHICLE)).hasBodyArmor = true;
+            f.harness(VEHICLE);
             f.setPassengers(VEHICLE, List.of(f.player.entityID));
             f.pongThrough(f.player.lastTransactionSent.get());
 

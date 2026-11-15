@@ -27,7 +27,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.SetBackData;
-import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
@@ -36,10 +35,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 /**
- * A horse's jump tick is set back, and the horse is removed before the client answers the vehicle correction. The
- * correction then moves the player instead. Entity#rideTick zeroes a passenger's delta movement every ride tick and
- * Entity#removeVehicle leaves it alone, so a player off its vehicle has no velocity of its own: the player correction
- * must not hand it the horse's jump.
+ * A horse's jump tick is set back, and the horse is removed before the client's answer to the vehicle correction
+ * arrives. ClientPacketListener#handleMoveVehicle echoed the snap while the client still rode, and that echo completes
+ * the correction. Entity#rideTick zeroes a passenger's delta movement every ride tick and Entity#removeVehicle leaves
+ * it alone, so a player off its vehicle has none of the horse's velocity: it must not leave with the horse's jump.
  */
 class DroppedVehicleSetbackVelocityTest {
     private static final int HORSE = 100;
@@ -92,28 +91,32 @@ class DroppedVehicleSetbackVelocityTest {
                     vehicleSetback.getVelocity().y > 0.3,
                     "the vehicle setback carries the jump: " + vehicleSetback.getVelocity());
 
-            // The horse is removed before the client answers the vehicle correction.
+            // The horse is removed before the client's answer to the vehicle correction arrives.
             var removal = new ClientboundRemoveEntities(List.of(HORSE));
             var event = new PacketSendEvent<>(
                     f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.REMOVE_ENTITIES, removal, false);
             f.player.packetEntityReplication.onRemoveEntities(event, f.player, removal);
             event.tasksAfter().forEach(Runnable::run);
+
+            // The client answers the ping before the move_vehicle, echoes the snap from the handler while it still
+            // rides, and then reads the removal.
+            f.pongThrough(vehicleSetback.getTeleportData().getTransaction());
+            ClientboundMoveVehicle snap = moves.getLast();
+            Vec3 at = vehicleSetback.getTeleportData().getLocation();
+            var echo = new ServerboundMoveVehicle(new Vec3d(at.x, at.y, at.z), snap.yaw(), snap.pitch(), false, true);
+            f.listener.onMoveVehicle(f.event(ServerboundPackets.MOVE_VEHICLE, echo), f.player, echo);
+            assertTrue(vehicleSetback.isComplete(), "the setback echo was not accepted");
             f.pongThrough(f.player.lastTransactionSent.get());
             assertFalse(f.player.inVehicle());
+            assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
 
-            SetBackData playerSetback = f.player.getSetbackTeleportUtil().getRequiredSetBack();
-            assertNotNull(playerSetback);
-            TeleportData sent = f.player.getSetbackTeleportUtil().pendingTeleports.stream()
-                    .filter(teleport -> teleport.getTransaction()
-                            == playerSetback.getTeleportData().getTransaction())
-                    .findFirst()
-                    .orElse(null);
-            assertNotNull(sent, "no player correction was sent for the removed horse's setback");
-            assertEquals(Vec3.ZERO, sent.getDeltaMovement(), "the player_position handed over the horse's jump");
-            Vec3 velocity = playerSetback.getVelocity() == null ? Vec3.ZERO : playerSetback.getVelocity();
-            assertEquals(0.0, velocity.y, 1.0E-9, "the dismounted player kept the horse's jump: " + velocity);
+            Vec3 velocity = f.player.compensatedEntities.getSelf().deltaMovement;
+            assertTrue(velocity.y <= 0.0, "the dismounted player kept the horse's jump: " + velocity);
             assertEquals(0.0, velocity.x, 1.0E-9);
             assertEquals(0.0, velocity.z, 1.0E-9);
+            // A first free move that rises by the horse's jump is not the player's own.
+            Vec3 free = new Vec3(f.player.x, f.player.y, f.player.z);
+            assertRejected(f.tick(free.add(0, vehicleSetback.getVelocity().y, 0), false), "VerticalOffset");
         }
     }
 

@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.collisions;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
@@ -25,8 +26,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class BedrockClientBlockShapeMappings {
-    // The bundled generator targets the latest Java version supported by this CultAC build.
-    private static final ClientVersion CATALOG_JAVA_VERSION = ClientVersion.V_26_2;
     private static final BedrockCollisionOverrideCatalog NATIVE_FALLBACK =
             BedrockCollisionOverrideCatalog.nativeFallback();
     private static final AtomicReference<Snapshot> SNAPSHOT = new AtomicReference<>(Snapshot.empty());
@@ -36,15 +35,16 @@ public final class BedrockClientBlockShapeMappings {
     public static void initialize() {
         BedrockCollisionOverrideCatalog artifact = BedrockCollisionOverrideCatalog.bundled();
         int nativeModelProtocol = ProtocolVersion.V26_3.protocol();
+        ClientVersion catalogVersion = ClientVersion.fromProtocolVersion(artifact.javaProtocol());
         int[] mappings = BedrockServerStateMappings.create(
                 nativeModelProtocol,
                 ac.cult.blocksim.data.DataTables.defaults().registry().stateCount(),
-                CATALOG_JAVA_VERSION.getProtocolVersion(),
+                artifact.javaProtocol(),
                 artifact.javaStateCount());
-        Snapshot snapshot = build(artifact.forServerStates(mappings));
+        Snapshot snapshot = build(artifact.forServerStates(mappings), catalogVersion);
         SNAPSHOT.set(snapshot);
         LogUtil.info("[ClientBlockShapes] Bedrock collision cache: native model protocol " + nativeModelProtocol
-                + " -> catalog protocol " + CATALOG_JAVA_VERSION.getProtocolVersion() + ", " + mappings.length
+                + " -> catalog protocol " + artifact.javaProtocol() + ", " + mappings.length
                 + " translated states, " + snapshot.staticMovementCount() + " static movement states, "
                 + snapshot.dynamicMovementCount() + " dynamic movement states.");
     }
@@ -69,7 +69,10 @@ public final class BedrockClientBlockShapeMappings {
         if (entry == null) {
             return Optional.empty();
         }
-        if (entry.dynamicMovement()) {
+        // A shape its client derives from the blocks around it is built where it stands.
+        if (entry.dynamicMovement()
+                || player.bedrockState.derivesShapesFromNeighbours()
+                        && BedrockCollisionWorldBuilder.neighbourDependentMovement(state)) {
             return buildDynamicMovement(snapshot.catalog(), player, state, x, y, z);
         }
         return Optional.of(entry.movement().copy().offset(x, y, z));
@@ -80,25 +83,32 @@ public final class BedrockClientBlockShapeMappings {
     }
 
     static Snapshot build(BedrockCollisionOverrideCatalog catalog) {
+        return build(catalog, ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol()));
+    }
+
+    static Snapshot build(BedrockCollisionOverrideCatalog catalog, ClientVersion catalogVersion) {
         Map<Integer, Entry> entries = new HashMap<>();
         for (int id = 0;
                 id < ac.cult.blocksim.data.DataTables.defaults().registry().stateCount();
                 id++) {
             int javaStateId = id;
             Optional<BedrockCollisionOverrideShape> override = catalog.override(javaStateId);
-            boolean dynamicMovement = BedrockCollisionWorldBuilder.dynamicMovement(javaStateId);
+            // A shape that reads the player's client state is built per query, like an actor-dependent one.
+            boolean dynamicMovement = BedrockCollisionWorldBuilder.dynamicMovement(javaStateId)
+                    || BedrockCollisionWorldBuilder.positionDependentMovement(javaStateId);
             boolean clientComputedMovement = BedrockCollisionWorldBuilder.clientComputedMovement(javaStateId);
             if (dynamicMovement) {
                 entries.put(javaStateId, new Entry(null, true, clientComputedMovement));
                 continue;
             }
-            if (clientComputedMovement) {
+            // A moving piston takes the engine world's model as well, never Java's moving-piston shape.
+            if (clientComputedMovement || BlockIds.is(javaStateId, BlockIds.MOVING_PISTON)) {
                 CollisionBox movement = bedrockMovement(catalog, javaStateId, BedrockCollisionShapeQuery.NONE);
-                entries.put(javaStateId, new Entry(movement, false, true));
+                entries.put(javaStateId, new Entry(movement, false, clientComputedMovement));
                 continue;
             }
             Optional<CollisionBox> movement = override.map(shape -> fromLocalBoxes(shape.boxes()))
-                    .or(() -> VersionedJavaBlockShapes.movement(CATALOG_JAVA_VERSION, javaStateId, 0, 0, 0));
+                    .or(() -> VersionedJavaBlockShapes.movement(catalogVersion, javaStateId, 0, 0, 0));
             movement.ifPresent(shape -> entries.put(javaStateId, new Entry(shape, false, false)));
         }
         return new Snapshot(Map.copyOf(entries), catalog.shapeCount(), catalog);
@@ -107,8 +117,9 @@ public final class BedrockClientBlockShapeMappings {
     private static Optional<CollisionBox> buildDynamicMovement(
             BedrockCollisionOverrideCatalog catalog, CultPlayer player, int state, int x, int y, int z) {
         BlockPosition position = new BlockPosition(x, y, z);
-        BlockCollisionWorld world =
-                new BedrockCollisionWorldBuilder(catalog).build(Map.of(position, state), bedrockQuery(player));
+        BlockCollisionWorld world = new BedrockCollisionWorldBuilder(
+                        catalog, player.bedrockState.blockShapeContext(player))
+                .build(Map.of(position, state), bedrockQuery(player));
         return Optional.of(world.blockAt(position)
                 .map(block -> fromWorldBoxes(block.collisionBoxes()))
                 .orElse(NoCollisionBox.INSTANCE));

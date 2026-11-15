@@ -1,10 +1,7 @@
 package ac.cult.cultac.bedrock.replay.offline;
 
-import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
-import ac.cult.cultac.protocol.value.Direction;
-import ac.cult.cultac.utils.data.ShulkerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
@@ -63,11 +60,9 @@ final class OfflineBedrockReplayEvents {
             case "velocity", "entity_velocity" -> applyVelocity(player, event);
             case "explosion" -> applyExplosion(player, event);
             case "set_block", "block" -> applySetBlock(player, event);
-            case "piston", "block_event" -> applyPiston(player, event);
             case "add_entity", "entity" -> applyAddEntity(player, event);
             case "move_entity", "entity_move" -> applyMoveEntity(player, event);
             case "mount", "passengers" -> applyMount(player, event);
-            case "shulker_block", "shulker_box" -> applyShulkerBlock(player, event);
             case "bounding_box_acknowledged", "bounding_box_ack" ->
                 player.bedrockState.applyAcknowledgedBoundingBoxMetadata(
                         (float) doubleValue(event, "width", 0.6D), (float) doubleValue(event, "height", 1.8D));
@@ -100,20 +95,6 @@ final class OfflineBedrockReplayEvents {
         int state = blockState(event);
         applyBlockNow(player.compensatedWorld, pos, state);
         player.compensatedWorld.updateBlock(pos.getX(), pos.getY(), pos.getZ(), state);
-    }
-
-    private static void applyPiston(CultPlayer player, JsonObject event) throws IOException {
-        BlockPos pos = blockPos(event);
-        int state = blockState(event);
-        applyBlockNow(player.compensatedWorld, pos, state);
-        int transaction = nextTransaction(player, event);
-        int triggerType = intValue(event, "triggerType", intValue(event, "action", 0));
-        int triggerData = event.has("triggerData")
-                ? event.get("triggerData").getAsInt()
-                : direction(event, "direction", state).get3DDataValue();
-        player.compensatedWorld.pistons.handleBlockEvent(
-                pos, DataTables.defaults().registry().blockIndex(state), triggerType, triggerData, transaction);
-        confirmTransaction(player, transaction);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -185,14 +166,6 @@ final class OfflineBedrockReplayEvents {
         }
     }
 
-    private static void applyShulkerBlock(CultPlayer player, JsonObject event) {
-        BlockPos pos = blockPos(event);
-        boolean open = booleanValue(event, "open", true);
-        ShulkerData data = new ShulkerData(pos, player.lastTransactionSent.get(), !open);
-        player.compensatedWorld.openShulkerBoxes.remove(data);
-        player.compensatedWorld.openShulkerBoxes.add(data);
-    }
-
     private static void applyBlockNow(CompensatedWorld world, BlockPos pos, int state) {
         int chunkX = pos.getX() >> 4;
         int chunkZ = pos.getZ() >> 4;
@@ -221,14 +194,6 @@ final class OfflineBedrockReplayEvents {
         player.latencyUtils.handleNettySyncTransaction(transaction);
     }
 
-    private static int nextTransaction(CultPlayer player, JsonObject event) {
-        int explicit = intValue(event, "transaction", -1);
-        if (explicit > 0) {
-            return explicit;
-        }
-        return player.lastTransactionSent.get() + 1;
-    }
-
     private static int blockState(JsonObject event) throws IOException {
         return OfflineBlockStateParser.parse(string(event, "block", string(event, "state", "minecraft:air")));
     }
@@ -242,18 +207,6 @@ final class OfflineBedrockReplayEvents {
                 intValue(pos, "x", intValue(event, "x", 0)),
                 intValue(pos, "y", intValue(event, "y", 0)),
                 intValue(pos, "z", intValue(event, "z", 0)));
-    }
-
-    private static Direction direction(JsonObject event, String key, int state) {
-        String name = string(event, key, "");
-        if (!name.isBlank()) {
-            return Direction.valueOf(name.toUpperCase(java.util.Locale.ROOT));
-        }
-        var registry = DataTables.defaults().registry();
-        if (registry.hasProperty(state, "facing")) {
-            return Direction.valueOf(registry.value(state, "facing").toUpperCase(java.util.Locale.ROOT));
-        }
-        return Direction.NORTH;
     }
 
     private static Vec3 vector(JsonObject event, String... keys) {

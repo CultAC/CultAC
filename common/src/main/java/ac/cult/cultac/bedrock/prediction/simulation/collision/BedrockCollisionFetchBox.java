@@ -2,7 +2,16 @@ package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.prediction.world.BlockCollision;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import java.util.ArrayList;
+import java.util.List;
 
+/**
+ * The box a move fetches its block shapes from: the actor's box grown along the move, joined with the sneak, auto-step
+ * and vertical volumes, in the actor's float frame. A block shape joins the move only when it overlaps this box; a
+ * shape that only touches it does not.
+ */
 public final class BedrockCollisionFetchBox {
     private static final float MAX_MOVE_LENGTH = 16.0F;
     private static final float SNEAK_SHRINK = 0.025F;
@@ -12,7 +21,8 @@ public final class BedrockCollisionFetchBox {
 
     private BedrockCollisionFetchBox() {}
 
-    public static WorldCollisionBox of(WorldCollisionBox actor, Vec3d requestedMove, double maxUpStep) {
+    public static WorldCollisionBox of(
+            WorldCollisionBox actor, Vec3d requestedMove, double maxUpStep, BedrockCoordinateFrame frame) {
         float dx = (float) requestedMove.x(), dy = (float) requestedMove.y(), dz = (float) requestedMove.z();
         float lengthSquared = dx * dx + dy * dy + dz * dz;
         if (lengthSquared > MAX_MOVE_LENGTH * MAX_MOVE_LENGTH) {
@@ -22,12 +32,25 @@ public final class BedrockCollisionFetchBox {
             dz = dz / length * MAX_MOVE_LENGTH;
         }
         float step = (float) maxUpStep;
-        Box box = Box.of(actor);
+        Box box = Box.of(actor, frame);
         Box fetch = box.expand(dx, dy, dz)
                 .union(sneakVolume(box, dx, dz, step))
                 .union(autoStepVolume(box, dx, dy, dz, step))
                 .union(verticalVolume(box, dy));
-        return fetch.toWorld();
+        return fetch.toWorld(frame);
+    }
+
+    /** The shapes a move with this fetch box collides with: the block shapes it overlaps and every solid actor. */
+    public static List<BlockCollision> fetched(List<BlockCollision> shapes, WorldCollisionBox fetchBox) {
+        List<BlockCollision> fetched = new ArrayList<>(shapes.size());
+        for (BlockCollision shape : shapes) {
+            boolean solidActor =
+                    shape.block().isPresent() && shape.block().get().isEntityCollision();
+            if (solidActor || fetchBox.intersects(shape.box())) {
+                fetched.add(shape);
+            }
+        }
+        return fetched;
     }
 
     private static Box sneakVolume(Box box, float dx, float dz, float step) {
@@ -52,14 +75,14 @@ public final class BedrockCollisionFetchBox {
     }
 
     private record Box(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
-        static Box of(WorldCollisionBox box) {
+        static Box of(WorldCollisionBox box, BedrockCoordinateFrame frame) {
             return new Box(
-                    (float) box.minX(),
+                    frame.localX(box.minX()),
                     (float) box.minY(),
-                    (float) box.minZ(),
-                    (float) box.maxX(),
+                    frame.localZ(box.minZ()),
+                    frame.localX(box.maxX()),
                     (float) box.maxY(),
-                    (float) box.maxZ());
+                    frame.localZ(box.maxZ()));
         }
 
         Box expand(float x, float y, float z) {
@@ -94,8 +117,14 @@ public final class BedrockCollisionFetchBox {
                     Math.max(maxZ, other.maxZ));
         }
 
-        WorldCollisionBox toWorld() {
-            return new WorldCollisionBox(minX, minY, minZ, maxX, maxY, maxZ);
+        WorldCollisionBox toWorld(BedrockCoordinateFrame frame) {
+            return new WorldCollisionBox(
+                    frame.originX() + (double) minX,
+                    minY,
+                    frame.originZ() + (double) minZ,
+                    frame.originX() + (double) maxX,
+                    maxY,
+                    frame.originZ() + (double) maxZ);
         }
     }
 }

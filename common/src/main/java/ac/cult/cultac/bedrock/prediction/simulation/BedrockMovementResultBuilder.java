@@ -90,8 +90,11 @@ final class BedrockMovementResultBuilder {
                 .withWaterTravelFlag(postMoveEffects.waterTravelActive())
                 .withMovementBranch(postMoveEffects.movementBranch())
                 .withCameraWater(BedrockFallDistance.cameraWaterAfterMove(plan, collision))
-                .withDolphinBoost(state.dolphinBoost().endTick());
+                .withDolphinBoost(state.dolphinBoost().endTick())
+                .withSneakMoveScale(BedrockTravelInputControl.sneakMoveScaleAfterTick(
+                        current, frameFacts.context().equipmentState().swiftSneakLevel()));
         if (blockMove.collisionBox() != null) next = next.withCollisionBox(blockMove.collisionBox());
+        next = next.withPenetratingMove(blockMove.penetrating());
         if (state.boat() != null) {
             next = next.withBoat(state.boat().state());
         }
@@ -124,8 +127,10 @@ final class BedrockMovementResultBuilder {
                 state.input().options().maxUpStep(),
                 state.input().options().travelActive(),
                 state.groundJumpApplied(),
-                postMoveEffects.nonHopVelocity(),
-                collision.collisionFetchBox());
+                collision.collisionFetchBox(),
+                blockMove.solidActorOrder(),
+                blockMove.solidActorOrderRange(),
+                blockMove.preCastPosition());
     }
 
     private static double horizontalInputLimit(BedrockTravelPlan plan) {

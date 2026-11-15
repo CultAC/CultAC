@@ -2,8 +2,10 @@ package ac.cult.cultac.checks.impl.movement;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
+import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.player.CultPlayer;
@@ -63,8 +65,8 @@ public class GhostFriction extends Check implements PostPredictionListener {
         if (context.getVehicle() != null
                 || context.usesFallFlyingMovement()
                 || player.isFlying
-                || context.getWorldData().getInWater().determineOptimistically()
-                || context.getWorldData().getInLava().determineOptimistically()
+                || context.getWorldData().isInWater()
+                || context.getWorldData().isInLava()
                 || result.getValidMovements() == null
                 || result.getValidMovements().getClosestTrace() == null) {
             clear();
@@ -73,12 +75,15 @@ public class GhostFriction extends Check implements PostPredictionListener {
         // A set_entity_motion replaces the velocity the excess was carried in, a correction's included.
         if (result.getInitialStartingVel().isKnockback()) clear();
 
-        // The closest candidate is input-free; the circular input allowance takes it to the reported move.
         Vec3 attempted = VelocityCandidates.preCollisionVelocity(result);
         Vec3 candidate = result.getAcceptedClosestToTarget();
         Vec3 target = result.getTarget();
-        double inputX = target.x - candidate.x;
-        double inputZ = target.z - candidate.z;
+        // A candidate with an exact input already moved by what LivingEntity#moveRelative added. Any other is
+        // input-free, and the circular input allowance takes it to the reported move.
+        PredVector start = result.getInitialStartingVel();
+        Vec3 input = JavaTravelInputs.isExact(start) ? start.getTravelInput() : target.subtract(candidate);
+        double inputX = input.x;
+        double inputZ = input.z;
         MainSupportingBlockData support = context.getLastTickMainSupportingBlockData();
         float clientFriction = BlockProperties.getFriction(player, support, context.getStart());
         float serverFriction = context.getLastOnGround().determinePessimistically()
@@ -136,7 +141,7 @@ public class GhostFriction extends Check implements PostPredictionListener {
         Vec3 nearest = null;
         double nearestDistance = Double.MAX_VALUE;
         for (Vec3 velocity : NextTickVelocityDeriver.findVelocitiesForNextTick(
-                player, result, player.checkManager.getSimulationProcessor().getLastPrediction(), target, null)) {
+                player, result, player.checkManager.getSimulationProcessor().getLastPrediction(), null)) {
             double distance = Math.hypot(velocity.x - carriedX, velocity.z - carriedZ);
             if (distance < nearestDistance) {
                 nearest = velocity;

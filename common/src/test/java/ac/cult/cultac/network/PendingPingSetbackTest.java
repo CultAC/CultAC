@@ -200,13 +200,13 @@ class PendingPingSetbackTest {
             for (int z = -1; z <= 1; z++) world.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), air);
         }
         world.updateBlock(new BlockPos(-1, FLOOR_Y - 1, 0), stone);
-        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
 
         world.advanceClientPredictionSequence(world.clientPredictionSequence() + 1);
         world.startPredicting();
         world.updateBlock(REFUSED, stone);
         world.stopPredicting(world.clientPredictionSequence());
-        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
 
         answerAll(f);
         f.player.sendTransaction();

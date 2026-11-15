@@ -27,6 +27,8 @@ import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * A client in deep water starts sprinting while its eye is under the surface. Entity#updateSwimming swims it on the next
@@ -39,6 +41,8 @@ class JavaSprintSwimStartTest {
             new ServerboundPlayerInput(true, false, false, false, false, false, false);
     private static final ServerboundPlayerInput FORWARD_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    private static final ServerboundPlayerInput FORWARD_SPRINT_JUMP =
+            new ServerboundPlayerInput(true, false, false, false, true, false, true);
     private static final ServerboundPlayerInput BACK_SPRINT =
             new ServerboundPlayerInput(false, true, false, false, false, false, true);
     private static final ServerboundPlayerInput BACK_LEFT_SPRINT =
@@ -101,13 +105,71 @@ class JavaSprintSwimStartTest {
                 double y = swimPitch(f, velocity.y, lookY, position, tick == 0);
                 Vec3 input = ClientMoveInput.of(f, FORWARD, 1.0F, 0.02F, yaw);
                 delta = new Vec3(velocity.x + input.x, y, velocity.z + input.z);
-                position = position.add(delta);
+                // Entity#collide stops a sinking swimmer on the pool floor; Entity#move then zeroes its fall.
+                boolean lands = position.y + y < FLOOR_Y;
+                position = new Vec3(position.x + delta.x, lands ? FLOOR_Y : position.y + y, position.z + delta.z);
+                if (lands) y = 0.0;
                 String where = "yaw " + yaw + " pitch " + pitch + " stop tick " + tick;
-                assertExact(f.tick(position, false), where);
+                assertExact(f.tick(position, lands), where);
                 assertEquals(tick == 0 ? Pose.SWIMMING : Pose.STANDING, f.player.pose, where);
                 velocity = new Vec3(delta.x * 0.8F, fluidFalling(y <= 0.0, y * 0.8F), delta.z * 0.8F);
             }
         }
+    }
+
+    /**
+     * Player#travel pulls a swimmer looking up toward its look only while its head is in water or LivingEntity#jumping
+     * is set. LivingEntity#aiStep clears jumping, with xxa and zza, while a dead player is immobile, though PLAYER_INPUT
+     * still reports the held jump key; a living swimmer's jump first adds LivingEntity#jumpInLiquid's 0.04.
+     */
+    @ParameterizedTest(name = "dead {0}")
+    @CsvSource({"false", "true"})
+    void onlyALivingSwimmersJumpPullsItWithItsHeadOverTheWater(boolean dead) throws Exception {
+        try (var f = pool(FLOOR_Y + 2)) {
+            float yaw = 0.0F;
+            float pitch = -30.0F;
+            f.player.xRot = yaw;
+            f.player.yRot = pitch;
+            double lookY = -f.player.trigHandler.sin(pitch * ((float) Math.PI / 180F));
+            Vec3 position = new Vec3(0.5, FLOOR_Y + 1.2, 0.5);
+            f.place(position, Vec3.ZERO);
+            f.input(FORWARD);
+            Vec3 delta = ClientMoveInput.of(f, FORWARD, 1.0F, 0.02F, yaw);
+            position = position.add(delta);
+            assertExact(f.tick(position, false), "first tick");
+            Vec3 velocity = new Vec3(delta.x * 0.8F, -0.005, delta.z * 0.8F);
+
+            command(f, PlayerCommandAction.START_SPRINTING);
+            f.input(FORWARD_SPRINT);
+            int tick = 1;
+            for (; tick == 1 || headInWater(f, position); tick++) {
+                assertTrue(tick < 40, "the swimmer never raised its head over the surface");
+                double y = swimPitch(f, velocity.y, lookY, position, tick > 1);
+                Vec3 input = ClientMoveInput.of(f, FORWARD_SPRINT, 1.0F, 0.02F, yaw);
+                delta = new Vec3(velocity.x + input.x, y, velocity.z + input.z);
+                position = position.add(delta);
+                assertExact(f.tick(position, false), "sprint tick " + tick);
+                velocity = new Vec3(delta.x * 0.9F, y * 0.8F, delta.z * 0.9F);
+            }
+            assertEquals(Pose.SWIMMING, f.player.pose);
+
+            if (dead) DeadPlayerSetbackTest.die(f);
+            f.input(FORWARD_SPRINT_JUMP);
+            double y = Math.abs(velocity.y) < 0.003 ? 0.0 : velocity.y;
+            Vec3 input = Vec3.ZERO;
+            if (!dead) {
+                y += 0.04F;
+                y += (lookY - y) * (lookY < -0.2 ? 0.085 : 0.06);
+                input = ClientMoveInput.of(f, FORWARD_SPRINT_JUMP, 1.0F, 0.02F, yaw);
+            }
+            delta = new Vec3(velocity.x + input.x, y, velocity.z + input.z);
+            position = position.add(delta);
+            assertExact(f.tick(position, false), (dead ? "dead" : "living") + " jump tick " + tick);
+        }
+    }
+
+    private static boolean headInWater(JavaTickFixture f, Vec3 position) {
+        return f.player.compensatedWorld.getWaterFluidLevelAt(position.x, position.y + 0.9, position.z) > 0;
     }
 
     /**
@@ -145,7 +207,7 @@ class JavaSprintSwimStartTest {
                             new BlockPos(x, FLOOR_Y + 1, z), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             sprintG(f);
             float yaw = 0.0F;
             f.player.xRot = yaw;
@@ -205,7 +267,7 @@ class JavaSprintSwimStartTest {
             assertEquals(0, sprintG.violations, "a latched swimmer is SprintG");
 
             water(f, false);
-            groundTick(f, state, yaw);
+            dryTickAfterTheSwim(f, state, yaw);
             assertFalse(f.player.swimState.swimming(), "the swim outlived leaving the water");
             assertEquals(Pose.STANDING, f.player.pose);
 
@@ -226,6 +288,19 @@ class JavaSprintSwimStartTest {
         assertExact(f.tick(state[0], true), "ground tick");
         double friction = 0.6F * 0.91F;
         state[1] = new Vec3(delta.x * friction, 0.0, delta.z * friction);
+    }
+
+    /**
+     * The tick after the water is gone. A sprinter has no fluid gravity, so the last water tick moved with no vertical
+     * velocity and Entity#move left onGround false: LivingEntity#travelInAir adds Player#getFlyingSpeed's sprinting
+     * 0.025999999F with the 0.91F friction. The pose is still SWIMMING until Player#updatePlayerPose, which
+     * LocalPlayer#isMovingSlowly counts as crawling out of water.
+     */
+    private static void dryTickAfterTheSwim(JavaTickFixture f, Vec3[] state, float yaw) {
+        Vec3 delta = state[1].add(ClientMoveInput.of(f, FORWARD_SPRINT, 0.3F, 0.025999999F, yaw));
+        state[0] = state[0].add(delta.x, 0.0, delta.z);
+        assertExact(f.tick(state[0], false), "dry tick after the swim");
+        state[1] = new Vec3(delta.x * 0.91F, 0.0, delta.z * 0.91F);
     }
 
     // LivingEntity#travelInWater on the floor: speed 0.02F and the sprinting 0.9F slowDown.
@@ -277,28 +352,33 @@ class JavaSprintSwimStartTest {
     }
 
     @Test
-    void swimmingBackwardOnTheFloorIsExact() throws Exception {
-        try (var f = pool(FLOOR_Y + 2)) {
-            float yaw = 30.0F;
-            f.player.xRot = yaw;
-            f.player.yRot = 0.0F;
-            Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
-            f.place(position, Vec3.ZERO);
-            assertExact(f.tick(position, true), "standing");
-            command(f, PlayerCommandAction.START_SPRINTING);
-            Vec3 velocity = Vec3.ZERO;
-            for (int tick = 1; tick < 9; tick++) {
-                ServerboundPlayerInput keys = tick < 3 ? FORWARD_SPRINT : tick < 6 ? BACK_SPRINT : BACK_LEFT_SPRINT;
-                f.input(keys);
-                Vec3 delta = velocity.add(ClientMoveInput.of(f, keys, 1.0F, 0.02F, yaw));
-                position = position.add(delta.x, 0.0, delta.z);
-                PredictionResult result = f.tick(position, true);
-                assertExact(result, "sprint tick " + tick);
-                assertFalse(result.hasFlag(OmniSprint.class), "sprint tick " + tick + ": " + describe(result));
-                velocity = new Vec3(delta.x * 0.9F, 0.0, delta.z * 0.9F);
+    void swimmingBackwardDuringTheGroundedTravelIsExact() throws Exception {
+        for (ServerboundPlayerInput backward : List.of(BACK_SPRINT, BACK_LEFT_SPRINT)) {
+            try (var f = pool(FLOOR_Y + 2)) {
+                float yaw = 30.0F;
+                f.player.xRot = yaw;
+                f.player.yRot = 0.0F;
+                Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
+                f.place(position, Vec3.ZERO);
+                assertExact(f.tick(position, true), "standing");
+                command(f, PlayerCommandAction.START_SPRINTING);
+                f.pongThrough(f.velocity(new Vec3(0, -0.02, 0)));
+                Vec3 velocity = Vec3.ZERO;
+                // The first downward travel lands. aiStep then permits a backward swim because it starts grounded;
+                // Entity#move with zero Y clears onGround, so a later unshifted backward tick must stop sprinting.
+                for (int tick = 1; tick <= 2; tick++) {
+                    ServerboundPlayerInput keys = tick == 1 ? FORWARD_SPRINT : backward;
+                    f.input(keys);
+                    Vec3 delta = velocity.add(ClientMoveInput.of(f, keys, 1.0F, 0.02F, yaw));
+                    position = position.add(delta.x, 0.0, delta.z);
+                    PredictionResult result = f.tick(position, tick == 1);
+                    assertExact(result, "sprint tick " + tick);
+                    assertFalse(result.hasFlag(OmniSprint.class), "sprint tick " + tick + ": " + describe(result));
+                    velocity = new Vec3(delta.x * 0.9F, 0.0, delta.z * 0.9F);
+                }
+                assertEquals(Pose.SWIMMING, f.player.pose);
+                assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
             }
-            assertEquals(Pose.SWIMMING, f.player.pose);
-            assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
         }
     }
 
@@ -385,7 +465,7 @@ class JavaSprintSwimStartTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return f;
     }
 
@@ -394,7 +474,7 @@ class JavaSprintSwimStartTest {
         for (int x = -8; x <= 8; x++) {
             for (int z = -8; z <= 8; z++) f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), state);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static SprintG sprintG(JavaTickFixture f) {
@@ -406,7 +486,8 @@ class JavaSprintSwimStartTest {
 
     private static void command(JavaTickFixture f, PlayerCommandAction action) {
         var command = new ServerboundPlayerCommand(f.player.entityID, action, 0);
-        new PacketEntityAction().onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, command), f.player, command);
+        new PacketEntityAction()
+                .onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, command), f.player, command);
     }
 
     /** Self entity data carrying the shared flags, applied by its trailing proof between client ticks. */

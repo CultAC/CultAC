@@ -204,6 +204,11 @@ class ClientMiningStateEquivalenceTest {
             }
             if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5)) {
                 float level = (float) player.compensatedWorld.getWaterFluidLevelAt(feet.x, eyeY, feet.z);
+                // Entity#updateFluidOnEyes adds the tags of the fluid at the eye, and an empty fluid has none: where
+                // the block's Y rounds up past the eye as a float, an eye in no water is still dry.
+                if (level == 0.0F && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
+                    return false;
+                }
                 return (float) Math.floor(eyeY) + level > eyeY;
             }
         }

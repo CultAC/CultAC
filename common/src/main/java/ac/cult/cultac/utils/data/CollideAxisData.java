@@ -1,59 +1,16 @@
 package ac.cult.cultac.utils.data;
 
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.debug.DebugText;
-import java.util.List;
-import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.Setter;
 
+@AllArgsConstructor
 @Data
 public class CollideAxisData implements DebugText.Recordable {
     CollideResult x;
     CollideResult yPos;
     CollideResult yNeg;
     CollideResult z;
-    List<SimpleCollisionBox> unknown;
-    // Each horizontal direction on its own: Entity#collide clips an axis only against shapes ahead of the move.
-    @Setter(AccessLevel.NONE)
-    CollideResult xPos;
-
-    @Setter(AccessLevel.NONE)
-    CollideResult xNeg;
-
-    @Setter(AccessLevel.NONE)
-    CollideResult zPos;
-
-    @Setter(AccessLevel.NONE)
-    CollideResult zNeg;
-
-    /** Each direction of X and Z holds the combined result when that result can lie in it. */
-    public CollideAxisData(
-            CollideResult x,
-            CollideResult yPos,
-            CollideResult yNeg,
-            CollideResult z,
-            List<SimpleCollisionBox> unknown) {
-        this.x = x;
-        this.yPos = yPos;
-        this.yNeg = yNeg;
-        this.z = z;
-        this.unknown = unknown;
-        this.xPos = inDirection(x, 1);
-        this.xNeg = inDirection(x, -1);
-        this.zPos = inDirection(z, 1);
-        this.zNeg = inDirection(z, -1);
-    }
-
-    private static CollideResult inDirection(CollideResult result, int direction) {
-        if (result == null) return null;
-        int side = result.side != 0 ? result.side : (int) Math.signum(result.result);
-        if (side != 0 && side != direction) return null;
-        return result instanceof ImmutableCollideResult
-                ? result
-                : new CollideResult(result.isLikelyCollide, result.result, direction);
-    }
 
     @Override
     public void appendTo(DebugText.Builder sb) {
@@ -65,8 +22,6 @@ public class CollideAxisData implements DebugText.Recordable {
                 .append(yNeg)
                 .append(", z=")
                 .append(z)
-                .append(", unknown=")
-                .appendAll(unknown)
                 .append(')');
     }
 
@@ -112,41 +67,11 @@ public class CollideAxisData implements DebugText.Recordable {
         else z.combine(likelyCollide, result, side);
     }
 
-    /** Combines a probe of X towards {@code direction} (+1/-1) into that direction's result. */
-    public void combineX(int direction, boolean likelyCollide, double result) {
-        if (direction > 0) xPos = combined(xPos, likelyCollide, result, direction);
-        else xNeg = combined(xNeg, likelyCollide, result, direction);
-    }
-
-    /** Combines a probe of Z towards {@code direction} (+1/-1) into that direction's result. */
-    public void combineZ(int direction, boolean likelyCollide, double result) {
-        if (direction > 0) zPos = combined(zPos, likelyCollide, result, direction);
-        else zNeg = combined(zNeg, likelyCollide, result, direction);
-    }
-
-    private static CollideResult combined(CollideResult current, boolean likelyCollide, double result, int direction) {
-        if (current == null) return new CollideResult(likelyCollide, result, direction);
-        return current.combine(likelyCollide, result, direction);
-    }
-
-    /** The result of X's probes towards the sign of {@code movement}; null when it is zero or none probed there. */
-    public CollideResult xTowards(double movement) {
-        return movement > 0.0D ? xPos : movement < 0.0D ? xNeg : null;
-    }
-
-    /** The result of Z's probes towards the sign of {@code movement}; null when it is zero or none probed there. */
-    public CollideResult zTowards(double movement) {
-        return movement > 0.0D ? zPos : movement < 0.0D ? zNeg : null;
-    }
-
     public boolean couldCollideHorizontally() {
         return x.isLikelyCollide() || z.isLikelyCollide();
     }
 
-    /**
-     * Collision data safe to share between players: every mutator of it and of its results throws, and its unknown
-     * list is empty and unmodifiable.
-     */
+    /** Collision data safe to share between players: every mutator of it and of its results throws. */
     public static CollideAxisData immutable(CollideResult x, CollideResult yPos, CollideResult yNeg, CollideResult z) {
         return new ImmutableCollideAxisData(
                 ImmutableCollideResult.of(x),
@@ -157,7 +82,7 @@ public class CollideAxisData implements DebugText.Recordable {
 
     private static final class ImmutableCollideAxisData extends CollideAxisData {
         ImmutableCollideAxisData(CollideResult x, CollideResult yPos, CollideResult yNeg, CollideResult z) {
-            super(x, yPos, yNeg, z, List.of());
+            super(x, yPos, yNeg, z);
         }
 
         @Override
@@ -181,11 +106,6 @@ public class CollideAxisData implements DebugText.Recordable {
         }
 
         @Override
-        public void setUnknown(List<SimpleCollisionBox> unknown) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
         public void combineX(boolean likelyCollide, double result, int side) {
             throw new UnsupportedOperationException();
         }
@@ -203,69 +123,6 @@ public class CollideAxisData implements DebugText.Recordable {
         @Override
         public void combineZ(boolean likelyCollide, double result, int side) {
             throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void combineX(int direction, boolean likelyCollide, double result) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void combineZ(int direction, boolean likelyCollide, double result) {
-            throw new UnsupportedOperationException();
-        }
-    }
-
-    /**
-     * Collision data its owner fills again for each probe: a result it combines into the first time stands in for a new
-     * one, so nothing read from it may outlive the next {@link #reset}.
-     */
-    public static final class Reusable extends CollideAxisData {
-        private final CollideResult spareX = new CollideResult(false, 0.0D);
-        private final CollideResult spareYPos = new CollideResult(false, 0.0D);
-        private final CollideResult spareYNeg = new CollideResult(false, 0.0D);
-        private final CollideResult spareZ = new CollideResult(false, 0.0D);
-
-        public Reusable() {
-            super(null, null, null, null, List.of());
-        }
-
-        /** This with every axis unset and no unknown boxes, as {@code new CollideAxisData(null, ..., List.of())}. */
-        public Reusable reset() {
-            x = null;
-            yPos = null;
-            yNeg = null;
-            z = null;
-            unknown = List.of();
-            xPos = null;
-            xNeg = null;
-            zPos = null;
-            zNeg = null;
-            return this;
-        }
-
-        @Override
-        public void combineX(boolean likelyCollide, double result, int side) {
-            if (x == null) x = spareX.reset(likelyCollide, result, side);
-            else x.combine(likelyCollide, result, side);
-        }
-
-        @Override
-        public void combineYPos(boolean likelyCollide, double result) {
-            if (yPos == null) yPos = spareYPos.reset(likelyCollide, result, 0);
-            else yPos.combine(likelyCollide, result, 0);
-        }
-
-        @Override
-        public void combineYNeg(boolean likelyCollide, double result) {
-            if (yNeg == null) yNeg = spareYNeg.reset(likelyCollide, result, 0);
-            else yNeg.combine(likelyCollide, result, 0);
-        }
-
-        @Override
-        public void combineZ(boolean likelyCollide, double result, int side) {
-            if (z == null) z = spareZ.reset(likelyCollide, result, side);
-            else z.combine(likelyCollide, result, side);
         }
     }
 
@@ -330,13 +187,6 @@ public class CollideAxisData implements DebugText.Recordable {
 
         public CollideResult combine(CollideResult newResult) {
             return combine(newResult.isLikelyCollide, newResult.result, newResult.side);
-        }
-
-        private CollideResult reset(boolean isLikelyCollide, double result, int side) {
-            this.isLikelyCollide = isLikelyCollide;
-            this.result = result;
-            this.side = side;
-            return this;
         }
 
         CollideResult combine(boolean newLikelyCollide, double newResult, int newSide) {

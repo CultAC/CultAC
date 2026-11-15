@@ -101,7 +101,6 @@ class JavaRodPullHookPositionTest {
                     v = (v - 0.08) * 0.98F;
                 }
                 Vec3 hookAt = HIGH.add(0.2, fallen + 0.3, 0.1);
-                hook(f, hookAt);
                 pull(f, false);
                 int burst = f.player.lastTransactionSent.get();
                 Vec3 at = HIGH;
@@ -112,6 +111,8 @@ class JavaRodPullHookPositionTest {
                     assertTrue(exact(falling), stall + " stalled " + tick + ": " + describe(falling));
                     velocity = (velocity - 0.08) * 0.98F;
                 }
+                // The client adds the hook in the frame that reels it: no FishingHook#tick has followed the player.
+                hook(f, hookAt);
                 f.pongThrough(burst);
                 Vec3 pull = pullFrom(HIGH.add(OWNER), hookAt);
                 PredictionResult pulled = f.tick(at.add(pull.x, velocity + pull.y, pull.z), false);
@@ -157,13 +158,14 @@ class JavaRodPullHookPositionTest {
             ((PacketEntityHorse) f.player.compensatedEntities.getEntity(CAMEL)).hasSaddle = true;
             f.setPassengers(CAMEL, List.of(f.player.entityID));
             f.pongThrough(f.player.lastTransactionSent.get());
-            PredictionResult riding = f.rideTick(camelAt, true);
+            // The camel mounts with no velocity: its first Entity#move does not collide below and reports it airborne.
+            PredictionResult riding = f.rideTick(camelAt, false);
             assertTrue(exact(riding), "riding: " + describe(riding));
 
             f.addRemotePlayer(OWNER_ID, camelAt.add(OWNER), GameMode.SURVIVAL);
             f.player.compensatedEntities.addEntity(
                     HOOK, EntityTypeIds.FISHING_BOBBER, camelAt.add(0, 2, 0), 0, 0, OWNER_ID);
-            ((PacketEntityHook) f.player.compensatedEntities.getEntity(HOOK)).attached = f.player.entityID;
+            ((PacketEntityHook) f.player.compensatedEntities.getEntity(HOOK)).setAttached(f.player, f.player.entityID);
             pull(f, true);
             for (int tick = 0; tick < 2; tick++) {
                 PredictionResult pulled = f.rideTick(camelAt, true);
@@ -191,7 +193,7 @@ class JavaRodPullHookPositionTest {
     /** The owner's hook at {@code at}, attached to the local player. */
     private static void hook(JavaTickFixture f, Vec3 at) {
         f.player.compensatedEntities.addEntity(HOOK, EntityTypeIds.FISHING_BOBBER, at, 0, 0, OWNER_ID);
-        ((PacketEntityHook) f.player.compensatedEntities.getEntity(HOOK)).attached = f.player.entityID;
+        ((PacketEntityHook) f.player.compensatedEntities.getEntity(HOOK)).setAttached(f.player, f.player.entityID);
     }
 
     private static void pull(JavaTickFixture f, boolean answered) {

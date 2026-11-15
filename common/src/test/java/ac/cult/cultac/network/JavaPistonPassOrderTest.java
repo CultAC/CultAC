@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -50,7 +49,7 @@ class JavaPistonPassOrderTest {
             f.player.compensatedWorld.updateBlock(EAST_PISTON.relative(Direction.EAST), stone);
             f.player.compensatedWorld.updateBlock(NORTH_PISTON, north);
             f.player.compensatedWorld.updateBlock(NORTH_PISTON.relative(Direction.NORTH), stone);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             // The box spans x 0.4..1.0 and z 0.0..0.6: inside the east stone's first sweep, outside the north one's.
             double x = 0.7, z = 0.3;
@@ -101,7 +100,6 @@ class JavaPistonPassOrderTest {
         var packet = new ClientboundBlockEvent(pos, 0, facing.get3DDataValue(), REGISTRY.blockIndex(state));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());

@@ -2,8 +2,10 @@ package ac.cult.cultac.bedrock.prediction;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.bedrock.prediction.api.BedrockActorOrderRange;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockSolidActorOrders;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
@@ -80,10 +82,54 @@ public final class BedrockPredictionDebug {
         boolean missingObservation = player.isBedrockMovement() && observation == null;
         double offset = missingObservation
                 ? Double.NaN
-                : observation == null ? result.getOffset() : observation.validationOffset();
+                : observation == null ? result.getOffset() : preCastOffset(result, observation);
         Vec3 predictedWithInputs = observation == null ? javaPredictionVector : toJavaVec(observation.predictedDelta());
         Vec3 target = observation == null ? result.getTarget() : toJavaVec(observation.actualDelta());
         return new MovementDebugView(missingObservation, offset, predictedWithInputs, target);
+    }
+
+    /**
+     * The claimed end's distance from the travel's own end before the box rounded it to float, so an exact float
+     * match still shows the double residual. A selection an uncertainty moved off that end keeps its own offset.
+     */
+    private static double preCastOffset(PredictionResult result, BedrockMovementObservation observation) {
+        BedrockMovementResult movement = movementResult(result.getProfileResult(BedrockPredictionResult.class));
+        Vec3d preCast = movement == null ? null : movement.preCastPhysicalFeetPosition();
+        if (preCast == null || !movement.predictedPosition().equals(observation.predictedPosition())) {
+            return observation.validationOffset();
+        }
+        return preCast.subtract(observation.actualPosition()).length();
+    }
+
+    /**
+     * The order of the move's solid actors, only when it changed the selection: a move other than the collected
+     * order's was selected, or the claimed end was accepted inside the range the order gives, off the move's own end.
+     */
+    private static String actorOrderDebug(
+            PredictionResult result, BedrockMovementResult movement, String label, String value) {
+        int order = movement.solidActorOrder();
+        if (order == 0 && movement.solidActorOrderRange() == null) return "";
+        StringBuilder text = new StringBuilder();
+        if (order != 0 && !BedrockSolidActorOrders.isCollected(order)) {
+            text.append(label).append("actorOrders=").append(value).append(movement.solidActorOrders());
+        }
+        BedrockActorOrderRange range = movement.solidActorOrderRange();
+        Vec3 accepted = result.getAcceptedClosestToTarget();
+        if (range != null && accepted != null) {
+            Vec3d own = movement.predictedPosition()
+                    .subtract(movement.previousState().physicalFeetPosition());
+            if (accepted.x != own.x() || accepted.y != own.y() || accepted.z != own.z()) {
+                text.append(label).append("actorOrderRange=").append(value).append(range.describe());
+            }
+            if (range.bufferedAxes() != 0) {
+                text.append(label)
+                        .append("actorBufferSpend=")
+                        .append(value)
+                        .append(range.buffered(own, new Vec3d(accepted.x, accepted.y, accepted.z)));
+                text.append(label).append("actorBufferLimit=").append(value).append(range.bufferDistance());
+            }
+        }
+        return text.toString();
     }
 
     public static String formatConsoleDebug(
@@ -115,11 +161,14 @@ public final class BedrockPredictionDebug {
         BedrockMovementResult movementResult = movementResult(bedrockResult);
         BedrockMovementObservation observation = currentObservation(player, predictionComplete.getPredictionResult());
         if (movementResult != null && observation != null) {
+            builder.append(" rawPositionOffset=").append(observation.rawPositionOffset());
+            builder.append(" positionOffset=").append(observation.positionOffset());
             builder.append(" predictedPos=").append(formatVectorDebug(observation.predictedPosition()));
             builder.append(" packetPos=").append(formatVectorDebug(observation.actualPosition()));
             builder.append(" predictedVel=").append(formatOffsetDebug(observation.velocityOffset()));
             builder.append(" predictedTick=")
                     .append(movementResult.predictedState().clientTick());
+            builder.append(actorOrderDebug(result, movementResult, " ", ""));
             builder.append(" cause=ENGINE_PHYSICS");
             builder.append(" correction=SET_POSITION");
         }
@@ -167,6 +216,7 @@ public final class BedrockPredictionDebug {
             message.append(" &8predictedVel=&f").append(formatOffsetDebug(observation.velocityOffset()));
             message.append(" &8predictedTick=&f")
                     .append(movementResult.predictedState().clientTick());
+            message.append(actorOrderDebug(result, movementResult, " &8", "&f"));
             message.append(" &8cause=&f").append("ENGINE_PHYSICS");
             message.append(" &8correction=&f").append("SET_POSITION");
         }

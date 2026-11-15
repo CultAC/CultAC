@@ -49,7 +49,7 @@ class BoatFlowingWaterPathTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(SEAT, Vec3.ZERO);
         f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, SEAT, 0, 0, 0);
         f.setPassengers(BOAT, List.of(f.player.entityID));

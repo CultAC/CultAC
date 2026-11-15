@@ -9,6 +9,9 @@ import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 
 public final class BedrockActorDimensions {
     private static final double BEDROCK_LOW_POSE_HEIGHT = 0.6F;
+    private static final float BEDROCK_SNEAKING_HEIGHT = 1.49F;
+    private static final float BEDROCK_DEFINITION_HEIGHT = 1.8F;
+    private static final double SAME_SIZE = 1.0E-5D;
 
     private BedrockActorDimensions() {}
 
@@ -55,7 +58,7 @@ public final class BedrockActorDimensions {
             }
             double height = switch (mode) {
                 case HORIZONTAL -> definition.width();
-                case SNEAKING -> (double) 1.49F;
+                case SNEAKING -> sneakingHeight(definition);
                 case DEFAULT -> definition.height();
             };
             return new Resolved(mode, new PlayerDimensionsState(definition.width(), height));
@@ -73,6 +76,47 @@ public final class BedrockActorDimensions {
             return horizontalPoseDimensions(currentDimensions);
         }
         return new Resolved(mode, currentDimensions);
+    }
+
+    /** The client multiplies its collision definition by the scale in its own entity data, in float. */
+    public static PlayerDimensionsState scaledDefinition(PlayerDimensionsState definition, float scale) {
+        return scale == 1.0F
+                ? definition
+                : new PlayerDimensionsState((float) definition.width() * scale, (float) definition.height() * scale);
+    }
+
+    /** The client multiplies its sneaking height by its scale too, in float. */
+    public static double sneakingHeight(float scale) {
+        return BEDROCK_SNEAKING_HEIGHT * scale;
+    }
+
+    /** The definition is the client's 1.8 high standing box times its scale. */
+    private static double sneakingHeight(PlayerDimensionsState definition) {
+        return sneakingHeight((float) (definition.height() / BEDROCK_DEFINITION_HEIGHT));
+    }
+
+    /**
+     * Installs the collision definition the client now holds. A changed definition is a new scale: the client
+     * rebuilds its box at once, without waiting for a pose change, so the carried box is resized in its pose.
+     */
+    public static BedrockMovementState withCollisionDefinition(
+            BedrockMovementState state, PlayerDimensionsState definition) {
+        PlayerDimensionsState previous = state.collisionDefinition();
+        if (definition.equals(previous)) return state;
+        state = state.withCollisionDefinition(definition);
+        if (previous == null || state.isVehicle()) return state;
+        PlayerDimensionsState carried = state.playerDimensions();
+        // The standing, sneaking and low boxes all follow the definition.
+        double height = Math.abs(carried.height() - previous.height()) < SAME_SIZE
+                ? definition.height()
+                : Math.abs(carried.height() - sneakingHeight(previous)) < SAME_SIZE
+                        ? sneakingHeight(definition)
+                        : Math.abs(carried.height() - previous.width()) < SAME_SIZE
+                                ? definition.width()
+                                : carried.height();
+        PlayerDimensionsState acknowledged = state.acknowledgedPlayerDimensions();
+        return state.withPlayerDimensions(new PlayerDimensionsState(definition.width(), height), false)
+                .withAcknowledgedPlayerDimensions(acknowledged);
     }
 
     private static boolean resizeRequested(

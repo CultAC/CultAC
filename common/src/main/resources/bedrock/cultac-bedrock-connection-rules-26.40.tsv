@@ -1,0 +1,1253 @@
+minecraft:acacia_button	rule	0x0
+minecraft:acacia_door	rule	0x0
+minecraft:acacia_double_slab	none	
+minecraft:acacia_fence	rule	0x1
+minecraft:acacia_fence_gate	hook:fence_gate	
+minecraft:acacia_hanging_sign	rule	0x0
+minecraft:acacia_leaves	rule	0x0
+minecraft:acacia_log	none	
+minecraft:acacia_planks	none	
+minecraft:acacia_pressure_plate	rule	0x0
+minecraft:acacia_sapling	rule	0x0
+minecraft:acacia_shelf	hook:shelf	
+minecraft:acacia_slab	hook:half_slab	
+minecraft:acacia_stairs	hook:stair	
+minecraft:acacia_standing_sign	rule	0x0
+minecraft:acacia_trapdoor	hook:trapdoor	
+minecraft:acacia_wall_sign	rule	0x0
+minecraft:acacia_wood	none	
+minecraft:activator_rail	rule	0x0
+minecraft:air	rule	0x0
+minecraft:allium	rule	0x0
+minecraft:allow	none	
+minecraft:amethyst_block	none	
+minecraft:amethyst_cluster	rule	0x0
+minecraft:ancient_debris	none	
+minecraft:andesite	none	
+minecraft:andesite_double_slab	none	
+minecraft:andesite_slab	hook:half_slab	
+minecraft:andesite_stairs	hook:stair	
+minecraft:andesite_wall	rule	0xc
+minecraft:anvil	rule	0x0
+minecraft:azalea	rule	0x0
+minecraft:azalea_leaves	rule	0x0
+minecraft:azalea_leaves_flowered	rule	0x0
+minecraft:azure_bluet	rule	0x0
+minecraft:bamboo	rule	0x0
+minecraft:bamboo_block	none	
+minecraft:bamboo_button	rule	0x0
+minecraft:bamboo_door	rule	0x0
+minecraft:bamboo_double_slab	none	
+minecraft:bamboo_fence	rule	0x1
+minecraft:bamboo_fence_gate	hook:fence_gate	
+minecraft:bamboo_hanging_sign	rule	0x0
+minecraft:bamboo_mosaic	none	
+minecraft:bamboo_mosaic_double_slab	none	
+minecraft:bamboo_mosaic_slab	hook:half_slab	
+minecraft:bamboo_mosaic_stairs	hook:stair	
+minecraft:bamboo_planks	none	
+minecraft:bamboo_pressure_plate	rule	0x0
+minecraft:bamboo_sapling	rule	0x0
+minecraft:bamboo_shelf	hook:shelf	
+minecraft:bamboo_slab	hook:half_slab	
+minecraft:bamboo_stairs	hook:stair	
+minecraft:bamboo_standing_sign	rule	0x0
+minecraft:bamboo_trapdoor	hook:trapdoor	
+minecraft:bamboo_wall_sign	rule	0x0
+minecraft:barrel	none	
+minecraft:barrier	rule	0x0
+minecraft:basalt	none	
+minecraft:bed	rule	0x0
+minecraft:bedrock	none	
+minecraft:bee_nest	none	
+minecraft:beehive	none	
+minecraft:beetroot	rule	0x0
+minecraft:bell	rule	0x0
+minecraft:big_dripleaf	rule	0x0
+minecraft:birch_button	rule	0x0
+minecraft:birch_door	rule	0x0
+minecraft:birch_double_slab	none	
+minecraft:birch_fence	rule	0x1
+minecraft:birch_fence_gate	hook:fence_gate	
+minecraft:birch_hanging_sign	rule	0x0
+minecraft:birch_leaves	rule	0x0
+minecraft:birch_log	none	
+minecraft:birch_planks	none	
+minecraft:birch_pressure_plate	rule	0x0
+minecraft:birch_sapling	rule	0x0
+minecraft:birch_shelf	hook:shelf	
+minecraft:birch_slab	hook:half_slab	
+minecraft:birch_stairs	hook:stair	
+minecraft:birch_standing_sign	rule	0x0
+minecraft:birch_trapdoor	hook:trapdoor	
+minecraft:birch_wall_sign	rule	0x0
+minecraft:birch_wood	none	
+minecraft:black_candle	rule	0x0
+minecraft:black_candle_cake	rule	0x0
+minecraft:black_carpet	rule	0x0
+minecraft:black_concrete	none	
+minecraft:black_concrete_powder	none	
+minecraft:black_glazed_terracotta	none	
+minecraft:black_shulker_box	rule	0x0
+minecraft:black_stained_glass	none	
+minecraft:black_stained_glass_pane	rule	0xc
+minecraft:black_terracotta	none	
+minecraft:black_wool	none	
+minecraft:blackstone	none	
+minecraft:blackstone_double_slab	none	
+minecraft:blackstone_slab	hook:half_slab	
+minecraft:blackstone_stairs	hook:stair	
+minecraft:blackstone_wall	rule	0xc
+minecraft:blast_furnace	none	
+minecraft:blue_candle	rule	0x0
+minecraft:blue_candle_cake	rule	0x0
+minecraft:blue_carpet	rule	0x0
+minecraft:blue_concrete	none	
+minecraft:blue_concrete_powder	none	
+minecraft:blue_glazed_terracotta	none	
+minecraft:blue_ice	none	
+minecraft:blue_orchid	rule	0x0
+minecraft:blue_shulker_box	rule	0x0
+minecraft:blue_stained_glass	none	
+minecraft:blue_stained_glass_pane	rule	0xc
+minecraft:blue_terracotta	none	
+minecraft:blue_wool	none	
+minecraft:bone_block	none	
+minecraft:bookshelf	none	
+minecraft:border_block	rule	0xc
+minecraft:brain_coral	rule	0x0
+minecraft:brain_coral_block	none	
+minecraft:brain_coral_fan	rule	0x0
+minecraft:brain_coral_wall_fan	rule	0x0
+minecraft:brewing_stand	rule	0x0
+minecraft:brick_block	none	
+minecraft:brick_double_slab	none	
+minecraft:brick_slab	hook:half_slab	
+minecraft:brick_stairs	hook:stair	
+minecraft:brick_wall	rule	0xc
+minecraft:brown_candle	rule	0x0
+minecraft:brown_candle_cake	rule	0x0
+minecraft:brown_carpet	rule	0x0
+minecraft:brown_concrete	none	
+minecraft:brown_concrete_powder	none	
+minecraft:brown_glazed_terracotta	none	
+minecraft:brown_mushroom	rule	0x0
+minecraft:brown_mushroom_block	none	
+minecraft:brown_shulker_box	rule	0x0
+minecraft:brown_stained_glass	none	
+minecraft:brown_stained_glass_pane	rule	0xc
+minecraft:brown_terracotta	none	
+minecraft:brown_wool	none	
+minecraft:bubble_column	rule	0x0
+minecraft:bubble_coral	rule	0x0
+minecraft:bubble_coral_block	none	
+minecraft:bubble_coral_fan	rule	0x0
+minecraft:bubble_coral_wall_fan	rule	0x0
+minecraft:budding_amethyst	none	
+minecraft:bush	rule	0x0
+minecraft:cactus	rule	0x0
+minecraft:cactus_flower	rule	0x0
+minecraft:cake	rule	0x0
+minecraft:calcite	none	
+minecraft:calibrated_sculk_sensor	rule	0x0
+minecraft:camera	rule	0x0
+minecraft:campfire	rule	0x0
+minecraft:candle	rule	0x0
+minecraft:candle_cake	rule	0x0
+minecraft:carrots	rule	0x0
+minecraft:cartography_table	none	
+minecraft:carved_pumpkin	rule	0x0
+minecraft:cauldron	rule	0x0
+minecraft:cave_vines	rule	0x0
+minecraft:cave_vines_body_with_berries	rule	0x0
+minecraft:cave_vines_head_with_berries	rule	0x0
+minecraft:chain_command_block	none	
+minecraft:chalkboard	rule	0x0
+minecraft:chemical_heat	none	
+minecraft:cherry_button	rule	0x0
+minecraft:cherry_door	rule	0x0
+minecraft:cherry_double_slab	none	
+minecraft:cherry_fence	rule	0x1
+minecraft:cherry_fence_gate	hook:fence_gate	
+minecraft:cherry_hanging_sign	rule	0x0
+minecraft:cherry_leaves	rule	0x0
+minecraft:cherry_log	none	
+minecraft:cherry_planks	none	
+minecraft:cherry_pressure_plate	rule	0x0
+minecraft:cherry_sapling	rule	0x0
+minecraft:cherry_shelf	hook:shelf	
+minecraft:cherry_slab	hook:half_slab	
+minecraft:cherry_stairs	hook:stair	
+minecraft:cherry_standing_sign	rule	0x0
+minecraft:cherry_trapdoor	hook:trapdoor	
+minecraft:cherry_wall_sign	rule	0x0
+minecraft:cherry_wood	none	
+minecraft:chest	rule	0x0
+minecraft:chipped_anvil	rule	0x0
+minecraft:chiseled_bookshelf	none	
+minecraft:chiseled_cinnabar	none	
+minecraft:chiseled_copper	none	
+minecraft:chiseled_deepslate	none	
+minecraft:chiseled_nether_bricks	none	
+minecraft:chiseled_polished_blackstone	none	
+minecraft:chiseled_quartz_block	none	
+minecraft:chiseled_red_sandstone	none	
+minecraft:chiseled_resin_bricks	none	
+minecraft:chiseled_sandstone	none	
+minecraft:chiseled_stone_bricks	none	
+minecraft:chiseled_sulfur	none	
+minecraft:chiseled_tuff	none	
+minecraft:chiseled_tuff_bricks	none	
+minecraft:chorus_flower	rule	0x0
+minecraft:chorus_plant	rule	0x0
+minecraft:cinnabar	none	
+minecraft:cinnabar_brick_double_slab	none	
+minecraft:cinnabar_brick_slab	hook:half_slab	
+minecraft:cinnabar_brick_stairs	hook:stair	
+minecraft:cinnabar_brick_wall	rule	0xc
+minecraft:cinnabar_bricks	none	
+minecraft:cinnabar_double_slab	none	
+minecraft:cinnabar_slab	hook:half_slab	
+minecraft:cinnabar_stairs	hook:stair	
+minecraft:cinnabar_wall	rule	0xc
+minecraft:clay	none	
+minecraft:closed_eyeblossom	rule	0x0
+minecraft:coal_block	none	
+minecraft:coal_ore	none	
+minecraft:coarse_dirt	none	
+minecraft:cobbled_deepslate	none	
+minecraft:cobbled_deepslate_double_slab	none	
+minecraft:cobbled_deepslate_slab	hook:half_slab	
+minecraft:cobbled_deepslate_stairs	hook:stair	
+minecraft:cobbled_deepslate_wall	rule	0xc
+minecraft:cobblestone	none	
+minecraft:cobblestone_double_slab	none	
+minecraft:cobblestone_slab	hook:half_slab	
+minecraft:cobblestone_wall	rule	0xc
+minecraft:cocoa	rule	0x0
+minecraft:colored_torch_blue	rule	0x0
+minecraft:colored_torch_green	rule	0x0
+minecraft:colored_torch_purple	rule	0x0
+minecraft:colored_torch_red	rule	0x0
+minecraft:command_block	none	
+minecraft:composter	none	
+minecraft:compound_creator	none	
+minecraft:conduit	rule	0x0
+minecraft:copper_bars	rule	0xc
+minecraft:copper_block	none	
+minecraft:copper_bulb	none	
+minecraft:copper_chain	rule	0x0
+minecraft:copper_chest	rule	0x0
+minecraft:copper_door	rule	0x0
+minecraft:copper_golem_statue	rule	0x0
+minecraft:copper_grate	none	
+minecraft:copper_lantern	rule	0x0
+minecraft:copper_ore	none	
+minecraft:copper_torch	rule	0x0
+minecraft:copper_trapdoor	hook:trapdoor	
+minecraft:cornflower	rule	0x0
+minecraft:cracked_deepslate_bricks	none	
+minecraft:cracked_deepslate_tiles	none	
+minecraft:cracked_nether_bricks	none	
+minecraft:cracked_polished_blackstone_bricks	none	
+minecraft:cracked_stone_bricks	none	
+minecraft:crafter	none	
+minecraft:crafting_table	none	
+minecraft:creaking_heart	none	
+minecraft:creeper_head	rule	0x0
+minecraft:crimson_button	rule	0x0
+minecraft:crimson_door	rule	0x0
+minecraft:crimson_double_slab	none	
+minecraft:crimson_fence	rule	0x1
+minecraft:crimson_fence_gate	hook:fence_gate	
+minecraft:crimson_fungus	rule	0x0
+minecraft:crimson_hanging_sign	rule	0x0
+minecraft:crimson_hyphae	none	
+minecraft:crimson_nylium	none	
+minecraft:crimson_planks	none	
+minecraft:crimson_pressure_plate	rule	0x0
+minecraft:crimson_roots	rule	0x0
+minecraft:crimson_shelf	hook:shelf	
+minecraft:crimson_slab	hook:half_slab	
+minecraft:crimson_stairs	hook:stair	
+minecraft:crimson_standing_sign	rule	0x0
+minecraft:crimson_stem	none	
+minecraft:crimson_trapdoor	hook:trapdoor	
+minecraft:crimson_wall_sign	rule	0x0
+minecraft:crying_obsidian	none	
+minecraft:cut_copper	none	
+minecraft:cut_copper_stairs	hook:stair	
+minecraft:cut_red_sandstone	none	
+minecraft:cut_red_sandstone_double_slab	none	
+minecraft:cut_red_sandstone_slab	hook:half_slab	
+minecraft:cut_sandstone	none	
+minecraft:cut_sandstone_double_slab	none	
+minecraft:cut_sandstone_slab	hook:half_slab	
+minecraft:cyan_candle	rule	0x0
+minecraft:cyan_candle_cake	rule	0x0
+minecraft:cyan_carpet	rule	0x0
+minecraft:cyan_concrete	none	
+minecraft:cyan_concrete_powder	none	
+minecraft:cyan_glazed_terracotta	none	
+minecraft:cyan_shulker_box	rule	0x0
+minecraft:cyan_stained_glass	none	
+minecraft:cyan_stained_glass_pane	rule	0xc
+minecraft:cyan_terracotta	none	
+minecraft:cyan_wool	none	
+minecraft:damaged_anvil	rule	0x0
+minecraft:dandelion	rule	0x0
+minecraft:dark_oak_button	rule	0x0
+minecraft:dark_oak_door	rule	0x0
+minecraft:dark_oak_double_slab	none	
+minecraft:dark_oak_fence	rule	0x1
+minecraft:dark_oak_fence_gate	hook:fence_gate	
+minecraft:dark_oak_hanging_sign	rule	0x0
+minecraft:dark_oak_leaves	rule	0x0
+minecraft:dark_oak_log	none	
+minecraft:dark_oak_planks	none	
+minecraft:dark_oak_pressure_plate	rule	0x0
+minecraft:dark_oak_sapling	rule	0x0
+minecraft:dark_oak_shelf	hook:shelf	
+minecraft:dark_oak_slab	hook:half_slab	
+minecraft:dark_oak_stairs	hook:stair	
+minecraft:dark_oak_trapdoor	hook:trapdoor	
+minecraft:dark_oak_wood	none	
+minecraft:dark_prismarine	none	
+minecraft:dark_prismarine_double_slab	none	
+minecraft:dark_prismarine_slab	hook:half_slab	
+minecraft:dark_prismarine_stairs	hook:stair	
+minecraft:darkoak_standing_sign	rule	0x0
+minecraft:darkoak_wall_sign	rule	0x0
+minecraft:daylight_detector	rule	0x0
+minecraft:daylight_detector_inverted	rule	0x0
+minecraft:dead_brain_coral	rule	0x0
+minecraft:dead_brain_coral_block	none	
+minecraft:dead_brain_coral_fan	rule	0x0
+minecraft:dead_brain_coral_wall_fan	rule	0x0
+minecraft:dead_bubble_coral	rule	0x0
+minecraft:dead_bubble_coral_block	none	
+minecraft:dead_bubble_coral_fan	rule	0x0
+minecraft:dead_bubble_coral_wall_fan	rule	0x0
+minecraft:dead_fire_coral	rule	0x0
+minecraft:dead_fire_coral_block	none	
+minecraft:dead_fire_coral_fan	rule	0x0
+minecraft:dead_fire_coral_wall_fan	rule	0x0
+minecraft:dead_horn_coral	rule	0x0
+minecraft:dead_horn_coral_block	none	
+minecraft:dead_horn_coral_fan	rule	0x0
+minecraft:dead_horn_coral_wall_fan	rule	0x0
+minecraft:dead_tube_coral	rule	0x0
+minecraft:dead_tube_coral_block	none	
+minecraft:dead_tube_coral_fan	rule	0x0
+minecraft:dead_tube_coral_wall_fan	rule	0x0
+minecraft:deadbush	rule	0x0
+minecraft:decorated_pot	rule	0x0
+minecraft:deepslate	none	
+minecraft:deepslate_brick_double_slab	none	
+minecraft:deepslate_brick_slab	hook:half_slab	
+minecraft:deepslate_brick_stairs	hook:stair	
+minecraft:deepslate_brick_wall	rule	0xc
+minecraft:deepslate_bricks	none	
+minecraft:deepslate_coal_ore	none	
+minecraft:deepslate_copper_ore	none	
+minecraft:deepslate_diamond_ore	none	
+minecraft:deepslate_emerald_ore	none	
+minecraft:deepslate_gold_ore	none	
+minecraft:deepslate_iron_ore	none	
+minecraft:deepslate_lapis_ore	none	
+minecraft:deepslate_redstone_ore	none	
+minecraft:deepslate_tile_double_slab	none	
+minecraft:deepslate_tile_slab	hook:half_slab	
+minecraft:deepslate_tile_stairs	hook:stair	
+minecraft:deepslate_tile_wall	rule	0xc
+minecraft:deepslate_tiles	none	
+minecraft:deny	none	
+minecraft:deprecated_anvil	rule	0x0
+minecraft:deprecated_purpur_block_1	none	
+minecraft:deprecated_purpur_block_2	none	
+minecraft:detector_rail	rule	0x0
+minecraft:diamond_block	none	
+minecraft:diamond_ore	none	
+minecraft:diorite	none	
+minecraft:diorite_double_slab	none	
+minecraft:diorite_slab	hook:half_slab	
+minecraft:diorite_stairs	hook:stair	
+minecraft:diorite_wall	rule	0xc
+minecraft:dirt	none	
+minecraft:dirt_with_roots	none	
+minecraft:dispenser	none	
+minecraft:double_cut_copper_slab	none	
+minecraft:dragon_egg	rule	0x0
+minecraft:dragon_head	rule	0x0
+minecraft:dried_ghast	rule	0x0
+minecraft:dried_kelp_block	none	
+minecraft:dripstone_block	none	
+minecraft:dropper	none	
+minecraft:element_constructor	none	
+minecraft:emerald_block	none	
+minecraft:emerald_ore	none	
+minecraft:enchanting_table	rule	0x0
+minecraft:end_brick_stairs	hook:stair	
+minecraft:end_bricks	none	
+minecraft:end_gateway	rule	0x0
+minecraft:end_portal	rule	0x0
+minecraft:end_portal_frame	rule	0x0
+minecraft:end_rod	rule	0x0
+minecraft:end_stone	none	
+minecraft:end_stone_brick_double_slab	none	
+minecraft:end_stone_brick_slab	hook:half_slab	
+minecraft:end_stone_brick_wall	rule	0xc
+minecraft:ender_chest	rule	0x0
+minecraft:exposed_chiseled_copper	none	
+minecraft:exposed_copper	none	
+minecraft:exposed_copper_bars	rule	0xc
+minecraft:exposed_copper_bulb	none	
+minecraft:exposed_copper_chain	rule	0x0
+minecraft:exposed_copper_chest	rule	0x0
+minecraft:exposed_copper_door	rule	0x0
+minecraft:exposed_copper_golem_statue	rule	0x0
+minecraft:exposed_copper_grate	none	
+minecraft:exposed_copper_lantern	rule	0x0
+minecraft:exposed_copper_trapdoor	hook:trapdoor	
+minecraft:exposed_cut_copper	none	
+minecraft:exposed_cut_copper_slab	hook:half_slab	
+minecraft:exposed_cut_copper_stairs	hook:stair	
+minecraft:exposed_double_cut_copper_slab	none	
+minecraft:exposed_lightning_rod	rule	0x0
+minecraft:farmland	rule	0x0
+minecraft:fence_gate	hook:fence_gate	
+minecraft:fern	rule	0x0
+minecraft:fire	rule	0x0
+minecraft:fire_coral	rule	0x0
+minecraft:fire_coral_block	none	
+minecraft:fire_coral_fan	rule	0x0
+minecraft:fire_coral_wall_fan	rule	0x0
+minecraft:firefly_bush	rule	0x0
+minecraft:fletching_table	none	
+minecraft:flower_pot	rule	0x0
+minecraft:flowering_azalea	rule	0x0
+minecraft:flowing_lava	rule	0x0
+minecraft:flowing_water	rule	0x0
+minecraft:frame	rule	0x0
+minecraft:frog_spawn	rule	0x0
+minecraft:frosted_ice	none	
+minecraft:furnace	none	
+minecraft:gilded_blackstone	none	
+minecraft:glass	none	
+minecraft:glass_pane	rule	0xc
+minecraft:glow_frame	rule	0x0
+minecraft:glow_lichen	rule	0x0
+minecraft:glowingobsidian	none	
+minecraft:glowstone	none	
+minecraft:gold_block	none	
+minecraft:gold_ore	none	
+minecraft:golden_dandelion	rule	0x0
+minecraft:golden_rail	rule	0x0
+minecraft:granite	none	
+minecraft:granite_double_slab	none	
+minecraft:granite_slab	hook:half_slab	
+minecraft:granite_stairs	hook:stair	
+minecraft:granite_wall	rule	0xc
+minecraft:grass_block	none	
+minecraft:grass_path	rule	0x0
+minecraft:gravel	none	
+minecraft:gray_candle	rule	0x0
+minecraft:gray_candle_cake	rule	0x0
+minecraft:gray_carpet	rule	0x0
+minecraft:gray_concrete	none	
+minecraft:gray_concrete_powder	none	
+minecraft:gray_glazed_terracotta	none	
+minecraft:gray_shulker_box	rule	0x0
+minecraft:gray_stained_glass	none	
+minecraft:gray_stained_glass_pane	rule	0xc
+minecraft:gray_terracotta	none	
+minecraft:gray_wool	none	
+minecraft:green_candle	rule	0x0
+minecraft:green_candle_cake	rule	0x0
+minecraft:green_carpet	rule	0x0
+minecraft:green_concrete	none	
+minecraft:green_concrete_powder	none	
+minecraft:green_glazed_terracotta	none	
+minecraft:green_shulker_box	rule	0x0
+minecraft:green_stained_glass	none	
+minecraft:green_stained_glass_pane	rule	0xc
+minecraft:green_terracotta	none	
+minecraft:green_wool	none	
+minecraft:grindstone	rule	0x0
+minecraft:hanging_roots	rule	0x0
+minecraft:hard_black_stained_glass	none	
+minecraft:hard_black_stained_glass_pane	rule	0xc
+minecraft:hard_blue_stained_glass	none	
+minecraft:hard_blue_stained_glass_pane	rule	0xc
+minecraft:hard_brown_stained_glass	none	
+minecraft:hard_brown_stained_glass_pane	rule	0xc
+minecraft:hard_cyan_stained_glass	none	
+minecraft:hard_cyan_stained_glass_pane	rule	0xc
+minecraft:hard_glass	none	
+minecraft:hard_glass_pane	rule	0xc
+minecraft:hard_gray_stained_glass	none	
+minecraft:hard_gray_stained_glass_pane	rule	0xc
+minecraft:hard_green_stained_glass	none	
+minecraft:hard_green_stained_glass_pane	rule	0xc
+minecraft:hard_light_blue_stained_glass	none	
+minecraft:hard_light_blue_stained_glass_pane	rule	0xc
+minecraft:hard_light_gray_stained_glass	none	
+minecraft:hard_light_gray_stained_glass_pane	rule	0xc
+minecraft:hard_lime_stained_glass	none	
+minecraft:hard_lime_stained_glass_pane	rule	0xc
+minecraft:hard_magenta_stained_glass	none	
+minecraft:hard_magenta_stained_glass_pane	rule	0xc
+minecraft:hard_orange_stained_glass	none	
+minecraft:hard_orange_stained_glass_pane	rule	0xc
+minecraft:hard_pink_stained_glass	none	
+minecraft:hard_pink_stained_glass_pane	rule	0xc
+minecraft:hard_purple_stained_glass	none	
+minecraft:hard_purple_stained_glass_pane	rule	0xc
+minecraft:hard_red_stained_glass	none	
+minecraft:hard_red_stained_glass_pane	rule	0xc
+minecraft:hard_white_stained_glass	none	
+minecraft:hard_white_stained_glass_pane	rule	0xc
+minecraft:hard_yellow_stained_glass	none	
+minecraft:hard_yellow_stained_glass_pane	rule	0xc
+minecraft:hardened_clay	none	
+minecraft:hay_block	none	
+minecraft:heavy_core	rule	0x0
+minecraft:heavy_weighted_pressure_plate	rule	0x0
+minecraft:honey_block	none	
+minecraft:honeycomb_block	none	
+minecraft:hopper	rule	0x0
+minecraft:horn_coral	rule	0x0
+minecraft:horn_coral_block	none	
+minecraft:horn_coral_fan	rule	0x0
+minecraft:horn_coral_wall_fan	rule	0x0
+minecraft:ice	none	
+minecraft:infested_chiseled_stone_bricks	none	
+minecraft:infested_cobblestone	none	
+minecraft:infested_cracked_stone_bricks	none	
+minecraft:infested_deepslate	none	
+minecraft:infested_mossy_stone_bricks	none	
+minecraft:infested_stone	none	
+minecraft:infested_stone_bricks	none	
+minecraft:info_update	none	
+minecraft:info_update2	none	
+minecraft:invisible_bedrock	none	
+minecraft:iron_bars	rule	0xc
+minecraft:iron_block	none	
+minecraft:iron_chain	rule	0x0
+minecraft:iron_door	rule	0x0
+minecraft:iron_ore	none	
+minecraft:iron_trapdoor	hook:trapdoor	
+minecraft:jigsaw	rule	0x0
+minecraft:jukebox	none	
+minecraft:jungle_button	rule	0x0
+minecraft:jungle_door	rule	0x0
+minecraft:jungle_double_slab	none	
+minecraft:jungle_fence	rule	0x1
+minecraft:jungle_fence_gate	hook:fence_gate	
+minecraft:jungle_hanging_sign	rule	0x0
+minecraft:jungle_leaves	rule	0x0
+minecraft:jungle_log	none	
+minecraft:jungle_planks	none	
+minecraft:jungle_pressure_plate	rule	0x0
+minecraft:jungle_sapling	rule	0x0
+minecraft:jungle_shelf	hook:shelf	
+minecraft:jungle_slab	hook:half_slab	
+minecraft:jungle_stairs	hook:stair	
+minecraft:jungle_standing_sign	rule	0x0
+minecraft:jungle_trapdoor	hook:trapdoor	
+minecraft:jungle_wall_sign	rule	0x0
+minecraft:jungle_wood	none	
+minecraft:kelp	rule	0x0
+minecraft:lab_table	none	
+minecraft:ladder	rule	0x0
+minecraft:lantern	rule	0x0
+minecraft:lapis_block	none	
+minecraft:lapis_ore	none	
+minecraft:large_amethyst_bud	rule	0x0
+minecraft:large_fern	rule	0x0
+minecraft:lava	rule	0x0
+minecraft:leaf_litter	rule	0x0
+minecraft:lectern	rule	0x0
+minecraft:lever	rule	0x0
+minecraft:light_block_0	rule	0x0
+minecraft:light_block_1	rule	0x0
+minecraft:light_block_10	rule	0x0
+minecraft:light_block_11	rule	0x0
+minecraft:light_block_12	rule	0x0
+minecraft:light_block_13	rule	0x0
+minecraft:light_block_14	rule	0x0
+minecraft:light_block_15	rule	0x0
+minecraft:light_block_2	rule	0x0
+minecraft:light_block_3	rule	0x0
+minecraft:light_block_4	rule	0x0
+minecraft:light_block_5	rule	0x0
+minecraft:light_block_6	rule	0x0
+minecraft:light_block_7	rule	0x0
+minecraft:light_block_8	rule	0x0
+minecraft:light_block_9	rule	0x0
+minecraft:light_blue_candle	rule	0x0
+minecraft:light_blue_candle_cake	rule	0x0
+minecraft:light_blue_carpet	rule	0x0
+minecraft:light_blue_concrete	none	
+minecraft:light_blue_concrete_powder	none	
+minecraft:light_blue_glazed_terracotta	none	
+minecraft:light_blue_shulker_box	rule	0x0
+minecraft:light_blue_stained_glass	none	
+minecraft:light_blue_stained_glass_pane	rule	0xc
+minecraft:light_blue_terracotta	none	
+minecraft:light_blue_wool	none	
+minecraft:light_gray_candle	rule	0x0
+minecraft:light_gray_candle_cake	rule	0x0
+minecraft:light_gray_carpet	rule	0x0
+minecraft:light_gray_concrete	none	
+minecraft:light_gray_concrete_powder	none	
+minecraft:light_gray_shulker_box	rule	0x0
+minecraft:light_gray_stained_glass	none	
+minecraft:light_gray_stained_glass_pane	rule	0xc
+minecraft:light_gray_terracotta	none	
+minecraft:light_gray_wool	none	
+minecraft:light_weighted_pressure_plate	rule	0x0
+minecraft:lightning_rod	rule	0x0
+minecraft:lilac	rule	0x0
+minecraft:lily_of_the_valley	rule	0x0
+minecraft:lime_candle	rule	0x0
+minecraft:lime_candle_cake	rule	0x0
+minecraft:lime_carpet	rule	0x0
+minecraft:lime_concrete	none	
+minecraft:lime_concrete_powder	none	
+minecraft:lime_glazed_terracotta	none	
+minecraft:lime_shulker_box	rule	0x0
+minecraft:lime_stained_glass	none	
+minecraft:lime_stained_glass_pane	rule	0xc
+minecraft:lime_terracotta	none	
+minecraft:lime_wool	none	
+minecraft:lit_blast_furnace	none	
+minecraft:lit_deepslate_redstone_ore	none	
+minecraft:lit_furnace	none	
+minecraft:lit_pumpkin	rule	0x0
+minecraft:lit_redstone_lamp	none	
+minecraft:lit_redstone_ore	none	
+minecraft:lit_smoker	none	
+minecraft:lodestone	none	
+minecraft:loom	none	
+minecraft:magenta_candle	rule	0x0
+minecraft:magenta_candle_cake	rule	0x0
+minecraft:magenta_carpet	rule	0x0
+minecraft:magenta_concrete	none	
+minecraft:magenta_concrete_powder	none	
+minecraft:magenta_glazed_terracotta	none	
+minecraft:magenta_shulker_box	rule	0x0
+minecraft:magenta_stained_glass	none	
+minecraft:magenta_stained_glass_pane	rule	0xc
+minecraft:magenta_terracotta	none	
+minecraft:magenta_wool	none	
+minecraft:magma	none	
+minecraft:mangrove_button	rule	0x0
+minecraft:mangrove_door	rule	0x0
+minecraft:mangrove_double_slab	none	
+minecraft:mangrove_fence	rule	0x1
+minecraft:mangrove_fence_gate	hook:fence_gate	
+minecraft:mangrove_hanging_sign	rule	0x0
+minecraft:mangrove_leaves	rule	0x0
+minecraft:mangrove_log	none	
+minecraft:mangrove_planks	none	
+minecraft:mangrove_pressure_plate	rule	0x0
+minecraft:mangrove_propagule	rule	0x0
+minecraft:mangrove_shelf	hook:shelf	
+minecraft:mangrove_slab	hook:half_slab	
+minecraft:mangrove_stairs	hook:stair	
+minecraft:mangrove_standing_sign	rule	0x0
+minecraft:mangrove_trapdoor	hook:trapdoor	
+minecraft:mangrove_wall_sign	rule	0x0
+minecraft:mangrove_wood	none	
+minecraft:material_reducer	none	
+minecraft:medium_amethyst_bud	rule	0x0
+minecraft:melon_block	rule	0x0
+minecraft:melon_stem	rule	0x0
+minecraft:mob_spawner	none	
+minecraft:moss_block	none	
+minecraft:moss_carpet	rule	0x0
+minecraft:mossy_cobblestone	none	
+minecraft:mossy_cobblestone_double_slab	none	
+minecraft:mossy_cobblestone_slab	hook:half_slab	
+minecraft:mossy_cobblestone_stairs	hook:stair	
+minecraft:mossy_cobblestone_wall	rule	0xc
+minecraft:mossy_stone_brick_double_slab	none	
+minecraft:mossy_stone_brick_slab	hook:half_slab	
+minecraft:mossy_stone_brick_stairs	hook:stair	
+minecraft:mossy_stone_brick_wall	rule	0xc
+minecraft:mossy_stone_bricks	none	
+minecraft:moving_block	rule	0x0
+minecraft:mud	none	
+minecraft:mud_brick_double_slab	none	
+minecraft:mud_brick_slab	hook:half_slab	
+minecraft:mud_brick_stairs	hook:stair	
+minecraft:mud_brick_wall	rule	0xc
+minecraft:mud_bricks	none	
+minecraft:muddy_mangrove_roots	none	
+minecraft:mushroom_stem	none	
+minecraft:mycelium	none	
+minecraft:nether_brick	none	
+minecraft:nether_brick_double_slab	none	
+minecraft:nether_brick_fence	rule	0x2
+minecraft:nether_brick_slab	hook:half_slab	
+minecraft:nether_brick_stairs	hook:stair	
+minecraft:nether_brick_wall	rule	0xc
+minecraft:nether_gold_ore	none	
+minecraft:nether_sprouts	rule	0x0
+minecraft:nether_wart	rule	0x0
+minecraft:nether_wart_block	none	
+minecraft:netherite_block	none	
+minecraft:netherrack	none	
+minecraft:netherreactor	none	
+minecraft:normal_stone_double_slab	none	
+minecraft:normal_stone_slab	hook:half_slab	
+minecraft:normal_stone_stairs	hook:stair	
+minecraft:noteblock	none	
+minecraft:oak_double_slab	none	
+minecraft:oak_fence	rule	0x1
+minecraft:oak_hanging_sign	rule	0x0
+minecraft:oak_leaves	rule	0x0
+minecraft:oak_log	none	
+minecraft:oak_planks	none	
+minecraft:oak_sapling	rule	0x0
+minecraft:oak_shelf	hook:shelf	
+minecraft:oak_slab	hook:half_slab	
+minecraft:oak_stairs	hook:stair	
+minecraft:oak_wood	none	
+minecraft:observer	none	
+minecraft:obsidian	none	
+minecraft:ochre_froglight	none	
+minecraft:open_eyeblossom	rule	0x0
+minecraft:orange_candle	rule	0x0
+minecraft:orange_candle_cake	rule	0x0
+minecraft:orange_carpet	rule	0x0
+minecraft:orange_concrete	none	
+minecraft:orange_concrete_powder	none	
+minecraft:orange_glazed_terracotta	none	
+minecraft:orange_poplar_leaves	rule	0x0
+minecraft:orange_shulker_box	rule	0x0
+minecraft:orange_stained_glass	none	
+minecraft:orange_stained_glass_pane	rule	0xc
+minecraft:orange_terracotta	none	
+minecraft:orange_tulip	rule	0x0
+minecraft:orange_wool	none	
+minecraft:oxeye_daisy	rule	0x0
+minecraft:oxidized_chiseled_copper	none	
+minecraft:oxidized_copper	none	
+minecraft:oxidized_copper_bars	rule	0xc
+minecraft:oxidized_copper_bulb	none	
+minecraft:oxidized_copper_chain	rule	0x0
+minecraft:oxidized_copper_chest	rule	0x0
+minecraft:oxidized_copper_door	rule	0x0
+minecraft:oxidized_copper_golem_statue	rule	0x0
+minecraft:oxidized_copper_grate	none	
+minecraft:oxidized_copper_lantern	rule	0x0
+minecraft:oxidized_copper_trapdoor	hook:trapdoor	
+minecraft:oxidized_cut_copper	none	
+minecraft:oxidized_cut_copper_slab	hook:half_slab	
+minecraft:oxidized_cut_copper_stairs	hook:stair	
+minecraft:oxidized_double_cut_copper_slab	none	
+minecraft:oxidized_lightning_rod	rule	0x0
+minecraft:packed_ice	none	
+minecraft:packed_mud	none	
+minecraft:pale_hanging_moss	rule	0x0
+minecraft:pale_moss_block	none	
+minecraft:pale_moss_carpet	rule	0x0
+minecraft:pale_oak_button	rule	0x0
+minecraft:pale_oak_door	rule	0x0
+minecraft:pale_oak_double_slab	none	
+minecraft:pale_oak_fence	rule	0x1
+minecraft:pale_oak_fence_gate	hook:fence_gate	
+minecraft:pale_oak_hanging_sign	rule	0x0
+minecraft:pale_oak_leaves	rule	0x0
+minecraft:pale_oak_log	none	
+minecraft:pale_oak_planks	none	
+minecraft:pale_oak_pressure_plate	rule	0x0
+minecraft:pale_oak_sapling	rule	0x0
+minecraft:pale_oak_shelf	hook:shelf	
+minecraft:pale_oak_slab	hook:half_slab	
+minecraft:pale_oak_stairs	hook:stair	
+minecraft:pale_oak_standing_sign	rule	0x0
+minecraft:pale_oak_trapdoor	hook:trapdoor	
+minecraft:pale_oak_wall_sign	rule	0x0
+minecraft:pale_oak_wood	none	
+minecraft:pearlescent_froglight	none	
+minecraft:peony	rule	0x0
+minecraft:petrified_oak_double_slab	none	
+minecraft:petrified_oak_slab	hook:half_slab	
+minecraft:piglin_head	rule	0x0
+minecraft:pink_candle	rule	0x0
+minecraft:pink_candle_cake	rule	0x0
+minecraft:pink_carpet	rule	0x0
+minecraft:pink_concrete	none	
+minecraft:pink_concrete_powder	none	
+minecraft:pink_glazed_terracotta	none	
+minecraft:pink_petals	rule	0x0
+minecraft:pink_shulker_box	rule	0x0
+minecraft:pink_stained_glass	none	
+minecraft:pink_stained_glass_pane	rule	0xc
+minecraft:pink_terracotta	none	
+minecraft:pink_tulip	rule	0x0
+minecraft:pink_wool	none	
+minecraft:piston	none	
+minecraft:piston_arm_collision	hook:piston_arm	
+minecraft:pitcher_crop	rule	0x0
+minecraft:pitcher_plant	rule	0x0
+minecraft:player_head	rule	0x0
+minecraft:podzol	none	
+minecraft:pointed_dripstone	rule	0x0
+minecraft:polished_andesite	none	
+minecraft:polished_andesite_double_slab	none	
+minecraft:polished_andesite_slab	hook:half_slab	
+minecraft:polished_andesite_stairs	hook:stair	
+minecraft:polished_basalt	none	
+minecraft:polished_blackstone	none	
+minecraft:polished_blackstone_brick_double_slab	none	
+minecraft:polished_blackstone_brick_slab	hook:half_slab	
+minecraft:polished_blackstone_brick_stairs	hook:stair	
+minecraft:polished_blackstone_brick_wall	rule	0xc
+minecraft:polished_blackstone_bricks	none	
+minecraft:polished_blackstone_button	rule	0x0
+minecraft:polished_blackstone_double_slab	none	
+minecraft:polished_blackstone_pressure_plate	rule	0x0
+minecraft:polished_blackstone_slab	hook:half_slab	
+minecraft:polished_blackstone_stairs	hook:stair	
+minecraft:polished_blackstone_wall	rule	0xc
+minecraft:polished_cinnabar	none	
+minecraft:polished_cinnabar_double_slab	none	
+minecraft:polished_cinnabar_slab	hook:half_slab	
+minecraft:polished_cinnabar_stairs	hook:stair	
+minecraft:polished_cinnabar_wall	rule	0xc
+minecraft:polished_deepslate	none	
+minecraft:polished_deepslate_double_slab	none	
+minecraft:polished_deepslate_slab	hook:half_slab	
+minecraft:polished_deepslate_stairs	hook:stair	
+minecraft:polished_deepslate_wall	rule	0xc
+minecraft:polished_diorite	none	
+minecraft:polished_diorite_double_slab	none	
+minecraft:polished_diorite_slab	hook:half_slab	
+minecraft:polished_diorite_stairs	hook:stair	
+minecraft:polished_granite	none	
+minecraft:polished_granite_double_slab	none	
+minecraft:polished_granite_slab	hook:half_slab	
+minecraft:polished_granite_stairs	hook:stair	
+minecraft:polished_sulfur	none	
+minecraft:polished_sulfur_double_slab	none	
+minecraft:polished_sulfur_slab	hook:half_slab	
+minecraft:polished_sulfur_stairs	hook:stair	
+minecraft:polished_sulfur_wall	rule	0xc
+minecraft:polished_tuff	none	
+minecraft:polished_tuff_double_slab	none	
+minecraft:polished_tuff_slab	hook:half_slab	
+minecraft:polished_tuff_stairs	hook:stair	
+minecraft:polished_tuff_wall	rule	0xc
+minecraft:poplar_button	rule	0x0
+minecraft:poplar_door	rule	0x0
+minecraft:poplar_double_slab	none	
+minecraft:poplar_fence	rule	0x1
+minecraft:poplar_fence_gate	hook:fence_gate	
+minecraft:poplar_hanging_sign	rule	0x0
+minecraft:poplar_log	none	
+minecraft:poplar_planks	none	
+minecraft:poplar_pressure_plate	rule	0x0
+minecraft:poplar_sapling	rule	0x0
+minecraft:poplar_shelf	hook:shelf	
+minecraft:poplar_slab	hook:half_slab	
+minecraft:poplar_stairs	hook:stair	
+minecraft:poplar_standing_sign	rule	0x0
+minecraft:poplar_trapdoor	hook:trapdoor	
+minecraft:poplar_wall_sign	rule	0x0
+minecraft:poplar_wood	none	
+minecraft:poppy	rule	0x0
+minecraft:portal	rule	0x0
+minecraft:potatoes	rule	0x0
+minecraft:potent_sulfur	none	
+minecraft:powder_snow	rule	0x0
+minecraft:powered_comparator	rule	0x0
+minecraft:powered_repeater	rule	0x0
+minecraft:prismarine	none	
+minecraft:prismarine_brick_double_slab	none	
+minecraft:prismarine_brick_slab	hook:half_slab	
+minecraft:prismarine_bricks	none	
+minecraft:prismarine_bricks_stairs	hook:stair	
+minecraft:prismarine_double_slab	none	
+minecraft:prismarine_slab	hook:half_slab	
+minecraft:prismarine_stairs	hook:stair	
+minecraft:prismarine_wall	rule	0xc
+minecraft:pumpkin	rule	0x0
+minecraft:pumpkin_stem	rule	0x0
+minecraft:purple_candle	rule	0x0
+minecraft:purple_candle_cake	rule	0x0
+minecraft:purple_carpet	rule	0x0
+minecraft:purple_concrete	none	
+minecraft:purple_concrete_powder	none	
+minecraft:purple_glazed_terracotta	none	
+minecraft:purple_shulker_box	rule	0x0
+minecraft:purple_stained_glass	none	
+minecraft:purple_stained_glass_pane	rule	0xc
+minecraft:purple_terracotta	none	
+minecraft:purple_wool	none	
+minecraft:purpur_block	none	
+minecraft:purpur_double_slab	none	
+minecraft:purpur_pillar	none	
+minecraft:purpur_slab	hook:half_slab	
+minecraft:purpur_stairs	hook:stair	
+minecraft:quartz_block	none	
+minecraft:quartz_bricks	none	
+minecraft:quartz_double_slab	none	
+minecraft:quartz_ore	none	
+minecraft:quartz_pillar	none	
+minecraft:quartz_slab	hook:half_slab	
+minecraft:quartz_stairs	hook:stair	
+minecraft:rail	rule	0x0
+minecraft:raw_copper_block	none	
+minecraft:raw_gold_block	none	
+minecraft:raw_iron_block	none	
+minecraft:red_candle	rule	0x0
+minecraft:red_candle_cake	rule	0x0
+minecraft:red_carpet	rule	0x0
+minecraft:red_concrete	none	
+minecraft:red_concrete_powder	none	
+minecraft:red_glazed_terracotta	none	
+minecraft:red_mushroom	rule	0x0
+minecraft:red_mushroom_block	none	
+minecraft:red_nether_brick	none	
+minecraft:red_nether_brick_double_slab	none	
+minecraft:red_nether_brick_slab	hook:half_slab	
+minecraft:red_nether_brick_stairs	hook:stair	
+minecraft:red_nether_brick_wall	rule	0xc
+minecraft:red_poplar_leaves	rule	0x0
+minecraft:red_sand	none	
+minecraft:red_sandstone	none	
+minecraft:red_sandstone_double_slab	none	
+minecraft:red_sandstone_slab	hook:half_slab	
+minecraft:red_sandstone_stairs	hook:stair	
+minecraft:red_sandstone_wall	rule	0xc
+minecraft:red_shulker_box	rule	0x0
+minecraft:red_stained_glass	none	
+minecraft:red_stained_glass_pane	rule	0xc
+minecraft:red_terracotta	none	
+minecraft:red_tulip	rule	0x0
+minecraft:red_wool	none	
+minecraft:redstone_block	none	
+minecraft:redstone_lamp	none	
+minecraft:redstone_ore	none	
+minecraft:redstone_torch	rule	0x0
+minecraft:redstone_wire	rule	0x0
+minecraft:reeds	rule	0x0
+minecraft:reinforced_deepslate	none	
+minecraft:repeating_command_block	none	
+minecraft:reserved6	none	
+minecraft:resin_block	none	
+minecraft:resin_brick_double_slab	none	
+minecraft:resin_brick_slab	hook:half_slab	
+minecraft:resin_brick_stairs	hook:stair	
+minecraft:resin_brick_wall	rule	0xc
+minecraft:resin_bricks	none	
+minecraft:resin_clump	rule	0x0
+minecraft:respawn_anchor	none	
+minecraft:rose_bush	rule	0x0
+minecraft:sand	none	
+minecraft:sandstone	none	
+minecraft:sandstone_double_slab	none	
+minecraft:sandstone_slab	hook:half_slab	
+minecraft:sandstone_stairs	hook:stair	
+minecraft:sandstone_wall	rule	0xc
+minecraft:scaffolding	rule	0x0
+minecraft:sculk	none	
+minecraft:sculk_catalyst	none	
+minecraft:sculk_sensor	rule	0x0
+minecraft:sculk_shrieker	rule	0x0
+minecraft:sculk_vein	rule	0x0
+minecraft:sea_lantern	none	
+minecraft:sea_pickle	rule	0x0
+minecraft:seagrass	rule	0x0
+minecraft:short_dry_grass	rule	0x0
+minecraft:short_grass	rule	0x0
+minecraft:shroomlight	none	
+minecraft:silver_glazed_terracotta	none	
+minecraft:skeleton_skull	rule	0x0
+minecraft:slime	none	
+minecraft:small_amethyst_bud	rule	0x0
+minecraft:small_dripleaf_block	rule	0x0
+minecraft:smithing_table	none	
+minecraft:smoker	none	
+minecraft:smooth_basalt	none	
+minecraft:smooth_quartz	none	
+minecraft:smooth_quartz_double_slab	none	
+minecraft:smooth_quartz_slab	hook:half_slab	
+minecraft:smooth_quartz_stairs	hook:stair	
+minecraft:smooth_red_sandstone	none	
+minecraft:smooth_red_sandstone_double_slab	none	
+minecraft:smooth_red_sandstone_slab	hook:half_slab	
+minecraft:smooth_red_sandstone_stairs	hook:stair	
+minecraft:smooth_sandstone	none	
+minecraft:smooth_sandstone_double_slab	none	
+minecraft:smooth_sandstone_slab	hook:half_slab	
+minecraft:smooth_sandstone_stairs	hook:stair	
+minecraft:smooth_stone	none	
+minecraft:smooth_stone_double_slab	none	
+minecraft:smooth_stone_slab	hook:half_slab	
+minecraft:sniffer_egg	rule	0x0
+minecraft:snow	none	
+minecraft:snow_layer	hook:top_snow	
+minecraft:soul_campfire	rule	0x0
+minecraft:soul_fire	rule	0x0
+minecraft:soul_lantern	rule	0x0
+minecraft:soul_sand	none	
+minecraft:soul_soil	none	
+minecraft:soul_torch	rule	0x0
+minecraft:sponge	none	
+minecraft:spore_blossom	rule	0x0
+minecraft:spruce_button	rule	0x0
+minecraft:spruce_door	rule	0x0
+minecraft:spruce_double_slab	none	
+minecraft:spruce_fence	rule	0x1
+minecraft:spruce_fence_gate	hook:fence_gate	
+minecraft:spruce_hanging_sign	rule	0x0
+minecraft:spruce_leaves	rule	0x0
+minecraft:spruce_log	none	
+minecraft:spruce_planks	none	
+minecraft:spruce_pressure_plate	rule	0x0
+minecraft:spruce_sapling	rule	0x0
+minecraft:spruce_shelf	hook:shelf	
+minecraft:spruce_slab	hook:half_slab	
+minecraft:spruce_stairs	hook:stair	
+minecraft:spruce_standing_sign	rule	0x0
+minecraft:spruce_trapdoor	hook:trapdoor	
+minecraft:spruce_wall_sign	rule	0x0
+minecraft:spruce_wood	none	
+minecraft:standing_banner	rule	0x0
+minecraft:standing_sign	rule	0x0
+minecraft:sticky_piston	none	
+minecraft:sticky_piston_arm_collision	hook:piston_arm	
+minecraft:stone	none	
+minecraft:stone_brick_double_slab	none	
+minecraft:stone_brick_slab	hook:half_slab	
+minecraft:stone_brick_stairs	hook:stair	
+minecraft:stone_brick_wall	rule	0xc
+minecraft:stone_bricks	none	
+minecraft:stone_button	rule	0x0
+minecraft:stone_pressure_plate	rule	0x0
+minecraft:stone_stairs	hook:stair	
+minecraft:stonecutter	none	
+minecraft:stonecutter_block	rule	0x0
+minecraft:straw_bed	rule	0x0
+minecraft:stripped_acacia_log	none	
+minecraft:stripped_acacia_wood	none	
+minecraft:stripped_bamboo_block	none	
+minecraft:stripped_birch_log	none	
+minecraft:stripped_birch_wood	none	
+minecraft:stripped_cherry_log	none	
+minecraft:stripped_cherry_wood	none	
+minecraft:stripped_crimson_hyphae	none	
+minecraft:stripped_crimson_stem	none	
+minecraft:stripped_dark_oak_log	none	
+minecraft:stripped_dark_oak_wood	none	
+minecraft:stripped_jungle_log	none	
+minecraft:stripped_jungle_wood	none	
+minecraft:stripped_mangrove_log	none	
+minecraft:stripped_mangrove_wood	none	
+minecraft:stripped_oak_log	none	
+minecraft:stripped_oak_wood	none	
+minecraft:stripped_pale_oak_log	none	
+minecraft:stripped_pale_oak_wood	none	
+minecraft:stripped_poplar_log	none	
+minecraft:stripped_poplar_wood	none	
+minecraft:stripped_spruce_log	none	
+minecraft:stripped_spruce_wood	none	
+minecraft:stripped_warped_hyphae	none	
+minecraft:stripped_warped_stem	none	
+minecraft:structure_block	rule	0x0
+minecraft:structure_void	none	
+minecraft:sulfur	none	
+minecraft:sulfur_brick_double_slab	none	
+minecraft:sulfur_brick_slab	hook:half_slab	
+minecraft:sulfur_brick_stairs	hook:stair	
+minecraft:sulfur_brick_wall	rule	0xc
+minecraft:sulfur_bricks	none	
+minecraft:sulfur_double_slab	none	
+minecraft:sulfur_slab	hook:half_slab	
+minecraft:sulfur_spike	rule	0x0
+minecraft:sulfur_stairs	hook:stair	
+minecraft:sulfur_wall	rule	0xc
+minecraft:sunflower	rule	0x0
+minecraft:suspicious_gravel	none	
+minecraft:suspicious_sand	none	
+minecraft:sweet_berry_bush	rule	0x0
+minecraft:tall_dry_grass	rule	0x0
+minecraft:tall_grass	rule	0x0
+minecraft:target	none	
+minecraft:tinted_glass	none	
+minecraft:tnt	none	
+minecraft:torch	rule	0x0
+minecraft:torchflower	rule	0x0
+minecraft:torchflower_crop	rule	0x0
+minecraft:trapdoor	hook:trapdoor	
+minecraft:trapped_chest	rule	0x0
+minecraft:trial_spawner	none	
+minecraft:trip_wire	rule	0x0
+minecraft:tripwire_hook	rule	0x0
+minecraft:tube_coral	rule	0x0
+minecraft:tube_coral_block	none	
+minecraft:tube_coral_fan	rule	0x0
+minecraft:tube_coral_wall_fan	rule	0x0
+minecraft:tuff	none	
+minecraft:tuff_brick_double_slab	none	
+minecraft:tuff_brick_slab	hook:half_slab	
+minecraft:tuff_brick_stairs	hook:stair	
+minecraft:tuff_brick_wall	rule	0xc
+minecraft:tuff_bricks	none	
+minecraft:tuff_double_slab	none	
+minecraft:tuff_slab	hook:half_slab	
+minecraft:tuff_stairs	hook:stair	
+minecraft:tuff_wall	rule	0xc
+minecraft:turtle_egg	rule	0x0
+minecraft:twisting_vines	rule	0x0
+minecraft:underwater_tnt	none	
+minecraft:underwater_torch	rule	0x0
+minecraft:undyed_shulker_box	rule	0x0
+minecraft:unlit_redstone_torch	rule	0x0
+minecraft:unpowered_comparator	rule	0x0
+minecraft:unpowered_repeater	rule	0x0
+minecraft:vault	none	
+minecraft:verdant_froglight	none	
+minecraft:vine	rule	0x0
+minecraft:wall_banner	rule	0x0
+minecraft:wall_sign	rule	0x0
+minecraft:warped_button	rule	0x0
+minecraft:warped_door	rule	0x0
+minecraft:warped_double_slab	none	
+minecraft:warped_fence	rule	0x1
+minecraft:warped_fence_gate	hook:fence_gate	
+minecraft:warped_fungus	rule	0x0
+minecraft:warped_hanging_sign	rule	0x0
+minecraft:warped_hyphae	none	
+minecraft:warped_nylium	none	
+minecraft:warped_planks	none	
+minecraft:warped_pressure_plate	rule	0x0
+minecraft:warped_roots	rule	0x0
+minecraft:warped_shelf	hook:shelf	
+minecraft:warped_slab	hook:half_slab	
+minecraft:warped_stairs	hook:stair	
+minecraft:warped_standing_sign	rule	0x0
+minecraft:warped_stem	none	
+minecraft:warped_trapdoor	hook:trapdoor	
+minecraft:warped_wall_sign	rule	0x0
+minecraft:warped_wart_block	none	
+minecraft:water	rule	0x0
+minecraft:waterlily	rule	0x0
+minecraft:waxed_chiseled_copper	none	
+minecraft:waxed_copper	none	
+minecraft:waxed_copper_bars	rule	0xc
+minecraft:waxed_copper_bulb	none	
+minecraft:waxed_copper_chain	rule	0x0
+minecraft:waxed_copper_chest	rule	0x0
+minecraft:waxed_copper_door	rule	0x0
+minecraft:waxed_copper_golem_statue	rule	0x0
+minecraft:waxed_copper_grate	none	
+minecraft:waxed_copper_lantern	rule	0x0
+minecraft:waxed_copper_trapdoor	hook:trapdoor	
+minecraft:waxed_cut_copper	none	
+minecraft:waxed_cut_copper_slab	hook:half_slab	
+minecraft:waxed_cut_copper_stairs	hook:stair	
+minecraft:waxed_double_cut_copper_slab	none	
+minecraft:waxed_exposed_chiseled_copper	none	
+minecraft:waxed_exposed_copper	none	
+minecraft:waxed_exposed_copper_bars	rule	0xc
+minecraft:waxed_exposed_copper_bulb	none	
+minecraft:waxed_exposed_copper_chain	rule	0x0
+minecraft:waxed_exposed_copper_chest	rule	0x0
+minecraft:waxed_exposed_copper_door	rule	0x0
+minecraft:waxed_exposed_copper_golem_statue	rule	0x0
+minecraft:waxed_exposed_copper_grate	none	
+minecraft:waxed_exposed_copper_lantern	rule	0x0
+minecraft:waxed_exposed_copper_trapdoor	hook:trapdoor	
+minecraft:waxed_exposed_cut_copper	none	
+minecraft:waxed_exposed_cut_copper_slab	hook:half_slab	
+minecraft:waxed_exposed_cut_copper_stairs	hook:stair	
+minecraft:waxed_exposed_double_cut_copper_slab	none	
+minecraft:waxed_exposed_lightning_rod	rule	0x0
+minecraft:waxed_lightning_rod	rule	0x0
+minecraft:waxed_oxidized_chiseled_copper	none	
+minecraft:waxed_oxidized_copper	none	
+minecraft:waxed_oxidized_copper_bars	rule	0xc
+minecraft:waxed_oxidized_copper_bulb	none	
+minecraft:waxed_oxidized_copper_chain	rule	0x0
+minecraft:waxed_oxidized_copper_chest	rule	0x0
+minecraft:waxed_oxidized_copper_door	rule	0x0
+minecraft:waxed_oxidized_copper_golem_statue	rule	0x0
+minecraft:waxed_oxidized_copper_grate	none	
+minecraft:waxed_oxidized_copper_lantern	rule	0x0
+minecraft:waxed_oxidized_copper_trapdoor	hook:trapdoor	
+minecraft:waxed_oxidized_cut_copper	none	
+minecraft:waxed_oxidized_cut_copper_stairs	hook:stair	
+minecraft:waxed_oxidized_double_cut_copper_slab	none	
+minecraft:waxed_oxidized_lightning_rod	rule	0x0
+minecraft:waxed_weathered_chiseled_copper	none	
+minecraft:waxed_weathered_copper	none	
+minecraft:waxed_weathered_copper_bars	rule	0xc
+minecraft:waxed_weathered_copper_bulb	none	
+minecraft:waxed_weathered_copper_chain	rule	0x0
+minecraft:waxed_weathered_copper_chest	rule	0x0
+minecraft:waxed_weathered_copper_door	rule	0x0
+minecraft:waxed_weathered_copper_golem_statue	rule	0x0
+minecraft:waxed_weathered_copper_grate	none	
+minecraft:waxed_weathered_copper_lantern	rule	0x0
+minecraft:waxed_weathered_copper_trapdoor	hook:trapdoor	
+minecraft:waxed_weathered_cut_copper	none	
+minecraft:waxed_weathered_cut_copper_stairs	hook:stair	
+minecraft:waxed_weathered_double_cut_copper_slab	none	
+minecraft:waxed_weathered_lightning_rod	rule	0x0
+minecraft:weathered_chiseled_copper	none	
+minecraft:weathered_copper	none	
+minecraft:weathered_copper_bars	rule	0xc
+minecraft:weathered_copper_bulb	none	
+minecraft:weathered_copper_chain	rule	0x0
+minecraft:weathered_copper_chest	rule	0x0
+minecraft:weathered_copper_door	rule	0x0
+minecraft:weathered_copper_golem_statue	rule	0x0
+minecraft:weathered_copper_grate	none	
+minecraft:weathered_copper_lantern	rule	0x0
+minecraft:weathered_copper_trapdoor	hook:trapdoor	
+minecraft:weathered_cut_copper	none	
+minecraft:weathered_cut_copper_slab	hook:half_slab	
+minecraft:weathered_cut_copper_stairs	hook:stair	
+minecraft:weathered_double_cut_copper_slab	none	
+minecraft:weathered_lightning_rod	rule	0x0
+minecraft:web	rule	0x0
+minecraft:weeping_vines	rule	0x0
+minecraft:wet_sponge	none	
+minecraft:wheat	rule	0x0
+minecraft:white_candle	rule	0x0
+minecraft:white_candle_cake	rule	0x0
+minecraft:white_carpet	rule	0x0
+minecraft:white_concrete	none	
+minecraft:white_concrete_powder	none	
+minecraft:white_glazed_terracotta	none	
+minecraft:white_shulker_box	rule	0x0
+minecraft:white_stained_glass	none	
+minecraft:white_stained_glass_pane	rule	0xc
+minecraft:white_terracotta	none	
+minecraft:white_tulip	rule	0x0
+minecraft:white_wool	none	
+minecraft:wildflowers	rule	0x0
+minecraft:wither_rose	rule	0x0
+minecraft:wither_skeleton_skull	rule	0x0
+minecraft:wooden_button	rule	0x0
+minecraft:wooden_door	rule	0x0
+minecraft:wooden_pressure_plate	rule	0x0
+minecraft:yellow_candle	rule	0x0
+minecraft:yellow_candle_cake	rule	0x0
+minecraft:yellow_carpet	rule	0x0
+minecraft:yellow_concrete	none	
+minecraft:yellow_concrete_powder	none	
+minecraft:yellow_glazed_terracotta	none	
+minecraft:yellow_poplar_leaves	rule	0x0
+minecraft:yellow_shulker_box	rule	0x0
+minecraft:yellow_stained_glass	none	
+minecraft:yellow_stained_glass_pane	rule	0xc
+minecraft:yellow_terracotta	none	
+minecraft:yellow_wool	none	
+minecraft:zombie_head	rule	0x0

@@ -5,6 +5,7 @@ import ac.cult.blocksim.engine.FluidQueries;
 import ac.cult.blocksim.engine.SimFluidState;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 
 /** A fluid current computed into owned scratch, allocating nothing once its player's view exists. */
@@ -12,7 +13,10 @@ public final class FluidCurrent {
     public double x;
     public double y;
     public double z;
+    /** Contact exists even when its accumulated flow is zero or below the current cutoff. */
+    public boolean touching;
 
+    private final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
     private final double[] flow = new double[3];
     private FluidQueries.View view;
     private CultPlayer viewPlayer;
@@ -30,40 +34,38 @@ public final class FluidCurrent {
             double velocityZ,
             FluidTags fluidTag,
             double scale) {
-        return compute(player, entityBox, playerEntity, velocityX, velocityZ, fluidTag, scale, false);
+        return compute(player, entityBox, playerEntity, velocityX, velocityZ, fluidTag, scale,
+                entityBox.minX + .001D, entityBox.minY + .001D, entityBox.minZ + .001D,
+                entityBox.maxX - .001D, entityBox.maxY - .001D, entityBox.maxZ - .001D);
     }
 
-    /**
-     * {@link #compute}; with {@code beforeRecentChanges}, every cell a recent fluid change touched is read at the
-     * first state those changes replaced.
-     */
-    public boolean compute(
-            CultPlayer player,
-            SimpleCollisionBox entityBox,
-            boolean playerEntity,
-            double velocityX,
-            double velocityZ,
-            FluidTags fluidTag,
-            double scale,
-            boolean beforeRecentChanges) {
-        double fluidMinY = entityBox.minY + 0.001D;
-        int minX = (int) Math.floor(entityBox.minX + 0.001D);
+    /** Entity#getFluidInteractionBox after the ridden boat clips the already-deflated passenger box. */
+    public boolean computePassenger(
+            CultPlayer player, SimpleCollisionBox body, SimpleCollisionBox interaction,
+            double velocityX, double velocityZ, FluidTags tag, double scale) {
+        return compute(player, body, true, velocityX, velocityZ, tag, scale,
+                interaction.minX, interaction.minY, interaction.minZ,
+                interaction.maxX, interaction.maxY, interaction.maxZ);
+    }
+
+    private boolean compute(
+            CultPlayer player, SimpleCollisionBox entityBox, boolean playerEntity,
+            double velocityX, double velocityZ, FluidTags fluidTag, double scale,
+            double minBoxX, double fluidMinY, double minBoxZ, double maxBoxX, double maxBoxY, double maxBoxZ) {
+        this.touching = false;
+        if (!ClientFluidQueries.hasLoadedFluidNeighborhood(player, entityBox)) return false;
+        int minX = (int) Math.floor(minBoxX);
         int minY = (int) Math.floor(fluidMinY);
-        int minZ = (int) Math.floor(entityBox.minZ + 0.001D);
-        int maxX = (int) Math.ceil(entityBox.maxX - 0.001D) - 1;
-        int maxY = (int) Math.ceil(entityBox.maxY - 0.001D) - 1;
-        int maxZ = (int) Math.ceil(entityBox.maxZ - 0.001D) - 1;
-        if (!beforeRecentChanges && !player.compensatedWorld.mayHaveFluid(minX, minY, minZ, maxX, maxY, maxZ))
-            return false;
-        FluidQueries.View view;
-        if (beforeRecentChanges) {
-            view = FluidTypeFlowing.viewBeforeRecentChanges(player);
-        } else {
-            if (this.viewPlayer != player) {
-                this.view = FluidTypeFlowing.view(player);
-                this.viewPlayer = player;
-            }
-            view = this.view;
+        int minZ = (int) Math.floor(minBoxZ);
+        int maxX = (int) Math.ceil(maxBoxX) - 1;
+        int maxY = (int) Math.ceil(maxBoxY) - 1;
+        int maxZ = (int) Math.ceil(maxBoxZ) - 1;
+        // The old Entity updater also counts a tagged EmptyFluid, which a section without fluid still reads.
+        if (!player.compensatedWorld.mayHaveFluid(minX, minY, minZ, maxX, maxY, maxZ)
+                && !ClientFluidQueries.countsEmptyFluid(player, fluidTag)) return false;
+        if (this.viewPlayer != player) {
+            this.view = FluidTypeFlowing.view(player);
+            this.viewPlayer = player;
         }
 
         double currentX = 0.0D;
@@ -71,27 +73,34 @@ public final class FluidCurrent {
         double currentZ = 0.0D;
         int currentCount = 0;
         double height = 0.0D;
-        // 1.21.11 Entity#updateFluidHeightAndDoFluidPushing measures fluid height from the deflated box;
-        // 26.1 and 26.2 EntityFluidInteraction#update measure it from the entity's bounding box.
-        double entityMinY =
-                player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1) ? entityBox.minY : fluidMinY;
+        boolean touched = false;
+        boolean interaction = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1);
+        // Entity measures from the deflated box; EntityFluidInteraction measures from the entity's box.
+        double entityMinY = interaction ? entityBox.minY : fluidMinY;
 
         for (int blockX = minX; blockX <= maxX; blockX++) {
             for (int blockY = minY; blockY <= maxY; blockY++) {
                 for (int blockZ = minZ; blockZ <= maxZ; blockZ++) {
-                    SimFluidState fluidState = view.fluidAt(blockX, blockY, blockZ);
-                    // An empty cell is in no fluid tag; skipping it keeps a dry tick off the client tag projection.
-                    if (fluidState.isEmpty() || !ClientFluidQueries.is(player, fluidState, fluidTag)) {
-                        continue;
-                    }
+                    this.pos.set(blockX, blockY, blockZ);
+                    SimFluidState fluidState = ClientFluidQueries.fluidAt(player.compensatedWorld, this.pos);
+                    // The old Entity updater counts tagged EmptyFluid's zero flow in its average; 26.1 skips it.
+                    if (fluidState.isEmpty() && !ClientFluidQueries.usesLegacyFluidDepth(player)) continue;
+                    // 26.3 tracks contact per fluid holder, apart from the one current accumulator it selects.
+                    boolean contact = ClientFluidTagOrder.contactMatches(player, fluidState, fluidTag);
+                    boolean current = ClientFluidTagOrder.currentMatches(player, fluidState, fluidTag);
+                    if (!contact && !current) continue;
 
-                    double fluidTop = blockY + fluidState.height(view.fluidAt(blockX, blockY + 1, blockZ));
+                    float fluidHeight = ClientFluidQueries.height(player.compensatedWorld, this.pos, fluidState);
+                    // Entity's int + float rounds before promotion; EntityFluidInteraction adds to a double Y.
+                    double fluidTop = interaction ? (double) blockY + fluidHeight : (double) (blockY + fluidHeight);
                     if (fluidTop < fluidMinY) {
                         continue;
                     }
 
+                    touched |= contact;
+                    if (!current) continue;
                     height = Math.max(fluidTop - entityMinY, height);
-                    FluidTypeFlowing.flow(view, blockX, blockY, blockZ, fluidState, this.flow);
+                    FluidTypeFlowing.flow(this.view, blockX, blockY, blockZ, fluidState, this.flow);
                     double flowX = this.flow[0];
                     double flowY = this.flow[1];
                     double flowZ = this.flow[2];
@@ -110,24 +119,23 @@ public final class FluidCurrent {
         }
 
         double lengthSqr = currentX * currentX + currentY * currentY + currentZ * currentZ;
-        // 26.1 EntityFluidInteraction.CurrentAccumulator#applyTo drops a current under 1.0E-5F squared; before it,
-        // Entity#updateFluidHeightAndDoFluidPushing pushes by any current longer than 0.
-        boolean dropsWeakCurrent = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1);
-        if (currentCount == 0 || (dropsWeakCurrent ? lengthSqr < 1.0E-5F : lengthSqr <= 0.0D)) {
+        this.touching = touched;
+        // The accumulated-current cutoff belongs to EntityFluidInteraction, added in 26.1.
+        if (currentCount == 0 || (interaction ? lengthSqr < 1.0E-5F : !(Math.sqrt(lengthSqr) > 0.0D))) {
             return false;
         }
 
-        // MCP-Reborn EntityFluidInteraction.Tracker#applyCurrentTo averages water
-        // current only for Player entities. Other entities, including boats,
-        // normalize accumulated current before scaling it by 0.014.
-        if (playerEntity) {
+        // Entity averages first for every entity. The newer accumulator averages only for players;
+        // its non-player normalization reads the accumulated vector directly.
+        if (playerEntity || !interaction) {
             double average = 1.0D / currentCount;
             currentX *= average;
             currentY *= average;
             currentZ *= average;
-        } else {
-            // Vec3#normalize returns zero below a length of 1.0E-5F.
-            double length = Math.sqrt(lengthSqr);
+        }
+        if (!playerEntity) {
+            double length = Math.sqrt(currentX * currentX + currentY * currentY + currentZ * currentZ);
+            // Vec3#normalize's exact threshold also applies after the older averaging step.
             if (length < 1.0E-5F) {
                 currentX = 0.0D;
                 currentY = 0.0D;
@@ -159,7 +167,10 @@ public final class FluidCurrent {
         return true;
     }
 
-    /** False when {@link #compute} would find no fluid in a section around {@code entityBox}. */
+    /**
+     * False when {@link #compute} would find no current around {@code entityBox}: no section there holds fluid. A
+     * tagged EmptyFluid has no flow.
+     */
     static boolean mayTouchFluid(CultPlayer player, SimpleCollisionBox entityBox) {
         return player.compensatedWorld.mayHaveFluid(
                 (int) Math.floor(entityBox.minX + 0.001D),

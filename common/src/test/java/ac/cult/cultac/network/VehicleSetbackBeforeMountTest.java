@@ -41,7 +41,7 @@ class VehicleSetbackBeforeMountTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, y, 2), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(FOOT, Vec3.ZERO);
         f.player.packetEntityReplication.addEntity(BOAT, EntityTypeIds.OAK_BOAT, BOAT_AT, 0, 0, 0, -1);
         f.pongThrough(f.player.lastTransactionSent.get());

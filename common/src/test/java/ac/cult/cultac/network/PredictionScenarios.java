@@ -148,7 +148,7 @@ final class PredictionScenarios {
             }
             default -> {}
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void fill(JavaTickFixture f, int x0, int y0, int z0, int x1, int y1, int z1, BlockDefinition block) {

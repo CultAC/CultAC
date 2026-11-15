@@ -10,14 +10,17 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
@@ -105,17 +108,24 @@ class JavaDeadVehicleTest {
         }
     }
 
-    /** A saddled horse at {@link #SEAT} mounted through set_passengers, after one stationary ridden tick. */
+    /** A saddled horse at {@link #SEAT} mounted through set_passengers, after two stationary ridden ticks. */
     private static JavaTickFixture ridden() throws Exception {
         JavaTickFixture f = new JavaTickFixture();
         f.place(SEAT, Vec3.ZERO);
-        ((PacketEntityHorse) add(f, HORSE, EntityTypeIds.HORSE)).hasSaddle = true;
+        add(f, HORSE, EntityTypeIds.HORSE);
+        // Horse#canUseSlot opens every slot, so the saddle keeps the rider in control whatever the horse's health.
+        f.player.compensatedEntities.updateEntityEquipment(
+                HORSE,
+                List.of(new InventoryPackets.EquipmentEntry(
+                        EquipmentSlot.SADDLE, ItemUtil.modelItems().stack("minecraft:saddle", 1))));
         var packet = new ClientboundSetPassengers(HORSE, List.of(f.player.entityID));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false);
         f.player.packetEntityReplication.onSetPassengers(event, f.player, packet);
         event.tasksAfter().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());
+        // The horse mounts with no velocity: its first Entity#move does not collide below and reports it airborne.
+        assertTrue(exact(f.rideTick(SEAT, false)));
         assertTrue(exact(f.rideTick(SEAT, true)));
         return f;
     }

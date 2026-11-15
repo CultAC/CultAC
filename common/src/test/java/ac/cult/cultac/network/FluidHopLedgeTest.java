@@ -188,7 +188,7 @@ class FluidHopLedgeTest {
     void aSlabAboveTheHeadInTheHopsTickStopsTheHop(ProtocolVersion protocol, ClientVersion client) throws Exception {
         try (var f = pool(protocol, client, BlockIds.WATER, FLOOR_Y, FLOOR_Y)) {
             f.player.compensatedWorld.updateBlock(ABOVE_THE_HEAD, TOP_SLAB);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             pushIntoTheWall(f);
             PredictionResult result = tick(f, SURFACE.add(0.0, underTheSlab(), 0.0));
             assertTrue(!exact(result), "the hop under the slab was accepted");
@@ -252,7 +252,7 @@ class FluidHopLedgeTest {
     private static void column(JavaTickFixture f, int top, boolean drag) {
         int column = BlockProps.DRAG.with(BlockIds.BUBBLE_COLUMN.defaultState(), drag);
         for (int y = FLOOR_Y; y <= top; y++) f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), column);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** A pool of {@code fluid} up to {@code fluidTop} with a stone wall at x 1 up to {@code wallTop}. */
@@ -267,7 +267,7 @@ class FluidHopLedgeTest {
                 for (int y = FLOOR_Y; y <= top; y++) f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), state);
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return f;
     }
 

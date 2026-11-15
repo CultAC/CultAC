@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.Hand;
@@ -35,6 +36,7 @@ class JavaSneakEdgeItemUseTest {
     private static final double EDGE_X = 9.299;
     private static final double GROUNDED_Y = -0.0784000015258789;
     private static final double EATING_SNEAK_INPUT = (double) (0.98F * 0.2F * 0.3F) * (double) 0.1F;
+    private static final double SNEAK_INPUT = (double) (0.98F * 0.3F) * (double) 0.1F;
     private static final double WALK_INPUT = (double) 0.98F * (double) 0.1F;
     private static final double GROUND_FRICTION = 0.6F * 0.91F;
     private static final int EDGE_TICKS = 6;
@@ -46,7 +48,9 @@ class JavaSneakEdgeItemUseTest {
             f.input(LEFT);
             PredictionResult release = f.tick(new Vec3(EDGE_X + hidden + EATING_SNEAK_INPUT, FLOOR_Y, 0.5), true);
             assertTrue(exact(release), describe(release));
-            assertEquals(hidden, release.getInitialStartingVel().x, 1.0E-12);
+            // The deltaMovement the release starts from, before LivingEntity#moveRelative added this tick's input.
+            PredVector start = release.getInitialStartingVel();
+            assertEquals(hidden, start.x - start.getTravelInput().x, 1.0E-12);
         }
     }
 
@@ -70,8 +74,9 @@ class JavaSneakEdgeItemUseTest {
 
     /**
      * A use the server may have refused leaves LocalPlayer#modifyInput's multiplier at the item's or at 1.0. At the
-     * edge both inputs back off to the same held position with different deltaMovement, so neither is carried, and the
-     * release on the item's hidden velocity is accepted without NoSneakSlow.
+     * edge both inputs back off to the same held position with different deltaMovement, so each is carried as the
+     * hidden velocity of its own multiplier and nothing else is, and the release on the item's hidden velocity is
+     * accepted without NoSneakSlow.
      */
     @Test
     void anEdgeHeldThroughAnUncertainUseCarriesNeitherMultipliersVelocity() throws Exception {
@@ -85,12 +90,17 @@ class JavaSneakEdgeItemUseTest {
 
             f.input(SNEAK_LEFT);
             double velocity = 0.0;
+            double unslowed = 0.0;
             for (int tick = 0; tick < EDGE_TICKS; tick++) {
                 assertExact(tick, f.tick(new Vec3(EDGE_X, FLOOR_Y, 0.5), true));
-                for (Vec3 carried : f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels()) {
-                    assertEquals(0.0, carried.x, "tick " + tick + " " + carried);
-                }
                 velocity = (velocity + EATING_SNEAK_INPUT) * GROUND_FRICTION;
+                unslowed = (unslowed + SNEAK_INPUT) * GROUND_FRICTION;
+                var carried = f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
+                for (Vec3 start : carried) {
+                    assertTrue(
+                            Math.abs(start.x - velocity) < 1.0E-12 || Math.abs(start.x - unslowed) < 1.0E-12,
+                            "tick " + tick + " " + carried + " for " + velocity + " or " + unslowed);
+                }
             }
 
             f.input(LEFT);

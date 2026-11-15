@@ -29,6 +29,7 @@ public final class BlockProps {
     public static final StateProperty SLAB_TYPE = new StateProperty("type", 25);
     public static final StateProperty SOUTH = new StateProperty("south", 37);
     public static final StateProperty STABILITY_DISTANCE = new StateProperty("distance", 92);
+    public static final StateProperty STAIRS_SHAPE = new StateProperty("shape", 24);
     public static final StateProperty TILT = new StateProperty("tilt", 114);
     public static final StateProperty UP = new StateProperty("up", 38);
     public static final StateProperty WATERLOGGED = new StateProperty("waterlogged", 5);

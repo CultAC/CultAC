@@ -41,7 +41,7 @@ class JavaStuckStepTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, FLOOR_Y, 0), BlockIds.SWEET_BERRY_BUSH.defaultState());
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 1), halfBlock);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 start = new Vec3(0.5, FLOOR_Y, 0.5135);
             f.place(start, Vec3.ZERO);

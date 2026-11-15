@@ -6,17 +6,16 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.ItemUseTickResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Ladder;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
-import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.StuckEdgeData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
@@ -36,7 +35,6 @@ public class HorizontalAnalyzer implements EngineCheck {
     // Read only within one handleResult call on the owning player's thread; never stored.
     private final SimpleCollisionBox crawlBox = new SimpleCollisionBox();
     private final double[] theoreticalInput = new double[2];
-    private final ReportedKeyInput.Scratch keyInputScratch = new ReportedKeyInput.Scratch();
 
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         if (result.getProfileResult(BedrockPredictionResult.class) != null) {
@@ -44,7 +42,7 @@ public class HorizontalAnalyzer implements EngineCheck {
         }
         PacketEntity vehicle = result.getSimulationContext().getVehicle();
         if (result.getSimulationContext().usesFallFlyingMovement()
-                && !result.getSimulationContext().getWorldData().mustBeInLiquid()) {
+                && !result.getSimulationContext().getWorldData().isInLiquid()) {
             return;
         }
         if (vehicle != null) {
@@ -53,8 +51,10 @@ public class HorizontalAnalyzer implements EngineCheck {
 
         float playerSpeed = result.getSimulationContext().getMaxSpeed(player);
         // ClientSprintState decides whether the sprint speed is available for this tick's travel branches
-        double sprintMultiplier =
-                playerSpeed > 0 ? result.getSimulationContext().getMaxSprintInputSpeed(player, result.getInitialStartingVel()) / playerSpeed : 1.3D;
+        double sprintMultiplier = playerSpeed > 0
+                ? result.getSimulationContext().getMaxSprintInputSpeed(player, result.getInitialStartingVel())
+                        / playerSpeed
+                : 1.3D;
 
         Vec3 target = result.getTarget();
 
@@ -62,6 +62,30 @@ public class HorizontalAnalyzer implements EngineCheck {
         Vec3 closestForSpeed = result.getAcceptedClosestToTarget();
         double horizDiffX = target.x - closestForSpeed.x;
         double horizDiffZ = target.z - closestForSpeed.z;
+        var pass = JavaMovementEngine.passAfterTravel(result);
+        // A moving face can hide travel input on its axis. Measure the independently replayed input there;
+        // the engine still requires the report to reach the exact face after that travel.
+        boolean exactInput = JavaTravelInputs.isExact(result.getInitialStartingVel());
+        if (exactInput && sprintHasForwardImpulse(result.getSimulationContext())) {
+            // The refactored travel already consumed moveRelative's input, so its residual cannot show direction.
+            // LocalPlayer#shouldStopRunSprinting requires forward impulse before that travel, even in the air.
+            double sprintOffset = distanceToForwardImpulse(
+                    new SimpleCollisionBox(0, 0, 0, 0, 0, 0),
+                    Vec3.ZERO,
+                    result.getInitialStartingVel().getTravelInput(),
+                    result.getSimulationContext().getXRot(),
+                    result.getSimulationContext().getVersion());
+            if (sprintOffset > HORIZONTAL_INPUT_UNCERTAINTY) {
+                result.addFlag(
+                        player.checkManager.getListener(OmniSprint.class),
+                        () -> NumFormatter.formatNumberStandard(sprintOffset),
+                        sprintOffset);
+            }
+        }
+        if (pass != null && !exactInput) {
+            if (pass.result().fixedX()) horizDiffX = pass.input().x;
+            if (pass.result().fixedZ()) horizDiffZ = pass.input().z;
+        }
 
         getBestTheoreticalPlayerInput(
                 theoreticalInput,
@@ -88,12 +112,16 @@ public class HorizontalAnalyzer implements EngineCheck {
 
         // A player cannot move more than 0.98 "input" in a single direction
         // A player cannot move more than a total of 1 "input" in a single tick
-        double speedFlagAmount = getHorizontalInputFlagAmount(
-                absInputX,
-                absInputZ,
-                playerSpeed,
-                sprintMultiplier,
-                result.getSimulationContext().getWorldData().mustBeInLiquid());
+        // Entity#move has already consumed this candidate's exact moveRelative input and clipped it.
+        // A residual cannot spend another walking-speed allowance after that collision.
+        double speedFlagAmount = exactInput
+                ? Math.max(0.0D, Math.hypot(horizDiffX, horizDiffZ) - 1.0E-5D)
+                : getHorizontalInputFlagAmount(
+                        absInputX,
+                        absInputZ,
+                        playerSpeed,
+                        sprintMultiplier,
+                        result.getSimulationContext().getWorldData().isInLiquid());
 
         if (speedFlagAmount > 0.0D) {
             result.addFlag(
@@ -101,26 +129,9 @@ public class HorizontalAnalyzer implements EngineCheck {
                     () -> NumFormatter.formatNumberStandard(minimumInputX) + " "
                             + NumFormatter.formatNumberStandard(minimumInputZ),
                     speedFlagAmount);
-        } else {
-            double clampExcess = climbClampExcess(result, target);
-            if (clampExcess > HORIZONTAL_INPUT_UNCERTAINTY) {
-                result.addFlag(
-                        speedOrStrafe, () -> "climb " + NumFormatter.formatNumberStandard(clampExcess), clampExcess);
-            }
         }
 
-        double keysOffset = ReportedKeyInput.offset(player, result, lastResult, keyInputScratch);
-        if (keysOffset > HORIZONTAL_INPUT_UNCERTAINTY) {
-            KnownInput keys = player.packetStateData.knownInput;
-            result.addFlag(
-                    player.checkManager.getListener(InputKeys.class),
-                    () -> NumFormatter.formatNumberStandard(keysOffset) + " " + keys,
-                    keysOffset);
-        }
-
-        // TODO: If we want to, require sent a sneaking packet in the last tick to allow tick skip exempt
-        boolean isSlowed = result.getSimulationContext().isLastSneaking()
-                && !result.getInitialStartingVel().isTickSkip();
+        boolean isSlowed = result.getSimulationContext().isLastSneaking();
         Vec3 from = result.getSimulationContext().getStart();
 
         // The logic is that if the player has collisions above this, they will simply go into swimming position
@@ -147,14 +158,14 @@ public class HorizontalAnalyzer implements EngineCheck {
         // LocalPlayer#aiStep crouches a player in water only when Entity#updateSwimming, which needs the sprint flag,
         // left it not swimming and the crouching pose fits; Entity#isVisuallyCrawling never slows it in water.
         if (isSlowed
-                && result.getSimulationContext().getWorldData().getInWater() != DesyncStatus.FALSE
+                && result.getSimulationContext().getWorldData().isInWater()
                 && (player.sprintState.flagBeforeAiStep()
                         || !player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z))) {
             isSlowed = false;
         }
-        // Sneaking's hidden edge velocity decays by block friction, not by a current's build-up behind the edge,
-        // which leaves the crouching input a residual outside the sneaking input square.
-        if (result.getSimulationContext().getWorldData().getInFlowingLiquid() != DesyncStatus.FALSE) isSlowed = false;
+        // FluidPush grants the on-foot current as a radius around the prediction, which does not keep the residual
+        // inside the sneaking input square.
+        if (result.getSimulationContext().getWorldData().isInFlowingLiquid()) isSlowed = false;
 
         if (isSlowed && !player.isFlying && player.usesModernJavaItemUse()) {
             result.setSneakingInputMultiplier(
@@ -192,35 +203,12 @@ public class HorizontalAnalyzer implements EngineCheck {
                 ? null
                 : lastResult.getSimulationContext().getWorldData().getSneak();
 
-        // Player#maybeBackOffFromEdge shortens the delta after the input is in it; judge the input before that.
-        Vec3 judgedTarget = target;
-        Vec3 judgedClosest = closestForSpeed;
-        double judgedInputX = minimumInputX;
-        double judgedInputZ = minimumInputZ;
-        double judgedInputScaledToSpeed = inputScaledToSpeed;
-        if (result.getSimulationContext().getWorldData().getSneak().isOnEdge()) {
-            Vec3 beforeBackOff = Collisions.deltaBeforeSneakEdgeBackOff(result, target);
-            if (beforeBackOff != null) {
-                judgedTarget = new Vec3(beforeBackOff.x, target.y, beforeBackOff.z);
-                judgedClosest = result.getInitialStartingVel();
-                getBestTheoreticalPlayerInput(
-                        theoreticalInput,
-                        judgedTarget.x - judgedClosest.x,
-                        judgedTarget.z - judgedClosest.z,
-                        result.getSimulationContext().getXRot(),
-                        result.getSimulationContext().getVersion());
-                judgedInputX = theoreticalInput[0];
-                judgedInputZ = theoreticalInput[1];
-                judgedInputScaledToSpeed = playerSpeed > 0
-                        ? Math.sqrt(judgedInputX * judgedInputX + 0.0D * 0.0D + judgedInputZ * judgedInputZ)
-                                / playerSpeed
-                        : 0;
-            }
-        }
-
         // From here on are checks we cannot do if the player doesn't have inputs, is sneaking, or is colliding with a
         // wall
-        if (judgedInputScaledToSpeed < 0.01
+        // A piston can move the player away from the wall that clipped the travel. The packet's net
+        // direction then probes the other side; retain Entity#move's exact collision from that travel.
+        if (inputScaledToSpeed < 0.01
+                || pass != null && pass.travelHorizontalCollision()
                 || result.getCollideAxisData().getX().isLikelyCollide()
                 || result.getCollideAxisData().getZ().isLikelyCollide()
                 || (lastOnEdge != null && lastOnEdge.isOnEdge())
@@ -232,14 +220,13 @@ public class HorizontalAnalyzer implements EngineCheck {
                                 .determineOptimistically())) return;
 
         double playerAngle = normalizeAngle(result.getSimulationContext().getXRot());
-        AngleResult angleResult = getAngleRange(
-                result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents(), judgedTarget, playerAngle);
+        AngleResult angleResult = inputAngleRange(result, target, playerAngle);
 
-        if (sprintHasForwardImpulse(result.getSimulationContext())) {
+        if (!exactInput && sprintHasForwardImpulse(result.getSimulationContext())) {
             double sprintOffset = distanceToForwardImpulse(
                     result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents(),
-                    judgedClosest,
-                    judgedTarget,
+                    closestForSpeed,
+                    pass == null ? target : target.subtract(pass.movement()),
                     result.getSimulationContext().getXRot(),
                     result.getSimulationContext().getVersion());
             if (sprintOffset > HORIZONTAL_INPUT_UNCERTAINTY) {
@@ -254,8 +241,8 @@ public class HorizontalAnalyzer implements EngineCheck {
         if (result.getValidMovements()
                 .getCollisionIgnoredMaxStartingVelExtents()
                 .isHorizEmpty()) {
-            double absX = Math.abs(judgedInputX);
-            double absZ = Math.abs(judgedInputZ);
+            double absX = Math.abs(minimumInputX);
+            double absZ = Math.abs(minimumInputZ);
 
             double distToValid = Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
             if (distToValid > 0.01) { // More lenient than it must be.
@@ -276,23 +263,6 @@ public class HorizontalAnalyzer implements EngineCheck {
                         distanceToValid / 500); // Not that bad to flag
             }
         }
-    }
-
-    /**
-     * The horizontal distance from {@code target} to the move LivingEntity#handleOnClimbable leaves: it clamps the
-     * delta after moveRelative added the input, so no input reaches past the clamp. Zero when the travel does not
-     * clamp, or when a shove moved the player apart from the delta.
-     */
-    static double climbClampExcess(PredictionResult result, Vec3 target) {
-        if (Ladder.clampsDeltaMovement(result.getSimulationContext()) == DesyncStatus.FALSE) return 0.0D;
-        MovementTrace trace = result.getValidMovements() == null
-                ? null
-                : result.getValidMovements().getClosestTrace();
-        if (trace == null
-                || trace.positionOnlyDelta().lengthSqr() > 1.0E-14
-                || trace.collisionBaseOffset().lengthSqr() > 1.0E-14) return 0.0D;
-        Vec3 clamped = result.getLegacyLikePredictionVector();
-        return Math.hypot(target.x - clamped.x, target.z - clamped.z);
     }
 
     static boolean sprintHasForwardImpulse(SimulationContext context) {
@@ -411,13 +381,22 @@ public class HorizontalAnalyzer implements EngineCheck {
         return minDistance;
     }
 
-    private double normalizeAngle(double angle) {
+    private static double normalizeAngle(double angle) {
         angle = angle % 360;
         if (angle < 0) angle += 360;
         return angle;
     }
 
-    private AngleResult getAngleRange(SimpleCollisionBox startingPoint, Vec3 target, double playerAngle) {
+    static AngleResult inputAngleRange(PredictionResult result, Vec3 target, double playerAngle) {
+        // The extents contain the travel's input-free movement. Level#tickBlockEntities subsequently
+        // adds position-only movement, so Entity#moveRelative's direction is measured before that pass.
+        var pass = JavaMovementEngine.passAfterTravel(result);
+        if (pass != null) target = target.subtract(pass.movement());
+        return getAngleRange(
+                result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents(), target, playerAngle);
+    }
+
+    private static AngleResult getAngleRange(SimpleCollisionBox startingPoint, Vec3 target, double playerAngle) {
         double minAngle = Double.MAX_VALUE;
         double maxAngle = -Double.MAX_VALUE;
 
@@ -455,7 +434,7 @@ public class HorizontalAnalyzer implements EngineCheck {
 
     @AllArgsConstructor
     @Data
-    private static class AngleResult {
+    static class AngleResult {
         double minAngle;
         double maxAngle;
     }
@@ -501,14 +480,21 @@ public class HorizontalAnalyzer implements EngineCheck {
     static double minimumClippedInput(PredictionResult result, InputCost cost) {
         if (result.getCollideAxisData() == null) return Double.MAX_VALUE;
         Vec3 target = result.getTarget();
-        Vec3 closest = result.getAcceptedClosestToTarget();
+        // A candidate holding its exact input already moved by it; measure the input from the movement without it.
+        Vec3 input = result.getInitialStartingVel() == null
+                        || result.getInitialStartingVel().getTravelInput() == null
+                ? Vec3.ZERO
+                : result.getInitialStartingVel().getTravelInput();
+        Vec3 closest = result.getAcceptedClosestToTarget().subtract(input);
+        Vec3 preCollisionMovement = preCollisionMovement(result);
+        if (preCollisionMovement != null) preCollisionMovement = preCollisionMovement.subtract(input);
         return minimumClippedInput(
                 target.x - closest.x,
                 target.z - closest.z,
                 result.getSimulationContext().getXRot(),
                 result.getCollideAxisData(),
                 target,
-                preCollisionMovement(result),
+                preCollisionMovement,
                 touchedFaces(result.getPlayer(), result, Collisions.Axis.X),
                 touchedFaces(result.getPlayer(), result, Collisions.Axis.Z),
                 cost);

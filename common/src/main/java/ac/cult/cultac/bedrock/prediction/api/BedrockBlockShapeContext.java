@@ -1,0 +1,153 @@
+package ac.cult.cultac.bedrock.prediction.api;
+
+import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * The client state, besides a block's state and the moving actor, that its collision shape at a position reads:
+ * the lid of a shulker box there, the block a piston carries through a moving block there, the progress of the
+ * piston a piston arm belongs to, the coordinate frame that gives the block the position its offset hashes, and the
+ * block a moving block carries, which a landing on it reads, and the parts of a shape a client derives from the blocks
+ * around it where its block state carries none.
+ */
+public record BedrockBlockShapeContext(
+        ShulkerBoxLift shulkerBoxLift,
+        MovingBlockBoxes movingBlockBoxes,
+        PistonProgress pistonProgress,
+        BedrockCoordinateFrame frame,
+        MovingBlockCarried movingBlockCarried,
+        DerivedShapes derivedShapes) {
+    /**
+     * No client state: a closed lid, a moving block that carries nothing yet, which is a cube, and a piston that is
+     * fully out.
+     */
+    public static final BedrockBlockShapeContext NONE = new BedrockBlockShapeContext(
+            position -> 0.0F,
+            position -> List.of(new WorldCollisionBox(
+                    position.x(),
+                    position.y(),
+                    position.z(),
+                    position.x() + 1.0D,
+                    position.y() + 1.0D,
+                    position.z() + 1.0D)),
+            position -> 1.0F,
+            BedrockCoordinateFrame.IDENTITY);
+
+    /** A context whose stairs carry their own corner. */
+    public BedrockBlockShapeContext(
+            ShulkerBoxLift shulkerBoxLift,
+            MovingBlockBoxes movingBlockBoxes,
+            PistonProgress pistonProgress,
+            BedrockCoordinateFrame frame,
+            MovingBlockCarried movingBlockCarried) {
+        this(shulkerBoxLift, movingBlockBoxes, pistonProgress, frame, movingBlockCarried, DerivedShapes.OWN_STATE);
+    }
+
+    public BedrockBlockShapeContext {
+        shulkerBoxLift = Objects.requireNonNull(shulkerBoxLift, "shulkerBoxLift");
+        movingBlockBoxes = Objects.requireNonNull(movingBlockBoxes, "movingBlockBoxes");
+        pistonProgress = Objects.requireNonNull(pistonProgress, "pistonProgress");
+        frame = Objects.requireNonNull(frame, "frame");
+        movingBlockCarried = Objects.requireNonNull(movingBlockCarried, "movingBlockCarried");
+        derivedShapes = Objects.requireNonNull(derivedShapes, "derivedShapes");
+    }
+
+    /** A context whose moving blocks carry nothing a landing reads. */
+    public BedrockBlockShapeContext(
+            ShulkerBoxLift shulkerBoxLift,
+            MovingBlockBoxes movingBlockBoxes,
+            PistonProgress pistonProgress,
+            BedrockCoordinateFrame frame) {
+        this(
+                shulkerBoxLift,
+                movingBlockBoxes,
+                pistonProgress,
+                frame,
+                position -> MovingBlockCarried.NONE,
+                DerivedShapes.OWN_STATE);
+    }
+
+    /** How far the lid of the shulker box at a position extends its collision box. */
+    @FunctionalInterface
+    public interface ShulkerBoxLift {
+        float at(BlockPosition position);
+    }
+
+    /** How far out, from 0 to 1, the piston at a position has pushed its arm; {@link #NO_PISTON} for no piston. */
+    @FunctionalInterface
+    public interface PistonProgress {
+        float NO_PISTON = -1.0F;
+
+        float at(BlockPosition position);
+    }
+
+    /** The collision boxes of the moving block at a position, which may lie outside its cell. */
+    @FunctionalInterface
+    public interface MovingBlockBoxes {
+        List<WorldCollisionBox> at(BlockPosition position);
+    }
+
+    /** The block state the moving block at a position carries, or {@link #NONE} where there is no data for it. */
+    @FunctionalInterface
+    public interface MovingBlockCarried {
+        int NONE = -1;
+
+        int at(BlockPosition position);
+    }
+
+    /**
+     * Which parts of its shapes a client derives from the blocks around them because its block states carry none, and
+     * those blocks: a stair's corner, the sides a chorus plant connects on, and the sides fences, panes and bars
+     * connect on, which read the client's connection rule of each block beside them.
+     */
+    public record DerivedShapes(
+            BlockStates blocks,
+            boolean stairCorners,
+            boolean chorusConnections,
+            boolean fenceConnections,
+            Connections connections) {
+        /** Every shape as its own block state gives it. */
+        public static final DerivedShapes OWN_STATE =
+                new DerivedShapes(position -> BlockStates.NO_BLOCK, false, false, false, Connections.NONE);
+
+        public DerivedShapes(BlockStates blocks, boolean stairCorners) {
+            this(blocks, stairCorners, false);
+        }
+
+        public DerivedShapes(BlockStates blocks, boolean stairCorners, boolean chorusConnections) {
+            this(blocks, stairCorners, chorusConnections, false, Connections.NONE);
+        }
+
+        public DerivedShapes {
+            blocks = Objects.requireNonNull(blocks, "blocks");
+            connections = Objects.requireNonNull(connections, "connections");
+        }
+    }
+
+    /**
+     * The client's connection rule and connector type of each block state, as {@code BedrockBlockConnections} encodes
+     * them; a state outside the tables has no rule and no connector.
+     */
+    public record Connections(int[] rules, byte[] connectors) {
+        public static final Connections NONE = new Connections(new int[0], new byte[0]);
+
+        public int rule(int state) {
+            return state >= 0 && state < rules.length ? rules[state] : -1;
+        }
+
+        public int connector(int state) {
+            return state >= 0 && state < connectors.length ? connectors[state] : -1;
+        }
+    }
+
+    /** The block state at a position; {@link #NO_BLOCK} where none is known. */
+    @FunctionalInterface
+    public interface BlockStates {
+        int NO_BLOCK = -1;
+
+        int at(BlockPosition position);
+    }
+}

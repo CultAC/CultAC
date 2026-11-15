@@ -19,6 +19,13 @@ import org.jetbrains.annotations.Nullable;
  * All transitions run on the ordered player packet stream, never the Bukkit tick thread.
  */
 public final class ClientItemUseState {
+    /**
+     * One client tick's use state. {@code possiblyUsing} is whether LivingEntity#isUsingItem may hold, and
+     * {@code possiblyBlocksSprint} whether a use it may hold lacks UseEffects#canSprint
+     * (LocalPlayer#isSlowDueToUsingItem from 1.21.11). {@code multipliers} holds every LocalPlayer#modifyInput
+     * item-use multiplier the client may travel with: 1 while it may not be using, each use it may hold, and the
+     * outstanding one. The legal, required and slowest multipliers are among them.
+     */
     public record Snapshot(
             long session,
             int tick,
@@ -29,10 +36,44 @@ public final class ClientItemUseState {
             boolean canSprint,
             boolean required,
             boolean definitelyUsing,
-            float endedMultiplier) {
-        public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, 1, true, false, false);
+            boolean possiblyUsing,
+            boolean possiblyBlocksSprint,
+            List<Float> multipliers) {
+        public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, 1, true, false, false, false, false);
 
-        /** A snapshot with no ended use. */
+        public Snapshot {
+            multipliers = List.copyOf(multipliers);
+        }
+
+        /** A snapshot whose only possible multipliers are its legal, required and slowest ones. */
+        public Snapshot(
+                long session,
+                int tick,
+                int proof,
+                float legalMultiplier,
+                float requiredMultiplier,
+                float slowestMultiplier,
+                boolean canSprint,
+                boolean required,
+                boolean definitelyUsing,
+                boolean possiblyUsing,
+                boolean possiblyBlocksSprint) {
+            this(
+                    session,
+                    tick,
+                    proof,
+                    legalMultiplier,
+                    requiredMultiplier,
+                    slowestMultiplier,
+                    canSprint,
+                    required,
+                    definitelyUsing,
+                    possiblyUsing,
+                    possiblyBlocksSprint,
+                    distinct(legalMultiplier, requiredMultiplier, slowestMultiplier));
+        }
+
+        /** A snapshot whose possible uses are exactly its definite one. */
         public Snapshot(
                 long session,
                 int tick,
@@ -53,7 +94,14 @@ public final class ClientItemUseState {
                     canSprint,
                     required,
                     definitelyUsing,
-                    1);
+                    definitelyUsing,
+                    definitelyUsing && !canSprint);
+        }
+
+        private static List<Float> distinct(float... multipliers) {
+            var distinct = new ArrayList<Float>(multipliers.length);
+            for (float multiplier : multipliers) if (!distinct.contains(multiplier)) distinct.add(multiplier);
+            return distinct;
         }
     }
 
@@ -61,14 +109,14 @@ public final class ClientItemUseState {
 
     private record Use(Hand hand, SimItemStack stack, int remaining, SimItemStack boundStack) {}
 
-    /** Client ticks, from the first one after the end, that an ended use's multiplier stays a reality. */
-    private static final int ENDED_USE_TICKS = 11;
-
     /** One LivingEntity.completeUsingItem outcome: the used hand and its native inventory slot. */
     public record Completion(Hand hand, int slot) {}
 
     /** Client outcomes of a completion event; {@code skipped} is a client that completes nothing. */
     public record Completions(List<Completion> completions, boolean skipped) {}
+
+    /** A stack LivingEntity#releaseUsingItem may release, from the hand the use holds. */
+    public record Release(Hand hand, SimItemStack stack) {}
 
     private List<Use> candidates = List.of();
     private boolean inactive = true;
@@ -78,9 +126,6 @@ public final class ClientItemUseState {
     private Snapshot prepared = Snapshot.NONE;
     private final Map<SimItemStack, Integer> possiblyChanged = new IdentityHashMap<>();
     private boolean possiblyFull;
-    private List<SimItemStack> ended = List.of();
-    private int endedFrom;
-    private boolean endedPending;
 
     /**
      * An uncertain start keeps the candidate while the client may equally not be using; the
@@ -125,13 +170,6 @@ public final class ClientItemUseState {
     }
 
     public void release() {
-        if (holdsUse()) {
-            var held = new ArrayList<SimItemStack>(candidates.size() + 1);
-            if (!inactive) for (Use use : candidates) held.add(use.stack());
-            if (obligation != null) held.add(obligation.stack());
-            ended = List.copyOf(held);
-            endedPending = true;
-        }
         candidates = List.of();
         inactive = true;
         obligation = null;
@@ -185,15 +223,20 @@ public final class ClientItemUseState {
         // LocalPlayer#modifyInput slows by any use the client may hold, including one it may have refused.
         float slowest = 1;
         boolean canSprint = inactive;
+        boolean blocksSprint = false;
+        var multipliers = new ArrayList<Float>(candidates.size() + 2);
+        if (inactive) multipliers.add(1.0F);
         for (int i = 0; i < candidates.size(); i++) {
             var effects = effects(candidates.get(i).stack(), version);
             legal = Math.max(legal, effects.speedMultiplier());
             slowest = Math.min(slowest, effects.speedMultiplier());
             canSprint |= effects.canSprint();
+            blocksSprint |= !effects.canSprint();
+            if (!multipliers.contains(effects.speedMultiplier())) multipliers.add(effects.speedMultiplier());
         }
         float required =
                 obligation == null ? 1 : effects(obligation.stack(), version).speedMultiplier();
-        float endedMultiplier = endedMultiplier(tick, version);
+        if (!multipliers.contains(required)) multipliers.add(required);
         prepared = new Snapshot(
                 session,
                 tick,
@@ -204,7 +247,9 @@ public final class ClientItemUseState {
                 canSprint,
                 obligation != null && required < 1,
                 !inactive && !candidates.isEmpty(),
-                endedMultiplier);
+                !candidates.isEmpty(),
+                blocksSprint,
+                multipliers);
         return prepared;
     }
 
@@ -212,35 +257,6 @@ public final class ClientItemUseState {
     public boolean preparesFromHotbar() {
         for (int i = 0; i < candidates.size(); i++) if (candidates.get(i).hand() == Hand.MAIN_HAND) return true;
         return false;
-    }
-
-    /**
-     * The slowest LocalPlayer#modifyInput multiplier of the use this state held before its last end, while the client
-     * ticks after that end still number fewer than {@link #ENDED_USE_TICKS}; 1 otherwise. Some 1.21.11 and later
-     * clients keep applying it after LocalPlayer#stopUsingItem. A use held again replaces it.
-     */
-    private float endedMultiplier(int tick, ClientVersion version) {
-        if (ended.isEmpty()) return 1;
-        if (holdsUse()) {
-            ended = List.of();
-            return 1;
-        }
-        if (endedPending) {
-            endedFrom = tick;
-            endedPending = false;
-        }
-        if (tick - endedFrom >= ENDED_USE_TICKS) {
-            ended = List.of();
-            return 1;
-        }
-        if (!version.isNewerThanOrEquals(ClientVersion.V_1_21_11)) return 1;
-        float slowest = 1;
-        for (SimItemStack stack : ended) slowest = Math.min(slowest, effects(stack, version).speedMultiplier());
-        return slowest;
-    }
-
-    private boolean holdsUse() {
-        return !inactive && !candidates.isEmpty() || obligation != null;
     }
 
     public boolean definitelyUsing() {
@@ -270,6 +286,26 @@ public final class ClientItemUseState {
             }
         }
         return new Completions(List.copyOf(completions), skipped);
+    }
+
+    /**
+     * The stacks LivingEntity#releaseUsingItem may hand to Item#releaseUsing. Through 1.21.4 it releases useItem, the
+     * stack the last LivingEntity#updatingUsingItem bound, even when the hand holds another item since. From 1.21.5 it
+     * reads the used hand again and releases that stack only while ItemStack#isSameItem holds. Neither resets
+     * useItemRemaining, so a switch to another stack of the same item keeps the charge.
+     */
+    public List<Release> releases(ClientVersion version, SimItemStack main, SimItemStack off) {
+        boolean rereadsHand = version.isNewerThanOrEquals(ClientVersion.V_1_21_5);
+        var releases = new ArrayList<Release>(candidates.size());
+        for (Use use : candidates) {
+            SimItemStack held = use.hand() == Hand.MAIN_HAND ? main : off;
+            if (rereadsHand && !sameItem(use.stack(), held)) continue;
+            var release = new Release(use.hand(), rereadsHand ? held : use.stack());
+            if (releases.stream()
+                    .noneMatch(other -> other.hand() == release.hand() && other.stack() == release.stack()))
+                releases.add(release);
+        }
+        return List.copyOf(releases);
     }
 
     /**
@@ -355,8 +391,6 @@ public final class ClientItemUseState {
 
     public void reset() {
         release();
-        ended = List.of();
-        endedPending = false;
         lastPreparedTick = Integer.MIN_VALUE;
         prepared = Snapshot.NONE;
     }

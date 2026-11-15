@@ -97,7 +97,8 @@ class ItemSteeredRideWallTest {
             // The closing move commits; the clipped z velocity is zeroed, the along-wall x velocity is kept.
             double velocityX = alongWall;
             Vec3 wall = seat.add(velocityX, 0, GAP);
-            assertNoFlags(f.rideTick(wall, true), 0);
+            // The pig starts its first controlled travel with no velocity: Entity#move does not collide below.
+            assertNoFlags(f.rideTick(wall, false), 0);
             for (int tick = 1; tick <= STANDING_TICKS; tick++) {
                 velocityX = velocityX * friction + alongWall;
                 PredictionResult result = f.rideTick(wall, true);
@@ -148,7 +149,8 @@ class ItemSteeredRideWallTest {
 
     /** The first move closes the gap, the pig then stands at the wall, and the rider turns it away. */
     private static void standThenWalkOff(JavaTickFixture f, Vec3 wall, float away, float input, float friction) {
-        PredictionResult closing = f.rideTick(wall, true);
+        // The pig starts its first controlled travel with no velocity: Entity#move does not collide below.
+        PredictionResult closing = f.rideTick(wall, false);
         assertTrue(exact(closing), describe(closing));
         for (int tick = 1; tick <= STANDING_TICKS; tick++) {
             assertVehicleExact(f.rideTick(wall, true), tick);
@@ -194,6 +196,6 @@ class ItemSteeredRideWallTest {
     }
 
     private static void settle(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 }

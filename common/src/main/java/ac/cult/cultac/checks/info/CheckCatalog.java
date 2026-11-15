@@ -163,7 +163,6 @@ import ac.cult.cultac.checks.impl.prediction.checks.psuedo.BoatPseudo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.ElytraPseudo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.HappyGhastPseudo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InvalidStep;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
@@ -259,7 +258,6 @@ public final class CheckCatalog {
             check(GhostFriction.INFO, MOVEMENT),
             check(NoFallPseudo.INFO, MOVEMENT),
             check(InputKeys.INFO, MOVEMENT),
-            check(InvalidStep.INFO, MOVEMENT),
             check(ItemUseBurst.INFO, MOVEMENT),
             check(NegativeTimerCheck.INFO, MOVEMENT),
             check(NoFallExecutor.INFO, MOVEMENT),

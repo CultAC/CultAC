@@ -59,6 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Random;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
@@ -813,6 +814,7 @@ class CompactEntityMetadataTest {
                             ? Optional.empty()
                             : Optional.of(new BlockPos(((int[]) value)[0], ((int[]) value)[1], ((int[]) value)[2]));
                 case "optional_int" -> value == null ? OptionalInt.empty() : OptionalInt.of((int) value);
+                case "optional_uuid" -> Optional.ofNullable((UUID) value);
                 default -> value;
             };
             if (converted == null && kind.equals("painting_variant")) return null;

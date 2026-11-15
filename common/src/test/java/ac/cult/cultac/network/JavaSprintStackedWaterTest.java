@@ -155,7 +155,7 @@ class JavaSprintStackedWaterTest {
 
     private static void water(JavaTickFixture f, int y) {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), BlockIds.WATER.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void assertExact(PredictionResult result, String where) {

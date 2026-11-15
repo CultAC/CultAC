@@ -11,7 +11,6 @@ import ac.cult.cultac.events.packets.PacketModelRegistryNames;
 import ac.cult.cultac.events.packets.PacketServerPlayerRotation;
 import ac.cult.cultac.events.packets.PacketServerRegistries;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.listeners.PacketConfigurationListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
@@ -57,7 +56,6 @@ class ProductionPacketHandlerBindingTest {
             PacketEntityAction.class,
             PacketServerTeleport.class,
             PacketPlayerSteer.class,
-            PacketBlockAction.class,
             PacketSelfMetadataListener.class,
             PacketPlayerCooldown.class,
             PacketPlayerRespawn.class,

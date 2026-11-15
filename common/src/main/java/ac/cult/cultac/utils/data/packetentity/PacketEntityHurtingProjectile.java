@@ -65,8 +65,8 @@ public final class PacketEntityHurtingProjectile extends PacketEntity {
      * can hit, only the local player is modelled.
      */
     @Override
-    public void onMovement(CultPlayer player, boolean tickingReliably) {
-        super.onMovement(player, tickingReliably);
+    public void onMovement(CultPlayer player) {
+        super.onMovement(player);
         tickCount++;
         // Bedrock clients see Geyser's per-tick absolute moves, which the Geyser bridge already applies.
         if (getRiding() != null || player.isBedrockMovement()) return;
