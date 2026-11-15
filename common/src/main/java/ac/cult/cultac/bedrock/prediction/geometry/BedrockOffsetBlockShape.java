@@ -24,19 +24,23 @@ final class BedrockOffsetBlockShape {
             BedrockCollisionOverrideShape originShape,
             float maxOffset,
             BedrockCoordinateFrame frame) {
-        PositionOffset offset =
-                positionOffset(position.x() - frame.originX(), position.z() - frame.originZ(), maxOffset);
+        int localX = position.x() - frame.originX();
+        int localZ = position.z() - frame.originZ();
+        PositionOffset offset = positionOffset(localX, localZ, maxOffset);
         PositionOffset originOffset = positionOffset(0, 0, maxOffset);
+        // The block's place in the frame, shifted, in floats; each bound of the shape is added to it.
+        float shiftX = offset.x() + (float) localX;
+        float shiftZ = offset.z() + (float) localZ;
 
         List<WorldCollisionBox> boxes = new ArrayList<>(originShape.boxes().size());
         for (BlockAabb box : originShape.boxes()) {
             boxes.add(new WorldCollisionBox(
-                    position.x() + unshifted(box.minX(), originOffset.x()) + offset.x(),
+                    frame.originX() + (double) (unshifted(box.minX(), originOffset.x()) + shiftX),
                     position.y() + box.minY(),
-                    position.z() + unshifted(box.minZ(), originOffset.z()) + offset.z(),
-                    position.x() + unshifted(box.maxX(), originOffset.x()) + offset.x(),
+                    frame.originZ() + (double) (unshifted(box.minZ(), originOffset.z()) + shiftZ),
+                    frame.originX() + (double) (unshifted(box.maxX(), originOffset.x()) + shiftX),
                     position.y() + box.maxY(),
-                    position.z() + unshifted(box.maxZ(), originOffset.z()) + offset.z()));
+                    frame.originZ() + (double) (unshifted(box.maxZ(), originOffset.z()) + shiftZ)));
         }
         return List.copyOf(boxes);
     }
@@ -45,12 +49,13 @@ final class BedrockOffsetBlockShape {
      * The bound a catalog shape had before the shift of position (0, 0). The catalog rounds the shifted bounds to six
      * decimals, which can leave a face a float step past the one the shape has; every unshifted bound is a sixteenth.
      */
-    private static double unshifted(double catalogBound, float originOffset) {
-        return Math.rint((catalogBound - originOffset) * 16.0D) / 16.0D;
+    private static float unshifted(double catalogBound, float originOffset) {
+        return (float) (Math.rint((catalogBound - originOffset) * 16.0D) / 16.0D);
     }
 
     private static PositionOffset positionOffset(int x, int z, float maxOffset) {
-        long mixedPosition = (long) (x * 0x002fc20f) ^ (long) z * 0x06ebfff5L;
+        // Both products are 64-bit: unlike Java edition's seed, X does not wrap at 32 bits.
+        long mixedPosition = (long) x * 0x002fc20fL ^ (long) z * 0x06ebfff5L;
         long hashedPosition = (mixedPosition * 0x0285b825L + 0x0bL) * mixedPosition;
         long seed = (long) (int) (hashedPosition >>> 16) ^ SEED_XOR;
         long state0 = mix(seed);

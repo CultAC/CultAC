@@ -47,6 +47,8 @@ public class BedrockOffsetBlockShapeTest {
     private static final int BAMBOO =
             DataTables.defaults().registry().block("minecraft:bamboo").defaultState();
     private static final double TIP_TOP = 120.6875;
+    /** The step between floats from x 16384 to 32768. */
+    private static final double FLOAT_STEP = 1.0 / 512.0;
     private static final float GRAVITY_TICK = -0.0784F;
     private static final long FIRST_TICK = 7947;
 
@@ -57,12 +59,13 @@ public class BedrockOffsetBlockShapeTest {
 
     @Test
     public void pointedDripstoneTakesItsStepOfAnEighthEitherWay() {
-        // (20113, 20030) hashes to steps 9 and 15 of 0..15: 0.025 and 0.125.
+        // (20113, 20030) hashes to steps 6 and 5 of 0..15: -0.025 and -0.041667. Each face is the float sum of its
+        // sixteenth and the float of the shifted position, so in steps of 1/512 this far out.
         WorldCollisionBox tip = box(TIP, new BlockPosition(20113, 120, 20030), BedrockCoordinateFrame.IDENTITY);
-        assertEquals(20113.3375, tip.minX(), 1.0E-5);
-        assertEquals(20113.7125, tip.maxX(), 1.0E-5);
-        assertEquals(20030.4375, tip.minZ(), 1.0E-5);
-        assertEquals(20030.8125, tip.maxZ(), 1.0E-5);
+        assertEquals(20113.287109375, tip.minX(), 0.0);
+        assertEquals(20113.662109375, tip.maxX(), 0.0);
+        assertEquals(20030.271484375, tip.minZ(), 0.0);
+        assertEquals(20030.646484375, tip.maxZ(), 0.0);
         assertEquals(120.0, tip.minY(), 0.0);
         assertEquals(120.6875, tip.maxY(), 1.0E-6);
     }
@@ -74,8 +77,8 @@ public class BedrockOffsetBlockShapeTest {
             for (String thickness : List.of("tip_merge", "tip", "frustum", "middle", "base")) {
                 WorldCollisionBox box = box(dripstone(thickness, direction), position, BedrockCoordinateFrame.IDENTITY);
                 String state = thickness + " " + direction;
-                assertEquals(state, 20113.5 + 0.025, (box.minX() + box.maxX()) / 2.0, 1.0E-5);
-                assertEquals(state, 20030.5 + 0.125, (box.minZ() + box.maxZ()) / 2.0, 1.0E-5);
+                assertEquals(state, 20113.5 - 0.025, (box.minX() + box.maxX()) / 2.0, FLOAT_STEP);
+                assertEquals(state, 20030.5 - 0.041667, (box.minZ() + box.maxZ()) / 2.0, FLOAT_STEP);
             }
         }
     }
@@ -88,8 +91,8 @@ public class BedrockOffsetBlockShapeTest {
                 int spike = spike("minecraft:sulfur_spike", thickness, direction);
                 WorldCollisionBox box = box(spike, position, BedrockCoordinateFrame.IDENTITY);
                 String state = thickness + " " + direction;
-                assertEquals(state, 20113.5 + 0.025, (box.minX() + box.maxX()) / 2.0, 1.0E-5);
-                assertEquals(state, 20030.5 + 0.125, (box.minZ() + box.maxZ()) / 2.0, 1.0E-5);
+                assertEquals(state, 20113.5 - 0.025, (box.minX() + box.maxX()) / 2.0, FLOAT_STEP);
+                assertEquals(state, 20030.5 - 0.041667, (box.minZ() + box.maxZ()) / 2.0, FLOAT_STEP);
             }
         }
         // As BDS 26.50 gives the tip it maps to at (100, 100, 100).
@@ -105,12 +108,31 @@ public class BedrockOffsetBlockShapeTest {
 
     @Test
     public void bambooTakesItsStepOfAQuarterEitherWay() {
-        // (20107, 20032) hashes to steps 0 and 4: -0.25 and -0.116667.
+        // (20107, 20032) hashes to steps 15 and 7: 0.25 and -0.016667.
         WorldCollisionBox bamboo = box(BAMBOO, new BlockPosition(20107, 120, 20032), BedrockCoordinateFrame.IDENTITY);
-        assertEquals(20107.25, bamboo.minX(), 1.0E-5);
-        assertEquals(20107.375, bamboo.maxX(), 1.0E-5);
-        assertEquals(20032.383333, bamboo.minZ(), 1.0E-5);
-        assertEquals(20032.508333, bamboo.maxZ(), 1.0E-5);
+        assertEquals(20107.75, bamboo.minX(), 0.0);
+        assertEquals(20107.875, bamboo.maxX(), 0.0);
+        assertEquals(20032.482421875, bamboo.minZ(), 0.0);
+        assertEquals(20032.607421875, bamboo.maxZ(), 0.0);
+    }
+
+    /**
+     * Flag 11 (2026-11-15): a player gliding east past the thick stalk at (2203, 106, 1588) kept all of its south move.
+     * The X of the position is multiplied into the hash in 64 bits, so the stalk takes steps 6 and 4 and ends at
+     * x 2203.6375, west of the box. Multiplied in 32 bits as Java edition's seed is, X wraps and the stalk took steps 13
+     * and 7: x 2203.6833 to 2203.8708, across the box, whose south move it stopped at z 1588.4833.
+     */
+    @Test
+    public void theHashMultipliesXIn64Bits() {
+        var registry = DataTables.defaults().registry();
+        WorldCollisionBox stalk = box(
+                registry.with(BAMBOO, "age", "1"),
+                new BlockPosition(2203, 106, 1588),
+                BedrockCoordinateFrame.IDENTITY);
+        assertEquals(2203.449951171875, stalk.minX(), 0.0);
+        assertEquals(2203.637451171875, stalk.maxX(), 0.0);
+        assertEquals(1588.38330078125, stalk.minZ(), 0.0);
+        assertEquals(1588.57080078125, stalk.maxZ(), 0.0);
     }
 
     @Test
@@ -124,7 +146,7 @@ public class BedrockOffsetBlockShapeTest {
             assertEquals(local.minZ() + 19984, world.minZ(), 1.0E-9);
             assertEquals(local.maxZ() + 19984, world.maxZ(), 1.0E-9);
         }
-        // (33, 46) hashes to step 5 on X where (20113, 20030) hashes to step 9.
+        // (33, 46) hashes to step 5 on X where (20113, 20030) hashes to step 6.
         assertEquals(20113.645833, box(TIP, new BlockPosition(20113, 120, 20030), frame).maxX(), 1.0E-5);
     }
 
