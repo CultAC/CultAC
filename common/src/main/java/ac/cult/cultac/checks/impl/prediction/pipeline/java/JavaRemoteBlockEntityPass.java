@@ -246,7 +246,7 @@ public final class JavaRemoteBlockEntityPass {
      * they are what the last pass that moved it left there, or, before any, the ones it had as a root. When the
      * candidates no longer match the held ones, each held value remains possible.
      */
-    private static List<ClientPistonDeltas> heldDeltas(
+    static List<ClientPistonDeltas> heldDeltas(
             PacketEntity rider, List<ClientPistonDeltas> held, int count, int candidate) {
         if (held == null)
             return List.of(
@@ -264,17 +264,8 @@ public final class JavaRemoteBlockEntityPass {
             SimpleCollisionBox seat,
             ClientBlockEntityPass pass,
             ClientPistonDeltas deltas) {
-        Vec3 start = new Vec3((seat.minX + seat.maxX) / 2.0, seat.minY, (seat.minZ + seat.maxZ) / 2.0);
-        // Entity#rideTick zeroes a passenger's deltaMovement, and a remote rider never travels.
-        var state = new JavaPassState(
-                start,
-                Vec3.ZERO,
-                rider.onGround,
-                new MainSupportingBlockData(null, rider.onGround),
-                null,
-                0,
-                deltas,
-                false);
+        var state = riderStart(rider, seat, deltas);
+        Vec3 start = state.position();
         var replay = JavaBlockEntityPass.runDetachedEntity(player, rider, pass, state);
         Vec3 end = replay.state().position();
         SimpleCollisionBox box = end.equals(start)
@@ -282,6 +273,20 @@ public final class JavaRemoteBlockEntityPass {
                 : GetBoundingBox.getPacketEntityBoundingBox(player, end.x, end.y, end.z, rider);
         rider.recordRiderInterpolationPass(box, replay.interpolation(), replay.oldInterpolation());
         return new Moved(box, replay.state().pistonDeltas());
+    }
+
+    /** The Entity fields a rider seated at {@code seat} carries into the pass. */
+    static JavaPassState riderStart(PacketEntity rider, SimpleCollisionBox seat, ClientPistonDeltas deltas) {
+        // Entity#rideTick zeroes a passenger's deltaMovement, and a remote rider never travels.
+        return new JavaPassState(
+                new Vec3((seat.minX + seat.maxX) / 2.0, seat.minY, (seat.minZ + seat.maxZ) / 2.0),
+                Vec3.ZERO,
+                rider.onGround,
+                new MainSupportingBlockData(null, rider.onGround),
+                null,
+                0,
+                deltas,
+                false);
     }
 
     /**

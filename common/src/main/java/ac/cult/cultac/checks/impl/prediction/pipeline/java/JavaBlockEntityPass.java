@@ -462,7 +462,9 @@ public final class JavaBlockEntityPass {
      * The tracked remote roots the local player can collide with that this pass's block entities may move, each
      * replayed beside the player without committing: JavaRemoteBlockEntityPass commits them after the selected travel.
      * From the first block entity on, their in-pass boxes stand in for their client-tick boxes while the player's moves
-     * read entity collisions. A root a leading Shulker#onPeekAmountChange may move keeps its client-tick box.
+     * read entity collisions. A root a leading Shulker#onPeekAmountChange may move keeps its client-tick box. A rider
+     * outside the local player's riding trees is replayed the same way from its seat:
+     * PistonMovingBlockEntity#moveCollidedEntities moves it apart from its vehicle.
      */
     private static List<Replay> remoteColliders(
             JavaBlockEntityMove.Environment env, ClientBlockEntityPass pass, JavaPassState start) {
@@ -470,6 +472,7 @@ public final class JavaBlockEntityPass {
         CompensatedEntities entities = player.compensatedEntities;
         PacketEntity self = entities.getSelf();
         PacketEntity selfRoot = entities.rootOfSelf();
+        PacketEntity ownRoot = entities.selfRidingRoot();
         PacketEntity serverRoot = entities.serverVehicleRoot();
         var selection = new ac.cult.cultac.utils.nmsutil.EntityCollisionSelection(player, self, start.position());
         List<Replay> remotes = null;
@@ -478,8 +481,17 @@ public final class JavaBlockEntityPass {
             // Every entity has ticked before Level#tickBlockEntities.
             entities.setPassTickedThroughOrder(Long.MAX_VALUE);
             for (PacketEntity actor : entities.pushOrCollideCandidates()) {
+                if (actor != self && actor.getRiding() != null) {
+                    JavaPassState seated =
+                            entities.isUntrackedRider(actor, ownRoot, serverRoot) && selection.mayCollide(actor)
+                                    ? riderColliderStart(pass, actor)
+                                    : null;
+                    if (seated == null) continue;
+                    if (remotes == null) remotes = new java.util.ArrayList<>(1);
+                    remotes.add(new Replay(entityEnvironment(player, actor, pass, seated.position(), true), seated));
+                    continue;
+                }
                 if (actor == self
-                        || actor.getRiding() != null
                         || (actor == selfRoot || actor == serverRoot)
                                 && entities.vehicles.isLocallyTickedVelocityRoot(actor)
                         || actor.newPacketLocation == null
@@ -511,6 +523,20 @@ public final class JavaBlockEntityPass {
             entities.setPassTickedThroughOrder(tickedThrough);
         }
         return remotes == null ? List.of() : remotes;
+    }
+
+    /**
+     * The state a rider outside the local player's riding trees enters the pass with, at the one seat it holds; null
+     * when the pass cannot reach that seat, or the seat or the rider's Entity#pistonDeltas are not certain.
+     */
+    private static JavaPassState riderColliderStart(ClientBlockEntityPass pass, PacketEntity rider) {
+        if (pass.movers().isEmpty() || rider.possibleMovementCollisionBoxCandidateCount() != 1) return null;
+        SimpleCollisionBox seat = rider.positionCollisionBoxCandidate(0, new SimpleCollisionBox());
+        List<ClientPistonDeltas> deltas = JavaRemoteBlockEntityPass.heldDeltas(rider, rider.riderPistonDeltas, 1, 0);
+        if (deltas.size() != 1) return null;
+        JavaPassState start = JavaRemoteBlockEntityPass.riderStart(rider, seat, deltas.getFirst());
+        SimpleCollisionBox box = rider.movementBoxAt(seat);
+        return pass.mayReach(box) && !peekMayReach(pass, box) ? start : null;
     }
 
     private static boolean peekMayReach(ClientBlockEntityPass pass, SimpleCollisionBox box) {
