@@ -11,6 +11,7 @@ import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.checks.type.LegacyPacketEventSemantics;
@@ -765,9 +766,9 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 } finally {
                     setbacks.releaseSafePosition();
                 }
-                Boolean correctedOnGround = player.checkManager
-                        .getListener(VehiclePredictionRunner.class)
-                        .takeCorrectedOnGround();
+                VehiclePredictionRunner runner = player.checkManager.getListener(VehiclePredictionRunner.class);
+                Boolean correctedOnGround = runner.takeCorrectedOnGround();
+                float correctedYaw = runner.takeCorrectedYaw();
                 if (setbackBlocksVehicleMovement(player)) {
                     event.setCancelled(true);
                     player.lastX = lastX;
@@ -778,6 +779,11 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                     player.z = z;
                     return;
                 }
+                if (!Float.isNaN(correctedYaw)) {
+                    // The boat's yaw is the one AbstractBoat#controlBoat turned it to, which the next tick turns on.
+                    yaw = correctedYaw;
+                    packet = correctYawClaim(event, player, packet, yaw);
+                }
                 // The root's ground is the one its own move set; the prediction stages it where the report differs.
                 boolean onGround = correctedOnGround != null
                         ? correctedOnGround
@@ -786,6 +792,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 vehicles.applyControlledVehicleMove(root, newPos, onGround, yaw, pitch);
             } else {
                 applyAcceptedVehicleTeleportState(player, root, newPos, packet, teleport);
+                float answerYaw = answerYaw(teleport, root);
+                if (!Float.isNaN(answerYaw)) packet = correctYawClaim(event, player, packet, answerYaw);
                 // ServerboundMoveVehiclePacket#fromEntity echoes the root's onGround, which the response handler
                 // took from the server or left as it was. The server reads the echo's bit, so it gets that one.
                 if (clientReportsOnGround) correctOnGroundClaim(event, player, packet, root.onGround);
@@ -942,6 +950,40 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             player.compensatedEntities.vehicles.applyVehiclePacketPosition(
                     packetRoot, position, onGround, vehiclePacket.yaw(), vehiclePacket.pitch());
         }
+    }
+
+    /**
+     * The yaw ServerboundMoveVehiclePacket#fromEntity echoes for an answered ClientboundMoveVehicle: the yaw
+     * ClientPacketListener#handleMoveVehicle snapped the root to, or the root's own yaw when it did not snap. NaN for
+     * an answer to another teleport, and while the root's yaw is not known or it reports an interpolation target.
+     */
+    private static float answerYaw(TeleportAcceptData teleport, PacketEntity root) {
+        VehicleTeleportData correction = teleport.getVehicleTeleportData();
+        if (correction == null
+                || correction.getEntityId() != root.getEntityId()
+                || correction.getApplication() == VehicleTeleportData.Application.ENTITY_TELEPORT) {
+            return Float.NaN;
+        }
+        if (correction.getApplication() == VehicleTeleportData.Application.MOVE_VEHICLE_SNAP) {
+            return correction.getYaw();
+        }
+        return root.clientPhysicalYawCurrent && !root.hasActiveLocalRootInterpolation()
+                ? root.clientPhysicalYaw
+                : Float.NaN;
+    }
+
+    /** Forwards {@code packet} with the yaw the engine holds for the root when the claim differs; the packet sent on. */
+    private static ServerboundMoveVehicle correctYawClaim(
+            PacketReceiveEvent<ServerboundMoveVehicle> event,
+            CultPlayer player,
+            ServerboundMoveVehicle packet,
+            float yaw) {
+        if (Float.compare(packet.yaw(), yaw) == 0
+                || !player.checkManager.getCheck(VehicleOffset.class).shouldModifyPackets()) return packet;
+        ServerboundMoveVehicle corrected = new ServerboundMoveVehicle(
+                packet.position(), yaw, packet.pitch(), packet.onGround(), packet.hasOnGround());
+        event.replace(corrected);
+        return corrected;
     }
 
     /** Forwards {@code packet} with the onGround the engine holds for the root when the claim differs. */

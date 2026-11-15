@@ -100,21 +100,21 @@ public class BoatTransform implements UncertaintyHandler {
         return selectBoatTick(player, context, start, BoatTickState.capture(player), end);
     }
 
-    public static void commitAcceptedBoatTickState(CultPlayer player, PredictionResult result) {
+    /** Commits the boat tick of {@code result} that turned the boat to {@code yaw}, or the selected one when none did. */
+    public static void commitAcceptedBoatTickState(CultPlayer player, PredictionResult result, float yaw) {
         boolean previous = JavaMovementMath.select(player, result.getInitialStartingVel());
         try {
-            commitBoatTick(player, result);
+            commitBoatTick(player, result, yaw);
         } finally {
             JavaMovementMath.restore(player, previous);
         }
     }
 
-    private static void commitBoatTick(CultPlayer player, PredictionResult result) {
+    private static void commitBoatTick(CultPlayer player, PredictionResult result, float yaw) {
         SimulationContext context = result.getSimulationContext();
         if (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type)) return;
 
-        BoatTickResult tick = selectBoatTick(
-                player, context, result.getInitialStartingVel(), BoatTickState.capture(player), result.getTarget());
+        BoatTickResult tick = turnedTo(player, result, yaw);
         BoatTickState state = tick.state();
         if (JavaFallDistance.runsFallDamageCallback(context.getVersion(), true)) {
             Vec3 stuck = context.getRequiredCurrentMoveStuckSpeed();
@@ -128,6 +128,52 @@ public class BoatTransform implements UncertaintyHandler {
         if (player.compensatedEntities.vehicles.reportsInterpolationRotation(context.getVehicle()))
             context.getVehicle()
                     .setClientPhysicalRotation(tick.postControlYaw(), context.getVehicle().clientPhysicalPitch);
+    }
+
+    /**
+     * The yaw a driven boat leaves this tick with: {@code claimed} when a boat tick the client may have run turns the
+     * last tick's yaw to it, the selected tick's turn otherwise. NaN when that last yaw is not known.
+     */
+    public static float acceptedBoatYaw(CultPlayer player, PredictionResult result, float claimed) {
+        if (Float.isNaN(player.boatYawBeforeTurn)) return Float.NaN;
+        BoatTickResult tick = JavaMovementMath.calculate(
+                player, result.getInitialStartingVel(), () -> turnedTo(player, result, claimed));
+        return player.boatYawBeforeTurn + tick.state().deltaRotation();
+    }
+
+    /**
+     * The tick of {@code result} whose deltaRotation turns the last yaw to {@code yaw}: the selected tick, or the tick
+     * AbstractBoat#tick runs with the other oldStatus a snap leaves unknown; the selected tick when neither does.
+     */
+    private static BoatTickResult turnedTo(CultPlayer player, PredictionResult result, float yaw) {
+        SimulationContext context = result.getSimulationContext();
+        Vec3 start = result.getInitialStartingVel();
+        BoatTickState state = BoatTickState.capture(player);
+        BoatTickResult selected = selectBoatTick(player, context, start, state, result.getTarget());
+        float before = player.boatYawBeforeTurn;
+        if (Float.isNaN(yaw) || Float.isNaN(before) || before + selected.state().deltaRotation() == yaw) {
+            return selected;
+        }
+        BoatTickState other = otherOldStatus(state);
+        if (other == null) return selected;
+        BoatTickResult normal = computeBoatTick(player, context, start, state);
+        BoatTickResult alternative = computeBoatTick(player, context, start, other);
+        for (BoatTickResult tick : new BoatTickResult[] {normal, alternative}) {
+            if (before + tick.state().deltaRotation() == yaw) return tick;
+        }
+        return selected;
+    }
+
+    /** The state with the oldStatus selectBoatTick also tries, or null when the oldStatus is known. */
+    private static BoatTickState otherOldStatus(BoatTickState state) {
+        if (!state.oldStatusMayBeInAir()
+                || state.status() == BoatEntityStatus.IN_AIR
+                || state.status() == BoatEntityStatus.ON_LAND) {
+            return null;
+        }
+        return state.oldStatus() == BoatEntityStatus.IN_AIR
+                ? state.withOldStatus(state.status())
+                : state.withOldStatus(BoatEntityStatus.IN_AIR);
     }
 
     /**
@@ -403,6 +449,12 @@ public class BoatTransform implements UncertaintyHandler {
         float postControlYaw;
         if (player.compensatedEntities.vehicles.reportsInterpolationRotation(context.getVehicle())) {
             startYaw = context.getVehicle().clientPhysicalYaw;
+            postControlYaw = startYaw + deltaRotation;
+        } else if (player.packetStateData.isVehicleMovementFromClientTick()
+                && !Float.isNaN(player.boatYawBeforeTurn)
+                && context.getVehicle().clientPhysicalYawCurrent) {
+            // AbstractBoat#controlBoat turns the yaw the boat has by deltaRotation, whatever yaw the move reports.
+            startYaw = player.boatYawBeforeTurn;
             postControlYaw = startYaw + deltaRotation;
         } else if (player.packetStateData.isVehicleMovementFromClientTick()) {
             // ServerboundMoveVehiclePacket#fromEntity serializes the root boat
