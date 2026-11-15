@@ -7,6 +7,7 @@ public record BounceBlockState(BounceBlockType type) {
     private static final String SLIME_BLOCK_IDENTIFIER = "minecraft:slime";
     private static final String JAVA_SLIME_BLOCK_IDENTIFIER = "minecraft:slime_block";
     private static final String BED_BLOCK_IDENTIFIER = "minecraft:bed";
+    private static final String SHELF_MUSHROOM_IDENTIFIER = "minecraft:shelf_mushroom";
     private static final float BED_BOUNCE_SCALE = -0.75F;
 
     public BounceBlockState {
@@ -47,7 +48,11 @@ public record BounceBlockState(BounceBlockType type) {
         if (isSlimeBlockIdentifier(bedrockIdentifier) || isSlimeBlockIdentifier(javaState)) {
             return BounceBlockType.SLIME;
         }
-        if (isBedBlockIdentifier(bedrockIdentifier) || isBedBlockIdentifier(javaState)) {
+        // A shelf mushroom returns a fall the way a bed does.
+        if (isBedBlockIdentifier(bedrockIdentifier)
+                || isBedBlockIdentifier(javaState)
+                || isShelfMushroomIdentifier(bedrockIdentifier)
+                || isShelfMushroomIdentifier(javaState)) {
             return BounceBlockType.BED;
         }
         return BounceBlockType.NONE;
@@ -58,6 +63,10 @@ public record BounceBlockState(BounceBlockType type) {
                 || JAVA_SLIME_BLOCK_IDENTIFIER.equals(identifier)
                 || identifier.startsWith(SLIME_BLOCK_IDENTIFIER + "[")
                 || identifier.startsWith(JAVA_SLIME_BLOCK_IDENTIFIER + "[");
+    }
+
+    private static boolean isShelfMushroomIdentifier(String identifier) {
+        return SHELF_MUSHROOM_IDENTIFIER.equals(identifier) || identifier.startsWith(SHELF_MUSHROOM_IDENTIFIER + "[");
     }
 
     private static boolean isBedBlockIdentifier(String identifier) {

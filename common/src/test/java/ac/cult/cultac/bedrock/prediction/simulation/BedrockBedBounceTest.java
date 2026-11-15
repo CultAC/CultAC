@@ -29,6 +29,7 @@ import org.junit.Test;
 
 public final class BedrockBedBounceTest {
     private static final double BED_TOP = 0.5625D;
+    private static final double SHELF_MUSHROOM_TOP = 0.6875D;
 
     @Test
     public void fastFallReboundsAboveThreeQuartersOfABlock() {
@@ -44,6 +45,21 @@ public final class BedrockBedBounceTest {
     }
 
     @Test
+    public void shelfMushroomReboundsLikeABed() {
+        // Captured landing on a shelf mushroom top (0.6875) at 0.3015347 a tick with 0.1092224 left to it: the client
+        // rebounded at about 0.17038 where a plain landing gives -0.0784.
+        PlacedBlockCollision mushroom = PlacedBlockCollision.manual(
+                new BlockPosition(0, 0, 0),
+                "minecraft:shelf_mushroom[age=0,facing=north]",
+                "minecraft:shelf_mushroom",
+                List.of(new WorldCollisionBox(0.1875D, 0.25D, 0.5625D, 0.8125D, SHELF_MUSHROOM_TOP, 1.0D)));
+        assertEquals(
+                0.17037888D,
+                bounce(mushroom, SHELF_MUSHROOM_TOP, new Vec3d(0.5D, 0.0D, 0.75D), -0.3015347123146057D, 0.10922241D),
+                1.0E-5D);
+    }
+
+    @Test
     public void bedReboundScalesWithTheFallSpeed() {
         BounceBlockState bed = new BounceBlockState(BounceBlockType.BED);
 
@@ -53,20 +69,25 @@ public final class BedrockBedBounceTest {
     }
 
     private static double bounce(double fallingVelocityY, double distanceToBed) {
-        BedrockMovementState falling = BedrockMovementState.fromPhysicalFeet(
-                new Vec3d(0.5D, BED_TOP + distanceToBed, 0.5D),
-                new Vec3d(0.0D, fallingVelocityY, 0.0D),
-                BedrockInputFrame.idle(1L),
-                BedrockCollisionFlags.AIR);
         PlacedBlockCollision bed = PlacedBlockCollision.manual(
                 new BlockPosition(0, 0, 0),
                 "minecraft:red_bed[facing=south,part=foot]",
                 "minecraft:bed",
                 List.of(new WorldCollisionBox(0.0D, 0.0D, 0.0D, 1.0D, BED_TOP, 1.0D)));
+        return bounce(bed, BED_TOP, new Vec3d(0.5D, 0.0D, 0.5D), fallingVelocityY, distanceToBed);
+    }
+
+    private static double bounce(
+            PlacedBlockCollision block, double top, Vec3d column, double fallingVelocityY, double distanceToTop) {
+        BedrockMovementState falling = BedrockMovementState.fromPhysicalFeet(
+                new Vec3d(column.x(), top + distanceToTop, column.z()),
+                new Vec3d(0.0D, fallingVelocityY, 0.0D),
+                BedrockInputFrame.idle(1L),
+                BedrockCollisionFlags.AIR);
         BedrockMovementContext context = new BedrockMovementContext(
                 BedrockEffectState.NONE,
                 AttributeState.DEFAULT,
-                new WorldContactState(Medium.AIR, FluidState.NONE, new BlockCollisionWorld(List.of(bed))),
+                new WorldContactState(Medium.AIR, FluidState.NONE, new BlockCollisionWorld(List.of(block))),
                 EquipmentState.NONE,
                 EntityContactState.NONE,
                 MovementModifierState.NONE,
@@ -80,7 +101,7 @@ public final class BedrockBedBounceTest {
                 false,
                 BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
 
-        assertEquals(BED_TOP, result.predictedPosition().y(), 1.0E-9D);
+        assertEquals(top, result.predictedPosition().y(), 1.0E-9D);
         return result.predictedVelocity().y();
     }
 }
