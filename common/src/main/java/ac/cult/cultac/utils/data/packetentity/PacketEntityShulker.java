@@ -193,12 +193,16 @@ public class PacketEntityShulker extends PacketEntity {
     /**
      * Whether ClientLevel#tickPassenger runs this untracked rider's Entity#rideTick in the client tick in progress: its
      * root ticks, and from 1.17 the rider's own chunk at {@code position} ticks entities. A seat that is not one
-     * position is taken to tick with its root.
+     * position is taken to tick with its root. ClientLevel#tickEntities ticks the local player as a root while it is
+     * in the level, with the tick rate frozen or not, and runs its riders whatever LocalPlayer#tick itself did.
      */
     private boolean ridesInClientTick(@Nullable Vec3 position) {
         CompensatedEntities entities = player.compensatedEntities;
         PacketEntity root = entities.rootOf(this);
-        if (root == null || !entities.ticksInClientTick(root)) return false;
+        if (root == null) return false;
+        if (root == entities.getSelf() ? entities.getSelf().isRemovedFromLevel() : !entities.ticksInClientTick(root)) {
+            return false;
+        }
         return position == null
                 || player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_17)
                 || player.compensatedWorld.isClientEntityTickingChunk(
