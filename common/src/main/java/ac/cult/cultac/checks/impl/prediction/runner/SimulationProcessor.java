@@ -820,18 +820,24 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     /**
      * Through 26.2 the report is inside LocalPlayer#tick; late rockets and boats run before the block entities. A
      * passenger's own motion feeds no travel: Entity#rideTick zeroes it, and the starting velocities are its root's.
+     * The root the client moved this tick keeps what a late entity adds to its delta movement, as a 1.21.2 to 1.21.5
+     * Ravager#roar does to every LivingEntity in reach.
      */
     private void applyEntityVelocityTicksAfterReport() {
         if (JavaBlockEntityPass.reportsAfterPass(this.player.getClientVersion())
-                || this.player.compensatedEntities.getSelf().inVehicle()
                 || !this.player.localPlayerTicks()
                 || this.lastPrediction == null
                 || !(this.profileCarry instanceof JavaPredictionCarry carry)
-                || carry.actor() != this.player.compensatedEntities.getSelf()
                 || carry.states().isEmpty()) return;
         var context = this.lastPrediction.getSimulationContext();
+        PacketEntity root = this.player.compensatedEntities.getSelf().inVehicle() ? context.getVehicle() : null;
+        if (root == null
+                ? this.player.compensatedEntities.getSelf().inVehicle()
+                : root != this.currentPredictionVehicle()
+                        || !this.player.packetStateData.isVehicleMovementFromClientTick()) return;
+        if (carry.actor() != (root == null ? this.player.compensatedEntities.getSelf() : root)) return;
         var states = new ArrayList<JavaPredictionCarry.State>();
-        Vec3 end = new Vec3(this.player.x, this.player.y, this.player.z);
+        Vec3 end = root == null ? new Vec3(this.player.x, this.player.y, this.player.z) : root.clientPhysicalPosition;
         var carried = carry.states();
         // A rocket reads Entity#getLookAngle with the trig table each state travelled with; untied states with the
         // committed travel's.
@@ -854,6 +860,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 }
             }
         }
+        // No late entity reached the root: its carried states stand as its travel left them.
+        if (root != null && new HashSet<>(states).equals(new HashSet<>(carry.states()))) return;
         this.profileCarry = carry.withStates(states);
         this.validPlayerStartingVels = new HashSet<>();
         for (var state : states) this.validPlayerStartingVels.add(state.velocity());
