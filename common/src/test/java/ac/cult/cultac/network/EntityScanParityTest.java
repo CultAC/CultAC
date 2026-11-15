@@ -41,10 +41,16 @@ class EntityScanParityTest {
         return !(!EntityTypeUtil.isLiving(entity.type) && !hard || entity.type == EntityTypeIds.ARMOR_STAND);
     }
 
-    private static boolean referencePoseCollide(CultPlayer player, PacketEntity riding, PacketEntity entity) {
+    /** Entity#getRootVehicle of entities the model does not track. */
+    private static PacketEntity rootOf(PacketEntity entity) {
+        while (entity.getRiding() != null) entity = entity.getRiding();
+        return entity;
+    }
+
+    /** {@code root} is the root of the player's riding tree: no entity of that tree collides with the player. */
+    private static boolean referencePoseCollide(CultPlayer player, PacketEntity root, PacketEntity entity) {
         if (entity == null || entity.isDead || entity.getEntityId() == player.entityID) return false;
-        if (riding != null && (riding == entity || riding.hasPassenger(entity) || entity.hasPassenger(riding)))
-            return false;
+        if (root != null && rootOf(entity) == root) return false;
         return EntityTypeUtil.isBoat(entity.type)
                 || entity.type == EntityTypeIds.SHULKER
                 || EntityTypeUtil.isHappyGhast(entity.type);
@@ -76,7 +82,7 @@ class EntityScanParityTest {
             for (int id : modelTypes()) {
                 for (int entityId : new int[] {500, player.entityID}) {
                     for (boolean dead : new boolean[] {false, true}) {
-                        for (int ridingState = 0; ridingState < 5; ridingState++) {
+                        for (int ridingState = 0; ridingState < 7; ridingState++) {
                             PacketEntity entity = new PacketEntity(id, entityId);
                             entity.isDead = dead;
                             PacketEntity riding = switch (ridingState) {
@@ -86,10 +92,17 @@ class EntityScanParityTest {
                             };
                             if (ridingState == 2) entity.mount(riding);
                             if (ridingState == 3) riding.mount(entity);
-                            boolean expected = referencePoseCollide(player, riding, entity);
+                            // A pig between them: the vehicle the player rides and the entity share only a root.
+                            if (ridingState >= 5) {
+                                PacketEntity between = new PacketEntity(EntityTypeIds.PIG, 601);
+                                (ridingState == 5 ? entity : riding).mount(between);
+                                between.mount(ridingState == 5 ? riding : entity);
+                            }
+                            PacketEntity root = riding == null ? null : rootOf(riding);
+                            boolean expected = referencePoseCollide(player, root, entity);
                             assertEquals(
                                     expected,
-                                    canCollide.invoke(player, riding, entity),
+                                    canCollide.invoke(player, root, entity),
                                     EntityTypeUtil.getKey(id) + " id=" + entityId + " dead=" + dead + " riding="
                                             + ridingState);
                             if (expected) accepted++;

@@ -1351,12 +1351,13 @@ public class CultPlayer implements GrimUser {
                         fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
         if (!Collisions.isEmpty(this, box, y)) return false;
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        PacketEntity rootOfSelf = compensatedEntities.rootOfSelf();
         SimpleCollisionBox entityBox = fitEntityBox;
         List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
         for (int i = 0, size = candidates.size(); i < size; i++) {
             PacketEntity entity = candidates.get(i);
-            if (canCollideWithForPoseCheck(riding, entity) && overlapsAtEachPossiblePosition(entity, box, entityBox)) {
+            if (canCollideWithForPoseCheck(rootOfSelf, entity)
+                    && overlapsAtEachPossiblePosition(entity, box, entityBox)) {
                 return false;
             }
         }
@@ -1380,13 +1381,13 @@ public class CultPlayer implements GrimUser {
             return RootVehicleInterpolationCollision.noEntityCollision(
                             this, compensatedEntities.getSelf(), position, playerBox)
                     == DesyncStatus.TRUE;
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        PacketEntity rootOfSelf = compensatedEntities.rootOfSelf();
         SimpleCollisionBox entityBox = fitEntityBox;
         SimpleCollisionBox scratch = fitEntityScratch;
         List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
         for (int i = 0, size = candidates.size(); i < size; i++) {
             PacketEntity entity = candidates.get(i);
-            if (!canCollideWithForPoseCheck(riding, entity)) {
+            if (!canCollideWithForPoseCheck(rootOfSelf, entity)) {
                 continue;
             }
 
@@ -1423,10 +1424,10 @@ public class CultPlayer implements GrimUser {
             }
             return boxes;
         }
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        PacketEntity rootOfSelf = compensatedEntities.rootOfSelf();
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
-            if (canCollideWithForPoseCheck(riding, entity)) {
+            if (canCollideWithForPoseCheck(rootOfSelf, entity)) {
                 boxes.addAll(entity.getPossibleMovementCollisionBoxCandidates());
             }
         }
@@ -1435,9 +1436,10 @@ public class CultPlayer implements GrimUser {
 
     /**
      * Entity#canBeCollidedWith admits this player for boats, shulkers and happy ghasts; AbstractMinecart keeps its
-     * false, so a minecart never blocks a pose or a move.
+     * false, so a minecart never blocks a pose or a move. An entity of the player's own riding tree, whose root is
+     * {@code rootOfSelf}, never does either, however many vehicles lie between them.
      */
-    private boolean canCollideWithForPoseCheck(@Nullable PacketEntity riding, PacketEntity entity) {
+    private boolean canCollideWithForPoseCheck(@Nullable PacketEntity rootOfSelf, PacketEntity entity) {
         if (entity == null || !(entity.isBoat() || entity.type == EntityTypeIds.SHULKER || entity.isHappyGhast())) {
             return false;
         }
@@ -1450,7 +1452,7 @@ public class CultPlayer implements GrimUser {
             return false;
         }
 
-        return riding == null || !(riding == entity || riding.hasPassenger(entity) || entity.hasPassenger(riding));
+        return !compensatedEntities.sharesRootVehicleWithSelf(entity, rootOfSelf);
     }
 
     public void closeInventorySafely() {
