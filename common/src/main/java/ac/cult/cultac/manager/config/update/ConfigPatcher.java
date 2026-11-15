@@ -27,6 +27,8 @@ public final class ConfigPatcher {
     private final Map<List<String>, NodePosition> locationMap;
     // Flow collections ({a: 1} or [a, b]) by the literal keys of the node they are, with the text they span.
     private final Map<List<String>, FlowSpan> flowCollections = new HashMap<>();
+    // Block-style keys whose value is an alias of a mapping, by their literal keys, with the anchor each names.
+    private final Map<List<String>, String> mappingAliases = new HashMap<>();
 
     // ... (formatValue and YAML_KEYWORDS/SPECIAL_CHARS constants are unchanged) ...
     private static final Set<String> YAML_KEYWORDS_TO_QUOTE = new HashSet<>(Arrays.asList(
@@ -54,7 +56,11 @@ public final class ConfigPatcher {
         }
     }
 
-    /** Insert a new setting beneath its closest existing parent, keeping surrounding text. */
+    /**
+     * Insert a new setting beneath its closest existing parent, keeping surrounding text. A parent that is an alias of
+     * a mapping has no lines of its own: it becomes a mapping that merges the anchor's keys, which the new one
+     * overrides.
+     */
     public void addMissingValue(List<String> path, Object value) {
         int parentDepth = path.size() - 1;
         NodePosition parent = null;
@@ -71,7 +77,16 @@ public final class ConfigPatcher {
         options.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
         String yaml = new org.yaml.snakeyaml.Yaml(options).dump(nested);
         String indent = " ".repeat(parent == null ? 0 : childIndent(path.subList(0, parentDepth), parent));
-        List<String> inserted = yaml.lines().map(line -> indent + line).toList();
+        List<String> inserted = new ArrayList<>();
+        // A merge is one level deep: a setting further down would replace the anchor's map it lies in.
+        String alias = parent == null || path.size() != parentDepth + 1
+                ? null
+                : mappingAliases.get(path.subList(0, parentDepth));
+        if (alias != null) {
+            scrubInlineListFromKeyLine(parent.lineIndex());
+            inserted.add(indent + "<<: *" + alias);
+        }
+        yaml.lines().map(line -> indent + line).forEach(inserted::add);
         lines.addAll(parent == null ? lines.size() : parent.lineIndex() + 1, inserted);
         remap();
     }
@@ -168,6 +183,7 @@ public final class ConfigPatcher {
     public void remap() {
         locationMap.clear();
         flowCollections.clear();
+        mappingAliases.clear();
         mapFile();
     }
 
@@ -217,7 +233,11 @@ public final class ConfigPatcher {
             Node node, List<String> keys, Node keyNode, String text, BitSet insideFlow, boolean inFlow) {
         // An alias composes to its anchor's node, written before the key: none of that text is this value's.
         if (keyNode != null
-                && node.getStartMark().getIndex() < keyNode.getEndMark().getIndex()) return;
+                && node.getStartMark().getIndex() < keyNode.getEndMark().getIndex()) {
+            if (!inFlow && node instanceof MappingNode && node.getAnchor() != null)
+                mappingAliases.put(keys, node.getAnchor());
+            return;
+        }
         boolean flow = node instanceof CollectionNode<?> collection
                 && collection.getFlowStyle() == DumperOptions.FlowStyle.FLOW;
         if (flow) {

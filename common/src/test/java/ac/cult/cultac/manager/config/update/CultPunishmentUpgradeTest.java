@@ -422,6 +422,28 @@ class CultPunishmentUpgradeTest {
     }
 
     @Test
+    void extendsAGroupThatAliasesAWholeGroupWrittenElsewhere() throws Exception {
+        Path file = write("""
+                cult-config-version: 5
+                base-group: &rules
+                  checks: [Simulation, NoFall]
+                  commands: ['1:1 [alert]']
+                Punishments:
+                  Simulation: *rules  # shared
+                  Copy: *rules
+                """);
+        assertTrue(upgrade(file).migrated);
+        var data = read(file);
+        assertEquals(6, data.get("cult-config-version"));
+        assertEquals(List.of("Simulation", "NoFall", "Phase"), checks(data, "Simulation"));
+        assertEquals(List.of("1:1 [alert]"), group(data, "Simulation").get("commands"));
+        // The anchor and the other group naming it keep their own selectors.
+        assertEquals(List.of("Simulation", "NoFall"), ((Map<?, ?>) data.get("base-group")).get("checks"));
+        assertEquals(List.of("Simulation", "NoFall"), checks(data, "Copy"));
+        assertTrue(Files.readString(file).contains("# shared"));
+    }
+
+    @Test
     void leavesTheFileAndItsVersionAsTheyWereWhenAPatchWouldBreakIt() throws Exception {
         // The new Simulation group rewrites the one-line Punishments map, which cannot keep the anchor `other` names.
         String original = """
