@@ -4,8 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
-import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
@@ -32,7 +30,6 @@ import javax.crypto.spec.SecretKeySpec;
  */
 final class CompressedFrames {
     static final byte[] KEY = "0123456789abcdef".getBytes();
-    private static final ByteBufAllocator POOLED = PooledByteBufAllocator.DEFAULT;
     /** A two-byte packet ID no route uses, so Cult's encoder passes the frame on unchanged. */
     static final int UNROUTED_ID = 2047;
 
@@ -204,24 +201,9 @@ final class CompressedFrames {
         assertTrue(Arrays.equals(expected, actual), "wire bytes equal today's");
     }
 
-    /**
-     * Splits frames from a backend read, emitting retained slices of a pooled cumulation, which carry their own
-     * reference count as slices of a channel's pooled reads do.
-     */
+    /** Splits frames from a backend read, emitting retained slices of the cumulation. */
     static final class FrameDecoder extends ByteToMessageDecoder {
         final List<ByteBuf> frames = new ArrayList<>();
-
-        FrameDecoder() {
-            setCumulator((alloc, cumulation, in) -> {
-                if (cumulation.isReadable()) return MERGE_CUMULATOR.cumulate(POOLED, cumulation, in);
-                try {
-                    cumulation.release();
-                    return POOLED.directBuffer(in.readableBytes()).writeBytes(in);
-                } finally {
-                    in.release();
-                }
-            });
-        }
 
         @Override
         protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {

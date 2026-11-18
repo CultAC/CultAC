@@ -1148,7 +1148,7 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
-    void retainedAliasChangedAfterInflationLeavesTheReadAsWithTheSwitchOff() {
+    void retainedAliasChangedAfterInflationLeavesTheBackendsBytes() {
         byte[] packet = packet(3000, 66);
         byte[] body = body(packet, THRESHOLD);
         var aliases = new ArrayList<ByteBuf>();
@@ -1178,14 +1178,15 @@ class VelocityCompressedForwardTest {
         try (var f = new Fixture(Options.forwarding().onFrame(changeTrailer))) {
             alias.accept(f, f.backend.pipeline());
             f.read(read.clone());
-            assertSameBytes(today, f.wire());
-            assertEquals(0, f.forwarder.forwarded());
-            assertEquals(1, f.forwarder.notMarked());
+            var frames = read(f.wire(), THRESHOLD);
+            assertPackets(List.of(packet), frames);
+            assertArrayEquals(body, frames.getFirst().body(), "the backend's frame as it arrived");
+            assertEquals(1, f.forwarder.forwarded());
         }
     }
 
     @Test
-    void retainedAliasChangedBetweenInflateAndPublishLeavesTheReadAsWithTheSwitchOff() {
+    void retainedAliasChangedBetweenInflateAndPublishLeavesTheBackendsBytes() {
         byte[] packet = packet(3000, 72);
         byte[] body = body(packet, THRESHOLD);
         var aliases = new ArrayList<ByteBuf>();
@@ -1215,9 +1216,10 @@ class VelocityCompressedForwardTest {
         try (var f = new Fixture(Options.forwarding())) {
             alias.accept(f, f.backend.pipeline());
             f.read(read.clone());
-            assertSameBytes(today, f.wire());
-            assertEquals(0, f.forwarder.forwarded());
-            assertEquals(1, f.forwarder.notMarked());
+            var frames = read(f.wire(), THRESHOLD);
+            assertPackets(List.of(packet), frames);
+            assertArrayEquals(body, frames.getFirst().body(), "the backend's frame as it arrived");
+            assertEquals(1, f.forwarder.forwarded());
             assertTrue(aliases.isEmpty());
         }
     }
@@ -1654,40 +1656,6 @@ class VelocityCompressedForwardTest {
                 }
             }
         }
-    }
-
-    @Test
-    void retainedFrameShowsTheReaderIndexTheDecoderLeaves() {
-        byte[] packet = packet(3000, 101);
-        byte[] read = frame(body(packet, THRESHOLD));
-        byte[][] wires = new byte[2][];
-        byte[][] after = new byte[2][];
-        for (boolean forward : new boolean[] {false, true}) {
-            int at = forward ? 1 : 0;
-            try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
-                f.backend.pipeline().addAfter("frame-decoder", "retaining", new ChannelInboundHandlerAdapter() {
-                    @Override
-                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                        ByteBuf frame = ((ByteBuf) msg).retain();
-                        try {
-                            ctx.fireChannelRead(frame);
-                            after[at] = ByteBufUtil.getBytes(frame);
-                        } finally {
-                            frame.release();
-                        }
-                    }
-                });
-                f.read(read.clone());
-                wires[at] = f.wire();
-                if (forward) {
-                    assertEquals(0, f.forwarder.forwarded());
-                    assertEquals(1, f.forwarder.notMarked());
-                }
-            }
-        }
-        assertSameBytes(wires[0], wires[1]);
-        assertPackets(List.of(packet), read(wires[1], THRESHOLD));
-        assertArrayEquals(after[0], after[1], "the readable region of the retained frame after the read");
     }
 
     @Test

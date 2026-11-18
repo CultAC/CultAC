@@ -9,8 +9,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Sits on a backend channel directly before Velocity's compression decoder and, while the keep, decoder and mark are
- * adjacent, copies each forwardable, solely owned, single-buffer compressed frame into a private client frame, passes
- * the decoder a slice of that copy, and arms the mark's one-shot token for that read unless the decoder has a limiter.
+ * adjacent, copies each forwardable single-buffer compressed frame into a private client frame, passes the decoder a
+ * slice of that copy, and arms the mark's one-shot token for that read unless the decoder has a packet limiter.
  */
 final class CompressedKeep extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-keep";
@@ -59,11 +59,11 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     }
 
     /**
-     * Whether {@code frame} has no other owner and one NIO buffer, as Velocity's Java inflater requires, and is
-     * compressed with a data length the forwarder could send.
+     * Whether {@code frame} has one NIO buffer, as Velocity's Java inflater requires, and is compressed with a data
+     * length the forwarder could send.
      */
     private boolean held(ByteBuf frame) {
-        if (frame.refCnt() != 1 || frame.nioBufferCount() != 1) return false;
+        if (frame.nioBufferCount() != 1) return false;
         int n = CompressedForwarder.dataLength(frame, frame.readerIndex(), frame.writerIndex());
         return n > 0 && n >= forwarder.threshold() && n <= CompressedForwarder.MAX_FORWARDED_LENGTH;
     }
