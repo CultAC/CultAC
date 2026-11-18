@@ -28,7 +28,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private static final int MAX_FRAME_LENGTH = (1 << 21) - 1;
     // Velocity's encoder fails a write whose deflate output is this long or longer.
     private static final int MAX_COMPRESSED_LENGTH = 1 << 21;
-    /** The longest inflated frame whose {@link #deflateBound} stays below Velocity's compressed-length limit. */
+    /** 1,838,585: the longest inflated frame whose {@link #deflateBound} is below Velocity's compressed limit. */
     static final int MAX_FORWARDED_LENGTH = maxForwardedLength();
     // Netty follows this link from a context to the next outbound handler toward the head.
     private static final @Nullable VarHandle PREVIOUS = previous();
@@ -71,9 +71,9 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         this.consume = consume;
     }
 
-    /** An upper bound on the zlib output of Velocity's Java and libdeflate compressors for {@code n} bytes. */
+    /** An upper bound on either compressor's zlib output for {@code n} bytes, a fast level's n/8 expansion included. */
     static int deflateBound(int n) {
-        return n + (n >> 9) + 64;
+        return n + (n >> 3) + (n >> 6) + 16;
     }
 
     private static int maxForwardedLength() {
@@ -173,8 +173,13 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
-        if (consume) b.skipBytes(n);
-        b.release();
+        try {
+            if (consume) b.skipBytes(n);
+            b.release();
+        } catch (Throwable failure) {
+            out.release();
+            throw failure;
+        }
         target.write(out, promise);
     }
 

@@ -19,6 +19,8 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.buffer.UnpooledHeapByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
@@ -29,6 +31,7 @@ import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import java.io.ByteArrayOutputStream;
@@ -1203,9 +1206,12 @@ class VelocityCompressedForwardTest {
                         })
                         .when(racing)
                         .addAfter(eq(name), eq(CompressedForwarder.NAME), any(ChannelHandler.class));
+                var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
                 assertNull(
-                        VelocityCompressedForward.install(racing, CompressEncoder.class.getName(), true, false, true),
+                        VelocityCompressedForward.install(
+                                racing, CompressEncoder.class.getName(), true, false, true, refusals::add),
                         "replace " + replace);
+                assertEquals(List.of(VelocityCompressedForward.Refusal.CHANGED), refusals, "replace " + replace);
                 assertNull(real.get(CompressedForwarder.NAME));
             } finally {
                 channel.finishAndReleaseAll();
@@ -1232,6 +1238,147 @@ class VelocityCompressedForwardTest {
             VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), backend, DECODER);
             assertEquals("backend-adjacency", f.forwarder.linkStatus());
             for (String handler : real.names()) assertFalse(handler.startsWith("cult-compressed"), handler);
+        }
+    }
+
+    @Test
+    void handlerInsertedBeforeTheForwarderDuringInstallInstallsNothing() {
+        String name = CompressedForwarder.COMPRESSION_ENCODER;
+        var channel = new EmbeddedChannel();
+        try {
+            ChannelPipeline real = channel.pipeline();
+            real.addLast(name, new CompressEncoder(THRESHOLD));
+            ChannelPipeline racing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            doAnswer(call -> {
+                        real.addAfter(name, CompressedForwarder.NAME, (ChannelHandler) call.getArgument(2));
+                        return real.addAfter(name, "foreign", new ChannelOutboundHandlerAdapter());
+                    })
+                    .when(racing)
+                    .addAfter(eq(name), eq(CompressedForwarder.NAME), any(ChannelHandler.class));
+            var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
+            assertNull(VelocityCompressedForward.install(
+                    racing, CompressEncoder.class.getName(), true, false, true, refusals::add));
+            assertEquals(List.of(VelocityCompressedForward.Refusal.CHANGED), refusals);
+            assertNull(real.get(CompressedForwarder.NAME));
+            assertNotNull(real.get("foreign"));
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    void handlerInsertedNextToTheDecoderDuringLinkLinksNothing() {
+        String name = VelocityCompressedForward.COMPRESSION_DECODER;
+        for (boolean keepSide : new boolean[] {true, false}) {
+            try (var f = new Fixture(Options.forwarding().unlinked())) {
+                ChannelPipeline real = f.backend.pipeline();
+                ChannelPipeline racing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+                if (keepSide)
+                    doAnswer(call -> {
+                                real.addBefore(name, CompressedKeep.NAME, (ChannelHandler) call.getArgument(2));
+                                return real.addBefore(name, "foreign", new ChannelInboundHandlerAdapter());
+                            })
+                            .when(racing)
+                            .addBefore(eq(name), eq(CompressedKeep.NAME), any(ChannelHandler.class));
+                else
+                    doAnswer(call -> {
+                                real.addAfter(name, CompressedMark.NAME, (ChannelHandler) call.getArgument(2));
+                                return real.addAfter(name, "foreign", new ChannelInboundHandlerAdapter());
+                            })
+                            .when(racing)
+                            .addAfter(eq(name), eq(CompressedMark.NAME), any(ChannelHandler.class));
+                Channel backend = mock(Channel.class);
+                when(backend.pipeline()).thenReturn(racing);
+                VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), backend, DECODER);
+                assertEquals("backend-adjacency", f.forwarder.linkStatus(), "keep side " + keepSide);
+                assertNotNull(real.get("foreign"));
+                for (String handler : real.names()) assertFalse(handler.startsWith("cult-compressed"), handler);
+            }
+        }
+    }
+
+    @Test
+    void installRefusalsLogTheirOwnWarningOnce() {
+        String name = CompressedForwarder.COMPRESSION_ENCODER;
+        var client = new EmbeddedChannel();
+        var other = new EmbeddedChannel();
+        try (var log = mockStatic(LogUtil.class)) {
+            var forward =
+                    VelocityCompressedForward.create(mock(ProxyServer.class), new Object(), p -> null, true, true);
+            assertNotNull(forward);
+            client.pipeline().addLast(name, new CompressEncoder(THRESHOLD));
+            var connection = new CultConnection(client, new PacketDispatcher(RUNTIME), ignored -> null);
+            forward.installClient(connection, null, null);
+            forward.installClient(connection, null, null);
+            log.verify(
+                    () -> LogUtil.warn(
+                            "Cannot read a client's compression threshold; its frames are compressed by Velocity"),
+                    times(1));
+            ChannelPipeline real = other.pipeline();
+            real.addLast(name, new CompressEncoder(THRESHOLD));
+            ChannelPipeline racing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            doAnswer(call -> {
+                        real.replace(name, name, new CompressEncoder(THRESHOLD));
+                        return real.addAfter(name, CompressedForwarder.NAME, (ChannelHandler) call.getArgument(2));
+                    })
+                    .when(racing)
+                    .addAfter(eq(name), eq(CompressedForwarder.NAME), any(ChannelHandler.class));
+            for (int i = 0; i < 2; i++)
+                assertNull(VelocityCompressedForward.install(
+                        racing, CompressEncoder.class.getName(), true, false, true, forward::refused));
+            log.verify(
+                    () -> LogUtil.warn("A client's compression handlers changed while the forwarder was installed; its"
+                            + " frames are compressed by Velocity"),
+                    times(1));
+            log.verify(() -> LogUtil.warn(anyString()), times(2));
+        } finally {
+            client.finishAndReleaseAll();
+            other.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    void forwardedFrameIsReleasedWhenTheInputsReleaseThrows() {
+        byte[] packet = packet(3000, 71);
+        byte[] body = body(packet, THRESHOLD);
+        try (var f = new Fixture(Options.forwarding().unlinked())) {
+            var input = new FailingRelease(packet.length);
+            input.writeBytes(packet);
+            ByteBuf copy = f.track(Unpooled.copiedBuffer(packet));
+            ByteBuf kept = f.track(Unpooled.wrappedBuffer(body));
+            ByteBuf frame = f.forwarder.frame(ByteBufAllocator.DEFAULT, kept, 0, body.length, packet.length);
+            assertNotNull(frame);
+            ChannelFuture write;
+            f.forwarder.mark(input, input.readerIndex(), input.writerIndex(), copy, frame);
+            try {
+                write = f.client.write(input);
+            } finally {
+                f.forwarder.mark(null, 0, 0, null, null);
+            }
+            assertInstanceOf(IllegalReferenceCountException.class, write.cause());
+            assertEquals(0, frame.refCnt(), "the frame no write took is released");
+            assertEquals(0, f.wire().length);
+            assertTrue(input.release());
+            copy.release();
+            kept.release();
+        }
+    }
+
+    /** A heap buffer whose first release throws, as releasing a reference the writer does not hold does. */
+    static final class FailingRelease extends UnpooledHeapByteBuf {
+        private boolean failed;
+
+        FailingRelease(int capacity) {
+            super(UnpooledByteBufAllocator.DEFAULT, capacity, capacity);
+        }
+
+        @Override
+        public boolean release() {
+            if (!failed) {
+                failed = true;
+                throw new IllegalReferenceCountException(0, -1);
+            }
+            return super.release();
         }
     }
 
@@ -1272,8 +1419,10 @@ class VelocityCompressedForwardTest {
             for (int level = 0; level <= 9; level++)
                 assertTrue(
                         zlib(data, level).length <= CompressedForwarder.deflateBound(n), "n " + n + ", level " + level);
+            assertTrue(n + n / 8 < CompressedForwarder.deflateBound(n), "an eighth's expansion, n " + n);
         }
         int limit = CompressedForwarder.MAX_FORWARDED_LENGTH;
+        assertEquals(1_838_585, limit);
         assertTrue(CompressedForwarder.deflateBound(limit) < 1 << 21);
         assertTrue(CompressedForwarder.deflateBound(limit + 1) >= 1 << 21);
     }
@@ -1281,7 +1430,7 @@ class VelocityCompressedForwardTest {
     @Test
     void frameVelocityCouldRejectTakesTheEncodersPath() {
         int limit = CompressedForwarder.MAX_FORWARDED_LENGTH;
-        for (int size : new int[] {limit, limit + 1, 1 << 21}) {
+        for (int size : new int[] {limit, limit + 1, (limit + (1 << 21)) / 2, 1 << 21}) {
             String label = "size " + size;
             byte[] packet = packet(size, 69);
             byte[] read = frame(body(packet, THRESHOLD));
