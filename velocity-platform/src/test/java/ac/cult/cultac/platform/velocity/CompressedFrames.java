@@ -244,6 +244,8 @@ final class CompressedFrames {
         boolean vanilla;
         /** Runs between the inflate and the publish, where Velocity's decoder calls its packet limiter. */
         Runnable afterInflate;
+        /** Stands in for Velocity's settable limiter field and runs where Velocity's decoder calls it. */
+        Runnable packetLimiter;
 
         private final SharedCompressor compressor;
 
@@ -266,6 +268,7 @@ final class CompressedFrames {
             int dataLength = Wire.readVarInt(in);
             if (dataLength == 0) {
                 if (in.readableBytes() >= threshold) throw new DecoderException("uncompressed above threshold");
+                if (packetLimiter != null) packetLimiter.run();
                 out.add(in.retain());
                 return;
             }
@@ -274,6 +277,7 @@ final class CompressedFrames {
             in.readBytes(zlib);
             byte[] packet = vanilla ? inflateVanilla(zlib, dataLength) : inflate(zlib, dataLength);
             if (afterInflate != null) afterInflate.run();
+            if (packetLimiter != null) packetLimiter.run();
             ByteBuf uncompressed;
             if (composite) {
                 int half = dataLength / 2;

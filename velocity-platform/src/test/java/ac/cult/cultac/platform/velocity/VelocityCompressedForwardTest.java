@@ -47,6 +47,7 @@ import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.zip.Adler32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
@@ -161,7 +162,7 @@ class VelocityCompressedForwardTest {
             byte[] wire = f.wire();
             assertSameBytes(today, wire);
             assertPackets(List.of(packet), read(wire, THRESHOLD));
-            assertEquals(1, f.forwarder.belowThreshold());
+            assertEquals(0, f.forwarder.belowThreshold(), "a frame below the client's threshold is not held");
             assertEquals(1, f.forwarder.framedSmall());
             assertEquals(0, f.forwarder.forwarded());
         }
@@ -405,7 +406,11 @@ class VelocityCompressedForwardTest {
                     .pipeline()
                     .addAfter(VelocityCompressedForward.COMPRESSION_DECODER, CompressedMark.NAME, mark);
             var p = second.channel.pipeline();
-            keep.attach(p.context(keep), p.context(VelocityCompressedForward.COMPRESSION_DECODER), p.context(mark));
+            keep.attach(
+                    p.context(keep),
+                    p.context(VelocityCompressedForward.COMPRESSION_DECODER),
+                    p.context(mark),
+                    VelocityCompressedForward.limiterReader(second.decoder));
             nested.add(second);
             f.read(frame(body(outer, THRESHOLD)));
             assertPackets(List.of(inner, outer), read(f.wire(), THRESHOLD));
@@ -1269,9 +1274,8 @@ class VelocityCompressedForwardTest {
             byte[] wire = f.wire();
             assertSameBytes(today(Options.forwarding(), read), wire);
             assertPackets(List.of(packet), read(wire, THRESHOLD));
-            assertNotNull(copies.getFirst(), "the keep holds the frame");
-            assertEquals(0, copies.getFirst().refCnt(), "the keep's copy");
-            assertEquals(0, f.forwarder.belowThreshold(), "the passed-on slice is not marked");
+            assertNull(copies.getFirst(), "the keep does not hold a zero data length");
+            assertEquals(0, f.forwarder.belowThreshold(), "the passed-on frame is not marked");
             assertEquals(1, f.forwarder.framedSmall());
             assertEquals(0, f.frameDecoder.frames.getFirst().refCnt());
         }
@@ -1327,6 +1331,132 @@ class VelocityCompressedForwardTest {
             assertArrayEquals(body, frames.getFirst().body(), "the backend's frame, its last byte included");
             assertEquals(1, f.forwarder.forwarded());
             assertThrows(DecoderException.class, () -> read(wire, THRESHOLD), "a reader that wants an exact stream");
+        }
+    }
+
+    @Test
+    void packetLimiterOnTheBackendDecoderLeavesEveryReadAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 86);
+        byte[] other = packet(3000, 87);
+        byte[] flipped = packet.clone();
+        flipped[10] ^= 0x5a;
+        byte[] read = frame(body(packet, THRESHOLD));
+        String decoderName = VelocityCompressedForward.COMPRESSION_DECODER;
+        Function<Fixture, Runnable> compressedIntoTheDecoder = f -> once(() -> {
+            ChannelPipeline p = f.backend.pipeline();
+            ChannelHandlerContext before = p.context(CompressedKeep.NAME);
+            if (before == null) before = p.context("read-timeout");
+            before.fireChannelRead(f.track(Unpooled.wrappedBuffer(body(other, THRESHOLD))));
+        });
+        Function<Fixture, Runnable> inflatedFromTheDecoder = f -> once(() -> f.backend
+                .pipeline()
+                .context(decoderName)
+                .fireChannelRead(f.track(Unpooled.directBuffer(other.length).writeBytes(other))));
+        Function<Fixture, Runnable> changedAfterTheDecoder =
+                f -> once(() -> f.backend.pipeline().addAfter(decoderName, "flip", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        ByteBuf buf = (ByteBuf) msg;
+                        int at = buf.readerIndex() + 10;
+                        buf.setByte(at, buf.getByte(at) ^ 0x5a);
+                        ctx.pipeline().remove(this);
+                        ctx.fireChannelRead(msg);
+                    }
+                }));
+        var sequences = List.of(compressedIntoTheDecoder, inflatedFromTheDecoder, changedAfterTheDecoder);
+        var expected = List.of(List.of(other, packet), List.of(other, packet), List.of(flipped));
+        for (int i = 0; i < sequences.size(); i++) {
+            byte[] today;
+            try (var f = new Fixture(Options.today())) {
+                f.decoder.packetLimiter = sequences.get(i).apply(f);
+                f.read(read.clone());
+                today = f.wire();
+            }
+            assertPackets(expected.get(i), read(today, THRESHOLD));
+            for (boolean beforeLink : new boolean[] {true, false}) {
+                String label = "sequence " + i + ", limiter set before the link " + beforeLink;
+                try (var f = new Fixture(beforeLink ? Options.forwarding().unlinked() : Options.forwarding())) {
+                    f.decoder.packetLimiter = sequences.get(i).apply(f);
+                    if (beforeLink) {
+                        VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), f.backend, DECODER);
+                        assertEquals("backend-limiter", f.forwarder.linkStatus(), label);
+                        assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                    }
+                    f.read(read.clone());
+                    assertSameBytes(today, f.wire());
+                    assertEquals(0, f.forwarder.forwarded(), label);
+                    assertEquals("backend-limiter", f.forwarder.linkStatus(), label);
+                    assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                    assertNull(f.backend.pipeline().get(CompressedMark.NAME), label);
+                }
+            }
+        }
+    }
+
+    /** Runs {@code action} on its first call only. */
+    private static Runnable once(Runnable action) {
+        boolean[] ran = {false};
+        return () -> {
+            if (ran[0]) return;
+            ran[0] = true;
+            action.run();
+        };
+    }
+
+    @Test
+    void failedSlicePassesTheBackendsFrameOnUnheld() {
+        byte[] packet = packet(3000, 88);
+        byte[] read = frame(body(packet, THRESHOLD));
+        try (var f = new Fixture(Options.forwarding())) {
+            var allocator = new RecordingAllocator();
+            allocator.failingSlices = true;
+            f.backend.config().setAllocator(allocator);
+            f.read(read);
+            assertSameBytes(today(Options.forwarding(), read), f.wire());
+            assertEquals(0, f.forwarder.forwarded());
+            assertEquals(1, f.forwarder.notMarked());
+            assertEquals("linked", f.forwarder.linkStatus());
+            assertEquals(0, f.frameDecoder.frames.getFirst().refCnt(), "the backend's frame");
+            for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "the keep's copy");
+        }
+    }
+
+    @Test
+    void frameTheForwarderCannotSendIsNotCopied() {
+        byte[] small = packet(100, 89);
+        byte[] large = packet(CompressedForwarder.MAX_FORWARDED_LENGTH + 1, 90);
+        for (boolean belowClientThreshold : new boolean[] {true, false}) {
+            Options options = belowClientThreshold ? Options.forwarding().backendThreshold(64) : Options.forwarding();
+            byte[] read = belowClientThreshold ? frame(body(small, 64)) : frame(body(large, THRESHOLD));
+            try (var f = new Fixture(options)) {
+                var keep = (CompressedKeep) f.backend.pipeline().get(CompressedKeep.NAME);
+                var seen = new ArrayList<ByteBuf>();
+                f.decoder.afterInflate = () -> seen.add(keep.kept);
+                f.read(read);
+                assertEquals(
+                        Arrays.asList((ByteBuf) null), seen, "below the client's threshold " + belowClientThreshold);
+                assertSameBytes(today(options, read), f.wire());
+                assertEquals(0, f.forwarder.forwarded());
+            }
+        }
+    }
+
+    @Test
+    void clientDecoderOnItsOwnExecutorInstallsNothing() throws Exception {
+        var channel = new EmbeddedChannel();
+        var group = new DefaultEventExecutorGroup(1);
+        try {
+            ChannelPipeline pipeline = channel.pipeline();
+            pipeline.addLast(group, VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD));
+            var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
+            assertNull(VelocityCompressedForward.install(
+                    pipeline, CompressEncoder.class.getName(), DECODER, true, false, true, refusals::add));
+            assertEquals(List.of(VelocityCompressedForward.Refusal.EXECUTOR), refusals);
+            assertNull(pipeline.get(CompressedForwarder.NAME));
+        } finally {
+            channel.finishAndReleaseAll();
+            group.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
         }
     }
 
@@ -1574,10 +1704,14 @@ class VelocityCompressedForwardTest {
         }
     }
 
-    /** Unpooled buffers, each recorded; the first {@link #failing} direct allocations throw. */
+    /**
+     * Unpooled buffers, each recorded; the first {@link #failing} direct allocations throw, and with {@link
+     * #failingSlices} a direct buffer's retained slice throws.
+     */
     static final class RecordingAllocator extends AbstractByteBufAllocator {
         final List<ByteBuf> allocated = new ArrayList<>();
         int failing;
+        boolean failingSlices;
 
         @Override
         protected ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity) {
@@ -1592,7 +1726,14 @@ class VelocityCompressedForwardTest {
                 failing--;
                 throw new OutOfMemoryError("direct memory");
             }
-            ByteBuf buf = new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity);
+            ByteBuf buf = failingSlices
+                    ? new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity) {
+                        @Override
+                        public ByteBuf retainedSlice(int index, int length) {
+                            throw new IllegalStateException("slice");
+                        }
+                    }
+                    : new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity);
             allocated.add(buf);
             return buf;
         }

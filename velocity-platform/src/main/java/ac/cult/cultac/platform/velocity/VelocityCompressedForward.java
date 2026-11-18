@@ -14,6 +14,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -43,6 +44,7 @@ final class VelocityCompressedForward {
     private final AtomicBoolean[] warned = new AtomicBoolean[Refusal.values().length];
     private volatile Method inFlightMethod;
     private static volatile @Nullable MethodHandle thresholdGetter;
+    private static volatile @Nullable MethodHandle limiterGetter;
     private final EventHandler<ServerConnectedEvent> connected = this::connected;
     private final EventHandler<ServerPostConnectEvent> postConnected = this::postConnected;
     private boolean listening;
@@ -177,6 +179,24 @@ final class VelocityCompressedForward {
         }
     }
 
+    /** A getter bound to {@code decoder}'s {@code packetLimiter} field, typed {@code ()Object}, or null. */
+    static @Nullable MethodHandle limiterReader(Object decoder) {
+        try {
+            Class<?> type = decoder.getClass();
+            MethodHandle getter = limiterGetter;
+            if (getter == null || getter.type().parameterType(0) != type) {
+                Class<?> field = type.getDeclaredField("packetLimiter").getType();
+                getter = MethodHandles.privateLookupIn(type, MethodHandles.lookup())
+                        .findGetter(type, "packetLimiter", field)
+                        .asType(MethodType.methodType(Object.class, type));
+                limiterGetter = getter;
+            }
+            return getter.bindTo(decoder);
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
     /**
      * The forwarder installed directly after an encoder of the class {@code encoderClass} on the channel's loop, with a
      * decoder of the class {@code decoderClass}, or null.
@@ -213,7 +233,8 @@ final class VelocityCompressedForward {
             refused.accept(Refusal.DECODER);
             return null;
         }
-        if (encoder.executor() != pipeline.channel().eventLoop()) {
+        if (encoder.executor() != pipeline.channel().eventLoop()
+                || decoder.executor() != pipeline.channel().eventLoop()) {
             refused.accept(Refusal.EXECUTOR);
             return null;
         }
@@ -244,9 +265,9 @@ final class VelocityCompressedForward {
         THRESHOLD("Cannot read a client's compression threshold; its frames are compressed by Velocity"),
         /** The client has no compression decoder of the accepted class. */
         DECODER("A client's compression decoder is not Velocity's; its frames are compressed by Velocity"),
-        /** The encoder runs on an executor other than the client channel's event loop. */
-        EXECUTOR("A client's compression encoder runs off its channel's event loop; its frames are compressed by"
-                + " Velocity"),
+        /** The encoder or the decoder runs on an executor other than the client channel's event loop. */
+        EXECUTOR("A client's compression encoder or decoder runs off its channel's event loop; its frames are"
+                + " compressed by Velocity"),
         /** After the insert, the encoder is not the validated one or the forwarder does not directly follow it. */
         CHANGED("A client's compression encoder is not where the forwarder expects it after the insert; its frames are"
                 + " compressed by Velocity");
@@ -361,6 +382,11 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-executor");
             return;
         }
+        MethodHandle limiter = limiterReader(decoder.handler());
+        if (CompressedKeep.limited(limiter)) {
+            forwarder.linkStatus(CompressedKeep.LIMITED);
+            return;
+        }
         if (!CompressedForwarder.adjacent(client)) {
             forwarder.disable("adjacency");
             return;
@@ -392,7 +418,7 @@ final class VelocityCompressedForward {
             removePair(pipeline, keep, mark);
             return;
         }
-        keep.attach(keepContext, decoder, markContext);
+        keep.attach(keepContext, decoder, markContext, limiter);
         forwarder.link(backend, keep, mark);
     }
 

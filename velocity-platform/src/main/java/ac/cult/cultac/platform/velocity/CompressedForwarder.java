@@ -284,7 +284,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     }
 
     /** The data length VarInt at the start of a compressed frame, or -1 when it is malformed. */
-    private static int dataLength(ByteBuf frame, int start, int end) {
+    static int dataLength(ByteBuf frame, int start, int end) {
         int value = 0;
         for (int i = 0; i < 5 && start + i < end; i++) {
             int next = frame.getUnsignedByte(start + i);
@@ -371,11 +371,16 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     /** Removes the current link with status {@code backend-adjacency} when {@code keep} is its keep. */
     void unlinkDetached(CompressedKeep keep) {
+        unlinkDetached(keep, "backend-adjacency");
+    }
+
+    /** Removes the current link with {@code status} when {@code keep} is its keep. */
+    void unlinkDetached(CompressedKeep keep, String status) {
         if (linkKeep != keep) return;
         try {
             unlink();
         } finally {
-            linkStatus = "backend-adjacency";
+            linkStatus = status;
         }
     }
 
