@@ -240,7 +240,7 @@ final class VelocityTransport {
         connection
                 .removeHandlers(() -> {
                     ((VelocityConnectionAdapter) connection.platform()).closeBackendTicks();
-                    VelocityCompressedForward.uninstall(channel);
+                    if (compressedForward != null) VelocityCompressedForward.uninstall(channel);
                     CultDecoder.uninstall(channel);
                     CultEncoder.uninstall(channel);
                 })
@@ -256,7 +256,8 @@ final class VelocityTransport {
             return CompletableFuture.supplyAsync(
                             () -> connection.removeHandlers(() -> {
                                 ((VelocityConnectionAdapter) connection.platform()).closeBackendTicks();
-                                VelocityCompressedForward.uninstall(connection.channel());
+                                if (compressedForward != null)
+                                    VelocityCompressedForward.uninstall(connection.channel());
                                 CultDecoder.uninstall(connection.channel());
                                 CultEncoder.uninstall(connection.channel());
                             }),

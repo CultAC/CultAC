@@ -34,7 +34,7 @@ final class VelocityCompressedForward {
     private final Function<Player, Channel> channels;
     private final boolean guard;
     private final boolean small;
-    private final boolean smallHeap;
+    private final boolean heap;
     private final int startThreshold;
     private volatile boolean thresholdChanged;
     private volatile Method inFlightMethod;
@@ -49,14 +49,14 @@ final class VelocityCompressedForward {
             Function<Player, Channel> channels,
             boolean guard,
             boolean small,
-            boolean smallHeap,
+            boolean heap,
             int startThreshold) {
         this.proxy = proxy;
         this.plugin = plugin;
         this.channels = channels;
         this.guard = guard;
         this.small = small;
-        this.smallHeap = smallHeap;
+        this.heap = heap;
         this.startThreshold = startThreshold;
     }
 
@@ -64,7 +64,12 @@ final class VelocityCompressedForward {
     static @Nullable VelocityCompressedForward fromSystemProperties(
             ProxyServer proxy, Object plugin, Function<Player, Channel> channels) {
         if (!Boolean.getBoolean(ENABLED_PROPERTY)) return null;
+        if (!CompressedForwarder.supported()) {
+            LogUtil.warn("Cannot read the handler order of this netty; compressed frames are not forwarded");
+            return null;
+        }
         boolean guard = !"false".equalsIgnoreCase(System.getProperty(GUARD_PROPERTY, "true"));
+        if (!guard) LogUtil.warn("The Adler-32 guard on forwarded frames is off; run this for measurements only");
         Boolean javaCipher = javaCipher(proxy.getClass().getClassLoader());
         if (javaCipher == null)
             LogUtil.warn("Cannot tell which cipher Velocity uses; frames below the compression threshold are framed"
@@ -141,17 +146,18 @@ final class VelocityCompressedForward {
         if (connection.owner() != channel.eventLoop()) return;
         int threshold = adopted != null ? adopted : clientThreshold();
         if (threshold < 0) return;
-        var forwarder = install(channel.pipeline(), threshold, guard, small, smallHeap);
+        var forwarder = install(channel.pipeline(), threshold, guard, small, heap);
         if (forwarder == null) return;
         adapter.compressedForwarder(forwarder);
         schedule(channel, () -> player.getCurrentServer().orElse(null));
     }
 
     static @Nullable CompressedForwarder install(
-            ChannelPipeline pipeline, int threshold, boolean guard, boolean small, boolean smallHeap) {
-        if (pipeline.get(CompressedForwarder.COMPRESSION_ENCODER) == null
+            ChannelPipeline pipeline, int threshold, boolean guard, boolean small, boolean heap) {
+        if (!CompressedForwarder.supported()
+                || pipeline.get(CompressedForwarder.COMPRESSION_ENCODER) == null
                 || pipeline.get(CompressedForwarder.NAME) != null) return null;
-        var forwarder = new CompressedForwarder(threshold, guard, small, smallHeap);
+        var forwarder = new CompressedForwarder(threshold, guard, small, heap);
         pipeline.addAfter(CompressedForwarder.COMPRESSION_ENCODER, CompressedForwarder.NAME, forwarder);
         if (!CompressedForwarder.adjacent(pipeline)) {
             pipeline.remove(forwarder);

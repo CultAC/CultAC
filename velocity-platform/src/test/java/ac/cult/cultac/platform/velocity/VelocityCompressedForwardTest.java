@@ -27,6 +27,7 @@ import io.netty.util.ResourceLeakDetector;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.BiConsumer;
 import org.junit.jupiter.api.AfterAll;
@@ -215,6 +216,24 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void indicesMovedByTheSameAmountAreCompressedAgain() {
+        byte[] packet = packet(3000, 29);
+        byte[] appended = {0x11, 0x22};
+        byte[] shifted = Arrays.copyOfRange(packet, 2, packet.length + 2);
+        System.arraycopy(appended, 0, shifted, packet.length - 2, 2);
+        try (var f = new Fixture(Options.forwarding().guard(false).onFrame((fixture, buf) -> {
+            buf.skipBytes(2);
+            buf.writeBytes(appended);
+            fixture.client.write(buf);
+        }))) {
+            f.read(frame(body(packet, THRESHOLD)));
+            assertPackets(List.of(shifted), read(f.wire(), THRESHOLD));
+            assertEquals(1, f.forwarder.indicesChanged());
+            assertEquals(0, f.forwarder.forwarded());
+        }
+    }
+
+    @Test
     void frameSplitAcrossReadsIsForwarded() {
         byte[] packet = packet(9000, 10);
         byte[] body = body(packet, THRESHOLD);
@@ -222,9 +241,9 @@ class VelocityCompressedForwardTest {
         assertTrue(whole.length > 300, "the length VarInt has two bytes");
         int middle = whole.length / 2;
         try (var f = new Fixture(Options.forwarding())) {
-            f.read(java.util.Arrays.copyOfRange(whole, 0, 1));
-            f.read(java.util.Arrays.copyOfRange(whole, 1, middle));
-            f.read(java.util.Arrays.copyOfRange(whole, middle, whole.length));
+            f.read(Arrays.copyOfRange(whole, 0, 1));
+            f.read(Arrays.copyOfRange(whole, 1, middle));
+            f.read(Arrays.copyOfRange(whole, middle, whole.length));
             var frames = read(f.wire(), THRESHOLD);
             assertPackets(List.of(packet), frames);
             assertArrayEquals(body, frames.getFirst().body());
@@ -465,14 +484,14 @@ class VelocityCompressedForwardTest {
                             ctx.write(msg, promise);
                         }
                     });
-            for (int i = 0; i < 64; i++) f.client.flush();
-            assertEquals("adjacency", f.forwarder.status());
-            assertNull(f.backend.pipeline().get(CompressedKeep.NAME), "the link is removed with it");
             byte[] small = packet(30, 27);
             byte[] large = packet(3000, 28);
             f.read(concat(frame(body(small, THRESHOLD)), frame(body(large, THRESHOLD))));
             assertPackets(List.of(small, large), read(f.wire(), THRESHOLD));
             assertEquals(List.of(small.length, large.length), seen, "the inserted handler sees every frame");
+            assertEquals("adjacency", f.forwarder.status());
+            assertNull(f.backend.pipeline().get(CompressedKeep.NAME), "the link is removed with it");
+            assertEquals(0, f.forwarder.forwarded() + f.forwarder.framedSmall());
         }
         try (var f = new Fixture(Options.forwarding().unlinked())) {
             f.client

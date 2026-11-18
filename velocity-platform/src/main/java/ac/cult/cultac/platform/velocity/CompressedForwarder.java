@@ -7,9 +7,12 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.Locale;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.zip.Adler32;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Sits on the client channel directly tail-side of Velocity's compression encoder. A frame that is the inflated buffer
@@ -20,14 +23,15 @@ import java.util.zip.Adler32;
 final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final String NAME = "cult-compressed-forward";
     static final String COMPRESSION_ENCODER = "compression-encoder";
-    private static final int ADJACENCY_CHECK_FLUSHES = 64;
     private static final int MAX_FRAME_LENGTH = (1 << 21) - 1;
     private static final int SCRATCH = 4096;
+    // Netty follows this link from a context to the next outbound handler toward the head.
+    private static final @Nullable VarHandle PREVIOUS = previous();
 
     private final int threshold;
     private final boolean guard;
     private final boolean small;
-    private final boolean smallHeap;
+    private final boolean heap;
     private ChannelHandlerContext compression;
     private Adler32 adler;
     private byte[] scratch;
@@ -44,16 +48,38 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private Channel linkChannel;
     private CompressedKeep linkKeep;
     private CompressedMark linkMark;
-    private int flushes;
 
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
     private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures;
 
-    CompressedForwarder(int threshold, boolean guard, boolean small, boolean smallHeap) {
+    CompressedForwarder(int threshold, boolean guard, boolean small, boolean heap) {
         this.threshold = threshold;
         this.guard = guard;
         this.small = small;
-        this.smallHeap = smallHeap;
+        this.heap = heap;
+    }
+
+    private static @Nullable VarHandle previous() {
+        try {
+            Class<?> context = Class.forName(
+                    "io.netty.channel.AbstractChannelHandlerContext",
+                    false,
+                    ChannelHandlerContext.class.getClassLoader());
+            return MethodHandles.privateLookupIn(context, MethodHandles.lookup())
+                    .findVarHandle(context, "prev", context);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /** Whether this netty lets a handler read which context its writes reach next. */
+    static boolean supported() {
+        return PREVIOUS != null;
+    }
+
+    /** Whether a write from {@code ctx} reaches {@code encoder} with no handler between them. */
+    private static boolean follows(ChannelHandlerContext ctx, ChannelHandlerContext encoder) {
+        return PREVIOUS != null && PREVIOUS.getVolatile(ctx) == encoder;
     }
 
     int threshold() {
@@ -84,6 +110,11 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
         if (target.isRemoved()) {
             disable("compression-removed");
+            ctx.write(msg, promise);
+            return;
+        }
+        if (!follows(ctx, target)) {
+            disable("adjacency");
             ctx.write(msg, promise);
             return;
         }
@@ -134,7 +165,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             return null;
         }
         int size = varIntSize(length) + length;
-        ByteBuf out = ctx.alloc().directBuffer(size);
+        ByteBuf out = heap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
         try {
             Wire.writeVarInt(out, length);
             int at = out.writerIndex();
@@ -156,7 +187,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         try {
             int length = n + 1;
             int size = varIntSize(length) + length;
-            out = smallHeap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
+            out = heap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
             Wire.writeVarInt(out, length);
             out.writeByte(0);
             int at = out.writerIndex();
@@ -216,15 +247,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             value >>>= 7;
         }
         return size;
-    }
-
-    @Override
-    public void flush(ChannelHandlerContext ctx) {
-        if (!disabled && ++flushes >= ADJACENCY_CHECK_FLUSHES) {
-            flushes = 0;
-            if (!adjacent(ctx.pipeline())) disable("adjacency");
-        }
-        ctx.flush();
     }
 
     /** Whether this handler directly follows the compression encoder it writes through. */
