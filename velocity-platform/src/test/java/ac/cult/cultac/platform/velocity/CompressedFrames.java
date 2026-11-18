@@ -45,8 +45,13 @@ final class CompressedFrames {
         return bytes;
     }
 
-    static byte[] zlib(byte[] data) {
-        Deflater deflater = new Deflater(6);
+    /** The backends deflate at this level and the client encoder at {@link #CLIENT_LEVEL}. */
+    static final int BACKEND_LEVEL = 1;
+
+    static final int CLIENT_LEVEL = 6;
+
+    static byte[] zlib(byte[] data, int level) {
+        Deflater deflater = new Deflater(level);
         deflater.setInput(data);
         deflater.finish();
         var out = new ByteArrayOutputStream();
@@ -63,7 +68,7 @@ final class CompressedFrames {
             body.writeBytes(packet);
         } else if (packet.length >= backendThreshold) {
             Wire.writeVarInt(body, packet.length);
-            body.writeBytes(zlib(packet));
+            body.writeBytes(zlib(packet, BACKEND_LEVEL));
         } else {
             body.writeByte(0);
             body.writeBytes(packet);
@@ -233,9 +238,13 @@ final class CompressedFrames {
 
     /** Compresses at or above the threshold with a 3-byte length, else frames the packet uncompressed. */
     static final class CompressEncoder extends MessageToByteEncoder<ByteBuf> {
-        private final int threshold;
+        private int threshold;
 
         CompressEncoder(int threshold) {
+            this.threshold = threshold;
+        }
+
+        void setThreshold(int threshold) {
             this.threshold = threshold;
         }
 
@@ -252,7 +261,7 @@ final class CompressedFrames {
             msg.readBytes(packet);
             out.writeMedium(0);
             Wire.writeVarInt(out, uncompressed);
-            out.writeBytes(zlib(packet));
+            out.writeBytes(zlib(packet, CLIENT_LEVEL));
             int length = out.readableBytes() - 3;
             out.setMedium(0, ((length & 0x7f) | 0x80) << 16 | (((length >>> 7) & 0x7f) | 0x80) << 8 | (length >>> 14));
         }

@@ -121,7 +121,7 @@ class VelocityCompressedForwardLoopTest {
             pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD));
             pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
             pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
-            return VelocityCompressedForward.install(pipeline, THRESHOLD, true, true, false);
+            return VelocityCompressedForward.install(pipeline, CompressEncoder.class.getName(), true, true, false);
         });
         return pair;
     }

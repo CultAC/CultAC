@@ -11,7 +11,8 @@ import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPipeline;
-import java.lang.reflect.Field;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Function;
@@ -26,8 +27,9 @@ import org.jetbrains.annotations.Nullable;
 final class VelocityCompressedForward {
     static final String ENABLED_PROPERTY = "cult.velocity.forwardCompressed";
     static final String GUARD_PROPERTY = "cult.velocity.forwardCompressedGuard";
-    static final String THRESHOLD_STATE = "compressed-forward-threshold";
     static final String COMPRESSION_DECODER = "compression-decoder";
+    static final String VELOCITY_ENCODER =
+            "com.velocitypowered.proxy.protocol.netty.MinecraftCompressorAndLengthEncoder";
 
     private final ProxyServer proxy;
     private final Object plugin;
@@ -35,9 +37,9 @@ final class VelocityCompressedForward {
     private final boolean guard;
     private final boolean small;
     private final boolean heap;
-    private volatile boolean thresholdUnread;
+    private volatile boolean encoderUnsupported;
     private volatile Method inFlightMethod;
-    private static volatile Field thresholdField;
+    private static volatile @Nullable MethodHandle thresholdGetter;
     private final EventHandler<ServerConnectedEvent> connected = this::connected;
     private final EventHandler<ServerPostConnectEvent> postConnected = this::postConnected;
     private boolean listening;
@@ -66,7 +68,7 @@ final class VelocityCompressedForward {
             return null;
         }
         boolean guard = !"false".equalsIgnoreCase(System.getProperty(GUARD_PROPERTY, "true"));
-        if (!guard) LogUtil.warn("The Adler-32 guard on forwarded frames is off; run this for measurements only");
+        if (!guard) LogUtil.warn("The content check on forwarded frames is off; run this for measurements only");
         Boolean javaCipher = javaCipher(proxy.getClass().getClassLoader());
         if (javaCipher == null)
             LogUtil.warn("Cannot tell which cipher Velocity uses; frames below the compression threshold are framed"
@@ -100,7 +102,7 @@ final class VelocityCompressedForward {
     }
 
     String describe() {
-        return "Forwarding backends' compressed frames to clients (Adler-32 guard " + (guard ? "on" : "off") + ")";
+        return "Forwarding backends' compressed frames to clients (content check " + (guard ? "on" : "off") + ")";
     }
 
     synchronized void close() {
@@ -110,57 +112,52 @@ final class VelocityCompressedForward {
         proxy.getEventManager().unregister(plugin, postConnected);
     }
 
-    /**
-     * Installs the forwarder on a Java client's channel, on that channel's loop, after Cult's encoder.
-     *
-     * @param adopted the threshold an earlier runtime framed this client with, or null for a new client
-     */
-    void installClient(
-            CultConnection connection, VelocityConnectionAdapter adapter, Player player, @Nullable Integer adopted) {
+    /** Installs the forwarder on a Java client's channel, on that channel's loop, after Cult's encoder. */
+    void installClient(CultConnection connection, VelocityConnectionAdapter adapter, Player player) {
         Channel channel = connection.channel();
         if (connection.owner() != channel.eventLoop()) return;
-        int threshold = threshold(channel.pipeline(), adopted);
-        if (threshold < 0) {
-            if (!thresholdUnread && channel.pipeline().get(CompressedForwarder.COMPRESSION_ENCODER) != null) {
-                thresholdUnread = true;
+        var pipeline = channel.pipeline();
+        var forwarder = install(pipeline, VELOCITY_ENCODER, guard, small, heap);
+        if (forwarder == null) {
+            if (!encoderUnsupported
+                    && pipeline.get(CompressedForwarder.COMPRESSION_ENCODER) != null
+                    && pipeline.get(CompressedForwarder.NAME) == null) {
+                encoderUnsupported = true;
                 LogUtil.warn("Cannot read a client's compression threshold; its frames are compressed by Velocity");
             }
             return;
         }
-        var forwarder = install(channel.pipeline(), threshold, guard, small, heap);
-        if (forwarder == null) return;
         adapter.compressedForwarder(forwarder);
         schedule(channel, () -> player.getCurrentServer().orElse(null));
     }
 
-    /** The threshold to frame a client with: its encoder's, else the one an earlier runtime used, else -1. */
-    static int threshold(ChannelPipeline pipeline, @Nullable Integer adopted) {
-        Integer sent = sentThreshold(pipeline);
-        return sent != null ? sent : adopted != null ? adopted : -1;
-    }
-
-    /** The threshold the client's compression encoder frames with, as Velocity sent it; null when it cannot be read. */
-    static @Nullable Integer sentThreshold(ChannelPipeline pipeline) {
+    /**
+     * A getter of the client encoder's current threshold, bound to that encoder, when it is an instance of the class
+     * named {@code encoderClass} with an {@code int threshold} field; null otherwise.
+     */
+    static @Nullable MethodHandle thresholdReader(ChannelPipeline pipeline, String encoderClass) {
         Object encoder = pipeline.get(CompressedForwarder.COMPRESSION_ENCODER);
-        if (encoder == null) return null;
+        if (encoder == null || !encoder.getClass().getName().equals(encoderClass)) return null;
         try {
-            Field field = thresholdField;
-            if (field == null || field.getDeclaringClass() != encoder.getClass()) {
-                field = encoder.getClass().getDeclaredField("threshold");
-                field.setAccessible(true);
-                thresholdField = field;
+            Class<?> type = encoder.getClass();
+            MethodHandle getter = thresholdGetter;
+            if (getter == null || getter.type().parameterType(0) != type) {
+                getter = MethodHandles.privateLookupIn(type, MethodHandles.lookup())
+                        .findGetter(type, "threshold", int.class);
+                thresholdGetter = getter;
             }
-            return field.getInt(encoder);
+            return getter.bindTo(encoder);
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return null;
         }
     }
 
+    /** The forwarder for a client whose encoder is of the class named {@code encoderClass}, or null. */
     static @Nullable CompressedForwarder install(
-            ChannelPipeline pipeline, int threshold, boolean guard, boolean small, boolean heap) {
-        if (!CompressedForwarder.supported()
-                || pipeline.get(CompressedForwarder.COMPRESSION_ENCODER) == null
-                || pipeline.get(CompressedForwarder.NAME) != null) return null;
+            ChannelPipeline pipeline, String encoderClass, boolean guard, boolean small, boolean heap) {
+        if (!CompressedForwarder.supported() || pipeline.get(CompressedForwarder.NAME) != null) return null;
+        MethodHandle threshold = thresholdReader(pipeline, encoderClass);
+        if (threshold == null) return null;
         var forwarder = new CompressedForwarder(threshold, guard, small, heap);
         pipeline.addAfter(CompressedForwarder.COMPRESSION_ENCODER, CompressedForwarder.NAME, forwarder);
         if (!CompressedForwarder.adjacent(pipeline)) {
@@ -270,8 +267,15 @@ final class VelocityCompressedForward {
         }
         var keep = new CompressedKeep(forwarder);
         var mark = new CompressedMark(keep, forwarder);
-        pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);
-        pipeline.addAfter(COMPRESSION_DECODER, CompressedMark.NAME, mark);
+        try {
+            pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);
+            pipeline.addAfter(COMPRESSION_DECODER, CompressedMark.NAME, mark);
+        } catch (RuntimeException failure) {
+            if (pipeline.context(keep) != null) pipeline.remove(keep);
+            if (pipeline.context(mark) != null) pipeline.remove(mark);
+            forwarder.linkStatus("backend-install-failed");
+            return;
+        }
         var names = pipeline.names();
         int at = names.indexOf(COMPRESSION_DECODER);
         if (at < 1

@@ -2,16 +2,17 @@ package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Locale;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.zip.Adler32;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -24,23 +25,22 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final String NAME = "cult-compressed-forward";
     static final String COMPRESSION_ENCODER = "compression-encoder";
     private static final int MAX_FRAME_LENGTH = (1 << 21) - 1;
-    private static final int SCRATCH = 4096;
     // Netty follows this link from a context to the next outbound handler toward the head.
     private static final @Nullable VarHandle PREVIOUS = previous();
 
+    private final MethodHandle encoderThreshold;
     private final int threshold;
     private final boolean guard;
     private final boolean small;
     private final boolean heap;
     private ChannelHandlerContext compression;
-    private Adler32 adler;
-    private byte[] scratch;
 
     // The live mark: set only inside a linked backend's channelRead, restored in its finally.
     ByteBuf markBuf;
     private int markReader, markWriter;
     private ByteBuf keptBuf;
     private int keptStart, keptEnd;
+    private @Nullable ByteBuf markCopy;
 
     boolean disabled;
     private String status = "on";
@@ -52,8 +52,10 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
     private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures, forwardFailures;
 
-    CompressedForwarder(int threshold, boolean guard, boolean small, boolean heap) {
-        this.threshold = threshold;
+    /** @param encoderThreshold reads the client encoder's current threshold, as {@code ()int} */
+    CompressedForwarder(MethodHandle encoderThreshold, boolean guard, boolean small, boolean heap) {
+        this.encoderThreshold = encoderThreshold;
+        this.threshold = encoderThreshold();
         this.guard = guard;
         this.small = small;
         this.heap = heap;
@@ -82,8 +84,21 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return PREVIOUS != null && PREVIOUS.getVolatile(ctx) == encoder;
     }
 
+    /** The encoder's threshold when this forwarder was installed. */
     int threshold() {
         return threshold;
+    }
+
+    boolean guard() {
+        return guard;
+    }
+
+    private int encoderThreshold() {
+        try {
+            return (int) encoderThreshold.invokeExact();
+        } catch (Throwable failure) {
+            return Integer.MIN_VALUE;
+        }
     }
 
     @Override
@@ -118,6 +133,11 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
+        if (encoderThreshold() != threshold) {
+            disable("threshold");
+            ctx.write(msg, promise);
+            return;
+        }
         int n = b.readableBytes();
         boolean marked = b == markBuf;
         if (n < threshold) {
@@ -143,6 +163,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
+        b.skipBytes(n);
         b.release();
         target.write(out, promise);
     }
@@ -161,7 +182,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             indicesChanged++;
             return null;
         }
-        if (guard && !adlerMatches(b, n, kept, start, end)) {
+        if (guard && !sameContent(b, n)) {
             guardMismatch++;
             return null;
         }
@@ -201,6 +222,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             return;
         }
         framedSmall++;
+        b.skipBytes(n);
         b.release();
         target.write(out, promise);
     }
@@ -216,29 +238,12 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return -1;
     }
 
-    /** Whether the zlib trailer of the kept frame is the Adler-32 of the bytes leaving now. */
-    private boolean adlerMatches(ByteBuf b, int n, ByteBuf kept, int start, int end) {
-        if (end - start < varIntSize(n) + 6) return false;
-        int trailer = kept.getInt(end - 4);
-        Adler32 sum = adler;
-        if (sum == null) {
-            adler = sum = new Adler32();
-            scratch = new byte[SCRATCH];
-        }
-        sum.reset();
-        int index = b.readerIndex();
-        if (b.hasArray()) {
-            sum.update(b.array(), b.arrayOffset() + index, n);
-        } else {
-            byte[] chunk = scratch;
-            for (int done = 0; done < n; ) {
-                int count = Math.min(SCRATCH, n - done);
-                b.getBytes(index + done, chunk, 0, count);
-                sum.update(chunk, 0, count);
-                done += count;
-            }
-        }
-        return (int) sum.getValue() == trailer;
+    /** Whether the {@code n} bytes leaving now equal the copy the mark took when the backend's frame was inflated. */
+    private boolean sameContent(ByteBuf b, int n) {
+        ByteBuf copy = markCopy;
+        return copy != null
+                && copy.readableBytes() == n
+                && ByteBufUtil.equals(b, b.readerIndex(), copy, copy.readerIndex(), n);
     }
 
     static int varIntSize(int value) {
@@ -257,13 +262,14 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return at >= 0 && at + 1 < names.size() && NAME.equals(names.get(at + 1));
     }
 
-    void mark(ByteBuf buf, int reader, int writer, ByteBuf kept, int start, int end) {
+    void mark(ByteBuf buf, int reader, int writer, ByteBuf kept, int start, int end, @Nullable ByteBuf copy) {
         markBuf = buf;
         markReader = reader;
         markWriter = writer;
         keptBuf = kept;
         keptStart = start;
         keptEnd = end;
+        markCopy = copy;
     }
 
     int markReader() {
@@ -286,8 +292,13 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return keptEnd;
     }
 
+    @Nullable
+    ByteBuf markCopy() {
+        return markCopy;
+    }
+
     private void clearMark() {
-        mark(null, 0, 0, null, 0, 0);
+        mark(null, 0, 0, null, 0, 0, null);
     }
 
     void disable(String why) {

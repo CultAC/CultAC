@@ -361,11 +361,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             GeyserBedrockBridgeRuntime.adoptSession(session, continued);
         }
         transport.attach(
-                player,
-                channel,
-                bedrockOwner(channel),
-                ac.cult.cultac.network.ConnectionContinuation.from(state),
-                state.get(VelocityCompressedForward.THRESHOLD_STATE) instanceof Integer threshold ? threshold : -1);
+                player, channel, bedrockOwner(channel), ac.cult.cultac.network.ConnectionContinuation.from(state));
         bridge.adopted(player);
         CloudBackends backends = cloudBackends;
         if (backends != null) backends.adopted(player);

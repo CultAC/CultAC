@@ -18,10 +18,13 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.util.ResourceLeakDetector;
@@ -30,10 +33,13 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.function.BiConsumer;
+import java.util.zip.Adler32;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.AdditionalAnswers;
 
 /**
  * Real frames through the forwarding handlers between stand-ins for Velocity's own, on two embedded channels. Every
@@ -102,6 +108,7 @@ class VelocityCompressedForwardTest {
 
     private void checkForwarded(byte[] packet) {
         byte[] body = body(packet, THRESHOLD);
+        assertRecompressedDiffers(body);
         try (var f = new Fixture(Options.forwarding())) {
             f.read(frame(body));
             var frames = read(f.wire(), THRESHOLD);
@@ -262,6 +269,7 @@ class VelocityCompressedForwardTest {
         byte[] body = body(packet, THRESHOLD);
         byte[] whole = frame(body);
         assertTrue(whole.length > 300, "the length VarInt has two bytes");
+        assertRecompressedDiffers(body);
         int middle = whole.length / 2;
         try (var f = new Fixture(Options.forwarding())) {
             f.read(Arrays.copyOfRange(whole, 0, 1));
@@ -527,21 +535,28 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
-    void thresholdIsReadFromTheClientsEncoder() {
+    void onlyTheNamedEncoderClassGetsAForwarder() {
+        String standIn = CompressEncoder.class.getName();
         var channel = new EmbeddedChannel();
         try {
             var pipeline = channel.pipeline();
-            assertNull(VelocityCompressedForward.sentThreshold(pipeline), "no encoder");
-            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new ChannelOutboundHandlerAdapter());
-            assertNull(VelocityCompressedForward.sentThreshold(pipeline), "an encoder without the field");
-            assertEquals(-1, VelocityCompressedForward.threshold(pipeline, null), "an unread threshold is not guessed");
-            assertEquals(256, VelocityCompressedForward.threshold(pipeline, 256), "an earlier runtime's is kept");
+            assertNull(VelocityCompressedForward.thresholdReader(pipeline, standIn), "no encoder");
+            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new OtherEncoder(512));
+            assertNull(VelocityCompressedForward.thresholdReader(pipeline, standIn), "another class, same field");
+            assertNull(VelocityCompressedForward.install(pipeline, standIn, true, true, false));
+            assertNull(pipeline.get(CompressedForwarder.NAME));
             pipeline.replace(
                     CompressedForwarder.COMPRESSION_ENCODER,
                     CompressedForwarder.COMPRESSION_ENCODER,
                     new CompressEncoder(512));
-            assertEquals(512, VelocityCompressedForward.sentThreshold(pipeline));
-            assertEquals(512, VelocityCompressedForward.threshold(pipeline, 256), "the encoder's own comes first");
+            assertNull(
+                    VelocityCompressedForward.install(
+                            pipeline, VelocityCompressedForward.VELOCITY_ENCODER, true, true, false),
+                    "the stand-in is not Velocity's encoder");
+            assertNull(pipeline.get(CompressedForwarder.NAME));
+            var forwarder = VelocityCompressedForward.install(pipeline, standIn, true, true, false);
+            assertNotNull(forwarder);
+            assertEquals(512, forwarder.threshold(), "the encoder's own threshold");
         } finally {
             channel.finishAndReleaseAll();
         }
@@ -551,10 +566,142 @@ class VelocityCompressedForwardTest {
     void installRefusesWithoutCompression() {
         var channel = new EmbeddedChannel();
         try {
-            assertNull(VelocityCompressedForward.install(channel.pipeline(), THRESHOLD, true, true, false));
+            assertNull(VelocityCompressedForward.install(
+                    channel.pipeline(), CompressEncoder.class.getName(), true, true, false));
         } finally {
             channel.finishAndReleaseAll();
         }
+    }
+
+    @Test
+    void checksumPreservingRewriteFailsTheCheck() {
+        byte[] packet = packet(70_000, 40);
+        int first = 1000;
+        while (packet[first] == packet[first + 65521]) first++;
+        int i = first;
+        int j = first + 65521;
+        byte[] rewritten = packet.clone();
+        rewritten[i] = packet[j];
+        rewritten[j] = packet[i];
+        assertEquals(adler(packet), adler(rewritten), "the swap keeps the Adler-32");
+        BiConsumer<Fixture, ByteBuf> swap = (f, buf) -> {
+            int at = buf.readerIndex();
+            byte a = buf.getByte(at + i);
+            buf.setByte(at + i, buf.getByte(at + j));
+            buf.setByte(at + j, a);
+            f.client.write(buf);
+        };
+        try (var f = new Fixture(Options.forwarding().onFrame(swap))) {
+            f.read(frame(body(packet, THRESHOLD)));
+            assertPackets(List.of(rewritten), read(f.wire(), THRESHOLD));
+            assertEquals(1, f.forwarder.guardMismatch());
+            assertEquals(0, f.forwarder.forwarded());
+        }
+    }
+
+    private static long adler(byte[] bytes) {
+        var sum = new Adler32();
+        sum.update(bytes);
+        return sum.getValue();
+    }
+
+    @Test
+    void changedEncoderThresholdDisablesForwarding() {
+        byte[] packet = packet(300, 41);
+        try (var f = new Fixture(Options.forwarding())) {
+            f.encoder.setThreshold(512);
+            f.read(frame(body(packet, THRESHOLD)));
+            var frames = read(f.wire(), 512);
+            assertPackets(List.of(packet), frames);
+            assertFalse(frames.getFirst().compressed(), "framed by the encoder at its new threshold");
+            assertEquals("threshold", f.forwarder.status());
+            assertEquals(0, f.forwarder.forwarded() + f.forwarder.framedSmall());
+            assertNull(f.backend.pipeline().get(CompressedKeep.NAME), "the link is removed with it");
+        }
+        byte[] small = packet(100, 42);
+        try (var f = new Fixture(Options.forwarding().backendThreshold(64))) {
+            f.encoder.setThreshold(64);
+            f.read(frame(body(small, 64)));
+            var frames = read(f.wire(), 64);
+            assertPackets(List.of(small), frames);
+            assertTrue(frames.getFirst().compressed(), "compressed by the encoder at its new threshold");
+            assertEquals("threshold", f.forwarder.status());
+            assertEquals(0, f.forwarder.forwarded() + f.forwarder.framedSmall());
+        }
+    }
+
+    @Test
+    void retainedInputIsConsumedByEitherPath() {
+        for (int size : new int[] {3000, 100}) {
+            byte[] packet = packet(size, 43);
+            var readable = new ArrayList<Integer>();
+            BiConsumer<Fixture, ByteBuf> twice = (f, buf) -> {
+                f.track(buf.retain(2));
+                f.client.write(buf);
+                readable.add(buf.readableBytes());
+                f.client.write(buf);
+                readable.add(buf.readableBytes());
+                buf.release();
+            };
+            byte[] read = frame(body(packet, THRESHOLD));
+            byte[] today = today(Options.forwarding().onFrame(twice), read);
+            assertEquals(List.of(0, 0), readable, "the encoder consumes what it frames");
+            readable.clear();
+            try (var f = new Fixture(Options.forwarding().onFrame(twice))) {
+                f.read(read);
+                byte[] wire = f.wire();
+                assertEquals(List.of(0, 0), readable, "size " + size);
+                var frames = read(wire, THRESHOLD);
+                assertPackets(List.of(packet, new byte[0]), frames);
+                var expected = read(today, THRESHOLD);
+                assertArrayEquals(expected.get(1).body(), frames.get(1).body(), "the second write frames nothing");
+                if (size < THRESHOLD) assertSameBytes(today, wire);
+                else assertEquals(1, f.forwarder.forwarded());
+            }
+        }
+    }
+
+    @Test
+    void partialLinkInstallLeavesNothingBehind() {
+        try (var f = new Fixture(Options.forwarding().unlinked())) {
+            ChannelPipeline real = f.backend.pipeline();
+            ChannelPipeline failing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            doThrow(new NoSuchElementException(VelocityCompressedForward.COMPRESSION_DECODER))
+                    .when(failing)
+                    .addAfter(
+                            eq(VelocityCompressedForward.COMPRESSION_DECODER),
+                            eq(CompressedMark.NAME),
+                            any(ChannelHandler.class));
+            Channel backend = mock(Channel.class);
+            when(backend.pipeline()).thenReturn(failing);
+            VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), backend);
+            assertEquals("backend-install-failed", f.forwarder.linkStatus());
+            for (String name : real.names()) assertFalse(name.startsWith("cult-compressed"), name);
+            assertFalse(f.forwarder.linkedTo(f.backend));
+
+            VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), f.backend);
+            assertEquals("linked", f.forwarder.linkStatus());
+            byte[] packet = packet(5000, 44);
+            f.read(frame(body(packet, THRESHOLD)));
+            assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
+            assertEquals(1, f.forwarder.forwarded());
+        }
+    }
+
+    /** An outbound handler with a threshold field that is not the encoder class the forwarder accepts. */
+    static final class OtherEncoder extends ChannelOutboundHandlerAdapter {
+        final int threshold;
+
+        OtherEncoder(int threshold) {
+            this.threshold = threshold;
+        }
+    }
+
+    /** Today's path sends another body for the same packet, so only a forwarded frame carries {@code body}. */
+    private static void assertRecompressedDiffers(byte[] body) {
+        var baseline = read(today(Options.today(), frame(body)), THRESHOLD);
+        assertEquals(1, baseline.size());
+        assertFalse(Arrays.equals(body, baseline.getFirst().body()), "recompression gives another body");
     }
 
     /** The client's bytes for {@code read} through the same pipeline without the forwarding handlers. */
@@ -617,6 +764,7 @@ class VelocityCompressedForwardTest {
 
     static final class Fixture implements AutoCloseable {
         final EmbeddedChannel client = new EmbeddedChannel();
+        final CompressEncoder encoder = new CompressEncoder(THRESHOLD);
         final EmbeddedChannel backend;
         final FrameDecoder frameDecoder;
         final CompressedForwarder forwarder;
@@ -630,7 +778,7 @@ class VelocityCompressedForwardTest {
             this.options = options;
             var pipeline = client.pipeline();
             pipeline.addLast("cipher-encoder", new CipherEncoder());
-            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD));
+            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, encoder);
             if (options.via()) {
                 pipeline.addLast("via-decoder", new ChannelInboundHandlerAdapter());
                 pipeline.addLast("via-encoder", new ChannelOutboundHandlerAdapter());
@@ -642,7 +790,8 @@ class VelocityCompressedForwardTest {
             connection.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.PLAY);
             VelocityPacketPipeline.install(connection);
             forwarder = options.forward()
-                    ? VelocityCompressedForward.install(pipeline, THRESHOLD, options.guard(), true, options.heap())
+                    ? VelocityCompressedForward.install(
+                            pipeline, CompressEncoder.class.getName(), options.guard(), true, options.heap())
                     : null;
             var first = backend(options);
             backend = first.channel;

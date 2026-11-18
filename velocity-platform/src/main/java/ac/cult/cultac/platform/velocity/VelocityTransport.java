@@ -170,17 +170,7 @@ final class VelocityTransport {
         }
     }
 
-    void attach(Player player, Channel channel, PacketOwner bedrock, ConnectionContinuation continued) {
-        attach(player, channel, bedrock, continued, null);
-    }
-
-    /** @param compressionThreshold the threshold an earlier runtime framed this client with; null for a new client */
-    synchronized void attach(
-            Player player,
-            Channel channel,
-            PacketOwner bedrock,
-            ConnectionContinuation continued,
-            @Nullable Integer compressionThreshold) {
+    synchronized void attach(Player player, Channel channel, PacketOwner bedrock, ConnectionContinuation continued) {
         if (!running) {
             return;
         }
@@ -204,8 +194,7 @@ final class VelocityTransport {
         // Authentication enables compression (including Via's relocation) before
         // PostLogin CONFIG. Keep these handlers stable for the whole session.
         VelocityPacketPipeline.install(connection);
-        if (compressedForward != null)
-            compressedForward.installClient(connection, adapter, player, compressionThreshold);
+        if (compressedForward != null) compressedForward.installClient(connection, adapter, player);
         connection.execute(connection::prepare);
     }
 
@@ -235,8 +224,6 @@ final class VelocityTransport {
             state.put("bedrock", bedrock);
         }
         CloudModule.released(connection.player());
-        var forwarder = ((VelocityConnectionAdapter) connection.platform()).compressedForwarder();
-        if (forwarder != null) state.put(VelocityCompressedForward.THRESHOLD_STATE, forwarder.threshold());
         connection
                 .removeHandlers(() -> {
                     ((VelocityConnectionAdapter) connection.platform()).closeBackendTicks();
