@@ -172,14 +172,16 @@ final class CompressedFrames {
                 in.markReaderIndex();
                 int length = 0;
                 boolean complete = false;
-                for (int i = 0; i < 3 && in.isReadable(); i++) {
+                int read = 0;
+                for (; read < 3 && in.isReadable(); read++) {
                     int next = in.readUnsignedByte();
-                    length |= (next & 0x7f) << (i * 7);
+                    length |= (next & 0x7f) << (read * 7);
                     if ((next & 0x80) == 0) {
                         complete = true;
                         break;
                     }
                 }
+                if (!complete && read == 3) throw new DecoderException("frame length wider than 21 bits");
                 if (!complete || in.readableBytes() < length) {
                     in.resetReaderIndex();
                     return;

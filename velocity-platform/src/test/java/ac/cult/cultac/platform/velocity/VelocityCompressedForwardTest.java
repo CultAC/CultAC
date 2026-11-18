@@ -16,6 +16,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.buffer.AbstractByteBuf;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -239,11 +240,17 @@ class VelocityCompressedForwardTest {
         byte[] small = packet(40, 39);
         try (var f = new Fixture(Options.forwarding().heapCipher())) {
             f.read(concat(frame(body(large, THRESHOLD)), frame(body(small, THRESHOLD))));
+            var wire = new ByteArrayOutputStream();
             for (int i = 0; i < 2; i++) {
                 ByteBuf out = f.client.readOutbound();
-                assertTrue(out.hasArray(), "frame " + i + " is a heap buffer");
-                out.release();
+                try {
+                    assertTrue(out.hasArray(), "frame " + i + " is a heap buffer");
+                    wire.writeBytes(ByteBufUtil.getBytes(out));
+                } finally {
+                    out.release();
+                }
             }
+            assertPackets(List.of(large, small), read(wire.toByteArray(), THRESHOLD));
             assertEquals(1, f.forwarder.forwarded());
             assertEquals(1, f.forwarder.framedSmall());
         }
@@ -520,6 +527,24 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void thresholdIsReadFromTheClientsEncoder() {
+        var channel = new EmbeddedChannel();
+        try {
+            var pipeline = channel.pipeline();
+            assertNull(VelocityCompressedForward.sentThreshold(pipeline), "no encoder");
+            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new ChannelOutboundHandlerAdapter());
+            assertNull(VelocityCompressedForward.sentThreshold(pipeline), "an encoder without the field");
+            pipeline.replace(
+                    CompressedForwarder.COMPRESSION_ENCODER,
+                    CompressedForwarder.COMPRESSION_ENCODER,
+                    new CompressEncoder(512));
+            assertEquals(512, VelocityCompressedForward.sentThreshold(pipeline));
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
     void installRefusesWithoutCompression() {
         var channel = new EmbeddedChannel();
         try {
@@ -698,11 +723,29 @@ class VelocityCompressedForwardTest {
 
         @Override
         public void close() {
-            wire();
-            client.finishAndReleaseAll();
-            for (var created : backends) created.close();
-            for (ByteBuf buf : tracked) assertEquals(0, buf.refCnt(), "a test buffer is released");
-            if (forwarder != null) assertNull(forwarder.markBuf, "no mark outlives its read");
+            var failures = new ArrayList<Throwable>();
+            List<Runnable> steps = new ArrayList<>();
+            steps.add(this::wire);
+            steps.add(client::finishAndReleaseAll);
+            for (var created : backends) steps.add(created::close);
+            steps.add(() -> {
+                for (ByteBuf buf : tracked) assertEquals(0, buf.refCnt(), "a test buffer is released");
+            });
+            steps.add(() -> {
+                if (forwarder != null) assertNull(forwarder.markBuf, "no mark outlives its read");
+            });
+            for (Runnable step : steps) {
+                try {
+                    step.run();
+                } catch (RuntimeException | AssertionError failure) {
+                    failures.add(failure);
+                }
+            }
+            if (failures.isEmpty()) return;
+            Throwable first = failures.getFirst();
+            for (Throwable later : failures.subList(1, failures.size())) first.addSuppressed(later);
+            if (first instanceof AssertionError error) throw error;
+            throw (RuntimeException) first;
         }
 
         final class Backend {

@@ -220,6 +220,7 @@ class VelocityCompressedForwardLoopTest {
         assertNull(onLoop(() -> client.proxySide().pipeline().get(CompressedForwarder.NAME)));
         assertNull(onLoop(() -> next.proxySide().pipeline().get(CompressedKeep.NAME)));
         assertNull(onLoop(() -> next.proxySide().pipeline().get(CompressedMark.NAME)));
+        assertPackets(List.of(first, second), awaitFrames(2));
 
         forward.close();
         verify(events).unregister(plugin, connected.getValue());

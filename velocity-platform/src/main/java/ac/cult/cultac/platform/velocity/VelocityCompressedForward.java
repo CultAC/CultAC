@@ -12,6 +12,7 @@ import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPipeline;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Function;
@@ -38,6 +39,7 @@ final class VelocityCompressedForward {
     private final int startThreshold;
     private volatile boolean thresholdChanged;
     private volatile Method inFlightMethod;
+    private static volatile Field thresholdField;
     private final EventHandler<ServerConnectedEvent> connected = this::connected;
     private final EventHandler<ServerPostConnectEvent> postConnected = this::postConnected;
     private final EventHandler<ProxyReloadEvent> reloaded = event -> clientThreshold();
@@ -144,12 +146,31 @@ final class VelocityCompressedForward {
             CultConnection connection, VelocityConnectionAdapter adapter, Player player, @Nullable Integer adopted) {
         Channel channel = connection.channel();
         if (connection.owner() != channel.eventLoop()) return;
-        int threshold = adopted != null ? adopted : clientThreshold();
+        Integer sent = sentThreshold(channel.pipeline());
+        int threshold = sent != null ? sent : adopted != null ? adopted : clientThreshold();
         if (threshold < 0) return;
         var forwarder = install(channel.pipeline(), threshold, guard, small, heap);
         if (forwarder == null) return;
         adapter.compressedForwarder(forwarder);
         schedule(channel, () -> player.getCurrentServer().orElse(null));
+    }
+
+    /** The threshold the client's compression encoder frames with, as Velocity sent it; null when it cannot be read. */
+    static @Nullable Integer sentThreshold(ChannelPipeline pipeline) {
+        Object encoder = pipeline.get(CompressedForwarder.COMPRESSION_ENCODER);
+        if (encoder == null) return null;
+        try {
+            Field field = thresholdField;
+            if (field == null || field.getDeclaringClass() != encoder.getClass()) {
+                field = encoder.getClass().getDeclaredField("threshold");
+                if (field.getType() != int.class) return null;
+                field.setAccessible(true);
+                thresholdField = field;
+            }
+            return field.getInt(encoder);
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
     }
 
     static @Nullable CompressedForwarder install(

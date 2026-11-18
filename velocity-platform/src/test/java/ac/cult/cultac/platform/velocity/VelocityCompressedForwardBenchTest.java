@@ -1,6 +1,8 @@
 package ac.cult.cultac.platform.velocity;
 
 import static ac.cult.cultac.platform.velocity.CompressedFrames.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ac.cult.cultac.platform.velocity.VelocityCompressedForwardTest.Fixture;
 import ac.cult.cultac.platform.velocity.VelocityCompressedForwardTest.Options;
@@ -24,6 +26,12 @@ class VelocityCompressedForwardBenchTest {
 
     @Test
     void forwardingAgainstToday() {
+        assumeTrue(
+                THREADS.isThreadCpuTimeSupported()
+                        && THREADS.isThreadCpuTimeEnabled()
+                        && THREADS.isThreadAllocatedMemorySupported()
+                        && THREADS.isThreadAllocatedMemoryEnabled(),
+                "thread CPU time and allocation counters are available");
         byte[][] reads = new byte[SIZES.length][];
         for (int i = 0; i < SIZES.length; i++) reads[i] = frame(body(packet(SIZES[i], i), 256));
         for (int rep = 0; rep < REPS; rep++) {
@@ -48,7 +56,7 @@ class VelocityCompressedForwardBenchTest {
             for (int i = 0; i < READS; i++) {
                 for (byte[] read : reads) {
                     f.read(read);
-                    f.client.releaseOutbound();
+                    assertTrue(f.client.releaseOutbound(), "every read reaches the client");
                 }
             }
             return new long[] {

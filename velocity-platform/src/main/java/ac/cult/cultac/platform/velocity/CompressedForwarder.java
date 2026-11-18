@@ -50,7 +50,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private CompressedMark linkMark;
 
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
-    private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures;
+    private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures, forwardFailures;
 
     CompressedForwarder(int threshold, boolean guard, boolean small, boolean heap) {
         this.threshold = threshold;
@@ -136,6 +136,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             out = forwardedFrame(ctx, b, n);
         } catch (Throwable failure) {
             failures++;
+            forwardFailures++;
             out = null;
         }
         if (out == null) {
@@ -339,7 +340,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     }
 
     String stats() {
-        long recompressed = notMarked + indicesChanged + guardMismatch;
+        long recompressed = notMarked + indicesChanged + guardMismatch + forwardFailures;
         long eligible = forwarded + recompressed;
         String hit = eligible == 0 ? "n/a" : String.format(Locale.ROOT, "%.2f%%", 100.0 * forwarded / eligible);
         return "status=" + status + ", link=" + linkStatus + ", threshold=" + threshold + ", guard="
@@ -352,7 +353,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     void resetStats() {
         forwarded = forwardedWireBytes = forwardedInflatedBytes = 0;
-        notMarked = indicesChanged = guardMismatch = belowThreshold = framedSmall = failures = 0;
+        notMarked = indicesChanged = guardMismatch = belowThreshold = framedSmall = failures = forwardFailures = 0;
     }
 
     long forwarded() {
