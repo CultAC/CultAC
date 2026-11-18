@@ -30,6 +30,7 @@ final class VelocityCompressedForward {
     static final String COMPRESSION_DECODER = "compression-decoder";
     static final String VELOCITY_ENCODER =
             "com.velocitypowered.proxy.protocol.netty.MinecraftCompressorAndLengthEncoder";
+    static final String VELOCITY_DECODER = "com.velocitypowered.proxy.protocol.netty.MinecraftCompressDecoder";
 
     private final ProxyServer proxy;
     private final Object plugin;
@@ -37,6 +38,8 @@ final class VelocityCompressedForward {
     private final boolean guard;
     private final boolean small;
     private final boolean heap;
+    private final boolean consume;
+    private final String decoderClass;
     private volatile boolean encoderUnsupported;
     private volatile Method inFlightMethod;
     private static volatile @Nullable MethodHandle thresholdGetter;
@@ -50,13 +53,17 @@ final class VelocityCompressedForward {
             Function<Player, Channel> channels,
             boolean guard,
             boolean small,
-            boolean heap) {
+            boolean heap,
+            boolean consume,
+            String decoderClass) {
         this.proxy = proxy;
         this.plugin = plugin;
         this.channels = channels;
         this.guard = guard;
         this.small = small;
         this.heap = heap;
+        this.consume = consume;
+        this.decoderClass = decoderClass;
     }
 
     /** Null unless {@value #ENABLED_PROPERTY} is true; nothing is registered or installed then. */
@@ -69,25 +76,41 @@ final class VelocityCompressedForward {
         }
         boolean guard = !"false".equalsIgnoreCase(System.getProperty(GUARD_PROPERTY, "true"));
         if (!guard) LogUtil.warn("The content check on forwarded frames is off; run this for measurements only");
-        Boolean javaCipher = javaCipher(proxy.getClass().getClassLoader());
+        ClassLoader loader = proxy.getClass().getClassLoader();
+        Boolean javaCipher = javaCipher(loader);
         if (javaCipher == null)
             LogUtil.warn("Cannot tell which cipher Velocity uses; frames below the compression threshold are framed"
                     + " by Velocity");
         return new VelocityCompressedForward(
-                proxy, plugin, channels, guard, javaCipher != null, Boolean.TRUE.equals(javaCipher));
+                proxy,
+                plugin,
+                channels,
+                guard,
+                javaCipher != null,
+                Boolean.TRUE.equals(javaCipher),
+                Boolean.TRUE.equals(javaCompressor(loader)),
+                VELOCITY_DECODER);
     }
 
     /** Whether Velocity encrypts with its Java cipher, which needs heap buffers; null when it cannot be read. */
     static @Nullable Boolean javaCipher(ClassLoader loader) {
+        return javaFactory(loader, "cipher", "com.velocitypowered.natives.encryption.JavaVelocityCipher");
+    }
+
+    /** Whether Velocity compresses with its Java compressor, which consumes its input; null when it cannot be read. */
+    static @Nullable Boolean javaCompressor(ClassLoader loader) {
+        return javaFactory(loader, "compress", "com.velocitypowered.natives.compression.JavaVelocityCompressor");
+    }
+
+    /** Whether the factory Velocity loaded into {@code Natives.<field>} is {@code javaClass.FACTORY}, or null. */
+    private static @Nullable Boolean javaFactory(ClassLoader loader, String field, String javaClass) {
         try {
-            Object cipher = Class.forName("com.velocitypowered.natives.util.Natives", false, loader)
-                    .getField("cipher")
+            Object loaded = Class.forName("com.velocitypowered.natives.util.Natives", false, loader)
+                    .getField(field)
                     .get(null);
-            Object javaFactory = Class.forName(
-                            "com.velocitypowered.natives.encryption.JavaVelocityCipher", false, loader)
-                    .getField("FACTORY")
-                    .get(null);
-            if (!(cipher instanceof Supplier<?> factory)) return null;
+            Object javaFactory =
+                    Class.forName(javaClass, false, loader).getField("FACTORY").get(null);
+            if (!(loaded instanceof Supplier<?> factory)) return null;
             return factory.get() == javaFactory;
         } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
             return null;
@@ -117,7 +140,7 @@ final class VelocityCompressedForward {
         Channel channel = connection.channel();
         if (connection.owner() != channel.eventLoop()) return;
         var pipeline = channel.pipeline();
-        var forwarder = install(pipeline, VELOCITY_ENCODER, guard, small, heap);
+        var forwarder = install(pipeline, VELOCITY_ENCODER, guard, small, heap, consume);
         if (forwarder == null) {
             if (!encoderUnsupported
                     && pipeline.get(CompressedForwarder.COMPRESSION_ENCODER) != null
@@ -128,7 +151,7 @@ final class VelocityCompressedForward {
             return;
         }
         adapter.compressedForwarder(forwarder);
-        schedule(channel, () -> player.getCurrentServer().orElse(null));
+        schedule(channel, decoderClass, () -> player.getCurrentServer().orElse(null));
     }
 
     /**
@@ -152,14 +175,26 @@ final class VelocityCompressedForward {
         }
     }
 
-    /** The forwarder for a client whose encoder is of the class named {@code encoderClass}, or null. */
+    /**
+     * The forwarder for a client whose encoder is of the class named {@code encoderClass} with a threshold of zero or
+     * more, or null.
+     */
     static @Nullable CompressedForwarder install(
-            ChannelPipeline pipeline, String encoderClass, boolean guard, boolean small, boolean heap) {
+            ChannelPipeline pipeline,
+            String encoderClass,
+            boolean guard,
+            boolean small,
+            boolean heap,
+            boolean consume) {
         if (!CompressedForwarder.supported() || pipeline.get(CompressedForwarder.NAME) != null) return null;
         MethodHandle threshold = thresholdReader(pipeline, encoderClass);
         if (threshold == null) return null;
-        var forwarder = new CompressedForwarder(threshold, guard, small, heap);
+        var forwarder = new CompressedForwarder(threshold, guard, small, heap, consume);
         pipeline.addAfter(CompressedForwarder.COMPRESSION_ENCODER, CompressedForwarder.NAME, forwarder);
+        if (forwarder.threshold() < 0) {
+            pipeline.remove(forwarder);
+            return null;
+        }
         if (!CompressedForwarder.adjacent(pipeline)) {
             pipeline.remove(forwarder);
             forwarder.disable("adjacency");
@@ -181,7 +216,7 @@ final class VelocityCompressedForward {
         Channel client = client(player);
         if (client == null) return;
         // Velocity resumes the backend's reads with a task it queues on this loop after every handler returns.
-        schedule(client, () -> {
+        schedule(client, decoderClass, () -> {
             Object inFlight = inFlight(player);
             return inFlight instanceof ServerConnection connection && connection.getServer() == server
                     ? inFlight
@@ -192,7 +227,8 @@ final class VelocityCompressedForward {
     private void postConnected(ServerPostConnectEvent event) {
         Player player = event.getPlayer();
         Channel client = client(player);
-        if (client != null) schedule(client, () -> player.getCurrentServer().orElse(null));
+        if (client != null)
+            schedule(client, decoderClass, () -> player.getCurrentServer().orElse(null));
     }
 
     private @Nullable Channel client(Player player) {
@@ -204,7 +240,7 @@ final class VelocityCompressedForward {
     }
 
     /** Links the client's forwarder, on the client's loop, to the backend {@code server} names when the task runs. */
-    private static void schedule(Channel client, Supplier<Object> server) {
+    private static void schedule(Channel client, String decoderClass, Supplier<Object> server) {
         try {
             client.eventLoop().execute(() -> {
                 if (!(client.pipeline().get(CompressedForwarder.NAME) instanceof CompressedForwarder forwarder)) return;
@@ -216,7 +252,7 @@ final class VelocityCompressedForward {
                     forwarder.linkStatus("lookup-failed");
                     return;
                 }
-                if (backend != null) link(forwarder, client, backend);
+                if (backend != null) link(forwarder, client, backend, decoderClass);
             });
         } catch (RejectedExecutionException closed) {
             // The client's loop is shut down, and with it the channel.
@@ -234,7 +270,7 @@ final class VelocityCompressedForward {
     }
 
     /** Links {@code forwarder} to {@code backend}; runs on the client's loop. */
-    static void link(CompressedForwarder forwarder, Channel client, Channel backend) {
+    static void link(CompressedForwarder forwarder, Channel client, Channel backend, String decoderClass) {
         if (forwarder.disabled || !client.isActive()) return;
         if (backend.eventLoop() != client.eventLoop()) {
             forwarder.unlink();
@@ -245,16 +281,24 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-inactive");
             return;
         }
-        place(forwarder, client.pipeline(), backend);
+        place(forwarder, client.pipeline(), backend, decoderClass);
     }
 
-    /** Places the keep and mark pair around the backend's compression decoder; both channels share one loop. */
-    static void place(CompressedForwarder forwarder, ChannelPipeline client, Channel backend) {
+    /**
+     * Places the keep and mark pair around the backend's compression decoder when it is of the class named
+     * {@code decoderClass}; both channels share one loop.
+     */
+    static void place(CompressedForwarder forwarder, ChannelPipeline client, Channel backend, String decoderClass) {
         if (forwarder.disabled || forwarder.linkedTo(backend)) return;
         forwarder.unlink();
         var pipeline = backend.pipeline();
-        if (pipeline.get(COMPRESSION_DECODER) == null) {
+        Object decoder = pipeline.get(COMPRESSION_DECODER);
+        if (decoder == null) {
             forwarder.linkStatus("backend-uncompressed");
+            return;
+        }
+        if (!decoder.getClass().getName().equals(decoderClass)) {
+            forwarder.linkStatus("backend-decoder");
             return;
         }
         if (!CompressedForwarder.adjacent(client)) {
@@ -287,6 +331,7 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-adjacency");
             return;
         }
+        mark.attach(pipeline);
         forwarder.link(backend, keep, mark);
     }
 }

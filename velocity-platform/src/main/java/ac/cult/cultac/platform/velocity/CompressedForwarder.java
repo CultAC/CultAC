@@ -2,7 +2,6 @@ package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
@@ -33,6 +32,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private final boolean guard;
     private final boolean small;
     private final boolean heap;
+    private final boolean consume;
     private ChannelHandlerContext compression;
 
     // The live mark: set only inside a linked backend's channelRead, restored in its finally.
@@ -52,13 +52,17 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
     private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures, forwardFailures;
 
-    /** @param encoderThreshold reads the client encoder's current threshold, as {@code ()int} */
-    CompressedForwarder(MethodHandle encoderThreshold, boolean guard, boolean small, boolean heap) {
+    /**
+     * @param encoderThreshold reads the client encoder's current threshold, as {@code ()int}
+     * @param consume whether Velocity's compressor moves the reader index of the buffer it compresses
+     */
+    CompressedForwarder(MethodHandle encoderThreshold, boolean guard, boolean small, boolean heap, boolean consume) {
         this.encoderThreshold = encoderThreshold;
         this.threshold = encoderThreshold();
         this.guard = guard;
         this.small = small;
         this.heap = heap;
+        this.consume = consume;
     }
 
     private static @Nullable VarHandle previous() {
@@ -79,9 +83,9 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return PREVIOUS != null;
     }
 
-    /** Whether a write from {@code ctx} reaches {@code encoder} with no handler between them. */
-    private static boolean follows(ChannelHandlerContext ctx, ChannelHandlerContext encoder) {
-        return PREVIOUS != null && PREVIOUS.getVolatile(ctx) == encoder;
+    /** Whether {@code before} is the context directly head-side of {@code ctx}, with no handler between them. */
+    static boolean follows(ChannelHandlerContext ctx, ChannelHandlerContext before) {
+        return PREVIOUS != null && PREVIOUS.getVolatile(ctx) == before;
     }
 
     /** The encoder's threshold when this forwarder was installed. */
@@ -163,7 +167,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
-        b.skipBytes(n);
+        if (consume) b.skipBytes(n);
         b.release();
         target.write(out, promise);
     }
@@ -242,10 +246,9 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private boolean sameContent(ByteBuf b, int n) {
         ByteBuf copy = markCopy;
         if (copy == null || copy.readableBytes() != n) return false;
-        // A leak-tracking wrapper records every accessor call: one view per buffer, not n / 8 getLong calls.
-        if (b.nioBufferCount() == 1 && copy.nioBufferCount() == 1)
-            return b.internalNioBuffer(b.readerIndex(), n).equals(copy.internalNioBuffer(copy.readerIndex(), n));
-        return ByteBufUtil.equals(b, b.readerIndex(), copy, copy.readerIndex(), n);
+        if (b.nioBufferCount() != 1 || copy.nioBufferCount() != 1) return false;
+        // A leak-tracking wrapper records a trace per accessor call.
+        return b.internalNioBuffer(b.readerIndex(), n).equals(copy.internalNioBuffer(copy.readerIndex(), n));
     }
 
     static int varIntSize(int value) {
@@ -324,6 +327,13 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         linkKeep = keep;
         linkMark = mark;
         linkStatus = "linked";
+    }
+
+    /** Removes the current link with status {@code backend-adjacency} when {@code mark} is its mark. */
+    void unlinkDetached(CompressedMark mark) {
+        if (linkMark != mark) return;
+        unlink();
+        linkStatus = "backend-adjacency";
     }
 
     /** Removes the current link's handlers from its backend; never waits for another loop. */

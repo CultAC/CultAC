@@ -198,10 +198,14 @@ final class CompressedFrames {
         }
     }
 
-    /** Inflates a frame body into a new direct buffer, or passes an uncompressed body on as itself. */
+    /**
+     * Inflates a frame body into a new direct buffer, of two components when {@link #composite} is set, or passes an
+     * uncompressed body on as itself.
+     */
     static final class CompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         final int threshold;
         final List<ByteBuf> inflated = new ArrayList<>();
+        boolean composite;
 
         CompressDecoder(int threshold) {
             this.threshold = threshold;
@@ -219,8 +223,17 @@ final class CompressedFrames {
             byte[] zlib = new byte[in.readableBytes()];
             in.readBytes(zlib);
             byte[] packet = inflate(zlib, dataLength);
-            ByteBuf uncompressed = ctx.alloc().directBuffer(dataLength);
-            uncompressed.writeBytes(packet);
+            ByteBuf uncompressed;
+            if (composite) {
+                int half = dataLength / 2;
+                ByteBuf first = ctx.alloc().directBuffer(half).writeBytes(packet, 0, half);
+                ByteBuf second =
+                        ctx.alloc().directBuffer(dataLength - half).writeBytes(packet, half, dataLength - half);
+                uncompressed = ctx.alloc().compositeDirectBuffer(2).addComponents(true, first, second);
+            } else {
+                uncompressed = ctx.alloc().directBuffer(dataLength);
+                uncompressed.writeBytes(packet);
+            }
             inflated.add(uncompressed);
             out.add(uncompressed);
         }
@@ -236,12 +249,21 @@ final class CompressedFrames {
         }
     }
 
-    /** Compresses at or above the threshold with a 3-byte length, else frames the packet uncompressed. */
+    /**
+     * Compresses at or above the threshold with a 3-byte length, else frames the packet uncompressed. Framing
+     * uncompressed always consumes the packet; compressing consumes it when {@code consume} is set.
+     */
     static final class CompressEncoder extends MessageToByteEncoder<ByteBuf> {
         private int threshold;
+        private final boolean consume;
 
         CompressEncoder(int threshold) {
+            this(threshold, true);
+        }
+
+        CompressEncoder(int threshold, boolean consume) {
             this.threshold = threshold;
+            this.consume = consume;
         }
 
         void setThreshold(int threshold) {
@@ -258,7 +280,8 @@ final class CompressedFrames {
                 return;
             }
             byte[] packet = new byte[uncompressed];
-            msg.readBytes(packet);
+            if (consume) msg.readBytes(packet);
+            else msg.getBytes(msg.readerIndex(), packet);
             out.writeMedium(0);
             Wire.writeVarInt(out, uncompressed);
             out.writeBytes(zlib(packet, CLIENT_LEVEL));
