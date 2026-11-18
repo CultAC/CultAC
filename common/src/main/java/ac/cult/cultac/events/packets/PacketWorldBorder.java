@@ -177,4 +177,19 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     public double getAbsoluteMaxSize() {
         return absoluteMaxSize;
     }
+
+    /** The diameter the border lerps towards, or holds when it does not move. */
+    public double getTargetDiameter() {
+        return newDiameter;
+    }
+
+    /** Client ticks the tick-based lerp has left, or -1 when the lerp runs on the clock. */
+    public long getRemainingLerpTicks() {
+        return tickBasedLerp ? Math.max(0L, lerpDurationTicks - lerpElapsedTicks) : -1L;
+    }
+
+    /** Milliseconds the clock-based lerp has left, or 0 when it has ended or runs on ticks. */
+    public long getRemainingLerpMillis() {
+        return tickBasedLerp ? 0L : Math.max(0L, endTime - System.currentTimeMillis());
+    }
 }
