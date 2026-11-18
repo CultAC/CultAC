@@ -864,6 +864,30 @@ message PerfProfile {
   optional uint32 section_pool_dimensions = 46;  // dimensions the pool registry holds
   optional uint32 section_pools = 47;            // section positions with a pool
   optional uint64 section_pool_references = 48;  // chunk sections the players retain in the pools
+  PerfMachineLoad machine_load = 49;             // Linux /proc and /sys; absent elsewhere
+}
+
+// The machine around the process over the window; each field is absent when its source is unreadable.
+message PerfMachineLoad {
+  optional uint64 user_millis = 1;               // /proc/stat cpu line, all CPUs, within the window
+  optional uint64 nice_millis = 2;
+  optional uint64 system_millis = 3;
+  optional uint64 idle_millis = 4;
+  optional uint64 iowait_millis = 5;
+  optional uint64 irq_millis = 6;
+  optional uint64 softirq_millis = 7;
+  optional uint64 steal_millis = 8;
+  optional uint32 cpus_online = 9;               // cpuN lines of /proc/stat at the window end
+  optional uint64 max_cpu_softirq_millis = 10;   // the one CPU with the most softirq time within the window
+  optional uint64 max_cpu_busy_millis = 11;      // the one CPU with the most non-idle, non-iowait time
+  optional uint64 run_queue_wait_millis = 12;    // this process's threads runnable but waiting for a CPU
+  optional uint64 timeslices = 13;               // this process's threads' timeslices run on a CPU
+  optional uint64 voluntary_switches = 14;       // this process's threads' voluntary context switches
+  optional uint64 involuntary_switches = 15;     // this process's threads' involuntary context switches
+  optional uint64 cpu_pressure_some_micros = 16; // /proc/pressure/cpu: time some task waited for a CPU
+  optional uint32 cur_freq_khz = 17;             // scaling_cur_freq, mean over CPUs at the window end
+  optional uint32 max_freq_khz = 18;             // cpuinfo_max_freq of cpu0
+  optional bool smt_active = 19;                 // /sys/devices/system/cpu/smt/active at the window end
 }
 
 message PerfStack {

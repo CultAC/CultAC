@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ac.cult.cultac.cloud.intake.v3.PerfAllocCalibration;
 import ac.cult.cultac.cloud.intake.v3.PerfClassAlloc;
+import ac.cult.cultac.cloud.intake.v3.PerfMachineLoad;
 import ac.cult.cultac.cloud.intake.v3.PerfOutcome;
 import ac.cult.cultac.cloud.intake.v3.PerfProfile;
 import ac.cult.cultac.cloud.intake.v3.PerfStack;
@@ -134,6 +135,10 @@ class PerfRecorderTest {
                         .sum()
                 > 0);
         assertTrue(profile.getProcessUserNanos() > 0);
+        PerfMachineLoad machine = profile.getMachineLoad();
+        assertTrue(machine.getCpusOnline() > 0, machine.toString());
+        assertTrue(machine.getUserMillis() + machine.getIdleMillis() > 0, machine.toString());
+        assertTrue(machine.getVoluntarySwitches() > 0, machine.toString());
         PerfAllocCalibration own = profile.getAllocCalibrationList().stream()
                 .filter(group -> group.getThreadGroup() == Attribution.OWN)
                 .findFirst()
