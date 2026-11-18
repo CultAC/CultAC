@@ -47,6 +47,7 @@ import io.netty.channel.Channel;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -67,6 +68,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private final VelocityServer server;
     private final BridgeService bridge;
     private final VelocityNetwork network;
+    private final @Nullable VelocityCompressedForward compressedForward;
     /** Set while the cloud upload is on and the bridge has started. */
     private volatile @Nullable CloudBackends cloudBackends;
     /** The bridge sessions the cloud's backends listen to; null until the bridge has started. */
@@ -98,6 +100,9 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             this.plugins = new VelocityPlugins(proxy);
             this.commands = new VelocityCommands(proxy, senders).service(nativePlugin);
             var manager = CultAPI.INSTANCE.getNetworkManager();
+            var transports = new AtomicReference<VelocityTransport>();
+            this.compressedForward = VelocityCompressedForward.fromSystemProperties(
+                    proxy, nativePlugin, player -> transports.get().channel(player));
             this.transport = new VelocityTransport(
                     proxy,
                     nativePlugin,
@@ -109,7 +114,9 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                             channel.eventLoop(),
                             codecs,
                             bedrock),
-                    this::bedrockOwner);
+                    this::bedrockOwner,
+                    compressedForward);
+            transports.set(transport);
             this.bridge =
                     new BridgeService(proxy, nativePlugin, transport::channel, manager::connection, plugin.getLogger());
             this.server = new VelocityServer(proxy, senders, bridge::tps);
@@ -158,6 +165,10 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         CloudModule.platformHooks(this::cloudTurnedOn, this::cloudTurnedOff);
         NetworkModule.platform(network);
         network.listen();
+        if (compressedForward != null) {
+            compressedForward.listen();
+            plugin.getLogger().info(compressedForward.describe());
+        }
         CultAPI.INSTANCE.start();
         boolean bridged = bridge.start(
                 CultAPI.INSTANCE.getNetworkManager().dispatcher(),
@@ -350,7 +361,11 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             GeyserBedrockBridgeRuntime.adoptSession(session, continued);
         }
         transport.attach(
-                player, channel, bedrockOwner(channel), ac.cult.cultac.network.ConnectionContinuation.from(state));
+                player,
+                channel,
+                bedrockOwner(channel),
+                ac.cult.cultac.network.ConnectionContinuation.from(state),
+                state.get(VelocityCompressedForward.THRESHOLD_STATE) instanceof Integer threshold ? threshold : -1);
         bridge.adopted(player);
         CloudBackends backends = cloudBackends;
         if (backends != null) backends.adopted(player);
@@ -374,6 +389,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         closed = true;
         try {
             network.close();
+            if (compressedForward != null) compressedForward.close();
             if (cloudBackends != null) cloudBackends.close();
             bridge.close();
             VelocityBridge.install(BridgeSessions.NONE);

@@ -1,0 +1,367 @@
+package ac.cult.cultac.platform.velocity;
+
+import ac.cult.cultac.protocol.wire.Wire;
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.ChannelPromise;
+import java.util.Locale;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.zip.Adler32;
+
+/**
+ * Sits on the client channel directly tail-side of Velocity's compression encoder. A frame that is the inflated buffer
+ * the linked backend read is delivering, unchanged, leaves as that backend's compressed frame; a frame below the
+ * threshold is framed uncompressed. Both are written through the encoder's context, so only the encoder is skipped.
+ * Every other frame passes on to the encoder. Confined to the client's event loop.
+ */
+final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
+    static final String NAME = "cult-compressed-forward";
+    static final String COMPRESSION_ENCODER = "compression-encoder";
+    private static final int ADJACENCY_CHECK_FLUSHES = 64;
+    private static final int MAX_FRAME_LENGTH = (1 << 21) - 1;
+    private static final int SCRATCH = 4096;
+
+    private final int threshold;
+    private final boolean guard;
+    private final boolean small;
+    private final boolean smallHeap;
+    private ChannelHandlerContext compression;
+    private Adler32 adler;
+    private byte[] scratch;
+
+    // The live mark: set only inside a linked backend's channelRead, restored in its finally.
+    ByteBuf markBuf;
+    private int markReader, markWriter;
+    private ByteBuf keptBuf;
+    private int keptStart, keptEnd;
+
+    boolean disabled;
+    private String status = "on";
+    private String linkStatus = "none";
+    private Channel linkChannel;
+    private CompressedKeep linkKeep;
+    private CompressedMark linkMark;
+    private int flushes;
+
+    private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
+    private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures;
+
+    CompressedForwarder(int threshold, boolean guard, boolean small, boolean smallHeap) {
+        this.threshold = threshold;
+        this.guard = guard;
+        this.small = small;
+        this.smallHeap = smallHeap;
+    }
+
+    int threshold() {
+        return threshold;
+    }
+
+    @Override
+    public void handlerAdded(ChannelHandlerContext ctx) {
+        compression = ctx.pipeline().context(COMPRESSION_ENCODER);
+        if (compression == null) disable("no-compression");
+    }
+
+    @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) {
+        disabled = true;
+        status = "removed";
+        clearMark();
+        compression = null;
+        unlink();
+    }
+
+    @Override
+    public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
+        ChannelHandlerContext target = compression;
+        if (disabled || target == null || !(msg instanceof ByteBuf b)) {
+            ctx.write(msg, promise);
+            return;
+        }
+        if (target.isRemoved()) {
+            disable("compression-removed");
+            ctx.write(msg, promise);
+            return;
+        }
+        int n = b.readableBytes();
+        boolean marked = b == markBuf;
+        if (n < threshold) {
+            if (marked) belowThreshold++;
+            if (small) frameSmall(ctx, target, b, n, promise);
+            else ctx.write(msg, promise);
+            return;
+        }
+        if (!marked) {
+            notMarked++;
+            ctx.write(msg, promise);
+            return;
+        }
+        ByteBuf out;
+        try {
+            out = forwardedFrame(ctx, b, n);
+        } catch (Throwable failure) {
+            failures++;
+            out = null;
+        }
+        if (out == null) {
+            ctx.write(msg, promise);
+            return;
+        }
+        b.release();
+        target.write(out, promise);
+    }
+
+    /** {@code varint(L)} and the backend's frame of length L, or null (counted) when the encoder must compress. */
+    private ByteBuf forwardedFrame(ChannelHandlerContext ctx, ByteBuf b, int n) {
+        ByteBuf kept = keptBuf;
+        int start = keptStart;
+        int end = keptEnd;
+        int length = end - start;
+        if (b.readerIndex() != markReader
+                || b.writerIndex() != markWriter
+                || length <= 0
+                || length > MAX_FRAME_LENGTH
+                || dataLength(kept, start, end) != n) {
+            indicesChanged++;
+            return null;
+        }
+        if (guard && !adlerMatches(b, n, kept, start, end)) {
+            guardMismatch++;
+            return null;
+        }
+        int size = varIntSize(length) + length;
+        ByteBuf out = ctx.alloc().directBuffer(size);
+        try {
+            Wire.writeVarInt(out, length);
+            int at = out.writerIndex();
+            kept.getBytes(start, out, at, length);
+            out.writerIndex(at + length);
+        } catch (Throwable failure) {
+            out.release();
+            throw failure;
+        }
+        forwarded++;
+        forwardedWireBytes += size;
+        forwardedInflatedBytes += n;
+        return out;
+    }
+
+    private void frameSmall(
+            ChannelHandlerContext ctx, ChannelHandlerContext target, ByteBuf b, int n, ChannelPromise promise) {
+        ByteBuf out = null;
+        try {
+            int length = n + 1;
+            int size = varIntSize(length) + length;
+            out = smallHeap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
+            Wire.writeVarInt(out, length);
+            out.writeByte(0);
+            int at = out.writerIndex();
+            b.getBytes(b.readerIndex(), out, at, n);
+            out.writerIndex(at + n);
+        } catch (Throwable failure) {
+            failures++;
+            if (out != null) out.release();
+            ctx.write(b, promise);
+            return;
+        }
+        framedSmall++;
+        b.release();
+        target.write(out, promise);
+    }
+
+    /** The data length VarInt at the start of a compressed frame, or -1 when it is malformed. */
+    private static int dataLength(ByteBuf frame, int start, int end) {
+        int value = 0;
+        for (int i = 0; i < 5 && start + i < end; i++) {
+            int next = frame.getUnsignedByte(start + i);
+            value |= (next & 0x7f) << (i * 7);
+            if ((next & 0x80) == 0) return value;
+        }
+        return -1;
+    }
+
+    /** Whether the zlib trailer of the kept frame is the Adler-32 of the bytes leaving now. */
+    private boolean adlerMatches(ByteBuf b, int n, ByteBuf kept, int start, int end) {
+        if (end - start < varIntSize(n) + 6) return false;
+        int trailer = kept.getInt(end - 4);
+        Adler32 sum = adler;
+        if (sum == null) {
+            adler = sum = new Adler32();
+            scratch = new byte[SCRATCH];
+        }
+        sum.reset();
+        int index = b.readerIndex();
+        if (b.hasArray()) {
+            sum.update(b.array(), b.arrayOffset() + index, n);
+        } else {
+            byte[] chunk = scratch;
+            for (int done = 0; done < n; ) {
+                int count = Math.min(SCRATCH, n - done);
+                b.getBytes(index + done, chunk, 0, count);
+                sum.update(chunk, 0, count);
+                done += count;
+            }
+        }
+        return (int) sum.getValue() == trailer;
+    }
+
+    static int varIntSize(int value) {
+        int size = 1;
+        while ((value & ~0x7f) != 0) {
+            size++;
+            value >>>= 7;
+        }
+        return size;
+    }
+
+    @Override
+    public void flush(ChannelHandlerContext ctx) {
+        if (!disabled && ++flushes >= ADJACENCY_CHECK_FLUSHES) {
+            flushes = 0;
+            if (!adjacent(ctx.pipeline())) disable("adjacency");
+        }
+        ctx.flush();
+    }
+
+    /** Whether this handler directly follows the compression encoder it writes through. */
+    static boolean adjacent(ChannelPipeline pipeline) {
+        var names = pipeline.names();
+        int at = names.indexOf(COMPRESSION_ENCODER);
+        return at >= 0 && at + 1 < names.size() && NAME.equals(names.get(at + 1));
+    }
+
+    void mark(ByteBuf buf, int reader, int writer, ByteBuf kept, int start, int end) {
+        markBuf = buf;
+        markReader = reader;
+        markWriter = writer;
+        keptBuf = kept;
+        keptStart = start;
+        keptEnd = end;
+    }
+
+    int markReader() {
+        return markReader;
+    }
+
+    int markWriter() {
+        return markWriter;
+    }
+
+    ByteBuf keptBuf() {
+        return keptBuf;
+    }
+
+    int keptStart() {
+        return keptStart;
+    }
+
+    int keptEnd() {
+        return keptEnd;
+    }
+
+    private void clearMark() {
+        mark(null, 0, 0, null, 0, 0);
+    }
+
+    void disable(String why) {
+        if (disabled) return;
+        disabled = true;
+        status = why;
+        clearMark();
+        unlink();
+    }
+
+    void linkStatus(String status) {
+        linkStatus = status;
+    }
+
+    boolean linkedTo(Channel backend) {
+        return linkChannel == backend && backend.pipeline().get(CompressedKeep.NAME) == linkKeep;
+    }
+
+    void link(Channel backend, CompressedKeep keep, CompressedMark mark) {
+        linkChannel = backend;
+        linkKeep = keep;
+        linkMark = mark;
+        linkStatus = "linked";
+    }
+
+    /** Removes the current link's handlers from its backend; never waits for another loop. */
+    void unlink() {
+        Channel channel = linkChannel;
+        CompressedKeep keep = linkKeep;
+        CompressedMark mark = linkMark;
+        linkChannel = null;
+        linkKeep = null;
+        linkMark = null;
+        if (channel == null) return;
+        if (!disabled) linkStatus = "none";
+        if (channel.eventLoop().inEventLoop()) {
+            removeLink(channel.pipeline(), keep, mark);
+            return;
+        }
+        try {
+            channel.eventLoop().execute(() -> removeLink(channel.pipeline(), keep, mark));
+        } catch (RejectedExecutionException closed) {
+            // A closed loop has deregistered the channel and removed its handlers.
+        }
+    }
+
+    private static void removeLink(ChannelPipeline pipeline, CompressedKeep keep, CompressedMark mark) {
+        if (pipeline.get(CompressedKeep.NAME) == keep) pipeline.remove(keep);
+        if (pipeline.get(CompressedMark.NAME) == mark) pipeline.remove(mark);
+    }
+
+    String stats() {
+        long recompressed = notMarked + indicesChanged + guardMismatch;
+        long eligible = forwarded + recompressed;
+        String hit = eligible == 0 ? "n/a" : String.format(Locale.ROOT, "%.2f%%", 100.0 * forwarded / eligible);
+        return "status=" + status + ", link=" + linkStatus + ", threshold=" + threshold + ", guard="
+                + (guard ? "on" : "off") + ", hit=" + hit + ", forwarded=" + forwarded + " (" + forwardedWireBytes
+                + " B sent, " + forwardedInflatedBytes + " B inflated), recompressed: not marked=" + notMarked
+                + ", indices changed=" + indicesChanged + ", guard mismatch=" + guardMismatch
+                + "; below threshold=" + belowThreshold + ", framed small=" + framedSmall + ", failures="
+                + failures;
+    }
+
+    void resetStats() {
+        forwarded = forwardedWireBytes = forwardedInflatedBytes = 0;
+        notMarked = indicesChanged = guardMismatch = belowThreshold = framedSmall = failures = 0;
+    }
+
+    long forwarded() {
+        return forwarded;
+    }
+
+    long notMarked() {
+        return notMarked;
+    }
+
+    long indicesChanged() {
+        return indicesChanged;
+    }
+
+    long guardMismatch() {
+        return guardMismatch;
+    }
+
+    long belowThreshold() {
+        return belowThreshold;
+    }
+
+    long framedSmall() {
+        return framedSmall;
+    }
+
+    String status() {
+        return status;
+    }
+
+    String linkStatus() {
+        return linkStatus;
+    }
+}

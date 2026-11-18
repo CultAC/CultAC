@@ -257,6 +257,7 @@ public class CultDebug implements BuildableCommand {
             }
             if (reset) {
                 ticks.resetTickEndStats();
+                target.resetCompressedForwardStats();
                 sender.sendMessage(Component.text(
                         "Reset proxy tick diagnostics for " + target.getName() + ".", NamedTextColor.GRAY));
                 return;
@@ -276,6 +277,10 @@ public class CultDebug implements BuildableCommand {
                     "Observed proxy ticks for " + target.getName() + ": " + counts + ", emitted ends=" + stats.emitted()
                             + ", mode=" + ticks.mode(),
                     NamedTextColor.GRAY));
+            String forwarded = target.compressedForwardStats();
+            if (forwarded != null)
+                sender.sendMessage(Component.text(
+                        "Compressed frames forwarded to " + target.getName() + ": " + forwarded, NamedTextColor.GRAY));
         });
     }
 
