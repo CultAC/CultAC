@@ -164,6 +164,11 @@ public final class SectionStore {
         for (int i = 0; i < VALUES.length(); i++) VALUES.set(i, null);
     }
 
+    /** Entries the store holds at most. */
+    public static int capacity() {
+        return ENTRIES.length();
+    }
+
     /** Entries held now. */
     public static int size() {
         int held = 0;

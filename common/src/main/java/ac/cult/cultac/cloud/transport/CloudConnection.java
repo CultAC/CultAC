@@ -1228,7 +1228,11 @@ public final class CloudConnection {
                 string(agent, "version"),
                 string(agent, "configHash"),
                 string(agent, "mode"));
-        return new PerfRecorder(CultAPI.INSTANCE.getPlatformServer(), info, Clock.systemUTC())
+        return new PerfRecorder(
+                        CultAPI.INSTANCE.getPlatformServer(),
+                        () -> CultAPI.INSTANCE.getPlayerDataManager().size(),
+                        info,
+                        Clock.systemUTC())
                 .record(settings, cancelled);
     }
 

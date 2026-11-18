@@ -163,6 +163,12 @@ class PerfRecorderTest {
                 profile.getAllocCalibrationList().stream()
                         .anyMatch(group -> group.getThreadGroup() == Attribution.OWN && group.getExactBytes() > 0),
                 profile.getAllocCalibrationList().toString());
+        assertTrue(profile.getHeapCommittedBytes() > 0);
+        assertFalse(profile.getHeapPoolsList().isEmpty());
+        assertFalse(profile.getCollectorsList().isEmpty());
+        assertFalse(profile.hasTrackedPlayers());
+        assertTrue(profile.getSectionStoreCapacity() > 0);
+        assertTrue(profile.hasSectionPoolReferences());
     }
 
     @Test

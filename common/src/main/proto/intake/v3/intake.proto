@@ -858,6 +858,12 @@ message PerfProfile {
   repeated PerfMemoryPool heap_pools = 40;    // every heap MemoryPoolMXBean at the window end
   repeated PerfBufferPool buffer_pools = 41;  // every BufferPoolMXBean at the window end
   repeated PerfCollector collectors = 42;     // every GarbageCollectorMXBean, counted within the window
+  optional uint32 tracked_players = 43;          // the anticheat's players at the window end
+  optional uint32 section_store_entries = 44;    // block containers the shared section store holds
+  optional uint32 section_store_capacity = 45;   // and at most holds
+  optional uint32 section_pool_dimensions = 46;  // dimensions the pool registry holds
+  optional uint32 section_pools = 47;            // section positions with a pool
+  optional uint64 section_pool_references = 48;  // chunk sections the players retain in the pools
 }
 
 message PerfStack {
