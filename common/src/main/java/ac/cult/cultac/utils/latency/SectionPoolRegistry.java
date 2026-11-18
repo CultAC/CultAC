@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Consumer;
@@ -15,6 +17,10 @@ import java.util.function.Consumer;
  */
 final class SectionPoolRegistry {
     private static final ConcurrentHashMap<String, Dimension> poolsByDimension = new ConcurrentHashMap<>();
+    /** The sum of every dimension's size, changed beside it. */
+    private static final AtomicInteger POOLS = new AtomicInteger();
+    /** The sum of every live entry's references, changed beside them. */
+    private static final AtomicLong REFERENCES = new AtomicLong();
 
     private SectionPoolRegistry() {}
 
@@ -39,6 +45,7 @@ final class SectionPoolRegistry {
                         retained.references++;
                     }
                 }
+                if (sectionCount > 0) REFERENCES.addAndGet(sectionCount);
                 return;
             }
         }
@@ -52,15 +59,18 @@ final class SectionPoolRegistry {
             Column column = pools.columns.get(Columns.key(chunkX, chunkZ));
             if (column != null) {
                 AtomicReferenceArray<PoolEntry> entries = column.entries;
+                int dropped = 0;
                 for (int sectionIndex = 0; sectionIndex < Math.min(sectionCount, entries.length()); sectionIndex++) {
                     PoolEntry entry = entries.get(sectionIndex);
                     if (entry == null) continue;
                     boolean released;
                     synchronized (entry.pool) {
+                        if (entry.references > 0) dropped++;
                         released = --entry.references <= 0;
                     }
                     if (released) pools.remove(column, chunkX, sectionIndex, chunkZ);
                 }
+                if (dropped > 0) REFERENCES.addAndGet(-dropped);
             }
             if (pools.size == 0) {
                 pools.retired = true;
@@ -123,6 +133,18 @@ final class SectionPoolRegistry {
         return total;
     }
 
+    static int dimensionCount() {
+        return poolsByDimension.size();
+    }
+
+    static int livePoolCount() {
+        return POOLS.get();
+    }
+
+    static long liveReferenceCount() {
+        return REFERENCES.get();
+    }
+
     static int totalReferences() {
         int total = 0;
         for (Dimension pools : poolsByDimension.values()) {
@@ -176,6 +198,7 @@ final class SectionPoolRegistry {
                     entry = new PoolEntry();
                     belowZero.put(new SectionCoordinate(chunkX, sectionIndex, chunkZ), entry);
                     size++;
+                    POOLS.incrementAndGet();
                 }
                 return entry;
             }
@@ -193,6 +216,7 @@ final class SectionPoolRegistry {
                 column.entries.set(sectionIndex, entry);
                 column.live++;
                 size++;
+                POOLS.incrementAndGet();
             }
             return entry;
         }
@@ -201,6 +225,7 @@ final class SectionPoolRegistry {
         void remove(Column column, int chunkX, int sectionIndex, int chunkZ) {
             column.entries.set(sectionIndex, null);
             size--;
+            POOLS.decrementAndGet();
             if (--column.live == 0) columns.remove(Columns.key(chunkX, chunkZ));
         }
 
