@@ -218,6 +218,7 @@ public class PacketPlayerRespawn {
                     // Its synched data starts at the defaults: DATA_TICKS_FROZEN is 0 until the server sends more.
                     player.powderSnowFrozenTicks = 0;
                     player.packetStateData.packetPlayerOnGround = false;
+                    player.packetStateData.sentPositionCache.onNewLocalPlayer();
                     player.checkManager.getSimulationProcessor().handleRespawn();
                 }
             });

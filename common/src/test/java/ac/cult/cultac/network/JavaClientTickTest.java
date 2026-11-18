@@ -17,6 +17,7 @@ import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.PositionListener;
+import ac.cult.cultac.events.packets.PacketServerRegistries;
 import ac.cult.cultac.manager.player.CheckManager;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -25,11 +26,13 @@ import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
@@ -232,6 +235,50 @@ class JavaClientTickTest {
             move(f, reminder);
             assertEquals(1, check.getViolations());
         }
+    }
+
+    /**
+     * ClientPacketListener#handleLogin creates a LocalPlayer after a reconfiguration, and its xLast and
+     * positionReminder start at zero; a LOGIN that keeps the LocalPlayer keeps both.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void aLoginsNewLocalPlayerSendsItsFirstPositionAgainstAnEmptyCache(boolean reconfigured) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.setExperimentalChecks(true);
+            f.pongThrough(ItemUseTestSupport.login(f.player, GameMode.SURVIVAL));
+            floorUnder(f, STANDING);
+            f.player.packetStateData.playerLoadedIntoLevel = true;
+            f.teleport(STANDING, new RelativeFlag(0));
+            f.place(STANDING, Vec3.ZERO);
+            f.input(NONE);
+            f.tick(STANDING, true);
+            BadPacketsV check = f.player.checkManager.getCheck(BadPacketsV.class);
+            assertEquals(0, check.getViolations());
+
+            if (reconfigured) finishConfiguration(f);
+            f.pongThrough(ItemUseTestSupport.login(f.player, GameMode.SURVIVAL));
+            floorUnder(f, STANDING);
+            f.teleport(new Vec3(-3.4838760496460055, FLOOR_Y, 31.25099413056115), new RelativeFlag(0));
+            f.teleport(STANDING, new RelativeFlag(0));
+            for (int tick = 0; tick < 11; tick++) f.tickEnd();
+            f.player.packetStateData.playerLoadedIntoLevel = true;
+            move(f, new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, false, false, true, false));
+
+            assertEquals(reconfigured ? 0 : 1, check.getViolations());
+
+            // The first position fills the empty cache: an unchanged one on the next tick is no reminder.
+            f.tickEnd();
+            move(f, new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, true, false, true, false));
+            assertEquals(reconfigured ? 1 : 2, check.getViolations());
+        }
+    }
+
+    private static void finishConfiguration(JavaTickFixture f) {
+        var type = ClientboundPackets.FINISH_CONFIGURATION;
+        var finish = new PacketSendEvent<>(f.player.user, ConnectionPhase.CONFIGURATION, type, new Opaque(type), false);
+        new PacketServerRegistries().onFinishConfiguration(finish, f.player, new Opaque(type));
+        finish.getTasksAfterSend().forEach(Runnable::run);
     }
 
     private static PacketReceiveEvent<ServerboundMovePlayer> move(JavaTickFixture f, ServerboundMovePlayer packet) {
