@@ -1422,6 +1422,97 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void failingReleaseOfTheBackendsFrameDecodesAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 91);
+        byte[] read = frame(body(packet, THRESHOLD));
+        for (boolean forward : new boolean[] {false, true}) {
+            String label = "forward " + forward;
+            var inputs = new ArrayList<FailingRelease>();
+            var allocator = new RecordingAllocator();
+            try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+                f.backend.config().setAllocator(allocator);
+                f.backend.pipeline().addAfter("frame-decoder", "failing", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        ByteBuf frame = (ByteBuf) msg;
+                        var input = new FailingRelease(frame.readableBytes());
+                        try {
+                            input.writeBytes(frame);
+                        } finally {
+                            frame.release();
+                        }
+                        inputs.add(input);
+                        ctx.fireChannelRead(input);
+                    }
+                });
+                var failure = assertThrows(DecoderException.class, () -> f.read(read.clone()), label);
+                assertInstanceOf(IllegalReferenceCountException.class, failure.getCause(), label);
+                assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
+                if (forward) assertEquals(1, f.forwarder.forwarded(), label);
+                assertEquals(1, inputs.getFirst().refCnt(), "the frame whose release failed, " + label);
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+                assertTrue(inputs.getFirst().release(), label);
+            }
+        }
+    }
+
+    @Test
+    void limiterSetAfterTheKeepsCheckLeavesTheReadAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 92);
+        byte[] other = packet(3000, 93);
+        byte[] read = frame(body(packet, THRESHOLD));
+        String decoderName = VelocityCompressedForward.COMPRESSION_DECODER;
+        for (boolean inflated : new boolean[] {false, true}) {
+            String label = "inflated " + inflated;
+            Function<Fixture, Runnable> limiter = f -> once(() -> {
+                ChannelPipeline p = f.backend.pipeline();
+                if (inflated) {
+                    p.context(decoderName)
+                            .fireChannelRead(
+                                    f.track(Unpooled.directBuffer(other.length).writeBytes(other)));
+                    return;
+                }
+                ChannelHandlerContext before = p.context(CompressedKeep.NAME);
+                if (before == null) before = p.context("read-timeout");
+                before.fireChannelRead(f.track(Unpooled.wrappedBuffer(body(other, THRESHOLD))));
+            });
+            byte[] today;
+            try (var f = new Fixture(Options.today())) {
+                f.decoder.packetLimiter = limiter.apply(f);
+                f.read(read.clone());
+                today = f.wire();
+            }
+            assertPackets(List.of(other, packet), read(today, THRESHOLD));
+            try (var f = new Fixture(Options.forwarding())) {
+                var allocator = new RecordingAllocator();
+                allocator.beforeDirect = once(() -> f.decoder.packetLimiter = limiter.apply(f));
+                f.backend.config().setAllocator(allocator);
+                f.read(read.clone());
+                assertSameBytes(today, f.wire());
+                assertEquals(0, f.forwarder.forwarded(), label);
+                assertEquals("backend-limiter", f.forwarder.linkStatus(), label);
+                assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                assertNull(f.backend.pipeline().get(CompressedMark.NAME), label);
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+            }
+        }
+    }
+
+    @Test
+    void decoderWithoutALimiterFieldIsNotLinked() {
+        try (var f = new Fixture(Options.forwarding().unlinked())) {
+            ChannelPipeline pipeline = f.backend.pipeline();
+            String name = VelocityCompressedForward.COMPRESSION_DECODER;
+            pipeline.replace(name, name, new CopyDecoder());
+            assertNull(VelocityCompressedForward.limiterReader(pipeline.get(name)));
+            VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), f.backend, CopyDecoder.class.getName());
+            assertEquals("backend-limiter", f.forwarder.linkStatus());
+            assertNull(pipeline.get(CompressedKeep.NAME));
+            assertNull(pipeline.get(CompressedMark.NAME));
+        }
+    }
+
+    @Test
     void frameTheForwarderCannotSendIsNotCopied() {
         byte[] small = packet(100, 89);
         byte[] large = packet(CompressedForwarder.MAX_FORWARDED_LENGTH + 1, 90);
@@ -1712,6 +1803,8 @@ class VelocityCompressedForwardTest {
         final List<ByteBuf> allocated = new ArrayList<>();
         int failing;
         boolean failingSlices;
+        // Runs before each direct allocation.
+        Runnable beforeDirect;
 
         @Override
         protected ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity) {
@@ -1722,6 +1815,7 @@ class VelocityCompressedForwardTest {
 
         @Override
         protected ByteBuf newDirectBuffer(int initialCapacity, int maxCapacity) {
+            if (beforeDirect != null) beforeDirect.run();
             if (failing > 0) {
                 failing--;
                 throw new OutOfMemoryError("direct memory");

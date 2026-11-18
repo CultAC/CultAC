@@ -41,6 +41,14 @@ final class CompressedMark extends ChannelInboundHandlerAdapter {
             ctx.fireChannelRead(msg);
             return;
         }
+        if (keep.limited()) {
+            try {
+                forwarder.unlinkDetached(keep, CompressedKeep.LIMITED);
+            } finally {
+                ctx.fireChannelRead(msg);
+            }
+            return;
+        }
         CompressedForwarder target = forwarder;
         ByteBuf previous = target.markBuf;
         int previousReader = target.markReader();

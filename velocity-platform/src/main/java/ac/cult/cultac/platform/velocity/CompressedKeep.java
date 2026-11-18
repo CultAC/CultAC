@@ -3,6 +3,7 @@ package ac.cult.cultac.platform.velocity;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.DecoderException;
 import java.lang.invoke.MethodHandle;
 import org.jetbrains.annotations.Nullable;
 
@@ -91,6 +92,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         boolean limited = adjacent && limited(limiter);
         ByteBuf copy = adjacent && !limited && held(frame) ? forwarder.frame(ctx.alloc(), frame) : null;
         ByteBuf slice = null;
+        Throwable released = null;
         int start = 0;
         if (copy != null) {
             int length = frame.readableBytes();
@@ -101,14 +103,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
                 copy.release();
                 copy = null;
             }
-            if (slice != null) {
-                try {
-                    frame.release();
-                } catch (RuntimeException | Error failure) {
-                    CompressedForwarder.release(copy, CompressedForwarder.release(slice, null));
-                    throw failure;
-                }
-            }
+            if (slice != null) released = CompressedForwarder.release(frame, null);
         }
         kept = copy;
         keptStart = start;
@@ -130,6 +125,16 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             armed = previousArmed;
             if (copy != null) copy.release();
         }
+        // A failed release of the input surfaces after the fire, wrapped as MessageToMessageDecoder wraps it.
+        CompressedForwarder.rethrow(
+                released instanceof RuntimeException failure && !(failure instanceof DecoderException)
+                        ? new DecoderException(failure)
+                        : released);
+    }
+
+    /** Whether the decoder's packet limiter is set or cannot be read, by one read of the cached getter. */
+    boolean limited() {
+        return limited(limiter);
     }
 
     @Override
