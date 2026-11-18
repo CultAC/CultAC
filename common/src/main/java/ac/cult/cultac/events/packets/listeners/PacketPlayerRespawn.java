@@ -184,6 +184,7 @@ public class PacketPlayerRespawn {
                     player.isGliding = false;
                     player.isInBed = false;
                     player.packetStateData.packetPlayerOnGround = false;
+                    player.packetStateData.sentPositionCache.onNewLocalPlayer();
                     player.checkManager.getSimulationProcessor().handleRespawn();
                 }
             });
