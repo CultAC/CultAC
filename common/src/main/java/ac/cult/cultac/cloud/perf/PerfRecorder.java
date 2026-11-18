@@ -145,6 +145,7 @@ public final class PerfRecorder {
                 threadAlloc,
                 PerfRecorder::threadAllocatedBytes);
         ProcCpu.Snapshot procStart = procCpu();
+        Map<String, JvmState.Totals> collections = JvmState.collections();
         load.players(platform, start);
         long dispatchCpu;
         long[] exactAlloc;
@@ -227,6 +228,7 @@ public final class PerfRecorder {
                 .addAllJvmThreadCpu(ProcCpu.threadCpu(procStart, procEnd))
                 .setAllocCalibrated(calibration.calibrated())
                 .addAllAllocCalibration(calibration.groups())
+                .mergeFrom(JvmState.read(collections))
                 .build();
         if (sampler.equals(CPU_TIME) && window.trie.cpuTotal() == 0) cpuTimeFailed = true;
         return withReason(

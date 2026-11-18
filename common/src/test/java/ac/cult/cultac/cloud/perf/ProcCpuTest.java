@@ -94,6 +94,23 @@ class ProcCpuTest {
         assertEquals(null, ProcCpu.kind("JFR Event Strea"));
     }
 
+    @Test
+    void classifiesNamesShortenedInTheMiddle() {
+        assertEquals("gc", ProcCpu.kind("ShenWorker#11"));
+        assertEquals("gc", ProcCpu.kind("ShenControl"));
+        assertEquals("gc", ProcCpu.kind("ShenRegulator"));
+        assertEquals("gc", ProcCpu.kind("ShenUncommit"));
+        assertEquals("gc", ProcCpu.kind("Safepoi..read#0"));
+        assertEquals("jit", ProcCpu.kind("C2 Comp..hread0"));
+        assertEquals("jit", ProcCpu.kind("C1 Comp..read12"));
+        assertEquals("vm", ProcCpu.kind("VM Peri..Thread"));
+        assertEquals("vm", ProcCpu.kind("Monitor..Thread"));
+        assertEquals("vm", ProcCpu.kind("Notific..Thread"));
+        assertEquals("jfr", ProcCpu.kind("JFR Rec..Thread"));
+        assertEquals(null, ProcCpu.kind("JFR Eve..ream 1"));
+        assertEquals(null, ProcCpu.kind("Shenanigans"));
+    }
+
     private void task(long tid, String comm, long utime, long stime) throws IOException {
         Path dir = Files.createDirectories(root.resolve("self/task/" + tid));
         Files.writeString(dir.resolve("comm"), comm + "\n");
