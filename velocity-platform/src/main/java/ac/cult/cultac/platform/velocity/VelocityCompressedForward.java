@@ -5,7 +5,6 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
-import com.velocitypowered.api.event.proxy.ProxyReloadEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
@@ -36,13 +35,11 @@ final class VelocityCompressedForward {
     private final boolean guard;
     private final boolean small;
     private final boolean heap;
-    private final int startThreshold;
-    private volatile boolean thresholdChanged;
+    private volatile boolean thresholdUnread;
     private volatile Method inFlightMethod;
     private static volatile Field thresholdField;
     private final EventHandler<ServerConnectedEvent> connected = this::connected;
     private final EventHandler<ServerPostConnectEvent> postConnected = this::postConnected;
-    private final EventHandler<ProxyReloadEvent> reloaded = event -> clientThreshold();
     private boolean listening;
 
     VelocityCompressedForward(
@@ -51,15 +48,13 @@ final class VelocityCompressedForward {
             Function<Player, Channel> channels,
             boolean guard,
             boolean small,
-            boolean heap,
-            int startThreshold) {
+            boolean heap) {
         this.proxy = proxy;
         this.plugin = plugin;
         this.channels = channels;
         this.guard = guard;
         this.small = small;
         this.heap = heap;
-        this.startThreshold = startThreshold;
     }
 
     /** Null unless {@value #ENABLED_PROPERTY} is true; nothing is registered or installed then. */
@@ -77,13 +72,7 @@ final class VelocityCompressedForward {
             LogUtil.warn("Cannot tell which cipher Velocity uses; frames below the compression threshold are framed"
                     + " by Velocity");
         return new VelocityCompressedForward(
-                proxy,
-                plugin,
-                channels,
-                guard,
-                javaCipher != null,
-                Boolean.TRUE.equals(javaCipher),
-                proxy.getConfiguration().getCompressionThreshold());
+                proxy, plugin, channels, guard, javaCipher != null, Boolean.TRUE.equals(javaCipher));
     }
 
     /** Whether Velocity encrypts with its Java cipher, which needs heap buffers; null when it cannot be read. */
@@ -108,7 +97,6 @@ final class VelocityCompressedForward {
         listening = true;
         proxy.getEventManager().register(plugin, ServerConnectedEvent.class, connected);
         proxy.getEventManager().register(plugin, ServerPostConnectEvent.class, postConnected);
-        proxy.getEventManager().register(plugin, ProxyReloadEvent.class, reloaded);
     }
 
     String describe() {
@@ -120,21 +108,6 @@ final class VelocityCompressedForward {
         listening = false;
         proxy.getEventManager().unregister(plugin, connected);
         proxy.getEventManager().unregister(plugin, postConnected);
-        proxy.getEventManager().unregister(plugin, reloaded);
-    }
-
-    /**
-     * The threshold Velocity sent clients that authenticate now, or -1 once it has changed since start: a client that
-     * authenticated before a change and attaches after it would otherwise be framed at the wrong threshold.
-     */
-    int clientThreshold() {
-        int now = proxy.getConfiguration().getCompressionThreshold();
-        if (now != startThreshold && !thresholdChanged) {
-            thresholdChanged = true;
-            LogUtil.warn("The compression threshold changed; clients that connect from now on get frames compressed"
-                    + " by Velocity until the proxy restarts");
-        }
-        return thresholdChanged ? -1 : now;
     }
 
     /**
@@ -146,13 +119,24 @@ final class VelocityCompressedForward {
             CultConnection connection, VelocityConnectionAdapter adapter, Player player, @Nullable Integer adopted) {
         Channel channel = connection.channel();
         if (connection.owner() != channel.eventLoop()) return;
-        Integer sent = sentThreshold(channel.pipeline());
-        int threshold = sent != null ? sent : adopted != null ? adopted : clientThreshold();
-        if (threshold < 0) return;
+        int threshold = threshold(channel.pipeline(), adopted);
+        if (threshold < 0) {
+            if (!thresholdUnread && channel.pipeline().get(CompressedForwarder.COMPRESSION_ENCODER) != null) {
+                thresholdUnread = true;
+                LogUtil.warn("Cannot read a client's compression threshold; its frames are compressed by Velocity");
+            }
+            return;
+        }
         var forwarder = install(channel.pipeline(), threshold, guard, small, heap);
         if (forwarder == null) return;
         adapter.compressedForwarder(forwarder);
         schedule(channel, () -> player.getCurrentServer().orElse(null));
+    }
+
+    /** The threshold to frame a client with: its encoder's, else the one an earlier runtime used, else -1. */
+    static int threshold(ChannelPipeline pipeline, @Nullable Integer adopted) {
+        Integer sent = sentThreshold(pipeline);
+        return sent != null ? sent : adopted != null ? adopted : -1;
     }
 
     /** The threshold the client's compression encoder frames with, as Velocity sent it; null when it cannot be read. */
@@ -163,7 +147,6 @@ final class VelocityCompressedForward {
             Field field = thresholdField;
             if (field == null || field.getDeclaringClass() != encoder.getClass()) {
                 field = encoder.getClass().getDeclaredField("threshold");
-                if (field.getType() != int.class) return null;
                 field.setAccessible(true);
                 thresholdField = field;
             }

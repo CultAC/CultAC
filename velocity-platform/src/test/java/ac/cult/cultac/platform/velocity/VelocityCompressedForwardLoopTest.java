@@ -12,7 +12,6 @@ import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
-import com.velocitypowered.api.event.proxy.ProxyReloadEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
@@ -185,14 +184,12 @@ class VelocityCompressedForwardLoopTest {
         when(proxy.getEventManager()).thenReturn(events);
         Object plugin = new Object();
         Pair client = client();
-        var forward = new VelocityCompressedForward(
-                proxy, plugin, player -> client.proxySide(), true, true, false, THRESHOLD);
+        var forward = new VelocityCompressedForward(proxy, plugin, player -> client.proxySide(), true, true, false);
         forward.listen();
         @SuppressWarnings("unchecked")
         ArgumentCaptor<EventHandler<ServerConnectedEvent>> connected = ArgumentCaptor.forClass(EventHandler.class);
         verify(events).register(eq(plugin), eq(ServerConnectedEvent.class), connected.capture());
         verify(events).register(eq(plugin), eq(ServerPostConnectEvent.class), any());
-        verify(events).register(eq(plugin), eq(ProxyReloadEvent.class), any());
 
         var player = mock(InFlightPlayer.class);
         var forwarder = (CompressedForwarder) client.proxySide().pipeline().get(CompressedForwarder.NAME);

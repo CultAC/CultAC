@@ -534,11 +534,14 @@ class VelocityCompressedForwardTest {
             assertNull(VelocityCompressedForward.sentThreshold(pipeline), "no encoder");
             pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new ChannelOutboundHandlerAdapter());
             assertNull(VelocityCompressedForward.sentThreshold(pipeline), "an encoder without the field");
+            assertEquals(-1, VelocityCompressedForward.threshold(pipeline, null), "an unread threshold is not guessed");
+            assertEquals(256, VelocityCompressedForward.threshold(pipeline, 256), "an earlier runtime's is kept");
             pipeline.replace(
                     CompressedForwarder.COMPRESSION_ENCODER,
                     CompressedForwarder.COMPRESSION_ENCODER,
                     new CompressEncoder(512));
             assertEquals(512, VelocityCompressedForward.sentThreshold(pipeline));
+            assertEquals(512, VelocityCompressedForward.threshold(pipeline, 256), "the encoder's own comes first");
         } finally {
             channel.finishAndReleaseAll();
         }
