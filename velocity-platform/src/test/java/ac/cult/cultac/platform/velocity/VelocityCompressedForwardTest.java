@@ -234,6 +234,22 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void heapCipherGetsHeapFrames() {
+        byte[] large = packet(3000, 38);
+        byte[] small = packet(40, 39);
+        try (var f = new Fixture(Options.forwarding().heapCipher())) {
+            f.read(concat(frame(body(large, THRESHOLD)), frame(body(small, THRESHOLD))));
+            for (int i = 0; i < 2; i++) {
+                ByteBuf out = f.client.readOutbound();
+                assertTrue(out.hasArray(), "frame " + i + " is a heap buffer");
+                out.release();
+            }
+            assertEquals(1, f.forwarder.forwarded());
+            assertEquals(1, f.forwarder.framedSmall());
+        }
+    }
+
+    @Test
     void frameSplitAcrossReadsIsForwarded() {
         byte[] packet = packet(9000, 10);
         byte[] body = body(packet, THRESHOLD);
@@ -528,9 +544,10 @@ class VelocityCompressedForwardTest {
             int backendThreshold,
             boolean via,
             boolean copyAfterMark,
+            boolean heap,
             BiConsumer<Fixture, ByteBuf> onFrame) {
         static Options forwarding() {
-            return new Options(true, true, true, THRESHOLD, false, false, null);
+            return new Options(true, true, true, THRESHOLD, false, false, false, null);
         }
 
         static Options today() {
@@ -538,31 +555,35 @@ class VelocityCompressedForwardTest {
         }
 
         Options withoutForwarding() {
-            return new Options(false, guard, false, backendThreshold, via, copyAfterMark, onFrame);
+            return new Options(false, guard, false, backendThreshold, via, copyAfterMark, heap, onFrame);
         }
 
         Options guard(boolean value) {
-            return new Options(forward, value, link, backendThreshold, via, copyAfterMark, onFrame);
+            return new Options(forward, value, link, backendThreshold, via, copyAfterMark, heap, onFrame);
         }
 
         Options unlinked() {
-            return new Options(forward, guard, false, backendThreshold, via, copyAfterMark, onFrame);
+            return new Options(forward, guard, false, backendThreshold, via, copyAfterMark, heap, onFrame);
         }
 
         Options backendThreshold(int value) {
-            return new Options(forward, guard, link, value, via, copyAfterMark, onFrame);
+            return new Options(forward, guard, link, value, via, copyAfterMark, heap, onFrame);
         }
 
         Options via(boolean value) {
-            return new Options(forward, guard, link, backendThreshold, value, copyAfterMark, onFrame);
+            return new Options(forward, guard, link, backendThreshold, value, copyAfterMark, heap, onFrame);
         }
 
         Options copying() {
-            return new Options(forward, guard, link, backendThreshold, via, true, onFrame);
+            return new Options(forward, guard, link, backendThreshold, via, true, heap, onFrame);
+        }
+
+        Options heapCipher() {
+            return new Options(forward, guard, link, backendThreshold, via, copyAfterMark, true, onFrame);
         }
 
         Options onFrame(BiConsumer<Fixture, ByteBuf> value) {
-            return new Options(forward, guard, link, backendThreshold, via, copyAfterMark, value);
+            return new Options(forward, guard, link, backendThreshold, via, copyAfterMark, heap, value);
         }
     }
 
@@ -593,7 +614,7 @@ class VelocityCompressedForwardTest {
             connection.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.PLAY);
             VelocityPacketPipeline.install(connection);
             forwarder = options.forward()
-                    ? VelocityCompressedForward.install(pipeline, THRESHOLD, options.guard(), true, false)
+                    ? VelocityCompressedForward.install(pipeline, THRESHOLD, options.guard(), true, options.heap())
                     : null;
             var first = backend(options);
             backend = first.channel;
