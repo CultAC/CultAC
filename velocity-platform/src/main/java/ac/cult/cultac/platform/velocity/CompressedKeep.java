@@ -1,10 +1,14 @@
 package ac.cult.cultac.platform.velocity;
 
+import io.netty.buffer.AdaptiveByteBufAllocator;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.DecoderException;
 import java.lang.invoke.MethodHandle;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -16,6 +20,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-keep";
     // A packet limiter runs inside the decoder between its inflate and its publish.
     static final String LIMITED = "backend-limiter";
+    // Netty's own allocators; any other can run code between the keep's checks and the mark.
+    static Set<Class<?>> allocators =
+            Set.of(AdaptiveByteBufAllocator.class, PooledByteBufAllocator.class, UnpooledByteBufAllocator.class);
 
     private final CompressedForwarder forwarder;
     // The private client frame: varint(length), then the backend's frame at [keptStart, keptEnd).
@@ -68,6 +75,11 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         return n > 0 && n >= forwarder.threshold() && n <= CompressedForwarder.MAX_FORWARDED_LENGTH;
     }
 
+    /** Whether the channel allocates with one of {@link #allocators}, exactly, so no other code runs in its calls. */
+    private static boolean trusted(ChannelHandlerContext ctx) {
+        return allocators.contains(ctx.alloc().getClass());
+    }
+
     /** Whether the cached mark is in the pipeline directly after the decoder, which directly follows this keep. */
     boolean adjacent() {
         ChannelHandlerContext keep = keepContext;
@@ -93,7 +105,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         ByteBuf previousSlice = keptSlice;
         boolean previousArmed = armed;
         boolean adjacent = ctx == keepContext && adjacent();
-        ByteBuf copy = adjacent && held(frame) ? forwarder.frame(ctx.alloc(), frame) : null;
+        ByteBuf copy = adjacent && held(frame) && trusted(ctx) ? forwarder.frame(ctx.alloc(), frame) : null;
         ByteBuf slice = null;
         Throwable released = null;
         int start = 0;
@@ -108,12 +120,14 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             }
             if (slice != null) released = CompressedForwarder.release(frame, null);
         }
+        // The input's release runs its owner's code, which can move handlers or change the allocator.
+        if (copy != null) adjacent = adjacent();
         boolean limited = adjacent && limited(limiter);
         kept = copy;
         keptStart = start;
         keptEnd = copy == null ? 0 : copy.writerIndex();
         keptSlice = slice;
-        armed = copy != null && !limited;
+        armed = copy != null && adjacent && trusted(ctx);
         try {
             try {
                 if (!adjacent) forwarder.unlinkDetached(this);

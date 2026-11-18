@@ -45,7 +45,9 @@ final class VelocityCompressedForward {
     private volatile Method inFlightMethod;
     private static volatile @Nullable MethodHandle thresholdGetter;
     private static volatile @Nullable MethodHandle limiterGetter;
-    private static volatile @Nullable MethodHandle compressorGetter;
+    static volatile @Nullable MethodHandle encoderCompressorGetter;
+    static volatile @Nullable MethodHandle decoderCompressorGetter;
+    private static volatile @Nullable MethodHandle disposedGetter;
     private final EventHandler<ServerConnectedEvent> connected = this::connected;
     private final EventHandler<ServerPostConnectEvent> postConnected = this::postConnected;
     private boolean listening;
@@ -264,30 +266,46 @@ final class VelocityCompressedForward {
         return forwarder;
     }
 
-    /** Whether {@code encoder} and {@code decoder} hold one non-null compressor, each read through its own getter. */
+    /**
+     * Whether {@code encoder} and {@code decoder} hold one non-null compressor, each read through its own getter, whose
+     * {@code disposed} flag reads false.
+     */
     static boolean sharedCompressor(Object encoder, Object decoder) {
-        MethodHandle encoderReader = compressorReader(encoder);
-        MethodHandle decoderReader = compressorReader(decoder);
+        MethodHandle encoderReader = compressorReader(encoder, true);
+        MethodHandle decoderReader = compressorReader(decoder, false);
         if (encoderReader == null || decoderReader == null) return false;
         try {
             Object compressor = (Object) encoderReader.invokeExact();
-            return compressor != null && compressor == (Object) decoderReader.invokeExact();
+            return compressor != null && compressor == (Object) decoderReader.invokeExact() && !disposed(compressor);
         } catch (Throwable failure) {
             return false;
         }
     }
 
-    /** A getter bound to {@code codec}'s {@code compressor} field, typed {@code ()Object}, or null. */
-    static @Nullable MethodHandle compressorReader(Object codec) {
+    /** Whether {@code compressor}'s {@code boolean disposed} field is true; throws when it cannot be read. */
+    private static boolean disposed(Object compressor) throws Throwable {
+        Class<?> type = compressor.getClass();
+        MethodHandle getter = disposedGetter;
+        if (getter == null || getter.type().parameterType(0) != type) {
+            getter = MethodHandles.privateLookupIn(type, MethodHandles.lookup())
+                    .findGetter(type, "disposed", boolean.class);
+            disposedGetter = getter;
+        }
+        return (boolean) getter.bindTo(compressor).invokeExact();
+    }
+
+    /** A getter bound to {@code codec}'s {@code compressor} field, typed {@code ()Object}, or null; cached per role. */
+    static @Nullable MethodHandle compressorReader(Object codec, boolean encoder) {
         try {
             Class<?> type = codec.getClass();
-            MethodHandle getter = compressorGetter;
+            MethodHandle getter = encoder ? encoderCompressorGetter : decoderCompressorGetter;
             if (getter == null || getter.type().parameterType(0) != type) {
                 Class<?> field = type.getDeclaredField("compressor").getType();
                 getter = MethodHandles.privateLookupIn(type, MethodHandles.lookup())
                         .findGetter(type, "compressor", field)
                         .asType(MethodType.methodType(Object.class, type));
-                compressorGetter = getter;
+                if (encoder) encoderCompressorGetter = getter;
+                else decoderCompressorGetter = getter;
             }
             return getter.bindTo(codec);
         } catch (ReflectiveOperationException | RuntimeException failure) {
@@ -304,9 +322,9 @@ final class VelocityCompressedForward {
         /** The encoder or the decoder runs on an executor other than the client channel's event loop. */
         EXECUTOR("A client's compression encoder or decoder runs off its channel's event loop; its frames are"
                 + " compressed by Velocity"),
-        /** The encoder and the decoder do not hold one compressor, or either compressor cannot be read. */
-        COMPRESSOR("A client's compression encoder and decoder do not share one compressor; its frames are compressed"
-                + " by Velocity"),
+        /** The encoder and the decoder do not hold one open compressor, or either compressor cannot be read. */
+        COMPRESSOR("A client's compression encoder and decoder do not share one open compressor; its frames are"
+                + " compressed by Velocity"),
         /** After the insert, the encoder is not the validated one or the forwarder does not directly follow it. */
         CHANGED("A client's compression encoder is not where the forwarder expects it after the insert; its frames are"
                 + " compressed by Velocity");

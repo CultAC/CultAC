@@ -18,6 +18,7 @@ import com.velocitypowered.api.proxy.server.RegisteredServer;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -89,6 +90,8 @@ class VelocityCompressedForwardLoopTest {
                 .group(group)
                 .channel(LocalChannel.class)
                 .option(ChannelOption.AUTO_READ, autoRead)
+                // Socket transports allocate with the default allocator; local channels wrap it.
+                .option(ChannelOption.ALLOCATOR, ByteBufAllocator.DEFAULT)
                 .handler(new ChannelInboundHandlerAdapter())
                 .connect(serverChannel.localAddress())
                 .sync()

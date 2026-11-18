@@ -164,10 +164,10 @@ final class CompressedFrames {
 
     /** A compressor the client's two codecs share; removing the decoder closes it, as Velocity's does. */
     static final class SharedCompressor {
-        boolean closed;
+        boolean disposed;
 
         void check() {
-            if (closed) throw new IllegalStateException("Already closed");
+            if (disposed) throw new IllegalStateException("Already closed");
         }
     }
 
@@ -260,7 +260,7 @@ final class CompressedFrames {
 
         @Override
         public void handlerRemoved(ChannelHandlerContext ctx) {
-            if (compressor != null) compressor.closed = true;
+            if (compressor != null) compressor.disposed = true;
         }
 
         @Override
