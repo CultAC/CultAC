@@ -988,6 +988,23 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void markRemovedByNameUnlinks() {
+        byte[] packet = packet(3000, 65);
+        try (var f = new Fixture(Options.forwarding())) {
+            f.read(frame(body(packet, THRESHOLD)));
+            assertEquals(1, f.forwarder.forwarded());
+            var pipeline = f.backend.pipeline();
+            pipeline.remove(CompressedMark.NAME);
+            f.read(frame(body(packet, THRESHOLD)));
+            assertPackets(List.of(packet, packet), read(f.wire(), THRESHOLD));
+            assertEquals(1, f.forwarder.forwarded());
+            assertEquals(1, f.forwarder.notMarked());
+            assertEquals("backend-adjacency", f.forwarder.linkStatus());
+            assertNull(pipeline.get(CompressedKeep.NAME));
+        }
+    }
+
+    @Test
     void multiComponentFrameFailsTheCheck() {
         byte[] packet = packet(3000, 48);
         try (var f = new Fixture(Options.forwarding())) {
@@ -1128,7 +1145,7 @@ class VelocityCompressedForwardTest {
         }
     }
 
-    /** Today's path sends another body for the same packet, so only a forwarded frame carries {@code body}. */
+    /** The switch-off path sends another body for the same packet, so only a forwarded frame carries {@code body}. */
     private static void assertRecompressedDiffers(byte[] body) {
         var baseline = read(today(Options.today(), frame(body)), THRESHOLD);
         assertEquals(1, baseline.size());

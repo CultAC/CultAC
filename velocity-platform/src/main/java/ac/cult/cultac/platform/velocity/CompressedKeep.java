@@ -9,7 +9,8 @@ import org.jetbrains.annotations.Nullable;
  * Sits on a backend channel directly head-side of Velocity's compression decoder and holds each compressed frame for
  * the length of its own read. It owns one reference to that frame only inside {@link #channelRead}. It holds a frame
  * and arms its one-shot token for the mark only while the keep, the decoder and the mark sit next to each other as
- * {@link CompressedMark#attach} found them; otherwise the frame passes unheld and the link is removed.
+ * {@link CompressedMark#attach} found them; otherwise the frame passes unheld and the link is removed. The forwarder
+ * sends a held frame's bytes as they are at write time: no handler may write into a frame the keep has passed on.
  */
 final class CompressedKeep extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-keep";
@@ -38,7 +39,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         markContext = mark;
     }
 
-    /** Whether the cached mark directly follows the decoder, which directly follows this keep. */
+    /** Whether the cached mark is in the pipeline directly after the decoder, which directly follows this keep. */
     boolean adjacent() {
         ChannelHandlerContext keep = keepContext;
         ChannelHandlerContext decoder = decoderContext;
@@ -46,6 +47,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         return keep != null
                 && decoder != null
                 && mark != null
+                && !mark.isRemoved()
                 && CompressedForwarder.follows(mark, decoder)
                 && CompressedForwarder.follows(decoder, keep);
     }
