@@ -9,8 +9,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Sits on a backend channel directly before Velocity's compression decoder and, while the keep, decoder and mark are
- * adjacent and the decoder has no packet limiter, copies each forwardable compressed frame into a private client
- * frame, passes the decoder a slice of that copy, and arms the mark's one-shot token for that frame's read.
+ * adjacent, copies each forwardable, solely owned, single-buffer compressed frame into a private client frame, passes
+ * the decoder a slice of that copy, and arms the mark's one-shot token for that read unless the decoder has a limiter.
  */
 final class CompressedKeep extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-keep";
@@ -24,7 +24,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     // The slice of kept's backend frame the decoder receives.
     @Nullable
     ByteBuf keptSlice;
-    // Spent by the first message to reach the mark inside the read that armed it.
+    // Spent by the first message to reach the mark inside the read that arms it.
     boolean armed;
     private @Nullable ChannelHandlerContext keepContext, decoderContext;
     private @Nullable MethodHandle limiter;
@@ -58,8 +58,12 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         }
     }
 
-    /** Whether {@code frame} is compressed with a data length the forwarder could send. */
+    /**
+     * Whether {@code frame} has no other owner and one NIO buffer, as Velocity's Java inflater requires, and is
+     * compressed with a data length the forwarder could send.
+     */
     private boolean held(ByteBuf frame) {
+        if (frame.refCnt() != 1 || frame.nioBufferCount() != 1) return false;
         int n = CompressedForwarder.dataLength(frame, frame.readerIndex(), frame.writerIndex());
         return n > 0 && n >= forwarder.threshold() && n <= CompressedForwarder.MAX_FORWARDED_LENGTH;
     }
@@ -89,8 +93,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         ByteBuf previousSlice = keptSlice;
         boolean previousArmed = armed;
         boolean adjacent = ctx == keepContext && adjacent();
-        boolean limited = adjacent && limited(limiter);
-        ByteBuf copy = adjacent && !limited && held(frame) ? forwarder.frame(ctx.alloc(), frame) : null;
+        ByteBuf copy = adjacent && held(frame) ? forwarder.frame(ctx.alloc(), frame) : null;
         ByteBuf slice = null;
         Throwable released = null;
         int start = 0;
@@ -105,11 +108,12 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             }
             if (slice != null) released = CompressedForwarder.release(frame, null);
         }
+        boolean limited = adjacent && limited(limiter);
         kept = copy;
         keptStart = start;
         keptEnd = copy == null ? 0 : copy.writerIndex();
         keptSlice = slice;
-        armed = copy != null;
+        armed = copy != null && !limited;
         try {
             try {
                 if (!adjacent) forwarder.unlinkDetached(this);

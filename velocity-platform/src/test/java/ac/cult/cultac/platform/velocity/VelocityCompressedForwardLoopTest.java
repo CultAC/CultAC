@@ -106,8 +106,9 @@ class VelocityCompressedForwardLoopTest {
         onLoop(() -> {
             var pipeline = pair.proxySide().pipeline();
             pipeline.addLast("cipher-encoder", new CipherEncoder());
-            pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
-            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD));
+            var compressor = new SharedCompressor();
+            pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
             pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
             pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
             return VelocityCompressedForward.install(

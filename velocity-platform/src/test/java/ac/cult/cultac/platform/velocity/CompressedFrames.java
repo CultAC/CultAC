@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
@@ -30,6 +32,7 @@ import javax.crypto.spec.SecretKeySpec;
  */
 final class CompressedFrames {
     static final byte[] KEY = "0123456789abcdef".getBytes();
+    private static final ByteBufAllocator POOLED = PooledByteBufAllocator.DEFAULT;
     /** A two-byte packet ID no route uses, so Cult's encoder passes the frame on unchanged. */
     static final int UNROUTED_ID = 2047;
 
@@ -201,9 +204,24 @@ final class CompressedFrames {
         assertTrue(Arrays.equals(expected, actual), "wire bytes equal today's");
     }
 
-    /** Splits frames from a backend read, emitting retained slices of the cumulation. */
+    /**
+     * Splits frames from a backend read, emitting retained slices of a pooled cumulation, which carry their own
+     * reference count as slices of a channel's pooled reads do.
+     */
     static final class FrameDecoder extends ByteToMessageDecoder {
         final List<ByteBuf> frames = new ArrayList<>();
+
+        FrameDecoder() {
+            setCumulator((alloc, cumulation, in) -> {
+                if (cumulation.isReadable()) return MERGE_CUMULATOR.cumulate(POOLED, cumulation, in);
+                try {
+                    cumulation.release();
+                    return POOLED.directBuffer(in.readableBytes()).writeBytes(in);
+                } finally {
+                    in.release();
+                }
+            });
+        }
 
         @Override
         protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
@@ -233,8 +251,8 @@ final class CompressedFrames {
     }
 
     /**
-     * Inflates a frame body into a new direct buffer, of two components when {@link #composite} is set, or passes an
-     * uncompressed body on as itself.
+     * Allocates through the context, then inflates a single-buffer frame body into that direct buffer, of two
+     * components when {@link #composite} is set, or passes an uncompressed body on as itself.
      */
     static final class CompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         final int threshold;
@@ -273,24 +291,30 @@ final class CompressedFrames {
                 return;
             }
             if (dataLength < threshold) throw new DecoderException("compressed below threshold");
-            byte[] zlib = new byte[in.readableBytes()];
-            in.readBytes(zlib);
-            byte[] packet = vanilla ? inflateVanilla(zlib, dataLength) : inflate(zlib, dataLength);
-            if (afterInflate != null) afterInflate.run();
-            if (packetLimiter != null) packetLimiter.run();
-            ByteBuf uncompressed;
-            if (composite) {
-                int half = dataLength / 2;
-                ByteBuf first = ctx.alloc().directBuffer(half).writeBytes(packet, 0, half);
-                ByteBuf second =
-                        ctx.alloc().directBuffer(dataLength - half).writeBytes(packet, half, dataLength - half);
-                uncompressed = ctx.alloc().compositeDirectBuffer(2).addComponents(true, first, second);
-            } else {
-                uncompressed = ctx.alloc().directBuffer(dataLength);
-                uncompressed.writeBytes(packet);
+            int half = composite ? dataLength / 2 : dataLength;
+            ByteBuf first = ctx.alloc().directBuffer(half);
+            ByteBuf second = null;
+            try {
+                if (composite) second = ctx.alloc().directBuffer(dataLength - half);
+                if (in.nioBufferCount() != 1) throw new IllegalArgumentException("source has multiple backing buffers");
+                byte[] zlib = new byte[in.readableBytes()];
+                in.readBytes(zlib);
+                byte[] packet = vanilla ? inflateVanilla(zlib, dataLength) : inflate(zlib, dataLength);
+                if (afterInflate != null) afterInflate.run();
+                if (packetLimiter != null) packetLimiter.run();
+                first.writeBytes(packet, 0, half);
+                ByteBuf uncompressed = first;
+                if (second != null) {
+                    second.writeBytes(packet, half, dataLength - half);
+                    uncompressed = ctx.alloc().compositeDirectBuffer(2).addComponents(true, first, second);
+                }
+                inflated.add(uncompressed);
+                out.add(uncompressed);
+            } catch (RuntimeException | Error failure) {
+                first.release();
+                if (second != null) second.release();
+                throw failure;
             }
-            inflated.add(uncompressed);
-            out.add(uncompressed);
         }
     }
 

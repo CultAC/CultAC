@@ -6,8 +6,8 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Sits on a backend channel directly after Velocity's compression decoder and, for a read the keep armed, publishes
- * the inflated buffer, its indices, a copy of its bytes and the keep's private client frame to the forwarder.
+ * Sits on a backend channel directly after Velocity's compression decoder and, for a read the keep arms, publishes
+ * the decoder's output, its indices, a copy of its bytes and the keep's private client frame to the forwarder.
  */
 final class CompressedMark extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-mark";
@@ -37,7 +37,8 @@ final class CompressedMark extends ChannelInboundHandlerAdapter {
             return;
         }
         ByteBuf kept = keep.kept;
-        if (!armed || kept == null || inflated == keep.keptSlice) {
+        // The decoder releases its input before it publishes, so the keep's frame has one owner only after decode.
+        if (!armed || kept == null || inflated == keep.keptSlice || kept.refCnt() != 1) {
             ctx.fireChannelRead(msg);
             return;
         }

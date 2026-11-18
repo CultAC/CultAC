@@ -19,7 +19,7 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Sits on the client channel directly after Velocity's compression encoder and sends a marked, unchanged inflated
- * buffer as the private frame its keep built, or frames a small one uncompressed, through the encoder's context.
+ * buffer as its keep's private frame, or frames a small one uncompressed, through the encoder's context.
  * Every other frame passes on to the encoder. Confined to the client's event loop.
  */
 final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
@@ -111,7 +111,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return PREVIOUS != null && PREVIOUS.getVolatile(ctx) == before;
     }
 
-    /** The encoder's threshold when this forwarder was installed. */
+    /** The encoder's threshold read at install. */
     int threshold() {
         return threshold;
     }
@@ -189,7 +189,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         target.write(out, promise);
     }
 
-    /** Takes the frame the mark published for {@code b}, or returns null (counted) when the encoder must compress. */
+    /** Takes the frame the mark publishes for {@code b}, or returns null (counted) when the encoder must compress. */
     private @Nullable ByteBuf forwardedFrame(ByteBuf b, int n) {
         ByteBuf frame = markFrame;
         if (frame == null || b.readerIndex() != markReader || b.writerIndex() != markWriter) {
@@ -401,7 +401,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         try {
             channel.eventLoop().execute(() -> removeLink(channel.pipeline(), keep, mark));
         } catch (RejectedExecutionException closed) {
-            // A closed loop has deregistered the channel and removed its handlers.
+            // A closed loop's channel is deregistered, its handlers removed.
         }
     }
 
