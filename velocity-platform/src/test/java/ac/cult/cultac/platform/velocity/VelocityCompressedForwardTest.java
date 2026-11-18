@@ -28,12 +28,15 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.util.ResourceLeakDetector;
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.zip.Adler32;
 import org.junit.jupiter.api.AfterAll;
@@ -643,25 +646,344 @@ class VelocityCompressedForwardTest {
      */
     private void checkDetached(byte[] packet, BiConsumer<Fixture, ChannelPipeline> insert, byte[] expected) {
         byte[] read = concat(frame(body(packet, THRESHOLD)), frame(body(packet, THRESHOLD)));
+        checkSubstituted(read, insert, List.of(expected, expected));
+    }
+
+    /**
+     * {@code read} through a backend that {@code insert} changes after the link: the client decodes {@code expected},
+     * as with the switch off, no frame is forwarded, and the link is removed.
+     */
+    private void checkSubstituted(byte[] read, BiConsumer<Fixture, ChannelPipeline> insert, List<byte[]> expected) {
         byte[] today;
         try (var f = new Fixture(Options.today())) {
             insert.accept(f, f.backend.pipeline());
             f.read(read);
             today = f.wire();
         }
-        assertPackets(List.of(expected, expected), read(today, THRESHOLD));
+        assertPackets(expected, read(today, THRESHOLD));
         try (var f = new Fixture(Options.forwarding())) {
             insert.accept(f, f.backend.pipeline());
             f.read(read);
             byte[] wire = f.wire();
             assertSameBytes(today, wire);
-            assertPackets(List.of(expected, expected), read(wire, THRESHOLD));
+            assertPackets(expected, read(wire, THRESHOLD));
             assertEquals(0, f.forwarder.forwarded());
-            assertEquals(2, f.forwarder.notMarked());
+            assertEquals(expected.size(), f.forwarder.notMarked());
             assertEquals("backend-adjacency", f.forwarder.linkStatus());
             assertEquals("on", f.forwarder.status());
             assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
             assertNull(f.backend.pipeline().get(CompressedMark.NAME));
+        }
+    }
+
+    /** Copies the inflated packet with one byte changed, removes itself, and fires the copy. */
+    private static final class SelfRemovingRewrite extends ChannelInboundHandlerAdapter {
+        private final Fixture fixture;
+
+        SelfRemovingRewrite(Fixture fixture) {
+            this.fixture = fixture;
+        }
+
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            ByteBuf in = (ByteBuf) msg;
+            int n = in.readableBytes();
+            ByteBuf out = fixture.track(ctx.alloc().directBuffer(n));
+            out.writeBytes(in, in.readerIndex(), n);
+            out.setByte(100, out.getByte(100) ^ 0x5a);
+            in.release();
+            ctx.pipeline().remove(this);
+            ctx.fireChannelRead(out);
+        }
+    }
+
+    @Test
+    void selfRemovingRewriteAfterTheDecoderIsNotForwarded() {
+        byte[] packet = packet(3000, 49);
+        byte[] changed = packet.clone();
+        changed[100] ^= 0x5a;
+        checkSubstituted(
+                frame(body(packet, THRESHOLD)),
+                (f, pipeline) -> pipeline.addAfter(
+                        VelocityCompressedForward.COMPRESSION_DECODER, "rewrite", new SelfRemovingRewrite(f)),
+                List.of(changed));
+    }
+
+    @Test
+    void selfRemovingReplaceBeforeTheDecoderIsNotForwarded() {
+        byte[] packet = packet(3000, 50);
+        byte[] replacement = packet(3000, 51);
+        byte[] replacementBody = body(replacement, THRESHOLD);
+        checkSubstituted(
+                frame(body(packet, THRESHOLD)),
+                (f, pipeline) -> pipeline.addBefore(
+                        VelocityCompressedForward.COMPRESSION_DECODER, "replace", new ChannelInboundHandlerAdapter() {
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                                ((ByteBuf) msg).release();
+                                ByteBuf frame = f.track(ctx.alloc().directBuffer(replacementBody.length));
+                                ctx.pipeline().remove(this);
+                                ctx.fireChannelRead(frame.writeBytes(replacementBody));
+                            }
+                        }),
+                List.of(replacement));
+    }
+
+    @Test
+    void heldFrameFiredOnSelfRemovalIsNotForwarded() {
+        byte[] a = packet(3000, 52);
+        byte[] b = packet(3000, 53);
+        checkSubstituted(
+                concat(frame(body(a, THRESHOLD)), frame(body(b, THRESHOLD))),
+                (f, pipeline) -> pipeline.addAfter(
+                        VelocityCompressedForward.COMPRESSION_DECODER, "hold", new ChannelInboundHandlerAdapter() {
+                            private ByteBuf held;
+
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                                if (held == null) {
+                                    held = (ByteBuf) msg;
+                                    return;
+                                }
+                                ByteBuf first = held;
+                                held = null;
+                                ctx.pipeline().remove(this);
+                                ctx.fireChannelRead(first);
+                                ctx.fireChannelRead(msg);
+                            }
+                        }),
+                List.of(a, b));
+    }
+
+    @Test
+    void handlerAddedDuringAReadThatRemovesItselfIsNotForwarded() {
+        byte[] packet = packet(3000, 54);
+        byte[] changed = packet.clone();
+        changed[100] ^= 0x5a;
+        checkSubstituted(
+                concat(frame(body(packet, THRESHOLD)), frame(body(packet, THRESHOLD))),
+                (f, pipeline) -> pipeline.addAfter("frame-decoder", "adder", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        ctx.pipeline()
+                                .addAfter(
+                                        VelocityCompressedForward.COMPRESSION_DECODER,
+                                        "rewrite",
+                                        new SelfRemovingRewrite(f));
+                        ctx.fireChannelRead(msg);
+                    }
+                }),
+                List.of(changed, changed));
+    }
+
+    @Test
+    void ownExecutorHandlerAfterTheDecoderUnlinks() throws Exception {
+        byte[] packet = packet(3000, 55);
+        byte[] changed = packet.clone();
+        changed[100] ^= 0x5a;
+        var group = new DefaultEventExecutorGroup(1);
+        try {
+            for (boolean forward : new boolean[] {false, true}) {
+                var latch = new CountDownLatch(1);
+                try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+                    f.backend
+                            .pipeline()
+                            .addAfter(
+                                    group,
+                                    VelocityCompressedForward.COMPRESSION_DECODER,
+                                    "rewrite",
+                                    new ChannelInboundHandlerAdapter() {
+                                        @Override
+                                        public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                                            ByteBuf in = (ByteBuf) msg;
+                                            int at = in.readerIndex() + 100;
+                                            in.setByte(at, in.getByte(at) ^ 0x5a);
+                                            ctx.fireChannelRead(in);
+                                        }
+
+                                        @Override
+                                        public void channelReadComplete(ChannelHandlerContext ctx) {
+                                            ctx.fireChannelReadComplete();
+                                            latch.countDown();
+                                        }
+                                    });
+                    f.read(frame(body(packet, THRESHOLD)));
+                    assertTrue(latch.await(5, TimeUnit.SECONDS));
+                    f.backend.runPendingTasks();
+                    f.client.flush();
+                    assertPackets(List.of(changed), read(f.wire(), THRESHOLD));
+                    if (!forward) continue;
+                    assertEquals(0, f.forwarder.forwarded());
+                    assertEquals(1, f.forwarder.notMarked());
+                    assertEquals("backend-adjacency", f.forwarder.linkStatus());
+                    assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
+                    assertNull(f.backend.pipeline().get(CompressedMark.NAME));
+                }
+            }
+        } finally {
+            group.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
+    }
+
+    @Test
+    void twoFramesFiredFromOneFrameHeadSideOfTheKeepAreForwarded() {
+        byte[] a = packet(3000, 56);
+        byte[] b = packet(4000, 57);
+        byte[] bodyA = body(a, THRESHOLD);
+        byte[] bodyB = body(b, THRESHOLD);
+        BiConsumer<Fixture, ChannelPipeline> split =
+                (f, pipeline) -> pipeline.addAfter("frame-decoder", "split", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        ctx.fireChannelRead(msg);
+                        ByteBuf second = f.track(ctx.alloc().directBuffer(bodyB.length));
+                        ctx.fireChannelRead(second.writeBytes(bodyB));
+                    }
+                });
+        byte[] read = frame(bodyA);
+        try (var f = new Fixture(Options.today())) {
+            split.accept(f, f.backend.pipeline());
+            f.read(read);
+            assertPackets(List.of(a, b), read(f.wire(), THRESHOLD));
+        }
+        try (var f = new Fixture(Options.forwarding())) {
+            split.accept(f, f.backend.pipeline());
+            f.read(read);
+            var frames = read(f.wire(), THRESHOLD);
+            assertPackets(List.of(a, b), frames);
+            assertArrayEquals(bodyA, frames.get(0).body());
+            assertArrayEquals(bodyB, frames.get(1).body());
+            assertEquals(2, f.forwarder.forwarded());
+            assertEquals("linked", f.forwarder.linkStatus());
+        }
+    }
+
+    @Test
+    void earlierBufferFiredTailSideOfTheMarkIsNotMarked() {
+        byte[] a = packet(3000, 58);
+        byte[] b = packet(3000, 59);
+        BiConsumer<Fixture, ChannelPipeline> hold =
+                (f, pipeline) -> pipeline.addBefore("minecraft-decoder", "hold", new ChannelInboundHandlerAdapter() {
+                    private ByteBuf held;
+
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        if (held == null) {
+                            held = (ByteBuf) msg;
+                            return;
+                        }
+                        ByteBuf first = held;
+                        held = null;
+                        ctx.fireChannelRead(first);
+                        ctx.fireChannelRead(msg);
+                    }
+                });
+        byte[] read = concat(frame(body(a, THRESHOLD)), frame(body(b, THRESHOLD)));
+        byte[] today;
+        try (var f = new Fixture(Options.today())) {
+            hold.accept(f, f.backend.pipeline());
+            f.read(read);
+            today = f.wire();
+        }
+        assertPackets(List.of(a, b), read(today, THRESHOLD));
+        try (var f = new Fixture(Options.forwarding())) {
+            hold.accept(f, f.backend.pipeline());
+            f.read(read);
+            assertPackets(List.of(a, b), read(f.wire(), THRESHOLD));
+            assertEquals(1, f.forwarder.forwarded());
+            assertEquals(1, f.forwarder.notMarked());
+            assertEquals("linked", f.forwarder.linkStatus());
+        }
+    }
+
+    @Test
+    void secondBufferThroughTheDecoderContextIsNotMarked() {
+        byte[] packet = packet(3000, 60);
+        byte[] other = packet(3000, 61);
+        var done = new ArrayList<Fixture>();
+        BiConsumer<Fixture, ByteBuf> again = (f, buf) -> {
+            f.delayedWrite(buf);
+            if (done.contains(f)) return;
+            done.add(f);
+            ByteBuf second =
+                    f.track(f.backend.alloc().directBuffer(other.length).writeBytes(other));
+            f.backend
+                    .pipeline()
+                    .context(VelocityCompressedForward.COMPRESSION_DECODER)
+                    .fireChannelRead(second);
+        };
+        byte[] read = frame(body(packet, THRESHOLD));
+        assertPackets(List.of(packet, other), read(today(Options.forwarding().onFrame(again), read), THRESHOLD));
+        try (var f = new Fixture(Options.forwarding().onFrame(again))) {
+            f.read(read);
+            assertPackets(List.of(packet, other), read(f.wire(), THRESHOLD));
+            assertEquals(1, f.forwarder.forwarded());
+            assertEquals(1, f.forwarder.notMarked());
+            assertEquals("linked", f.forwarder.linkStatus());
+        }
+    }
+
+    @Test
+    void bufferFiredAfterADecoderFailureIsNotMarked() {
+        byte[] other = packet(3000, 62);
+        byte[] broken = body(packet(3000, 63), THRESHOLD);
+        broken[2] ^= (byte) 0xff;
+        BiConsumer<Fixture, ChannelPipeline> refire =
+                (f, pipeline) -> pipeline.addLast("failure", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                        ByteBuf second =
+                                f.track(ctx.alloc().directBuffer(other.length).writeBytes(other));
+                        ctx.pipeline()
+                                .context(VelocityCompressedForward.COMPRESSION_DECODER)
+                                .fireChannelRead(second);
+                    }
+                });
+        byte[] read = frame(broken);
+        try (var f = new Fixture(Options.today())) {
+            refire.accept(f, f.backend.pipeline());
+            f.read(read);
+            assertPackets(List.of(other), read(f.wire(), THRESHOLD));
+        }
+        try (var f = new Fixture(Options.forwarding())) {
+            refire.accept(f, f.backend.pipeline());
+            f.read(read);
+            assertPackets(List.of(other), read(f.wire(), THRESHOLD));
+            assertEquals(0, f.forwarder.forwarded());
+            assertEquals(1, f.forwarder.notMarked());
+            assertEquals("linked", f.forwarder.linkStatus());
+        }
+    }
+
+    @Test
+    void keepOrMarkReplacedByNameUnlinks() {
+        byte[] packet = packet(3000, 64);
+        for (boolean replaceKeep : new boolean[] {true, false}) {
+            try (var f = new Fixture(Options.forwarding())) {
+                f.read(frame(body(packet, THRESHOLD)));
+                assertEquals(1, f.forwarder.forwarded());
+                var pipeline = f.backend.pipeline();
+                var keep = (CompressedKeep) pipeline.get(CompressedKeep.NAME);
+                if (replaceKeep) {
+                    pipeline.remove(CompressedKeep.NAME);
+                    pipeline.addBefore(
+                            VelocityCompressedForward.COMPRESSION_DECODER,
+                            CompressedKeep.NAME,
+                            new CompressedKeep(f.forwarder));
+                } else {
+                    pipeline.remove(CompressedMark.NAME);
+                    pipeline.addAfter(
+                            VelocityCompressedForward.COMPRESSION_DECODER,
+                            CompressedMark.NAME,
+                            new CompressedMark(keep, f.forwarder));
+                }
+                f.read(frame(body(packet, THRESHOLD)));
+                assertPackets(List.of(packet, packet), read(f.wire(), THRESHOLD));
+                assertEquals(1, f.forwarder.forwarded());
+                assertEquals(1, f.forwarder.notMarked());
+                assertEquals("backend-adjacency", f.forwarder.linkStatus());
+                assertNull(pipeline.get(replaceKeep ? CompressedMark.NAME : CompressedKeep.NAME));
+            }
         }
     }
 

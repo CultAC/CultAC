@@ -10,15 +10,14 @@ import org.jetbrains.annotations.Nullable;
  * Sits on a backend channel directly tail-side of Velocity's compression decoder. For the length of its own read it
  * publishes the inflated buffer, its indices, the kept compressed frame and, with the content check on, a copy of the
  * inflated bytes to the client's forwarder. It holds one reference to the inflated buffer while the mark is live, and
- * no other buffer can take its identity then. It marks only while the keep, the decoder and itself sit next to each
- * other as {@link #attach} found them.
+ * no other buffer can take its identity then. It marks only the first message to reach it inside a read the keep
+ * armed, and only while the keep, the decoder and itself sit next to each other as {@link #attach} found them.
  */
 final class CompressedMark extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-mark";
 
     private final CompressedKeep keep;
     private final CompressedForwarder forwarder;
-    private @Nullable ChannelHandlerContext keepContext, decoderContext, markContext;
 
     CompressedMark(CompressedKeep keep, CompressedForwarder forwarder) {
         this.keep = keep;
@@ -27,31 +26,27 @@ final class CompressedMark extends ChannelInboundHandlerAdapter {
 
     /** Caches the contexts of the keep, the compression decoder and this mark in {@code pipeline}. */
     void attach(ChannelPipeline pipeline) {
-        keepContext = pipeline.context(keep);
-        decoderContext = pipeline.context(VelocityCompressedForward.COMPRESSION_DECODER);
-        markContext = pipeline.context(this);
-    }
-
-    /** Whether {@code ctx} is this mark's, directly after the decoder, which directly follows the keep. */
-    private boolean attached(ChannelHandlerContext ctx) {
-        ChannelHandlerContext decoder = decoderContext;
-        ChannelHandlerContext kept = keepContext;
-        return ctx == markContext
-                && decoder != null
-                && kept != null
-                && CompressedForwarder.follows(ctx, decoder)
-                && CompressedForwarder.follows(decoder, kept);
+        keep.attach(
+                pipeline.context(keep),
+                pipeline.context(VelocityCompressedForward.COMPRESSION_DECODER),
+                pipeline.context(this));
     }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        ByteBuf kept = keep.kept;
-        if (kept == null || forwarder.disabled || !(msg instanceof ByteBuf inflated) || inflated == kept) {
+        boolean armed = keep.armed;
+        keep.armed = false;
+        if (forwarder.disabled || !(msg instanceof ByteBuf inflated)) {
             ctx.fireChannelRead(msg);
             return;
         }
-        if (!attached(ctx)) {
-            forwarder.unlinkDetached(this);
+        if (ctx != keep.markContext || !keep.adjacent()) {
+            forwarder.unlinkDetached(keep);
+            ctx.fireChannelRead(msg);
+            return;
+        }
+        ByteBuf kept = keep.kept;
+        if (!armed || kept == null || inflated == kept) {
             ctx.fireChannelRead(msg);
             return;
         }
@@ -82,6 +77,13 @@ final class CompressedMark extends ChannelInboundHandlerAdapter {
             inflated.release();
             if (copy != null) copy.release();
         }
+    }
+
+    /** An exception that reaches the mark, such as the decoder's, spends the token of the read it is in. */
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        keep.armed = false;
+        ctx.fireExceptionCaught(cause);
     }
 
     /** The {@code n} readable bytes of {@code inflated} in a new buffer, or null when it cannot be allocated. */

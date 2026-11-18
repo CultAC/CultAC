@@ -329,9 +329,9 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         linkStatus = "linked";
     }
 
-    /** Removes the current link with status {@code backend-adjacency} when {@code mark} is its mark. */
-    void unlinkDetached(CompressedMark mark) {
-        if (linkMark != mark) return;
+    /** Removes the current link with status {@code backend-adjacency} when {@code keep} is its keep. */
+    void unlinkDetached(CompressedKeep keep) {
+        if (linkKeep != keep) return;
         unlink();
         linkStatus = "backend-adjacency";
     }
