@@ -241,9 +241,11 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     /** Whether the {@code n} bytes leaving now equal the copy the mark took when the backend's frame was inflated. */
     private boolean sameContent(ByteBuf b, int n) {
         ByteBuf copy = markCopy;
-        return copy != null
-                && copy.readableBytes() == n
-                && ByteBufUtil.equals(b, b.readerIndex(), copy, copy.readerIndex(), n);
+        if (copy == null || copy.readableBytes() != n) return false;
+        // A leak-tracking wrapper records every accessor call: one view per buffer, not n / 8 getLong calls.
+        if (b.nioBufferCount() == 1 && copy.nioBufferCount() == 1)
+            return b.internalNioBuffer(b.readerIndex(), n).equals(copy.internalNioBuffer(copy.readerIndex(), n));
+        return ByteBufUtil.equals(b, b.readerIndex(), copy, copy.readerIndex(), n);
     }
 
     static int varIntSize(int value) {
