@@ -2,6 +2,8 @@ package ac.cult.cultac.platform.velocity;
 
 import io.netty.buffer.AdaptiveByteBufAllocator;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
@@ -9,22 +11,35 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.DecoderException;
 import java.lang.invoke.MethodHandle;
 import java.util.Set;
+import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Sits on a backend channel directly before Velocity's compression decoder and, while the keep, decoder and mark are
- * adjacent, copies each forwardable single-buffer compressed frame into a private client frame, passes the decoder a
- * slice of that copy, and arms the mark's one-shot token for that read unless the decoder has a packet limiter.
+ * adjacent, copies each forwardable single-buffer compressed frame of netty's own classes into a private client frame,
+ * passes the decoder a slice of it, and arms the mark's one-shot token for that read unless the decoder has a limiter.
  */
 final class CompressedKeep extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-keep";
     // A packet limiter runs inside the decoder between its inflate and its publish.
     static final String LIMITED = "backend-limiter";
     // Netty's own allocators; any other can run code between the keep's checks and the mark.
-    static Set<Class<?>> allocators =
+    private static final Set<Class<?>> ALLOCATORS =
             Set.of(AdaptiveByteBufAllocator.class, PooledByteBufAllocator.class, UnpooledByteBufAllocator.class);
+    /** Whether an allocator is exactly of one of netty's own allocator classes. */
+    static final Predicate<ByteBufAllocator> NETTY_ALLOCATORS = alloc -> ALLOCATORS.contains(alloc.getClass());
+    // A frame of any other class runs its own code in the keep's reads, copy and release.
+    private static final ClassValue<Boolean> NETTY_BUFFERS = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            return type.getClassLoader() == ByteBuf.class.getClassLoader()
+                    && type.getPackageName().equals(ByteBuf.class.getPackageName())
+                    && !CompositeByteBuf.class.isAssignableFrom(type);
+        }
+    };
 
     private final CompressedForwarder forwarder;
+    private final Predicate<ByteBufAllocator> trustedAllocators;
     // The private client frame: varint(length), then the backend's frame at [keptStart, keptEnd).
     ByteBuf kept;
     int keptStart, keptEnd;
@@ -40,7 +55,13 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     ChannelHandlerContext markContext;
 
     CompressedKeep(CompressedForwarder forwarder) {
+        this(forwarder, NETTY_ALLOCATORS);
+    }
+
+    /** A keep that holds frames only while {@code trustedAllocators} accepts the backend channel's allocator. */
+    CompressedKeep(CompressedForwarder forwarder, Predicate<ByteBufAllocator> trustedAllocators) {
         this.forwarder = forwarder;
+        this.trustedAllocators = trustedAllocators;
     }
 
     /** Caches the contexts of this keep, the compression decoder and the mark, and the decoder's limiter getter. */
@@ -75,9 +96,18 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         return n > 0 && n >= forwarder.threshold() && n <= CompressedForwarder.MAX_FORWARDED_LENGTH;
     }
 
-    /** Whether the channel allocates with one of {@link #allocators}, exactly, so no other code runs in its calls. */
-    private static boolean trusted(ChannelHandlerContext ctx) {
-        return allocators.contains(ctx.alloc().getClass());
+    /**
+     * Whether the channel's allocator passes {@link #trustedAllocators}. Netty's own run no other code in their calls,
+     * except the log and the leak listener when they report a leak.
+     */
+    private boolean trusted(ChannelHandlerContext ctx) {
+        return trustedAllocators.test(ctx.alloc());
+    }
+
+    /** Whether {@code frame} and each buffer it wraps are of netty's own non-composite buffer classes. */
+    static boolean nettyFrame(ByteBuf frame) {
+        for (ByteBuf buf = frame; buf != null; buf = buf.unwrap()) if (!NETTY_BUFFERS.get(buf.getClass())) return false;
+        return true;
     }
 
     /** Whether the cached mark is in the pipeline directly after the decoder, which directly follows this keep. */
@@ -105,7 +135,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         ByteBuf previousSlice = keptSlice;
         boolean previousArmed = armed;
         boolean adjacent = ctx == keepContext && adjacent();
-        ByteBuf copy = adjacent && held(frame) && trusted(ctx) ? forwarder.frame(ctx.alloc(), frame) : null;
+        ByteBuf copy = adjacent && nettyFrame(frame) && held(frame) && trusted(ctx)
+                ? forwarder.frame(ctx.alloc(), frame)
+                : null;
         ByteBuf slice = null;
         Throwable released = null;
         int start = 0;
@@ -120,7 +152,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             }
             if (slice != null) released = CompressedForwarder.release(frame, null);
         }
-        // The input's release runs its owner's code, which can move handlers or change the allocator.
+        // A leak report in the keep's allocation runs log and listener code, which can move handlers or the allocator.
         if (copy != null) adjacent = adjacent();
         boolean limited = adjacent && limited(limiter);
         kept = copy;

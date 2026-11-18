@@ -9,6 +9,7 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
@@ -20,6 +21,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,8 +47,8 @@ final class VelocityCompressedForward {
     private volatile Method inFlightMethod;
     private static volatile @Nullable MethodHandle thresholdGetter;
     private static volatile @Nullable MethodHandle limiterGetter;
-    static volatile @Nullable MethodHandle encoderCompressorGetter;
-    static volatile @Nullable MethodHandle decoderCompressorGetter;
+    private static volatile @Nullable MethodHandle encoderCompressorGetter;
+    private static volatile @Nullable MethodHandle decoderCompressorGetter;
     private static volatile @Nullable MethodHandle disposedGetter;
     private final EventHandler<ServerConnectedEvent> connected = this::connected;
     private final EventHandler<ServerPostConnectEvent> postConnected = this::postConnected;
@@ -423,6 +425,16 @@ final class VelocityCompressedForward {
 
     /** Places the keep and mark around the backend's decoder of the class {@code decoderClass}; one loop for both. */
     static void place(CompressedForwarder forwarder, ChannelPipeline client, Channel backend, String decoderClass) {
+        place(forwarder, client, backend, decoderClass, CompressedKeep.NETTY_ALLOCATORS);
+    }
+
+    /** As {@link #place}; the keep holds frames only under an allocator {@code trustedAllocators} accepts. */
+    static void place(
+            CompressedForwarder forwarder,
+            ChannelPipeline client,
+            Channel backend,
+            String decoderClass,
+            Predicate<ByteBufAllocator> trustedAllocators) {
         if (forwarder.disabled || forwarder.linkedTo(backend)) return;
         forwarder.unlink();
         var pipeline = backend.pipeline();
@@ -452,7 +464,7 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-occupied");
             return;
         }
-        var keep = new CompressedKeep(forwarder);
+        var keep = new CompressedKeep(forwarder, trustedAllocators);
         var mark = new CompressedMark(keep, forwarder);
         try {
             pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);

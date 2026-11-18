@@ -282,14 +282,13 @@ final class CompressedFrames {
                 byte[] zlib = new byte[in.readableBytes()];
                 in.readBytes(zlib);
                 byte[] packet = vanilla ? inflateVanilla(zlib, dataLength) : inflate(zlib, dataLength);
+                first.writeBytes(packet, 0, half);
+                if (second != null) second.writeBytes(packet, half, dataLength - half);
                 if (afterInflate != null) afterInflate.run();
                 if (packetLimiter != null) packetLimiter.run();
-                first.writeBytes(packet, 0, half);
                 ByteBuf uncompressed = first;
-                if (second != null) {
-                    second.writeBytes(packet, half, dataLength - half);
+                if (second != null)
                     uncompressed = ctx.alloc().compositeDirectBuffer(2).addComponents(true, first, second);
-                }
                 inflated.add(uncompressed);
                 out.add(uncompressed);
             } catch (RuntimeException | Error failure) {
