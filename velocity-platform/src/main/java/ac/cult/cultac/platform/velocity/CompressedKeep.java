@@ -6,11 +6,8 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Sits on a backend channel directly head-side of Velocity's compression decoder and holds each compressed frame for
- * the length of its own read. It owns one reference to that frame only inside {@link #channelRead}. It holds a frame
- * and arms its one-shot token for the mark only while the keep, the decoder and the mark sit next to each other as
- * {@link CompressedMark#attach} found them; otherwise the frame passes unheld and the link is removed. The forwarder
- * sends a held frame's bytes as they are at write time: no handler may write into a frame the keep has passed on.
+ * Sits on a backend channel directly before Velocity's compression decoder and, while the keep, decoder and mark are
+ * adjacent, holds each compressed frame and arms the mark's one-shot token for the length of that frame's read.
  */
 final class CompressedKeep extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-keep";
@@ -63,7 +60,6 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         int previousEnd = keptEnd;
         boolean previousArmed = armed;
         boolean adjacent = ctx == keepContext && adjacent();
-        if (!adjacent) forwarder.unlinkDetached(this);
         // A zero data length byte marks a frame the backend left uncompressed.
         boolean hold = adjacent && frame.getByte(frame.readerIndex()) != 0;
         if (hold) frame.retain();
@@ -72,7 +68,11 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         keptEnd = frame.writerIndex();
         armed = hold;
         try {
-            ctx.fireChannelRead(msg);
+            try {
+                if (!adjacent) forwarder.unlinkDetached(this);
+            } finally {
+                ctx.fireChannelRead(msg);
+            }
         } finally {
             kept = previous;
             keptStart = previousStart;

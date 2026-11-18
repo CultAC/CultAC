@@ -2,7 +2,9 @@ package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
@@ -11,36 +13,38 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Locale;
+import java.util.NoSuchElementException;
 import java.util.concurrent.RejectedExecutionException;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Sits on the client channel directly tail-side of Velocity's compression encoder. A frame that is the inflated buffer
- * the linked backend read is delivering, unchanged, leaves as that backend's compressed frame; a frame below the
- * threshold is framed uncompressed. Both are written through the encoder's context, so only the encoder is skipped.
+ * Sits on the client channel directly after Velocity's compression encoder and sends a marked, unchanged inflated
+ * buffer as the backend frame its mark built, or frames a small one uncompressed, through the encoder's context.
  * Every other frame passes on to the encoder. Confined to the client's event loop.
  */
 final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final String NAME = "cult-compressed-forward";
     static final String COMPRESSION_ENCODER = "compression-encoder";
     private static final int MAX_FRAME_LENGTH = (1 << 21) - 1;
+    // Velocity's encoder fails a write whose deflate output is this long or longer.
+    private static final int MAX_COMPRESSED_LENGTH = 1 << 21;
+    /** The longest inflated frame whose {@link #deflateBound} stays below Velocity's compressed-length limit. */
+    static final int MAX_FORWARDED_LENGTH = maxForwardedLength();
     // Netty follows this link from a context to the next outbound handler toward the head.
     private static final @Nullable VarHandle PREVIOUS = previous();
 
     private final MethodHandle encoderThreshold;
     private final int threshold;
-    private final boolean guard;
     private final boolean small;
     private final boolean heap;
     private final boolean consume;
-    private ChannelHandlerContext compression;
+    private @Nullable ChannelHandlerContext compression;
 
     // The live mark: set only inside a linked backend's channelRead, restored in its finally.
     ByteBuf markBuf;
     private int markReader, markWriter;
-    private ByteBuf keptBuf;
-    private int keptStart, keptEnd;
     private @Nullable ByteBuf markCopy;
+    private @Nullable ByteBuf markFrame;
 
     boolean disabled;
     private String status = "on";
@@ -52,17 +56,30 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
     private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures, forwardFailures;
 
-    /**
-     * @param encoderThreshold reads the client encoder's current threshold, as {@code ()int}
-     * @param consume whether Velocity's compressor moves the reader index of the buffer it compresses
-     */
-    CompressedForwarder(MethodHandle encoderThreshold, boolean guard, boolean small, boolean heap, boolean consume) {
+    /** {@code encoderThreshold} reads {@code compression}'s threshold as {@code ()int}. */
+    CompressedForwarder(
+            MethodHandle encoderThreshold,
+            ChannelHandlerContext compression,
+            boolean small,
+            boolean heap,
+            boolean consume) {
         this.encoderThreshold = encoderThreshold;
         this.threshold = encoderThreshold();
-        this.guard = guard;
+        this.compression = compression;
         this.small = small;
         this.heap = heap;
         this.consume = consume;
+    }
+
+    /** An upper bound on the zlib output of Velocity's Java and libdeflate compressors for {@code n} bytes. */
+    static int deflateBound(int n) {
+        return n + (n >> 9) + 64;
+    }
+
+    private static int maxForwardedLength() {
+        int n = MAX_COMPRESSED_LENGTH;
+        while (deflateBound(n) >= MAX_COMPRESSED_LENGTH) n--;
+        return n;
     }
 
     private static @Nullable VarHandle previous() {
@@ -93,10 +110,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return threshold;
     }
 
-    boolean guard() {
-        return guard;
-    }
-
     private int encoderThreshold() {
         try {
             return (int) encoderThreshold.invokeExact();
@@ -106,16 +119,9 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     }
 
     @Override
-    public void handlerAdded(ChannelHandlerContext ctx) {
-        compression = ctx.pipeline().context(COMPRESSION_ENCODER);
-        if (compression == null) disable("no-compression");
-    }
-
-    @Override
     public void handlerRemoved(ChannelHandlerContext ctx) {
         disabled = true;
         status = "removed";
-        clearMark();
         compression = null;
         unlink();
     }
@@ -157,7 +163,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
         ByteBuf out;
         try {
-            out = forwardedFrame(ctx, b, n);
+            out = forwardedFrame(b, n);
         } catch (Throwable failure) {
             failures++;
             forwardFailures++;
@@ -172,39 +178,43 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         target.write(out, promise);
     }
 
-    /** {@code varint(L)} and the backend's frame of length L, or null (counted) when the encoder must compress. */
-    private ByteBuf forwardedFrame(ChannelHandlerContext ctx, ByteBuf b, int n) {
-        ByteBuf kept = keptBuf;
-        int start = keptStart;
-        int end = keptEnd;
-        int length = end - start;
-        if (b.readerIndex() != markReader
-                || b.writerIndex() != markWriter
-                || length <= 0
-                || length > MAX_FRAME_LENGTH
-                || dataLength(kept, start, end) != n) {
+    /** Takes the frame the mark built for {@code b}, or returns null (counted) when the encoder must compress. */
+    private @Nullable ByteBuf forwardedFrame(ByteBuf b, int n) {
+        ByteBuf frame = markFrame;
+        if (frame == null || b.readerIndex() != markReader || b.writerIndex() != markWriter) {
             indicesChanged++;
             return null;
         }
-        if (guard && !sameContent(b, n)) {
+        if (!sameContent(b, n)) {
             guardMismatch++;
             return null;
         }
-        int size = varIntSize(length) + length;
-        ByteBuf out = heap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
-        try {
-            Wire.writeVarInt(out, length);
-            int at = out.writerIndex();
-            kept.getBytes(start, out, at, length);
-            out.writerIndex(at + length);
-        } catch (Throwable failure) {
-            out.release();
-            throw failure;
-        }
+        markFrame = null;
+        markBuf = null;
         forwarded++;
-        forwardedWireBytes += size;
+        forwardedWireBytes += frame.readableBytes();
         forwardedInflatedBytes += n;
-        return out;
+        return frame;
+    }
+
+    /** {@code varint(L)} and the backend's frame {@code kept[start, end)} of length L in a new buffer, or null. */
+    @Nullable
+    ByteBuf frame(ByteBufAllocator alloc, ByteBuf kept, int start, int end, int n) {
+        int length = end - start;
+        if (n > MAX_FORWARDED_LENGTH || length <= 0 || length > MAX_FRAME_LENGTH || dataLength(kept, start, end) != n)
+            return null;
+        int size = varIntSize(length) + length;
+        ByteBuf out = null;
+        try {
+            out = heap ? alloc.heapBuffer(size) : alloc.directBuffer(size);
+            Wire.writeVarInt(out, length);
+            out.writeBytes(kept, start, length);
+            return out;
+        } catch (RuntimeException | OutOfMemoryError failure) {
+            failures++;
+            if (out != null) out.release();
+            return null;
+        }
     }
 
     private void frameSmall(
@@ -267,14 +277,13 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return at >= 0 && at + 1 < names.size() && NAME.equals(names.get(at + 1));
     }
 
-    void mark(ByteBuf buf, int reader, int writer, ByteBuf kept, int start, int end, @Nullable ByteBuf copy) {
+    /** Publishes the mark; a non-null {@code frame} passes to the first forward of {@code buf} that takes it. */
+    void mark(ByteBuf buf, int reader, int writer, @Nullable ByteBuf copy, @Nullable ByteBuf frame) {
         markBuf = buf;
         markReader = reader;
         markWriter = writer;
-        keptBuf = kept;
-        keptStart = start;
-        keptEnd = end;
         markCopy = copy;
+        markFrame = frame;
     }
 
     int markReader() {
@@ -285,32 +294,21 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return markWriter;
     }
 
-    ByteBuf keptBuf() {
-        return keptBuf;
-    }
-
-    int keptStart() {
-        return keptStart;
-    }
-
-    int keptEnd() {
-        return keptEnd;
-    }
-
     @Nullable
     ByteBuf markCopy() {
         return markCopy;
     }
 
-    private void clearMark() {
-        mark(null, 0, 0, null, 0, 0, null);
+    /** The marked frame not yet taken by a forward. */
+    @Nullable
+    ByteBuf markFrame() {
+        return markFrame;
     }
 
     void disable(String why) {
         if (disabled) return;
         disabled = true;
         status = why;
-        clearMark();
         unlink();
     }
 
@@ -332,8 +330,11 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     /** Removes the current link with status {@code backend-adjacency} when {@code keep} is its keep. */
     void unlinkDetached(CompressedKeep keep) {
         if (linkKeep != keep) return;
-        unlink();
-        linkStatus = "backend-adjacency";
+        try {
+            unlink();
+        } finally {
+            linkStatus = "backend-adjacency";
+        }
     }
 
     /** Removes the current link's handlers from its backend; never waits for another loop. */
@@ -358,16 +359,28 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     }
 
     private static void removeLink(ChannelPipeline pipeline, CompressedKeep keep, CompressedMark mark) {
-        if (pipeline.get(CompressedKeep.NAME) == keep) pipeline.remove(keep);
-        if (pipeline.get(CompressedMark.NAME) == mark) pipeline.remove(mark);
+        try {
+            remove(pipeline, keep);
+        } finally {
+            remove(pipeline, mark);
+        }
+    }
+
+    /** Removes {@code handler} from {@code pipeline}; a handler already gone counts as removed. */
+    static void remove(ChannelPipeline pipeline, ChannelHandler handler) {
+        try {
+            pipeline.remove(handler);
+        } catch (NoSuchElementException gone) {
+            // Already removed.
+        }
     }
 
     String stats() {
         long recompressed = notMarked + indicesChanged + guardMismatch + forwardFailures;
         long eligible = forwarded + recompressed;
         String hit = eligible == 0 ? "n/a" : String.format(Locale.ROOT, "%.2f%%", 100.0 * forwarded / eligible);
-        return "status=" + status + ", link=" + linkStatus + ", threshold=" + threshold + ", guard="
-                + (guard ? "on" : "off") + ", hit=" + hit + ", forwarded=" + forwarded + " (" + forwardedWireBytes
+        return "status=" + status + ", link=" + linkStatus + ", threshold=" + threshold + ", hit=" + hit
+                + ", forwarded=" + forwarded + " (" + forwardedWireBytes
                 + " B sent, " + forwardedInflatedBytes + " B inflated), recompressed: not marked=" + notMarked
                 + ", indices changed=" + indicesChanged + ", guard mismatch=" + guardMismatch
                 + "; below threshold=" + belowThreshold + ", framed small=" + framedSmall + ", failures="

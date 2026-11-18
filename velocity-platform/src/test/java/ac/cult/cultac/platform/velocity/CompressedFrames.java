@@ -250,12 +250,13 @@ final class CompressedFrames {
     }
 
     /**
-     * Compresses at or above the threshold with a 3-byte length, else frames the packet uncompressed. Framing
-     * uncompressed always consumes the packet; compressing consumes it when {@code consume} is set.
+     * Compresses at or above the threshold with a 3-byte length, failing at 2 MiB compressed, else frames the packet
+     * uncompressed, which consumes it; compressing consumes the packet when {@code consume} is set.
      */
     static final class CompressEncoder extends MessageToByteEncoder<ByteBuf> {
         private int threshold;
         private final boolean consume;
+        private int level = CLIENT_LEVEL;
 
         CompressEncoder(int threshold) {
             this(threshold, true);
@@ -270,8 +271,12 @@ final class CompressedFrames {
             this.threshold = threshold;
         }
 
+        void setLevel(int level) {
+            this.level = level;
+        }
+
         @Override
-        protected void encode(ChannelHandlerContext ctx, ByteBuf msg, ByteBuf out) {
+        protected void encode(ChannelHandlerContext ctx, ByteBuf msg, ByteBuf out) throws DataFormatException {
             int uncompressed = msg.readableBytes();
             if (uncompressed < threshold) {
                 Wire.writeVarInt(out, uncompressed + 1);
@@ -284,7 +289,9 @@ final class CompressedFrames {
             else msg.getBytes(msg.readerIndex(), packet);
             out.writeMedium(0);
             Wire.writeVarInt(out, uncompressed);
-            out.writeBytes(zlib(packet, CLIENT_LEVEL));
+            byte[] compressed = zlib(packet, level);
+            if (compressed.length >= 1 << 21) throw new DataFormatException("over 2 MiB compressed");
+            out.writeBytes(compressed);
             int length = out.readableBytes() - 3;
             out.setMedium(0, ((length & 0x7f) | 0x80) << 16 | (((length >>> 7) & 0x7f) | 0x80) << 8 | (length >>> 14));
         }
