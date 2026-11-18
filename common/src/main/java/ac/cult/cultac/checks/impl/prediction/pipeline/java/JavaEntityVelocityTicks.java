@@ -23,16 +23,22 @@ public final class JavaEntityVelocityTicks {
 
     public static List<PredVector> beforeTravel(
             CultPlayer player, SimulationContext context, List<PredVector> velocities) {
-        var ticks = ticks(player, context, context.getStart(), true);
-        if (ticks.isEmpty()) return velocities;
+        var branches = branches(player, context, context.getStart(), true);
+        if (branches.size() == 1 && branches.getFirst().isEmpty()) return velocities;
         var candidates = new ArrayList<PredVector>();
-        double scale = rangeScale(ticks);
-        for (PredVector velocity : velocities) {
-            Vec3 transformed = JavaMovementMath.calculate(
-                    player,
-                    velocity,
-                    () -> apply(ticks, velocity, ReachUtils.getLook(player, context.getXRot(), context.getYRot())));
-            candidates.add(withScaledRange(velocity.with(transformed, "entities before player"), scale));
+        for (List<Tick> ticks : branches) {
+            if (ticks.isEmpty()) {
+                candidates.addAll(velocities);
+                continue;
+            }
+            double scale = rangeScale(ticks);
+            for (PredVector velocity : velocities) {
+                Vec3 transformed = JavaMovementMath.calculate(
+                        player,
+                        velocity,
+                        () -> apply(ticks, velocity, ReachUtils.getLook(player, context.getXRot(), context.getYRot())));
+                candidates.add(withScaledRange(velocity.with(transformed, "entities before player"), scale));
+            }
         }
         return candidates;
     }
@@ -63,7 +69,11 @@ public final class JavaEntityVelocityTicks {
     /** Before 26.3, late entity ticks follow the report and are committed by CLIENT_TICK_END. */
     public static List<Vec3> afterPlayerTick(
             CultPlayer player, SimulationContext context, PredVector candidate, Vec3 end, Vec3 velocity) {
-        return afterPlayerTick(player, context, candidate, ticks(player, context, end, false), velocity);
+        var branches = branches(player, context, end, false);
+        if (branches.size() == 1) return afterPlayerTick(player, context, candidate, branches.getFirst(), velocity);
+        var moved = new ArrayList<Vec3>();
+        for (List<Tick> ticks : branches) moved.addAll(afterPlayerTick(player, context, candidate, ticks, velocity));
+        return moved;
     }
 
     /**
@@ -73,9 +83,18 @@ public final class JavaEntityVelocityTicks {
     public static List<List<Vec3>> afterPlayerTick(
             CultPlayer player, SimulationContext context, PredVector candidate, Vec3 end, List<Vec3> velocities) {
         if (velocities.isEmpty()) return List.of();
-        var ticks = ticks(player, context, end, false);
+        var branches = branches(player, context, end, false);
         var moved = new ArrayList<List<Vec3>>(velocities.size());
-        for (Vec3 velocity : velocities) moved.add(afterPlayerTick(player, context, candidate, ticks, velocity));
+        for (Vec3 velocity : velocities) {
+            if (branches.size() == 1) {
+                moved.add(afterPlayerTick(player, context, candidate, branches.getFirst(), velocity));
+                continue;
+            }
+            var outcomes = new ArrayList<Vec3>();
+            for (List<Tick> ticks : branches)
+                outcomes.addAll(afterPlayerTick(player, context, candidate, ticks, velocity));
+            moved.add(outcomes);
+        }
         return moved;
     }
 
@@ -105,18 +124,27 @@ public final class JavaEntityVelocityTicks {
         return scale == 1 ? vector : JavaVelocityRange.scaled(vector, new Vec3(scale, scale, scale));
     }
 
-    private static List<Tick> ticks(CultPlayer player, SimulationContext context, Vec3 position, boolean before) {
-        return ticks(player, context, position, before, null);
+    /**
+     * The ticks for each Entity#push outcome the client may have: pushed, and also unpushed while an unanswered
+     * change to its passengers may have made the player a vehicle or left it one.
+     */
+    private static List<List<Tick>> branches(
+            CultPlayer player, SimulationContext context, Vec3 position, boolean before) {
+        var pushed = ticks(player, context, position, before, null, true);
+        var entities = context.getEntities();
+        if (entities.selfCertainlyCarriesPassenger() || !entities.selfPossiblyCarriesPassenger()) return List.of(pushed);
+        var unpushed = ticks(player, context, position, before, null, false);
+        return unpushed.size() == pushed.size() ? List.of(pushed) : List.of(pushed, unpushed);
     }
 
     static List<Tick> passengerTicks(
             CultPlayer player, SimulationContext context, Vec3 position, ac.cult.cultac.utils.enums.Pose pose) {
-        return ticks(player, context, position, false, pose);
+        return ticks(player, context, position, false, pose, true);
     }
 
     private static List<Tick> ticks(
             CultPlayer player, SimulationContext context, Vec3 position, boolean before,
-            ac.cult.cultac.utils.enums.Pose passengerPose) {
+            ac.cult.cultac.utils.enums.Pose passengerPose, boolean pushes) {
         if (player.isBedrockMovement()) return List.of();
         var entities = context.getEntities();
         long localOrder = entities.clientTickOrder(entities.getSelf());
@@ -129,7 +157,8 @@ public final class JavaEntityVelocityTicks {
                 long order = rocket.tickingOrder(player);
                 if ((order < localOrder) == before) ticks.add(new Tick(order, null));
             });
-        if (context.getVehicle() == null
+        if (pushes
+                && context.getVehicle() == null
                 && !entities.pushOrCollideCandidates().isEmpty()
                 && JavaLivingEntityPushes.playerPushable(player, context, position, gliding, before)) {
             var pose = passengerPose != null ? passengerPose : before

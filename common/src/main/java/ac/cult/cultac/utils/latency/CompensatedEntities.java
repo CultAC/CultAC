@@ -106,8 +106,10 @@ public class CompensatedEntities {
     public int loginsSent;
     private Vec3 rideTickSeat;
     private List<Vec3> rideTickSeats = List.of();
-    // The client holds every sent change to the local player's passengers once it answers this transaction.
-    private int selfPassengersSettleTransaction = Integer.MIN_VALUE;
+    // Until the client answers this transaction, it may hold no passenger on the local player.
+    private int selfPassengersMayEmptyUntil = Integer.MIN_VALUE;
+    // Until the client answers this transaction, it may hold a passenger on the local player.
+    private int selfPassengersMayFillUntil = Integer.MIN_VALUE;
     // The passengers the last set_passengers for the local player named.
     private List<Integer> sentSelfPassengers = List.of();
     // While a pass replays, the last ClientLevel#tickEntities place whose tick has run; Long.MIN_VALUE otherwise.
@@ -791,21 +793,35 @@ public class CompensatedEntities {
         return false;
     }
 
-    /** Records a set_passengers for the local player, which the client applies on answering {@code transaction}. */
+    /**
+     * Records a set_passengers for the local player, which the client applies on answering {@code transaction}.
+     * ClientPacketListener#handleSetEntityPassengersPacket ejects and re-seats the passengers within one handler, so
+     * a list naming a passenger the client holds leaves the player a vehicle at every tick before and after it.
+     */
     public void sentSelfPassengers(List<Integer> passengers, int transaction) {
         sentSelfPassengers = List.copyOf(passengers);
-        markSelfPassengersChange(transaction);
+        if (passengers.isEmpty()) markSelfPassengersChange(transaction);
+        else selfPassengersMayFillUntil = Math.max(selfPassengersMayFillUntil, transaction);
     }
 
-    /** Records a sent change to the local player's passengers, which the client holds on answering {@code transaction}. */
+    /**
+     * Records a sent change that may leave the local player without passengers, which the client holds on answering
+     * {@code transaction}.
+     */
     public void markSelfPassengersChange(int transaction) {
-        selfPassengersSettleTransaction = Math.max(selfPassengersSettleTransaction, transaction);
+        selfPassengersMayEmptyUntil = Math.max(selfPassengersMayEmptyUntil, transaction);
     }
 
-    /** Entity#isVehicle for the local player, true only while no sent change to its passengers is unanswered. */
+    /** Entity#isVehicle for the local player, true only while no unanswered change may have left it without one. */
     public boolean selfCertainlyCarriesPassenger() {
         return !playerEntity.passengers.isEmpty()
-                && player.lastTransactionReceived.get() >= selfPassengersSettleTransaction;
+                && player.lastTransactionReceived.get() >= selfPassengersMayEmptyUntil;
+    }
+
+    /** Whether Entity#isVehicle may hold for the local player: it carries one, or an unanswered change may seat one. */
+    public boolean selfPossiblyCarriesPassenger() {
+        return !playerEntity.passengers.isEmpty()
+                || player.lastTransactionReceived.get() < selfPassengersMayFillUntil;
     }
 
     /**

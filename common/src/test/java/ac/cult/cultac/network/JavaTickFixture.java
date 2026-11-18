@@ -35,6 +35,7 @@ import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundExplode;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
@@ -254,6 +255,14 @@ final class JavaTickFixture implements AutoCloseable {
         var event = new PacketSendEvent<>(
                 fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false);
         player.packetEntityReplication.onSetPassengers(event, player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+    }
+
+    void addEntity(int id, String type, Vec3 position) {
+        var packet = new ClientboundAddEntity(id, type, new Vec3d(position.x, position.y, position.z), 0, 0, 0);
+        var event = new PacketSendEvent<>(
+                fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, packet, false);
+        player.packetEntityReplication.onAddEntity(event, player, packet);
         event.tasksAfter().forEach(Runnable::run);
     }
 

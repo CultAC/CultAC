@@ -565,7 +565,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     @CultPacketHandler
     public void onAddEntity(
             PacketSendEvent<ClientboundAddEntity> event, CultPlayer player, ClientboundAddEntity packet) {
-        if (!player.isBedrockMovement() && existsAsSent(packet.entityId()) && packet.entityId() != player.entityID) {
+        boolean replacesHeld =
+                !player.isBedrockMovement() && existsAsSent(packet.entityId()) && packet.entityId() != player.entityID;
+        boolean changesSelfPassengers =
+                replacesHeld && player.compensatedEntities.mayChangeSelfPassengers(List.of(packet.entityId()));
+        if (replacesHeld) {
             // ClientLevel#addEntity first discards the entity holding this ID: it stops riding and ejects its riders.
             player.compensatedEntities.vehicles.onSentRemoval(packet.entityId());
             Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
@@ -585,6 +589,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
         // A removal and a respawn of one id in the same flush share its ping and apply in packet order.
         int transaction = proveHandled(event, Proof.SAME_TASK);
+        if (changesSelfPassengers) player.compensatedEntities.markSelfPassengersChange(transaction);
         var model =
                 player.user.getCultConnection().dispatcher().runtime().data().version();
         var client = player.getClientProtocol();

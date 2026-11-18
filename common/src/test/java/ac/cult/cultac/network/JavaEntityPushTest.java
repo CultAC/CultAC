@@ -626,6 +626,146 @@ class JavaEntityPushTest {
         }
     }
 
+    /** The client may not have read the set_passengers yet: it may also still be unpushed. */
+    @Test
+    void anUnansweredPassengerAlsoLeavesThePlayerUnpushed() throws Exception {
+        try (var f = falling()) {
+            carry(f, false);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, 0), false));
+        }
+    }
+
+    /**
+     * ClientPacketListener#handleSetEntityPassengersPacket ejects and re-seats the passengers in one packet handler:
+     * a re-sent list leaves the player a vehicle on every tick, before and after the client reads it.
+     */
+    @Test
+    void aResentPassengerListKeepsThePlayerUnpushed() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.setPassengers(f.player.entityID, List.of(100));
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
+
+            assertExact(contact);
+            assertEquals(0, contact.getSimulationContext().getWorldData().getNumPushing());
+        }
+    }
+
+    @Test
+    void aResentPassengerListRejectsThePush() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.setPassengers(f.player.entityID, List.of(100));
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, PUSH), false);
+
+            assertFalse(exact(contact), describe(contact));
+        }
+    }
+
+    @Test
+    void aResentPassengerListCarriesNoPushIntoTheNextTick() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.setPassengers(f.player.entityID, List.of(100));
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, 0), false));
+            assertExact(f.tick(START.add(0, FIRST_FALL + SECOND_FALL, 0), false));
+        }
+    }
+
+    @Test
+    void aResentPassengerListCarriesNoPushedMoveIntoTheNextTick() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.setPassengers(f.player.entityID, List.of(100));
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, 0), false));
+            PredictionResult next = f.tick(START.add(0, FIRST_FALL + SECOND_FALL, PUSH), false);
+            assertFalse(exact(next), describe(next));
+        }
+    }
+
+    /** startRiding with force seats any held entity on a player, so a list naming another keeps it a vehicle. */
+    @Test
+    void aPassengerListNamingAnotherHeldEntityKeepsThePlayerUnpushed() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            entity(f, 103, AWAY);
+            f.setPassengers(f.player.entityID, List.of(103));
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, 0), false));
+        }
+    }
+
+    @Test
+    void aPassengerListNamingAnotherHeldEntityRejectsThePush() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            entity(f, 103, AWAY);
+            f.setPassengers(f.player.entityID, List.of(103));
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, PUSH), false);
+
+            assertFalse(exact(contact), describe(contact));
+            assertEquals(0, contact.getSimulationContext().getWorldData().getNumPushing());
+        }
+    }
+
+    /** ClientLevel#addEntity discards the entity holding the id, which leaves the player without that passenger. */
+    @Test
+    void aRespawnOfThePassengerBeforeAResentListKeepsThePush() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.addEntity(100, "minecraft:zombie", AWAY);
+            f.setPassengers(f.player.entityID, List.of(100));
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    @Test
+    void aRespawnOfThePassengerBeforeAResentListAlsoLeavesThePlayerUnpushed() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.addEntity(100, "minecraft:zombie", AWAY);
+            f.setPassengers(f.player.entityID, List.of(100));
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, 0), false));
+        }
+    }
+
+    @Test
+    void anUnansweredDismountOfThePassengerAlsoLeavesThePlayerUnpushed() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.setPassengers(f.player.entityID, List.of());
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, 0), false));
+        }
+    }
+
     @Test
     void anUnansweredDismountOfThePassengerKeepsThePush() throws Exception {
         try (var f = falling()) {
