@@ -20,6 +20,11 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
 
     boolean lastSentPlayerCanFly = false;
 
+    /** The mayfly of the last abilities packet sent, which the client may not have applied yet. */
+    public boolean lastSentCanFly() {
+        return lastSentPlayerCanFly;
+    }
+
     @CultPacketHandler
     public void onPlayerAbilities(
             PacketReceiveEvent<ServerboundPlayerAbilities> event,

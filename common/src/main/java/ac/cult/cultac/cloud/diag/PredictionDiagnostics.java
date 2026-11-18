@@ -79,7 +79,13 @@ public final class PredictionDiagnostics {
         } catch (RuntimeException unreadable) {
             header = "";
         }
-        diagnostics.cut(player.getUniqueId(), cut, header);
+        String state;
+        try {
+            state = EngineStateSnapshot.render(player);
+        } catch (RuntimeException unreadable) {
+            state = "state unreadable";
+        }
+        diagnostics.cut(player.getUniqueId(), cut, withState(header, state));
     }
 
     /** The checks that flagged the frame of seq {@code frameSeq}, in flag order. */
@@ -112,6 +118,14 @@ public final class PredictionDiagnostics {
     static String header(String agent, String client, String brand, int ping, @Nullable String serverFields) {
         return "agent " + agent + ", client " + client + ", brand " + brand + ", ping " + ping + " ms"
                 + (serverFields == null ? "" : ", " + serverFields);
+    }
+
+    /**
+     * The header on its first line, its own line breaks blanked, and the engine state on the lines after it, which
+     * {@link DiagCuts} bounds apart.
+     */
+    static String withState(String header, String state) {
+        return header.replace('\r', ' ').replace('\n', ' ') + '\n' + state;
     }
 
     /** Reads the server and plugin fields once, a tick after it is first called, when every plugin has enabled. */
