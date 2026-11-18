@@ -19,7 +19,7 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Sits on the client channel directly after Velocity's compression encoder and sends a marked, unchanged inflated
- * buffer as the backend frame its mark built, or frames a small one uncompressed, through the encoder's context.
+ * buffer as the private frame its keep built, or frames a small one uncompressed, through the encoder's context.
  * Every other frame passes on to the encoder. Confined to the client's event loop.
  */
 final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
@@ -39,6 +39,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private final boolean heap;
     private final boolean consume;
     private @Nullable ChannelHandlerContext compression;
+    private final ChannelHandlerContext inbound;
 
     // The live mark: set only inside a linked backend's channelRead, restored in its finally.
     ByteBuf markBuf;
@@ -56,16 +57,21 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
     private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures, forwardFailures;
 
-    /** {@code encoderThreshold} reads {@code compression}'s threshold as {@code ()int}. */
+    /**
+     * {@code encoderThreshold} reads {@code compression}'s threshold as {@code ()int}; {@code inbound} is the client's
+     * compression decoder, which shares the encoder's compressor.
+     */
     CompressedForwarder(
             MethodHandle encoderThreshold,
             ChannelHandlerContext compression,
+            ChannelHandlerContext inbound,
             boolean small,
             boolean heap,
             boolean consume) {
         this.encoderThreshold = encoderThreshold;
         this.threshold = encoderThreshold();
         this.compression = compression;
+        this.inbound = inbound;
         this.small = small;
         this.heap = heap;
         this.consume = consume;
@@ -133,7 +139,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
-        if (target.isRemoved()) {
+        if (target.isRemoved() || inbound.isRemoved()) {
             disable("compression-removed");
             ctx.write(msg, promise);
             return;
@@ -183,7 +189,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         target.write(out, promise);
     }
 
-    /** Takes the frame the mark built for {@code b}, or returns null (counted) when the encoder must compress. */
+    /** Takes the frame the mark published for {@code b}, or returns null (counted) when the encoder must compress. */
     private @Nullable ByteBuf forwardedFrame(ByteBuf b, int n) {
         ByteBuf frame = markFrame;
         if (frame == null || b.readerIndex() != markReader || b.writerIndex() != markWriter) {
@@ -202,24 +208,32 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return frame;
     }
 
-    /** {@code varint(L)} and the backend's frame {@code kept[start, end)} of length L in a new buffer, or null. */
+    /** {@code varint(L)} and a copy of the L readable bytes of the backend's {@code frame} in a new buffer, or null. */
     @Nullable
-    ByteBuf frame(ByteBufAllocator alloc, ByteBuf kept, int start, int end, int n) {
-        int length = end - start;
-        if (n > MAX_FORWARDED_LENGTH || length <= 0 || length > MAX_FRAME_LENGTH || dataLength(kept, start, end) != n)
-            return null;
+    ByteBuf frame(ByteBufAllocator alloc, ByteBuf frame) {
+        int length = frame.readableBytes();
+        if (length > MAX_FRAME_LENGTH) return null;
         int size = varIntSize(length) + length;
         ByteBuf out = null;
         try {
             out = heap ? alloc.heapBuffer(size) : alloc.directBuffer(size);
             Wire.writeVarInt(out, length);
-            out.writeBytes(kept, start, length);
+            out.writeBytes(frame, frame.readerIndex(), length);
             return out;
         } catch (RuntimeException | OutOfMemoryError failure) {
             failures++;
             if (out != null) out.release();
             return null;
         }
+    }
+
+    /** Whether {@code kept[start, end)} is a compressed frame of data length {@code n} that Velocity could send. */
+    boolean forwardable(ByteBuf kept, int start, int end, int n) {
+        int length = end - start;
+        return n <= MAX_FORWARDED_LENGTH
+                && length > 0
+                && length <= MAX_FRAME_LENGTH
+                && dataLength(kept, start, end) == n;
     }
 
     private void frameSmall(
@@ -240,10 +254,33 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(b, promise);
             return;
         }
+        try {
+            b.skipBytes(n);
+            b.release();
+        } catch (Throwable failure) {
+            out.release();
+            throw failure;
+        }
         framedSmall++;
-        b.skipBytes(n);
-        b.release();
         target.write(out, promise);
+    }
+
+    /** Releases a non-null {@code buf}; returns {@code failure}, or what the release threw when that is null. */
+    static @Nullable Throwable release(@Nullable ByteBuf buf, @Nullable Throwable failure) {
+        if (buf == null) return failure;
+        try {
+            buf.release();
+        } catch (RuntimeException | Error thrown) {
+            if (failure == null) return thrown;
+            failure.addSuppressed(thrown);
+        }
+        return failure;
+    }
+
+    /** Throws {@code failure}, an unchecked throwable from {@link #release}, when it is not null. */
+    static void rethrow(@Nullable Throwable failure) {
+        if (failure instanceof RuntimeException exception) throw exception;
+        if (failure instanceof Error error) throw error;
     }
 
     /** The data length VarInt at the start of a compressed frame, or -1 when it is malformed. */
@@ -257,7 +294,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return -1;
     }
 
-    /** Whether the {@code n} bytes leaving now equal the copy the mark took when the backend's frame was inflated. */
+    /** Whether the {@code n} bytes of {@code b} equal the mark's copy of the inflated buffer, byte for byte. */
     private boolean sameContent(ByteBuf b, int n) {
         ByteBuf copy = markCopy;
         if (copy == null || copy.readableBytes() != n) return false;

@@ -112,6 +112,11 @@ final class CompressedFrames {
 
     /** Decrypts and reads the client's stream, applying the client's threshold checks. */
     static List<ClientFrame> read(byte[] encrypted, int threshold) {
+        return read(encrypted, threshold, false);
+    }
+
+    /** As {@link #read(byte[], int)}; {@code vanilla} inflates by {@link #inflateVanilla}'s rule. */
+    static List<ClientFrame> read(byte[] encrypted, int threshold, boolean vanilla) {
         byte[] plain = cipher(Cipher.DECRYPT_MODE).update(encrypted);
         if (plain == null) plain = new byte[0];
         ByteBuf in = Unpooled.wrappedBuffer(plain);
@@ -131,10 +136,39 @@ final class CompressedFrames {
                 frames.add(new ClientFrame(body, false, rest));
             } else {
                 assertTrue(dataLength >= threshold, "compressed frame at or above the client's threshold");
-                frames.add(new ClientFrame(body, true, inflate(rest, dataLength)));
+                byte[] packet = vanilla ? inflateVanilla(rest, dataLength) : inflate(rest, dataLength);
+                frames.add(new ClientFrame(body, true, packet));
             }
         }
         return frames;
+    }
+
+    /**
+     * The vanilla client's rule: every byte goes to the inflater, which fills exactly {@code dataLength} bytes; bytes
+     * after the stream are not checked.
+     */
+    static byte[] inflateVanilla(byte[] zlib, int dataLength) {
+        Inflater inflater = new Inflater();
+        try {
+            inflater.setInput(zlib);
+            byte[] out = new byte[dataLength];
+            int got = inflater.inflate(out);
+            if (got != dataLength) throw new DecoderException("Badly compressed packet");
+            return out;
+        } catch (DataFormatException failure) {
+            throw new DecoderException(failure);
+        } finally {
+            inflater.end();
+        }
+    }
+
+    /** A compressor the client's two codecs share; removing the decoder closes it, as Velocity's does. */
+    static final class SharedCompressor {
+        boolean closed;
+
+        void check() {
+            if (closed) throw new IllegalStateException("Already closed");
+        }
     }
 
     static byte[] inflate(byte[] zlib, int dataLength) {
@@ -206,9 +240,25 @@ final class CompressedFrames {
         final int threshold;
         final List<ByteBuf> inflated = new ArrayList<>();
         boolean composite;
+        /** Inflates by {@link #inflateVanilla}'s rule, as Velocity's decoders accept bytes after the stream. */
+        boolean vanilla;
+        /** Runs between the inflate and the publish, where Velocity's decoder calls its packet limiter. */
+        Runnable afterInflate;
+
+        private final SharedCompressor compressor;
 
         CompressDecoder(int threshold) {
+            this(threshold, null);
+        }
+
+        CompressDecoder(int threshold, SharedCompressor compressor) {
             this.threshold = threshold;
+            this.compressor = compressor;
+        }
+
+        @Override
+        public void handlerRemoved(ChannelHandlerContext ctx) {
+            if (compressor != null) compressor.closed = true;
         }
 
         @Override
@@ -222,7 +272,8 @@ final class CompressedFrames {
             if (dataLength < threshold) throw new DecoderException("compressed below threshold");
             byte[] zlib = new byte[in.readableBytes()];
             in.readBytes(zlib);
-            byte[] packet = inflate(zlib, dataLength);
+            byte[] packet = vanilla ? inflateVanilla(zlib, dataLength) : inflate(zlib, dataLength);
+            if (afterInflate != null) afterInflate.run();
             ByteBuf uncompressed;
             if (composite) {
                 int half = dataLength / 2;
@@ -256,6 +307,7 @@ final class CompressedFrames {
     static final class CompressEncoder extends MessageToByteEncoder<ByteBuf> {
         private int threshold;
         private final boolean consume;
+        private final SharedCompressor compressor;
         private int level = CLIENT_LEVEL;
 
         CompressEncoder(int threshold) {
@@ -263,8 +315,13 @@ final class CompressedFrames {
         }
 
         CompressEncoder(int threshold, boolean consume) {
+            this(threshold, consume, null);
+        }
+
+        CompressEncoder(int threshold, boolean consume, SharedCompressor compressor) {
             this.threshold = threshold;
             this.consume = consume;
+            this.compressor = compressor;
         }
 
         void setThreshold(int threshold) {
@@ -284,6 +341,7 @@ final class CompressedFrames {
                 out.writeBytes(msg);
                 return;
             }
+            if (compressor != null) compressor.check();
             byte[] packet = new byte[uncompressed];
             if (consume) msg.readBytes(packet);
             else msg.getBytes(msg.readerIndex(), packet);

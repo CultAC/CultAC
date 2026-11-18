@@ -31,12 +31,14 @@ import io.netty.channel.local.LocalAddress;
 import io.netty.channel.local.LocalChannel;
 import io.netty.channel.local.LocalIoHandler;
 import io.netty.channel.local.LocalServerChannel;
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -100,6 +102,22 @@ class VelocityCompressedForwardLoopTest {
 
     private Pair client() throws Exception {
         Pair pair = connect(true);
+        receive(pair);
+        onLoop(() -> {
+            var pipeline = pair.proxySide().pipeline();
+            pipeline.addLast("cipher-encoder", new CipherEncoder());
+            pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD));
+            pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
+            pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
+            return VelocityCompressedForward.install(
+                    pipeline, CompressEncoder.class.getName(), CompressDecoder.class.getName(), true, false, true);
+        });
+        return pair;
+    }
+
+    /** Collects what the client end of {@code pair} receives into {@link #received}. */
+    private void receive(Pair pair) {
         pair.remote().pipeline().addLast(new ChannelInboundHandlerAdapter() {
             @Override
             public void channelRead(ChannelHandlerContext ctx, Object msg) {
@@ -115,15 +133,6 @@ class VelocityCompressedForwardLoopTest {
                 }
             }
         });
-        onLoop(() -> {
-            var pipeline = pair.proxySide().pipeline();
-            pipeline.addLast("cipher-encoder", new CipherEncoder());
-            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD));
-            pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
-            pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
-            return VelocityCompressedForward.install(pipeline, CompressEncoder.class.getName(), true, false, true);
-        });
-        return pair;
     }
 
     private Pair backend(Channel client) throws Exception {
@@ -222,6 +231,107 @@ class VelocityCompressedForwardLoopTest {
 
         forward.close();
         verify(events).unregister(plugin, connected.getValue());
+    }
+
+    @Test
+    void encoderOnItsOwnExecutorInstallsNothingAndWritesKeepTheirOrder() throws Exception {
+        var encoders = new DefaultEventExecutorGroup(1);
+        try {
+            Pair client = connect(true);
+            receive(client);
+            CompressedForwarder forwarder = onLoop(() -> {
+                var pipeline = client.proxySide().pipeline();
+                pipeline.addLast("cipher-encoder", new CipherEncoder());
+                pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+                pipeline.addLast(encoders, CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD));
+                pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
+                pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
+                return VelocityCompressedForward.install(
+                        pipeline, CompressEncoder.class.getName(), CompressDecoder.class.getName(), true, false, true);
+            });
+            assertNull(forwarder);
+            assertNull(onLoop(() -> client.proxySide().pipeline().get(CompressedForwarder.NAME)));
+            byte[] large = packet(3000, 90);
+            byte[] small = packet(100, 91);
+            var busy = new CountDownLatch(1);
+            encoders.next().execute(() -> {
+                try {
+                    busy.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            onLoop(() -> {
+                client.proxySide().write(Unpooled.wrappedBuffer(large));
+                client.proxySide().write(Unpooled.wrappedBuffer(small));
+                client.proxySide().flush();
+                return null;
+            });
+            busy.countDown();
+            assertPackets(List.of(large, small), awaitFrames(2));
+            client.proxySide().close().sync();
+        } finally {
+            encoders.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
+    }
+
+    @Test
+    void decoderOnItsOwnExecutorLinksNothingAndReadsKeepTheirOrder() throws Exception {
+        var decoders = new DefaultEventExecutorGroup(1);
+        try {
+            Pair client = client();
+            var forwarder = (CompressedForwarder) client.proxySide().pipeline().get(CompressedForwarder.NAME);
+            assertNotNull(forwarder);
+            Pair backend = connect(false);
+            onLoop(() -> {
+                var pipeline = backend.proxySide().pipeline();
+                pipeline.addLast("frame-decoder", new FrameDecoder());
+                pipeline.addLast(
+                        decoders, VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+                pipeline.addLast("handler", relay(client.proxySide()));
+                VelocityCompressedForward.link(
+                        forwarder, client.proxySide(), backend.proxySide(), CompressDecoder.class.getName());
+                return null;
+            });
+            assertEquals("backend-executor", onLoop(forwarder::linkStatus));
+            assertNull(onLoop(() -> backend.proxySide().pipeline().get(CompressedKeep.NAME)));
+            assertNull(onLoop(() -> backend.proxySide().pipeline().get(CompressedMark.NAME)));
+            byte[] large = packet(3000, 92);
+            byte[] small = packet(100, 93);
+            backend.remote()
+                    .writeAndFlush(Unpooled.wrappedBuffer(
+                            concat(frame(body(large, THRESHOLD)), frame(body(small, THRESHOLD)))))
+                    .sync();
+            backend.proxySide().eventLoop().execute(() -> {
+                backend.proxySide().config().setAutoRead(true);
+                backend.proxySide().read();
+            });
+            assertPackets(List.of(large, small), awaitFrames(2));
+            assertEquals(0L, onLoop(forwarder::forwarded));
+            backend.proxySide().close().sync();
+        } finally {
+            decoders.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
+    }
+
+    /** Writes every inflated buffer to {@code client} and flushes it when the read completes. */
+    private static ChannelInboundHandlerAdapter relay(Channel client) {
+        return new ChannelInboundHandlerAdapter() {
+            @Override
+            public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                ByteBuf buf = (ByteBuf) msg;
+                try {
+                    if (client.isActive()) client.write(buf.retain());
+                } finally {
+                    buf.release();
+                }
+            }
+
+            @Override
+            public void channelReadComplete(ChannelHandlerContext ctx) {
+                client.flush();
+            }
+        };
     }
 
     /** With the backend's frame waiting, queues the event's install and then the resume, in Velocity's order. */

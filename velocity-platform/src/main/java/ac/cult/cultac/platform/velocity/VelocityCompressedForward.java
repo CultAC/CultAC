@@ -16,6 +16,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -39,8 +40,7 @@ final class VelocityCompressedForward {
     private final boolean heap;
     private final boolean consume;
     private final String decoderClass;
-    private volatile boolean encoderUnsupported;
-    private volatile boolean installChanged;
+    private final AtomicBoolean[] warned = new AtomicBoolean[Refusal.values().length];
     private volatile Method inFlightMethod;
     private static volatile @Nullable MethodHandle thresholdGetter;
     private final EventHandler<ServerConnectedEvent> connected = this::connected;
@@ -62,6 +62,7 @@ final class VelocityCompressedForward {
         this.heap = heap;
         this.consume = consume;
         this.decoderClass = decoderClass;
+        for (int i = 0; i < warned.length; i++) warned[i] = new AtomicBoolean();
     }
 
     /** Null unless {@value #ENABLED_PROPERTY} is true; nothing is registered or installed then. */
@@ -148,24 +149,15 @@ final class VelocityCompressedForward {
         Channel channel = connection.channel();
         if (connection.owner() != channel.eventLoop()) return;
         var pipeline = channel.pipeline();
-        var forwarder = install(pipeline, VELOCITY_ENCODER, small, heap, consume, this::refused);
+        var forwarder = install(pipeline, VELOCITY_ENCODER, decoderClass, small, heap, consume, this::refused);
         if (forwarder == null) return;
         adapter.compressedForwarder(forwarder);
         schedule(channel, decoderClass, () -> player.getCurrentServer().orElse(null));
     }
 
-    /** Logs the first refusal of each kind. */
+    /** Logs the first refusal of each kind, once across every loop. */
     void refused(Refusal refusal) {
-        if (refusal == Refusal.THRESHOLD) {
-            if (encoderUnsupported) return;
-            encoderUnsupported = true;
-            LogUtil.warn("Cannot read a client's compression threshold; its frames are compressed by Velocity");
-            return;
-        }
-        if (installChanged) return;
-        installChanged = true;
-        LogUtil.warn("A client's compression handlers changed while the forwarder was installed; its frames are"
-                + " compressed by Velocity");
+        if (warned[refusal.ordinal()].compareAndSet(false, true)) LogUtil.warn(refusal.warning);
     }
 
     /** A getter bound to {@code encoder}'s {@code int threshold} when it is of the class {@code encoderClass}, or null. */
@@ -185,16 +177,25 @@ final class VelocityCompressedForward {
         }
     }
 
-    /** The forwarder installed directly after an encoder of the class {@code encoderClass}, or null. */
+    /**
+     * The forwarder installed directly after an encoder of the class {@code encoderClass} on the channel's loop, with a
+     * decoder of the class {@code decoderClass}, or null.
+     */
     static @Nullable CompressedForwarder install(
-            ChannelPipeline pipeline, String encoderClass, boolean small, boolean heap, boolean consume) {
-        return install(pipeline, encoderClass, small, heap, consume, refusal -> {});
+            ChannelPipeline pipeline,
+            String encoderClass,
+            String decoderClass,
+            boolean small,
+            boolean heap,
+            boolean consume) {
+        return install(pipeline, encoderClass, decoderClass, small, heap, consume, refusal -> {});
     }
 
     /** As {@link #install}; {@code refused} hears why a present encoder got no forwarder. */
     static @Nullable CompressedForwarder install(
             ChannelPipeline pipeline,
             String encoderClass,
+            String decoderClass,
             boolean small,
             boolean heap,
             boolean consume,
@@ -207,7 +208,16 @@ final class VelocityCompressedForward {
             refused.accept(Refusal.THRESHOLD);
             return null;
         }
-        var forwarder = new CompressedForwarder(threshold, encoder, small, heap, consume);
+        ChannelHandlerContext decoder = pipeline.context(COMPRESSION_DECODER);
+        if (decoder == null || !decoder.handler().getClass().getName().equals(decoderClass)) {
+            refused.accept(Refusal.DECODER);
+            return null;
+        }
+        if (encoder.executor() != pipeline.channel().eventLoop()) {
+            refused.accept(Refusal.EXECUTOR);
+            return null;
+        }
+        var forwarder = new CompressedForwarder(threshold, encoder, decoder, small, heap, consume);
         if (forwarder.threshold() < 0) {
             refused.accept(Refusal.THRESHOLD);
             return null;
@@ -231,9 +241,21 @@ final class VelocityCompressedForward {
     /** Why {@link #install} left a client with a compression encoder without a forwarder. */
     enum Refusal {
         /** The encoder is not of the accepted class, or its threshold cannot be read. */
-        THRESHOLD,
-        /** The encoder or the handlers next to it changed while the forwarder was inserted. */
-        CHANGED
+        THRESHOLD("Cannot read a client's compression threshold; its frames are compressed by Velocity"),
+        /** The client has no compression decoder of the accepted class. */
+        DECODER("A client's compression decoder is not Velocity's; its frames are compressed by Velocity"),
+        /** The encoder runs on an executor other than the client channel's event loop. */
+        EXECUTOR("A client's compression encoder runs off its channel's event loop; its frames are compressed by"
+                + " Velocity"),
+        /** After the insert, the encoder is not the validated one or the forwarder does not directly follow it. */
+        CHANGED("A client's compression encoder is not where the forwarder expects it after the insert; its frames are"
+                + " compressed by Velocity");
+
+        final String warning;
+
+        Refusal(String warning) {
+            this.warning = warning;
+        }
     }
 
     /** Removes the forwarder and its backend link; runs on the client's loop or its packet owner. */
@@ -333,6 +355,10 @@ final class VelocityCompressedForward {
         }
         if (!decoder.handler().getClass().getName().equals(decoderClass)) {
             forwarder.linkStatus("backend-decoder");
+            return;
+        }
+        if (decoder.executor() != pipeline.channel().eventLoop()) {
+            forwarder.linkStatus("backend-executor");
             return;
         }
         if (!CompressedForwarder.adjacent(client)) {

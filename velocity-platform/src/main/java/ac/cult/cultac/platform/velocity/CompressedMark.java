@@ -7,7 +7,7 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Sits on a backend channel directly after Velocity's compression decoder and, for a read the keep armed, publishes
- * the inflated buffer, its indices, a copy of its bytes and a private client frame to the forwarder for that read.
+ * the inflated buffer, its indices, a copy of its bytes and the keep's private client frame to the forwarder.
  */
 final class CompressedMark extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-mark";
@@ -37,7 +37,7 @@ final class CompressedMark extends ChannelInboundHandlerAdapter {
             return;
         }
         ByteBuf kept = keep.kept;
-        if (!armed || kept == null || inflated == kept) {
+        if (!armed || kept == null || inflated == keep.keptSlice) {
             ctx.fireChannelRead(msg);
             return;
         }
@@ -51,13 +51,12 @@ final class CompressedMark extends ChannelInboundHandlerAdapter {
         ByteBuf frame = null;
         int n = inflated.readableBytes();
         if (n >= target.threshold()) {
-            frame = target.frame(ctx.alloc(), kept, keep.keptStart, keep.keptEnd, n);
-            copy = frame == null ? null : copy(ctx, inflated, n);
+            if (target.forwardable(kept, keep.keptStart, keep.keptEnd, n)) copy = copy(ctx, inflated, n);
             if (copy == null) {
-                if (frame != null) frame.release();
                 ctx.fireChannelRead(msg);
                 return;
             }
+            frame = kept.retain();
         }
         inflated.retain();
         target.mark(inflated, inflated.readerIndex(), inflated.writerIndex(), copy, frame);
@@ -66,9 +65,10 @@ final class CompressedMark extends ChannelInboundHandlerAdapter {
         } finally {
             boolean untaken = frame != null && target.markFrame() == frame;
             target.mark(previous, previousReader, previousWriter, previousCopy, previousFrame);
-            inflated.release();
-            if (copy != null) copy.release();
-            if (untaken) frame.release();
+            Throwable failure = CompressedForwarder.release(inflated, null);
+            failure = CompressedForwarder.release(copy, failure);
+            if (untaken) failure = CompressedForwarder.release(frame, failure);
+            CompressedForwarder.rethrow(failure);
         }
     }
 
