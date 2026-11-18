@@ -853,6 +853,11 @@ message PerfProfile {
   repeated PerfThreadCpu jvm_thread_cpu = 35;  // Linux /proc/self/task: CPU of the JVM's own threads by kind
   bool alloc_calibrated = 36;           // alloc_bytes scaled per thread group to ThreadMXBean's exact bytes
   repeated PerfAllocCalibration alloc_calibration = 37;  // per group: sampled (after the first-sample drop) vs exact
+  optional uint64 heap_committed_bytes = 38;  // MemoryMXBean at the window end
+  optional uint64 heap_max_bytes = 39;        // absent when the heap has no maximum
+  repeated PerfMemoryPool heap_pools = 40;    // every heap MemoryPoolMXBean at the window end
+  repeated PerfBufferPool buffer_pools = 41;  // every BufferPoolMXBean at the window end
+  repeated PerfCollector collectors = 42;     // every GarbageCollectorMXBean, counted within the window
 }
 
 message PerfStack {
@@ -879,6 +884,25 @@ message PerfAllocCalibration {
   uint32 thread_group = 1;   // index into thread_groups
   uint64 sampled_bytes = 2;  // sampled weights after dropping each thread's first sample, before scaling
   uint64 exact_bytes = 3;    // ThreadMXBean; 0 when unknown
+}
+
+message PerfMemoryPool {
+  string name = 1;
+  optional uint64 used_bytes = 2;
+  optional uint64 used_after_gc_bytes = 3;  // as the pool's last collection left it; absent when the JVM keeps none
+}
+
+message PerfBufferPool {
+  string name = 1;  // "direct", "mapped", ...
+  optional uint64 count = 2;
+  optional uint64 used_bytes = 3;
+  optional uint64 capacity_bytes = 4;
+}
+
+message PerfCollector {
+  string name = 1;
+  optional uint64 window_count = 2;   // collections within the window
+  optional uint64 window_millis = 3;  // accumulated collection time within the window, as the bean reports it
 }
 
 // Team sync: whether the organization takes portal roles, at connect and whenever it changes; each replaces the last.

@@ -19,15 +19,35 @@ final class ProcCpu {
     /** Linux's USER_HZ: {@code /proc} counts CPU in hundredths of a second. */
     private static final long TICK_NANOS = TimeUnit.SECONDS.toNanos(1) / 100;
 
-    private static final List<String> GC = List.of("GC Thread", "G1 ", "ZGC", "Z ", "Shenandoah", "GC ");
-    private static final List<String> JIT =
-            List.of("C1 CompilerThre", "C2 CompilerThre", "C1 Compiler", "C2 Compiler", "JVMCI");
+    /** Linux HotSpot cuts a name of 16 or more characters to its first 15, or its first 7, {@code ..} and last 6. */
+    private static final List<String> GC = List.of(
+            "GC Thread",
+            "G1 ",
+            "ZGC",
+            "Z ",
+            "Shenandoah",
+            "GC ",
+            "ShenWorker",
+            "ShenControl",
+            "ShenRegulator",
+            "ShenUncommit",
+            "Safepoi..");
+
+    private static final List<String> JIT = List.of(
+            "C1 CompilerThre", "C2 CompilerThre", "C1 Compiler", "C2 Compiler", "JVMCI", "C1 Comp..", "C2 Comp..");
     private static final List<String> JFR = List.of("JFR ");
     /** The recording stream's dispatch thread, whose CPU {@code recorder_cpu_nanos} already counts. */
-    private static final String RECORDER_DISPATCH = "JFR Event Strea";
+    private static final List<String> RECORDER_DISPATCH = List.of("JFR Event Strea", "JFR Eve..");
 
-    private static final List<String> VM =
-            List.of("VM Thread", "VM Periodic", "Monitor Deflati", "Service Thread", "Notification Th");
+    private static final List<String> VM = List.of(
+            "VM Thread",
+            "VM Periodic",
+            "Monitor Deflati",
+            "Service Thread",
+            "Notification Th",
+            "VM Peri..Thread",
+            "Monitor..Thread",
+            "Notific..Thread");
 
     /** {@code user} and {@code sys} in ticks, -1 when unread; {@code tasks}: the JVM threads by tid. */
     record Snapshot(long user, long sys, Map<Long, Task> tasks) {}
@@ -114,7 +134,7 @@ final class ProcCpu {
 
     /** The kind of a JVM thread by its {@code comm}; null for a Java thread or the recorder's dispatch thread. */
     static String kind(String comm) {
-        if (comm.startsWith(RECORDER_DISPATCH)) return null;
+        if (startsWithAny(comm, RECORDER_DISPATCH)) return null;
         if (startsWithAny(comm, GC)) return "gc";
         if (startsWithAny(comm, JIT)) return "jit";
         if (startsWithAny(comm, JFR)) return "jfr";
