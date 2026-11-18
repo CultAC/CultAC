@@ -285,7 +285,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         boolean laterMovementThisClientTick = false;
         // A teleport acknowledgement is not LocalPlayer#tick movement.
         if (!teleport.isTeleport()) {
-            laterMovementThisClientTick = state.receivedMovementThisClientTick
+            laterMovementThisClientTick = state.sentPositionCache.tickSentMovement()
                     && player.user.getCultConnection().runtime().supports(ServerboundPackets.CLIENT_TICK_END);
             // Before the pre-prediction checks: a setback they raise rejects this movement.
             setbacks.movementReceived();
@@ -702,6 +702,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                         || firstTickMove && state.hasPassengerRotationThisClientTick())
                     player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
                 state.receivedMovementThisClientTick = true;
+                state.sentPositionCache.onTickVehicleMovement();
             }
         }
 
@@ -835,6 +836,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         state.markVehicleMove(false);
         state.clientTickVehicleMoveThisClientTick = true;
         state.receivedMovementThisClientTick = true;
+        state.sentPositionCache.onTickVehicleMovement();
         if (!reportsUnmovedRoot(player, root, reported)) {
             player.checkManager.getCheck(VehicleTimer.class).onMoveVehicle(event, player, packet);
             event.setCancelled(true);
@@ -893,6 +895,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 clientRoot.interpolateBeforeLocalTravel(player);
             state.clientTickVehicleMoveThisClientTick = true;
             state.receivedMovementThisClientTick = true;
+            state.sentPositionCache.onTickVehicleMovement();
         }
     }
 
@@ -1210,14 +1213,18 @@ public class CheckManagerListener implements OpaqueReceiveListener {
      * Ends a Java client tick in its order: the timer judges the boundary, then the look, LocalPlayer#aiStep's effects
      * and the receive checks, then the tick counters and per-tick state. Returns false when the timer cancelled the
      * boundary, which then ends no tick: it neither starts nor closes one, nor runs the tick-end simulation, and the
-     * next accepted tick end closes the tick. The watchdog's synthetic tick end is a recovery boundary and always
-     * closes.
+     * next accepted tick end closes the tick. LocalPlayer's position reminder still counts it. The watchdog's
+     * synthetic tick end is a recovery boundary and always closes.
      */
     private static boolean endJavaClientTick(PacketReceiveEvent<?> event, CultPlayer player) {
         PacketStateData state = player.packetStateData;
         // The timer must judge the boundary before it advances idle physics, attack cooldown, or the tick index.
         player.checkManager.dispatchPrePredictionReceive(event);
-        if (event.isCancelled() && !event.isSynthetic()) return false;
+        if (event.isCancelled() && !event.isSynthetic()) {
+            // The client ran the tick whose end the timer rejects.
+            state.sentPositionCache.onClientTickEnd();
+            return false;
+        }
         // Where a loaded client's LocalPlayer#sendChanges would have sent this tick's MoveVehicle.
         if (!event.isSynthetic()) JavaLoadingRootTick.travel(player);
         // Where a loaded client's LocalPlayer#sendChanges must have sent it and did not.
@@ -1246,7 +1253,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             player.ridingJumpCharge.forget();
         }
         player.sprintState.onClientTickEnd();
-        if (!state.receivedMovementThisClientTick) state.sentPositionCache.onTickWithoutMovement();
+        // A synthetic tick end is a timeout, not a client tick that runs LocalPlayer#sendPosition.
+        if (!event.isSynthetic()) state.sentPositionCache.onClientTickEnd();
 
         player.endCountedClientTick();
         if (ticked) state.localPlayerTickedSinceSpawn = true;

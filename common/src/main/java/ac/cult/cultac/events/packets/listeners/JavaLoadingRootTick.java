@@ -44,6 +44,7 @@ final class JavaLoadingRootTick {
         if (!state.receivedMovementThisClientTick)
             player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
         state.receivedMovementThisClientTick = true;
+        state.sentPositionCache.onTickVehicleMovement();
         state.vehicleMovementStartOnGround = root.onGround;
         state.vehicleMovementOnGroundPresent = true;
         root.interpolateBeforeLocalTravel(player);

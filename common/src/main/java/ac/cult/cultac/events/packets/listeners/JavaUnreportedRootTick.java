@@ -30,6 +30,7 @@ final class JavaUnreportedRootTick {
         // The rider's Rot left the root's pre-travel pass to its move.
         player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
         state.receivedMovementThisClientTick = true;
+        state.sentPositionCache.onTickVehicleMovement();
         state.vehicleMovementStartOnGround = root.onGround;
         state.vehicleMovementOnGroundPresent = false;
         state.vehicleMovementReportedOnGround = false;
