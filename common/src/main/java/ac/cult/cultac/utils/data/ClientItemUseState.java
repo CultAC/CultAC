@@ -109,6 +109,9 @@ public final class ClientItemUseState {
 
     private record Use(Hand hand, SimItemStack stack, int remaining, SimItemStack boundStack) {}
 
+    /** A use the client started on its own while a completion of its previous use was in flight to it. */
+    private record Restart(Hand hand, SimItemStack stack, int sequence) {}
+
     /** One LivingEntity.completeUsingItem outcome: the used hand and its native inventory slot. */
     public record Completion(Hand hand, int slot) {}
 
@@ -126,6 +129,9 @@ public final class ClientItemUseState {
     private Snapshot prepared = Snapshot.NONE;
     private final Map<SimItemStack, Integer> possiblyChanged = new IdentityHashMap<>();
     private boolean possiblyFull;
+    // One per hand and item: the latest use_item of each, since acknowledgements are cumulative.
+    private final List<Restart> restarts = new ArrayList<>(2);
+    private int completionsInFlight;
 
     /**
      * An uncertain start keeps the candidate while the client may equally not be using; the
@@ -176,10 +182,59 @@ public final class ClientItemUseState {
         // Do not rewrite prepared: a later release cannot excuse this tick's earlier movement.
     }
 
+    /** ServerboundPlayerAction RELEASE_USE_ITEM: LocalPlayer#releaseUsingItem ends every local use, a restarted one too. */
+    public void clientReleased() {
+        release();
+        restarts.clear();
+    }
+
     public void claimedSlotChanged() {
         // ServerGamePacketListenerImpl.handleSetCarriedItem stops MAIN_HAND use only.
         // The local client compares item types at its entity tick, not slot numbers.
         if (obligation != null && obligation.hand() == Hand.MAIN_HAND) obligation = null;
+        if (!restarts.isEmpty()) restarts.removeIf(restart -> restart.hand() == Hand.MAIN_HAND);
+    }
+
+    /** A ClientboundEntityEvent(9) for the local player is sent; Player#handleEntityEvent completes the use on it. */
+    public void completionSent() {
+        completionsInFlight++;
+    }
+
+    public void completionHandled() {
+        completionsInFlight = Math.max(0, completionsInFlight - 1);
+    }
+
+    /**
+     * Whether a ServerboundUseItem received at this point starts a use the client holds before it has handled the completion of
+     * the use the model still holds: Minecraft#handleKeybinds starts a use only while the client is not using one.
+     */
+    public boolean restartsBeforeCompletion() {
+        return completionsInFlight > 0 && (!candidates.isEmpty() || obligation != null);
+    }
+
+    /**
+     * The client may travel slowed by this use until it has handled the server's answer to {@code sequence}: the
+     * ClientboundBlockChangedAck of that sequence, which shares one client task with any start metadata of its flush
+     * bundle (CultPlayer#appendTrailingProofTransaction), so its proof is no earlier than theirs.
+     */
+    public void restarted(Hand hand, SimItemStack stack, int sequence) {
+        if (stack.isEmpty() || duration(stack) == 0) return;
+        for (int i = 0; i < restarts.size(); i++) {
+            Restart open = restarts.get(i);
+            if (open.hand() != hand || !sameItem(open.stack(), stack)) continue;
+            if (sequence > open.sequence()) restarts.set(i, new Restart(hand, stack.copy(), sequence));
+            return;
+        }
+        restarts.add(new Restart(hand, stack.copy(), sequence));
+    }
+
+    /** The client handled ClientboundBlockChangedAck up to {@code sequence}. */
+    public void serverAnswered(int sequence) {
+        if (!restarts.isEmpty()) restarts.removeIf(restart -> restart.sequence() <= sequence);
+    }
+
+    int openRestarts() {
+        return restarts.size();
     }
 
     public Snapshot prepare(
@@ -237,6 +292,15 @@ public final class ClientItemUseState {
         float required =
                 obligation == null ? 1 : effects(obligation.stack(), version).speedMultiplier();
         if (!multipliers.contains(required)) multipliers.add(required);
+        float fastest = Collections.max(multipliers);
+        for (Restart restart : restarts) {
+            SimItemStack held = restart.hand() == Hand.MAIN_HAND ? main : off;
+            // LivingEntity#updatingUsingItem stops a use whose hand holds another item; ItemStack#isSameItem
+            // matches a use stack consumed to empty with the empty hand and keeps that use.
+            if (!held.isEmpty() && !sameItem(restart.stack(), held)) continue;
+            float multiplier = effects(restart.stack(), version).speedMultiplier();
+            if (multiplier < fastest && !multipliers.contains(multiplier)) multipliers.add(multiplier);
+        }
         prepared = new Snapshot(
                 session,
                 tick,
@@ -391,6 +455,7 @@ public final class ClientItemUseState {
 
     public void reset() {
         release();
+        restarts.clear();
         lastPreparedTick = Integer.MIN_VALUE;
         prepared = Snapshot.NONE;
     }

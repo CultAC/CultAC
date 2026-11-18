@@ -122,13 +122,16 @@ public class BasePacketWorldReader {
         CultPlayer.TrackedTransaction transaction = player.appendTrailingProofTransaction(event);
         if (transaction != null) {
             player.compensatedWorld.handlePredictionConfirmation(packet.sequence(), transaction);
-            player.latencyUtils.addRealTimeTask(
-                    transaction.transaction(), () -> player.blockActionReconciler.confirmServerAck(packet.sequence()));
+            player.latencyUtils.addRealTimeTask(transaction.transaction(), () -> {
+                player.blockActionReconciler.confirmServerAck(packet.sequence());
+                player.clientItemUse.serverAnswered(packet.sequence());
+            });
         } else {
             player.compensatedWorld.handlePredictionConfirmation(packet.sequence());
-            player.latencyUtils.addRealTimeTask(
-                    player.lastTransactionSent.get(),
-                    () -> player.blockActionReconciler.confirmServerAck(packet.sequence()));
+            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
+                player.blockActionReconciler.confirmServerAck(packet.sequence());
+                player.clientItemUse.serverAnswered(packet.sequence());
+            });
         }
     }
 

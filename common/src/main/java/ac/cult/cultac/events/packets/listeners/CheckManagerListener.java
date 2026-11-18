@@ -1169,11 +1169,17 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         try {
             player.checkManager.dispatchPrePredictionReceive(event);
             withholdDroppedAction(event, player);
+            boolean restart = player.usesModernJavaItemUse()
+                    && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)
+                    && player.clientItemUse.restartsBeforeCompletion();
+            SimItemStack restartStack = restart ? player.getInventory().getHandItem(packet.hand()) : null;
             var applied = PlaceHandler.handleQueuedUseItem(player, packet);
             player.lastBlockPlaceUseItem = System.currentTimeMillis();
             player.checkManager.dispatchReceiveHandlers(event);
-            if (reachesServer(event)) player.blockActionReconciler.forwarded(packet.sequence());
-            else if (applied != null) player.blockActionReconciler.rejectUse(packet, applied);
+            if (reachesServer(event)) {
+                player.blockActionReconciler.forwarded(packet.sequence());
+                if (restart) player.clientItemUse.restarted(packet.hand(), restartStack, packet.sequence());
+            } else if (applied != null) player.blockActionReconciler.rejectUse(packet, applied);
         } finally {
             endPacket(player);
         }

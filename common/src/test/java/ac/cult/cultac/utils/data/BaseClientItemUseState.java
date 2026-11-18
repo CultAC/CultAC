@@ -127,6 +127,8 @@ final class BaseClientItemUseState {
     private Snapshot prepared = Snapshot.NONE;
     private final Map<SimItemStack, Integer> possiblyChanged = new IdentityHashMap<>();
     private boolean possiblyFull;
+    private final List<?> restarts = new ArrayList<>();
+    private final int completionsInFlight = 0;
 
     /**
      * An uncertain start keeps the candidate while the client may equally not be using; the

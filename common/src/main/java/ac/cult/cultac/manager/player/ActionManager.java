@@ -84,7 +84,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     }
 
     public void releaseItem() {
-        if (player.usesModernJavaItemUse()) player.clientItemUse.release();
+        if (player.usesModernJavaItemUse()) player.clientItemUse.clientReleased();
         player.packetStateData.setSlowedByUsingItem(false);
     }
 
