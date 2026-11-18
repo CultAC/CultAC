@@ -109,8 +109,24 @@ public final class ClientItemUseState {
 
     private record Use(Hand hand, SimItemStack stack, int remaining, SimItemStack boundStack) {}
 
-    /** A use the client started on its own while a completion of its previous use was in flight to it. */
-    private record Restart(Hand hand, SimItemStack stack, int sequence) {}
+    /**
+     * A use the client started on its own in client tick {@code tick} while a completion of its previous use was in
+     * flight to it. {@code duration} is a consumable's use duration, which caps how long the restart may slow the
+     * client, and 0 for a use it holds until a release.
+     */
+    private record Restart(Hand hand, SimItemStack stack, int sequence, int tick, int duration) {
+        boolean cappedByItsDuration() {
+            return duration > 0;
+        }
+
+        /**
+         * The use duration has passed on the client ticks counted from the use_item, counted as the server's
+         * LivingEntity#updateUsingItem counts it: vanilla completes a use only on the server.
+         */
+        boolean ranItsDuration(int at) {
+            return cappedByItsDuration() && at - tick >= duration - 1;
+        }
+    }
 
     /** One LivingEntity.completeUsingItem outcome: the used hand and its native inventory slot. */
     public record Completion(Hand hand, int slot) {}
@@ -182,17 +198,30 @@ public final class ClientItemUseState {
         // Do not rewrite prepared: a later release cannot excuse this tick's earlier movement.
     }
 
-    /** ServerboundPlayerAction RELEASE_USE_ITEM: LocalPlayer#releaseUsingItem ends every local use, a restarted one too. */
+    /**
+     * ServerboundPlayerAction RELEASE_USE_ITEM: LocalPlayer#releaseUsingItem ends every local use; the engine keeps a
+     * restarted consumable open until its use duration caps it.
+     */
     public void clientReleased() {
         release();
-        restarts.clear();
+        if (!restarts.isEmpty()) restarts.removeIf(restart -> !restart.cappedByItsDuration());
     }
 
     public void claimedSlotChanged() {
         // ServerGamePacketListenerImpl.handleSetCarriedItem stops MAIN_HAND use only.
         // The local client compares item types at its entity tick, not slot numbers.
         if (obligation != null && obligation.hand() == Hand.MAIN_HAND) obligation = null;
-        if (!restarts.isEmpty()) restarts.removeIf(restart -> restart.hand() == Hand.MAIN_HAND);
+        if (!restarts.isEmpty())
+            restarts.removeIf(restart -> restart.hand() == Hand.MAIN_HAND && !restart.cappedByItsDuration());
+    }
+
+    /**
+     * ServerboundPlayerCommand START_SPRINTING: LocalPlayer#canStartSprinting requires !isSlowDueToUsingItem, so the
+     * client holds no restarted use whose item blocks sprinting.
+     */
+    public void startedSprinting(ClientVersion version) {
+        if (!restarts.isEmpty())
+            restarts.removeIf(restart -> !effects(restart.stack(), version).canSprint());
     }
 
     /** A ClientboundEntityEvent(9) for the local player is sent; Player#handleEntityEvent completes the use on it. */
@@ -213,24 +242,29 @@ public final class ClientItemUseState {
     }
 
     /**
-     * The client may travel slowed by this use until it has handled the server's answer to {@code sequence}: the
-     * ClientboundBlockChangedAck of that sequence, which shares one client task with any start metadata of its flush
-     * bundle (CultPlayer#appendTrailingProofTransaction), so its proof is no earlier than theirs.
+     * A consumable restarted in client tick {@code tick} may slow the client's travel, whatever the server answers,
+     * until its use duration has passed. Any other use may slow it until the client has handled the server's answer to
+     * {@code sequence}: the ClientboundBlockChangedAck of that sequence, which shares one client task with any start
+     * metadata of its flush bundle (CultPlayer#appendTrailingProofTransaction), so its proof is no earlier than theirs.
      */
-    public void restarted(Hand hand, SimItemStack stack, int sequence) {
-        if (stack.isEmpty() || duration(stack) == 0) return;
+    public void restarted(Hand hand, SimItemStack stack, int sequence, int tick) {
+        int duration = duration(stack);
+        if (stack.isEmpty() || duration == 0) return;
+        var consumable = ItemComponents.consumable(stack.components());
+        int timer = consumable != null && consumable.ticks() == duration ? duration : 0;
         for (int i = 0; i < restarts.size(); i++) {
             Restart open = restarts.get(i);
             if (open.hand() != hand || !sameItem(open.stack(), stack)) continue;
-            if (sequence > open.sequence()) restarts.set(i, new Restart(hand, stack.copy(), sequence));
+            if (sequence > open.sequence()) restarts.set(i, new Restart(hand, stack.copy(), sequence, tick, timer));
             return;
         }
-        restarts.add(new Restart(hand, stack.copy(), sequence));
+        restarts.add(new Restart(hand, stack.copy(), sequence, tick, timer));
     }
 
     /** The client handled ClientboundBlockChangedAck up to {@code sequence}. */
     public void serverAnswered(int sequence) {
-        if (!restarts.isEmpty()) restarts.removeIf(restart -> restart.sequence() <= sequence);
+        if (!restarts.isEmpty())
+            restarts.removeIf(restart -> !restart.cappedByItsDuration() && restart.sequence() <= sequence);
     }
 
     int openRestarts() {
@@ -293,11 +327,13 @@ public final class ClientItemUseState {
                 obligation == null ? 1 : effects(obligation.stack(), version).speedMultiplier();
         if (!multipliers.contains(required)) multipliers.add(required);
         float fastest = Collections.max(multipliers);
+        if (!restarts.isEmpty()) restarts.removeIf(restart -> restart.ranItsDuration(tick));
         for (Restart restart : restarts) {
             SimItemStack held = restart.hand() == Hand.MAIN_HAND ? main : off;
             // LivingEntity#updatingUsingItem stops a use whose hand holds another item; ItemStack#isSameItem
-            // matches a use stack consumed to empty with the empty hand and keeps that use.
-            if (!held.isEmpty() && !sameItem(restart.stack(), held)) continue;
+            // matches a use stack consumed to empty with the empty hand and keeps that use. A restarted
+            // consumable stays open to its use duration whatever the hand holds.
+            if (!restart.cappedByItsDuration() && !held.isEmpty() && !sameItem(restart.stack(), held)) continue;
             float multiplier = effects(restart.stack(), version).speedMultiplier();
             if (multiplier < fastest && !multipliers.contains(multiplier)) multipliers.add(multiplier);
         }

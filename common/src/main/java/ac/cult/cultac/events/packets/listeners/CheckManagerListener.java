@@ -1178,7 +1178,9 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             player.checkManager.dispatchReceiveHandlers(event);
             if (reachesServer(event)) {
                 player.blockActionReconciler.forwarded(packet.sequence());
-                if (restart) player.clientItemUse.restarted(packet.hand(), restartStack, packet.sequence());
+                if (restart)
+                    player.clientItemUse.restarted(
+                            packet.hand(), restartStack, packet.sequence(), player.packetStateData.acceptedClientTick);
             } else if (applied != null) player.blockActionReconciler.rejectUse(packet, applied);
         } finally {
             endPacket(player);

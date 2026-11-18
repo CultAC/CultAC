@@ -34,6 +34,7 @@ public class PacketEntityAction {
         if (player.isBedrockMovement()) return;
         switch (packet.action()) {
             case START_SPRINTING:
+                if (player.usesModernJavaItemUse()) player.clientItemUse.startedSprinting(player.getClientVersion());
                 player.isSprinting = true;
                 player.sprintClearedAsPassenger = false;
                 player.vehicleData.camelSprintingState = SprintingState.STARTED;
