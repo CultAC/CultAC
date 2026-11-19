@@ -264,7 +264,7 @@ final class VelocityCompressedForward {
      * {@value #VELOCITY_QUIET_EXCEPTION}'s constructor as the decoder's loader resolves them; null when one cannot be
      * bound.
      */
-    static CompressedKeep.Decode decode(Object decoder) {
+    static @Nullable CompressedKeep.Decode decode(Object decoder) {
         return DECODE.get(decoder.getClass()).orElse(null);
     }
 

@@ -1254,8 +1254,7 @@ class VelocityCompressedForwardTest {
     void failedAllocationFinishesTheDecodeAsWithTheSwitchOff() {
         byte[] packet = packet(3000, 79);
         byte[] read = frame(body(packet, THRESHOLD));
-        // Direct allocation 1 is the decoder's output, 2 the keep's private frame; the switch-off read has only the
-        // first.
+        // Direct allocation 1 is the decoder's output, 2 the keep's private frame, which the switch-off read lacks.
         for (int at : new int[] {1, 2}) {
             List<String> seen = new ArrayList<>();
             for (boolean forward : new boolean[] {false, true}) {
@@ -3841,6 +3840,138 @@ class VelocityCompressedForwardTest {
             assertNull(VelocityCompressedForward.decode(new RunnableLimiterDecoder()));
             assertNotNull(VelocityCompressedForward.decode(f.decoder));
         }
+    }
+
+    @Test
+    void decodeFailureReachesTheHandlersAfterTheDecoderAsWithTheSwitchOff() {
+        byte[] body = body(packet(3000, 145), THRESHOLD);
+        Map<String, byte[]> reads = new LinkedHashMap<>();
+        reads.put("corrupt body", frame(Arrays.copyOf(body, body.length - 20)));
+        reads.put("refusing limiter", frame(body));
+        for (var read : reads.entrySet()) {
+            boolean refuse = read.getKey().equals("refusing limiter");
+            String off = caughtAt(read.getValue(), 0, false, refuse);
+            assertTrue(off.contains(", caught [last: "), off);
+            assertFalse(off.contains("between"), off);
+            for (int k = 1; k <= 3; k++)
+                for (boolean finalTrust : new boolean[] {false, true})
+                    assertEquals(
+                            off,
+                            caughtAt(read.getValue(), k, finalTrust, refuse),
+                            read.getKey() + " at keep allocation " + k + ", final trust " + finalTrust);
+        }
+    }
+
+    /**
+     * {@link #changedAt} with a handler that records each exception it is given inserted between the keep and the
+     * decoder and one at the end of the pipeline, and with {@code refuse}, a limiter that refuses; adds what they saw.
+     */
+    private static String caughtAt(byte[] read, int k, boolean finalTrust, boolean refuse) {
+        List<String> caught = new ArrayList<>();
+        String seen = changedAt(read, k, finalTrust, (f, frame) -> {
+            if (refuse) f.decoder.packetLimiter = recording(f, false);
+            f.backend
+                    .pipeline()
+                    .addBefore(VelocityCompressedForward.COMPRESSION_DECODER, "between", catching("between", caught));
+            f.backend.pipeline().addLast("last", catching("last", caught));
+        });
+        return seen + ", caught " + caught;
+    }
+
+    /** Records each exception it is given as {@code name} and its description, and passes it on. */
+    private static ChannelInboundHandlerAdapter catching(String name, List<String> caught) {
+        return new ChannelInboundHandlerAdapter() {
+            @Override
+            public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                caught.add(name + ": " + describe(cause));
+                ctx.fireExceptionCaught(cause);
+            }
+        };
+    }
+
+    @Test
+    void claimOfTwiceTheInflatedLengthFailsAsWithTheSwitchOff() {
+        byte[] body = body(packet(3000, 147), THRESHOLD);
+        assertArrayEquals(new byte[] {(byte) 0xb8, 0x17}, Arrays.copyOf(body, 2), "3000 as a varint");
+        body[0] = (byte) 0xf0;
+        body[1] = 0x2e;
+        checkSameFailure("claimed 6000", Options.forwarding(), f -> {}, frame(body));
+    }
+
+    @Test
+    void trustRefusalWhoseLoggerThrowsDeliversThePacketAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 148);
+        byte[] read = frame(body(packet, THRESHOLD));
+        assertPackets(List.of(packet), read(today(Options.today(), read.clone()), THRESHOLD));
+        leakDetectionDisabled(() -> {
+            try (var f = new Fixture(Options.forwarding().unlinked())) {
+                List<VelocityCompressedForward.Refusal> refusals = new ArrayList<>();
+                VelocityCompressedForward.place(
+                        f.forwarder,
+                        f.client.pipeline(),
+                        f.backend,
+                        DECODER,
+                        COMPRESSORS,
+                        TRUSTED.and(alloc -> !ResourceLeakDetector.isEnabled()),
+                        refusal -> {
+                            refusals.add(refusal);
+                            throw new IllegalStateException("logger");
+                        });
+                assertEquals("linked", f.forwarder.linkStatus());
+                var allocator = new RecordingAllocator();
+                atAllocation(
+                        allocator, 1, once(() -> ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID)));
+                f.backend.config().setAllocator(allocator);
+                Throwable thrown = null;
+                try {
+                    f.read(read.clone());
+                } catch (Throwable failure) {
+                    thrown = failure;
+                }
+                ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+                assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
+                assertEquals(List.of(VelocityCompressedForward.Refusal.UNTRUSTED), refusals);
+                assertInstanceOf(IllegalStateException.class, thrown, "the logger's own failure, after the packet");
+                assertEquals(0, f.forwarder.forwarded());
+                assertEquals(CompressedKeep.UNTRUSTED, f.forwarder.linkStatus());
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation");
+            }
+        });
+    }
+
+    @Test
+    void frameReadWhileTheDecodersAddIsPendingPassesOnAsWithTheSwitchOff() throws Exception {
+        byte[] read = frame(body(packet(3000, 149), THRESHOLD));
+        List<String> seen = new ArrayList<>();
+        for (boolean forward : new boolean[] {false, true}) {
+            try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+                ChannelHandlerContext decoder =
+                        f.backend.pipeline().context(VelocityCompressedForward.COMPRESSION_DECODER);
+                handlerState(decoder, "ADD_PENDING");
+                Throwable thrown = null;
+                try {
+                    f.read(read.clone());
+                } catch (Throwable failure) {
+                    thrown = failure;
+                } finally {
+                    handlerState(decoder, "ADD_COMPLETE");
+                }
+                seen.add(sent(f.wire()) + ", " + describe(thrown) + ", decoded " + f.decoder.inflated.size());
+                if (forward) {
+                    assertEquals(0, f.forwarder.forwarded());
+                    assertEquals("linked", f.forwarder.linkStatus());
+                }
+            }
+        }
+        assertEquals(seen.get(0), seen.get(1));
+    }
+
+    /** Sets {@code ctx}'s handler state to netty's state constant {@code state}. */
+    private static void handlerState(ChannelHandlerContext ctx, String state) throws ReflectiveOperationException {
+        Class<?> context = Class.forName("io.netty.channel.AbstractChannelHandlerContext");
+        Field field = context.getDeclaredField("handlerState");
+        field.setAccessible(true);
+        field.setInt(ctx, (int) staticField(context, state));
     }
 
     /** A decoder of the stand-in's shape whose limiter field's type has no {@code account(int)}. */

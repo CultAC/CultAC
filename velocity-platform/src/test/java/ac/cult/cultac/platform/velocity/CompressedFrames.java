@@ -333,9 +333,8 @@ final class CompressedFrames {
     }
 
     /**
-     * In the order of Velocity's decode: checks a compressed body's claimed length against its threshold and cap, then
-     * inflates it with its compressor into a direct buffer of that length allocated through the context, checks the
-     * inflated length and accounts the limiter, or passes an uncompressed body on as itself; fails through Velocity's
+     * In Velocity's decode order: checks a compressed claim against threshold and cap, inflates into a direct buffer of
+     * that length, checks the length and accounts the limiter, or passes an uncompressed body on; fails through the
      * {@link NettyPreconditions} and {@link QuietDecoderException} stand-ins.
      */
     static final class CompressDecoder extends MessageToMessageDecoder<ByteBuf> {

@@ -13,6 +13,8 @@ import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ResourceLeakDetector;
+import io.netty.util.internal.logging.InternalLogger;
+import io.netty.util.internal.logging.InternalLoggerFactory;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -60,6 +62,13 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     // MessageToMessageDecoder's read flags, which its channelReadComplete reads with auto-read off.
     private static final @Nullable VarHandle DECODE_CALLED = flag("decodeCalled");
     private static final @Nullable VarHandle MESSAGE_PRODUCED = flag("messageProduced");
+    // Netty invokes a context's handler only in the states its invokeHandler() reads from these fields.
+    private static final @Nullable VarHandle HANDLER_STATE = contextField("handlerState", int.class);
+    private static final @Nullable VarHandle ORDERED = contextField("ordered", boolean.class);
+    private static final int ADD_COMPLETE = contextConstant("ADD_COMPLETE");
+    private static final int ADD_PENDING = contextConstant("ADD_PENDING");
+    private static final InternalLogger CONTEXT_LOGGER =
+            InternalLoggerFactory.getInstance("io.netty.channel.AbstractChannelHandlerContext");
 
     /**
      * The backend decoder's threshold and limiter getters and its compressor's {@code inflate(ByteBuf, ByteBuf, int)},
@@ -80,6 +89,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     private @Nullable ChannelHandlerContext keepContext, decoderContext;
     private @Nullable MessageToMessageDecoder<?> decoder;
     private @Nullable Codec codec;
+    // A trust refusal of the read in decode, reported after its fire.
+    private boolean distrusted;
 
     CompressedKeep(CompressedForwarder forwarder) {
         this(forwarder, NETTY_ALLOCATORS);
@@ -106,6 +117,42 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         }
     }
 
+    private static Class<?> contextClass() throws ClassNotFoundException {
+        return Class.forName(
+                "io.netty.channel.AbstractChannelHandlerContext", false, ChannelHandlerContext.class.getClassLoader());
+    }
+
+    private static @Nullable VarHandle contextField(String name, Class<?> type) {
+        try {
+            Class<?> context = contextClass();
+            return MethodHandles.privateLookupIn(context, MethodHandles.lookup())
+                    .findVarHandle(context, name, type);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static int contextConstant(String name) {
+        try {
+            Class<?> context = contextClass();
+            return (int) MethodHandles.privateLookupIn(context, MethodHandles.lookup())
+                    .findStaticVarHandle(context, name, int.class)
+                    .get();
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
+            return -1;
+        }
+    }
+
+    /** Whether netty invokes {@code ctx}'s handler, as its context's {@code invokeHandler()} decides. */
+    static boolean invoked(ChannelHandlerContext ctx) {
+        try {
+            int state = (int) HANDLER_STATE.getVolatile(ctx);
+            return state == ADD_COMPLETE || (!(boolean) ORDERED.get(ctx) && state == ADD_PENDING);
+        } catch (RuntimeException unreadable) {
+            return false;
+        }
+    }
+
     private static @Nullable Object bufferLeakDetector() {
         try {
             return MethodHandles.privateLookupIn(AbstractByteBuf.class, MethodHandles.lookup())
@@ -121,9 +168,17 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         return detector != null && detector.getClass() == ResourceLeakDetector.class;
     }
 
-    /** Whether this netty lets the keep set the flags a decoder's read completion reads. */
+    /**
+     * Whether this netty lets the keep set the flags a decoder's read completion reads and read whether it invokes a
+     * context's handler.
+     */
     static boolean supported() {
-        return DECODE_CALLED != null && MESSAGE_PRODUCED != null;
+        return DECODE_CALLED != null
+                && MESSAGE_PRODUCED != null
+                && HANDLER_STATE != null
+                && ORDERED != null
+                && ADD_COMPLETE >= 0
+                && ADD_PENDING >= 0;
     }
 
     /** Caches the contexts of this keep and the compression decoder, a {@link MessageToMessageDecoder}, and its codec. */
@@ -219,6 +274,11 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             refuse(ctx, msg, null);
             return;
         }
+        // Netty passes a frame over a decoder whose handler it does not invoke yet.
+        if (!invoked(output)) {
+            ctx.fireChannelRead(msg);
+            return;
+        }
         if (limited(codec.limiter())) {
             refuse(ctx, msg, LIMITED);
             return;
@@ -262,7 +322,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
      * Completes Velocity's decode of {@code frame}, whose claim {@code n} the keep has read and which it has retained,
      * as {@code MinecraftCompressDecoder.decode} and {@code MessageToMessageDecoder.channelRead} complete it: inflates
      * into the decoder's allocation, checks the length, accounts the limiter, releases the keep's reference and the
-     * input, and fires the result from {@code output}, the decoder's context, with the mark when it can be forwarded.
+     * input, and fires the result from {@code output}, the decoder's context, with the mark when it can be forwarded, or
+     * delivers the failure from that context.
      */
     private void decode(
             ChannelHandlerContext ctx,
@@ -279,6 +340,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         ByteBuf client = null;
         ByteBuf copy = null;
         boolean held = false;
+        boolean refusedTrust = false;
         Throwable failure = null;
         try {
             try {
@@ -290,6 +352,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
                     held = copy != null
                             && forwardable(ctx, frame, codec, body, end)
                             && heldInflate(codec, frame, body, end - body, n, client, uncompressed, copy);
+                    refusedTrust = distrusted;
+                    distrusted = false;
                     if (!held) {
                         uncompressed.clear();
                         inflate(codec, frame, uncompressed, n);
@@ -316,21 +380,52 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         }
         boolean published = held && inflated != null;
         try {
-            if (inflated != null) {
-                MESSAGE_PRODUCED.set(decoder, true);
-                if (published) publish(output, inflated, copy, client);
-                else output.fireChannelRead(inflated);
+            try {
+                if (inflated != null) {
+                    MESSAGE_PRODUCED.set(decoder, true);
+                    if (published) publish(output, inflated, copy, client);
+                    else output.fireChannelRead(inflated);
+                }
+            } finally {
+                if (!published) {
+                    Throwable released = CompressedForwarder.release(client, null);
+                    released = CompressedForwarder.release(copy, released);
+                    if (failure == null) failure = released;
+                    else if (released != null) failure.addSuppressed(released);
+                }
             }
+            if (failure != null) deliver(output, failure);
         } finally {
-            if (!published) {
-                Throwable released = CompressedForwarder.release(client, null);
-                released = CompressedForwarder.release(copy, released);
-                if (failure == null) failure = released;
-                else if (released != null) failure.addSuppressed(released);
+            if (refusedTrust) untrusted.run();
+        }
+    }
+
+    /**
+     * Delivers {@code cause} as netty delivers a failure thrown from the read of {@code output}'s handler: to that
+     * handler's {@code exceptionCaught} when netty invokes it, else onward from {@code output}.
+     */
+    @SuppressWarnings("deprecation")
+    private static void deliver(ChannelHandlerContext output, Throwable cause) {
+        if (!invoked(output)) {
+            output.fireExceptionCaught(cause);
+            return;
+        }
+        try {
+            output.handler().exceptionCaught(output, cause);
+        } catch (Throwable error) {
+            if (CONTEXT_LOGGER.isDebugEnabled()) {
+                CONTEXT_LOGGER.debug(
+                        "An exception was thrown by a user handler's exceptionCaught() method while handling the"
+                                + " following exception:",
+                        cause);
+            } else if (CONTEXT_LOGGER.isWarnEnabled()) {
+                CONTEXT_LOGGER.warn(
+                        "An exception '{}' [enable DEBUG level for full stacktrace] was thrown by a user handler's"
+                                + " exceptionCaught() method while handling the following exception:",
+                        error,
+                        cause);
             }
         }
-        if (failure instanceof Exception exception) throw exception;
-        if (failure instanceof Error error) throw error;
     }
 
     /** The decoder's output buffer of {@code n} bytes; when the allocation throws, the keep's reference is released. */
@@ -359,7 +454,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         }
         if (!trusted(ctx)) {
             forwarder.unlinkDetached(this, UNTRUSTED);
-            untrusted.run();
+            distrusted = true;
             return false;
         }
         return unchanged(frame, codec, body, end);
