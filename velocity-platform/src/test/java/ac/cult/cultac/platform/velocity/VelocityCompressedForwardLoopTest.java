@@ -799,6 +799,7 @@ class VelocityCompressedForwardLoopTest {
                 Pair client = connect(true);
                 receive(client);
                 var written = new CountDownLatch(1);
+                var held = new CountDownLatch(1);
                 CompressedForwarder forwarder = onLoop(() -> {
                     var pipeline = client.proxySide().pipeline();
                     pipeline.addLast("written", new ChannelOutboundHandlerAdapter() {
@@ -836,7 +837,8 @@ class VelocityCompressedForwardLoopTest {
                             try {
                                 client.proxySide().writeAndFlush(buf.retain());
                                 // The read holds its publish until the client's loop has run the write.
-                                written.await(5, TimeUnit.SECONDS);
+                                await(written);
+                                held.countDown();
                             } finally {
                                 buf.release();
                             }
@@ -859,6 +861,7 @@ class VelocityCompressedForwardLoopTest {
                     backend.proxySide().config().setAutoRead(true);
                     backend.proxySide().read();
                 });
+                await(held);
                 assertPackets(List.of(packet), awaitFrames(1));
                 synchronized (received) {
                     sent.add(received.toByteArray());
