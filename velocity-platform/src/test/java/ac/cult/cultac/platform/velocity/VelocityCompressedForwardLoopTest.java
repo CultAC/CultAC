@@ -293,6 +293,108 @@ class VelocityCompressedForwardLoopTest {
     }
 
     @Test
+    void clientDeregisteredBeforeABackendReadPublishesNothingAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        byte[] old = packet(4000, 101);
+        byte[] next = packet(3000, 102);
+        List<byte[]> sent = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                synchronized (received) {
+                    received.reset();
+                }
+                Pair client = client(on);
+                Channel toClient = client.proxySide();
+                var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                if (on) assertNotNull(forwarder);
+                var oldRead = new CountDownLatch(1);
+                var nextPublished = new CountDownLatch(1);
+                var oldDone = new CountDownLatch(1);
+                Pair oldBackend = backend(group, new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        ByteBuf buf = (ByteBuf) msg;
+                        try {
+                            oldRead.countDown();
+                            // The old backend's read stays inside its fire until the next backend's has published.
+                            await(nextPublished);
+                            toClient.writeAndFlush(buf.retain());
+                        } finally {
+                            buf.release();
+                        }
+                    }
+
+                    @Override
+                    public void channelReadComplete(ChannelHandlerContext ctx) {
+                        oldDone.countDown();
+                    }
+                });
+                Pair nextBackend = backend(second, new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        ByteBuf buf = (ByteBuf) msg;
+                        try {
+                            toClient.writeAndFlush(buf.retain());
+                            nextPublished.countDown();
+                            await(oldDone);
+                        } finally {
+                            buf.release();
+                        }
+                    }
+                });
+                // The server ends run on the loop the old read holds, so the next frame is sent before that read.
+                nextBackend
+                        .remote()
+                        .writeAndFlush(Unpooled.wrappedBuffer(frame(body(next, THRESHOLD))))
+                        .sync();
+                if (on) {
+                    within(toClient, () -> {
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, oldBackend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                        return null;
+                    });
+                    assertEquals("linked", within(toClient, forwarder::linkStatus));
+                }
+                toClient.deregister().sync();
+                assertFalse(toClient.isRegistered());
+                assertSame(oldBackend.proxySide().eventLoop(), toClient.eventLoop());
+                serve(oldBackend, old);
+                await(oldRead);
+                second.register(toClient).sync();
+                assertSame(nextBackend.proxySide().eventLoop(), toClient.eventLoop());
+                if (on) {
+                    within(toClient, () -> {
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, nextBackend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                        return null;
+                    });
+                    assertEquals("linked", within(toClient, forwarder::linkStatus));
+                }
+                nextBackend.proxySide().eventLoop().execute(() -> {
+                    nextBackend.proxySide().config().setAutoRead(true);
+                    nextBackend.proxySide().read();
+                });
+                var frames = awaitFrames(2);
+                assertPackets(List.of(next, old), frames);
+                sent.add(frames.get(1).body());
+                if (on) {
+                    assertArrayEquals(
+                            body(next, THRESHOLD), frames.getFirst().body(), "the next backend's frame as sent");
+                    assertEquals(1L, within(toClient, forwarder::forwarded));
+                    assertNull(within(toClient, () -> forwarder.markBuf), "no mark outlives the reads");
+                    assertNull(within(toClient, forwarder::markFrame), "every private frame is taken or released");
+                }
+                oldBackend.proxySide().close().sync();
+                nextBackend.proxySide().close().sync();
+                toClient.close().sync();
+            }
+            assertArrayEquals(sent.get(0), sent.get(1), "the old frame the encoder compresses with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
     void clientMovedToAnotherLoopForwardsAgainFromABackendLinkedOnThatLoop() throws Exception {
         var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
         byte[] first = packet(4000, 99);

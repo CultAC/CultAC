@@ -199,7 +199,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
-        // A channel moved to another event loop writes on a thread other than the one that published the mark.
+        // Defence only: a keep publishes on the client's loop, where every write of this channel runs.
         if (markThread != Thread.currentThread()) {
             ctx.write(msg, promise);
             return;
@@ -398,9 +398,13 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         markThread = Thread.currentThread();
     }
 
-    /** Whether the current thread is the client channel's event loop, the only thread a keep publishes from. */
+    /**
+     * Whether the client channel is registered and the current thread is its event loop, the only thread a keep
+     * publishes from; a channel registered on that loop when a read starts cannot leave it before the read ends.
+     */
     boolean onClientLoop() {
-        return inbound.channel().eventLoop().inEventLoop();
+        Channel client = inbound.channel();
+        return client.isRegistered() && client.eventLoop().inEventLoop();
     }
 
     int markReader() {
