@@ -153,7 +153,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         return atThreshold(codec, n) ? n : -1;
     }
 
-    /** Whether {@code n} is at or above the backend decoder's threshold as {@code codec} reads it now. */
+    /** Whether {@code n} is at or above the backend decoder's current threshold, as {@code codec} reads it. */
     private static boolean atThreshold(Codec codec, int n) {
         try {
             return n >= (int) codec.threshold().invokeExact();
@@ -226,13 +226,19 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             // Velocity's decoder reads the claim and retains its input before its first allocation.
             body = start + CompressedForwarder.dataLengthSize(frame, start, end);
             frame.readerIndex(body);
-            frame.retain();
+            try {
+                frame.retain();
+            } catch (IllegalReferenceCountException overflow) {
+                frame.readerIndex(start);
+                ctx.fireChannelRead(msg);
+                return;
+            }
             client =
                     forwarder.frameBuffer(ctx.alloc(), CompressedForwarder.varIntSize(n) + end - body, codec.address());
             if (client != null) inflated = allocate(ctx, n, true);
             if (inflated != null) copy = allocate(ctx, n, false);
         }
-        // A leak report in these allocations runs code that can change the pipeline, the limiter or the frame.
+        // Code a trusted allocator runs in these allocations can change the pipeline, the limiter or the frame.
         boolean adjacent = adjacent();
         boolean limited = adjacent && limited(codec.limiter());
         if (n > 0) trusted = trusted(ctx);

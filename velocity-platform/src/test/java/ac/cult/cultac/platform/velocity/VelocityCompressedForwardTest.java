@@ -2591,6 +2591,64 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void frameAtTheMaximumCountFailsAsWithTheSwitchOff() {
+        byte[] read = frame(body(packet(3000, 126), THRESHOLD));
+        List<String> seen = new ArrayList<>();
+        for (boolean forward : new boolean[] {false, true}) {
+            String label = "forward " + forward;
+            var frames = new ArrayList<ByteBuf>();
+            try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+                replaceFrames(f, frame -> {
+                    ByteBuf copy = Unpooled.buffer(frame.readableBytes()).writeBytes(frame);
+                    frames.add(saturated(copy));
+                    return copy;
+                });
+                var failure = assertThrows(Exception.class, () -> f.read(read.clone()), label);
+                ByteBuf frame = frames.getFirst();
+                seen.add(failure.getClass().getName() + " caused by "
+                        + (failure.getCause() == null
+                                ? null
+                                : failure.getCause().getClass().getName())
+                        + ", packets " + read(f.wire(), THRESHOLD).size() + ", reader " + frame.readerIndex()
+                        + ", count " + frame.refCnt());
+                if (forward) assertEquals(0, f.forwarder.forwarded(), label);
+                assertTrue(frame.release(frame.refCnt()), label);
+            }
+        }
+        assertEquals(seen.get(0), seen.get(1));
+    }
+
+    /** {@code buf} retained to the largest count netty allows, where one more retain throws. */
+    private static ByteBuf saturated(ByteBuf buf) {
+        for (int step = 1 << 30; step > 0; step >>= 1) {
+            try {
+                buf.retain(step);
+            } catch (IllegalReferenceCountException full) {
+                // The count stays where it was.
+            }
+        }
+        int count = buf.refCnt();
+        assertThrows(IllegalReferenceCountException.class, buf::retain);
+        assertEquals(count, buf.refCnt());
+        return buf;
+    }
+
+    @Test
+    void disabledOrRemovedForwarderReportsNoLink() {
+        for (boolean removed : new boolean[] {false, true}) {
+            String label = removed ? "removed" : "disabled";
+            try (var f = new Fixture(Options.forwarding())) {
+                assertEquals("linked", f.forwarder.linkStatus(), label);
+                if (removed) f.client.pipeline().remove(f.forwarder);
+                else f.forwarder.disable("test-disabled");
+                assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                assertEquals("none", f.forwarder.linkStatus(), label);
+                assertTrue(f.forwarder.stats().contains(", link=none,"), label);
+            }
+        }
+    }
+
+    @Test
     void allocatorSetByTheKeepsAllocationGetsTheReadUnmarked() {
         byte[] packet = packet(3000, 114);
         byte[] body = body(packet, THRESHOLD);

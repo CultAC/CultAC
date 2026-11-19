@@ -419,7 +419,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         linkChannel = null;
         linkKeep = null;
         if (channel == null) return;
-        if (!disabled) linkStatus = "none";
+        linkStatus = "none";
         if (channel.eventLoop().inEventLoop()) {
             remove(channel.pipeline(), keep);
             return;
