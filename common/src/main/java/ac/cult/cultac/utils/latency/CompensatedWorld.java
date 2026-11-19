@@ -1721,6 +1721,14 @@ public class CompensatedWorld {
         return clientChunkCache.ticks(x, z);
     }
 
+    /**
+     * Changes whenever {@link #isClientEntityTickingChunk} may answer differently for a chunk; negative while no
+     * version tracks it.
+     */
+    public long clientEntityTickingVersion() {
+        return clientChunkCache.tickingVersion();
+    }
+
     void entityChunkTicking(int x, int z, boolean ticking) {
         if (player.compensatedEntities != null) player.compensatedEntities.onClientChunkTicking(x, z, ticking);
     }

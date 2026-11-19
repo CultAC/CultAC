@@ -74,7 +74,13 @@ class SettledInterpolationParityTest {
             "loadedChunkPosition",
             "loadedChunkWorld",
             "loadedChunkEpoch",
-            "loadedChunk");
+            "loadedChunk",
+            "tickingChunkX",
+            "tickingChunkZ",
+            "tickingChunkWorld",
+            "tickingChunkVersion",
+            "inTickingChunk",
+            "clientTickMember");
 
     private int settledStepped;
     private int settledLegacy;

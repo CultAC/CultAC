@@ -227,6 +227,13 @@ public class PacketEntity {
     // Set by an unproven receipt, fold, teleport, far sync, seat placement or uncertain vehicle; holds for life.
     private boolean trackedPositionInexact;
     private long clientTickOrder = Long.MAX_VALUE;
+    // ClientEntityTickOrder's record of this entity while it holds one.
+    public @Nullable Object clientTickMember;
+    // The last isInClientTickingChunk answer, with the chunk, world and world version it holds for.
+    private int tickingChunkX, tickingChunkZ;
+    private @Nullable CompensatedWorld tickingChunkWorld;
+    private long tickingChunkVersion = -1;
+    private boolean inTickingChunk;
     // Reused: valid only until the client tick that computed it applies it.
     private SimpleCollisionBox exactAfterClientTickBox;
     // The lerped position exactAfterClientTickBox is built from, when the interpolation steps from the physical one.
@@ -2429,6 +2436,20 @@ public class PacketEntity {
 
     public SimpleCollisionBox getPossiblePositionBoxes() {
         return getPossiblePositionBoxes(new SimpleCollisionBox(), new SimpleCollisionBox());
+    }
+
+    /** {@link CompensatedWorld#isClientEntityTickingChunk} of chunk {@code x}, {@code z}. */
+    public boolean isInClientTickingChunk(CompensatedWorld world, int x, int z) {
+        long version = world.clientEntityTickingVersion();
+        if (version < 0) return world.isClientEntityTickingChunk(x, z);
+        if (version != tickingChunkVersion || x != tickingChunkX || z != tickingChunkZ || world != tickingChunkWorld) {
+            inTickingChunk = world.isClientEntityTickingChunk(x, z);
+            tickingChunkWorld = world;
+            tickingChunkX = x;
+            tickingChunkZ = z;
+            tickingChunkVersion = version;
+        }
+        return inTickingChunk;
     }
 
     public long getClientTickOrder() {

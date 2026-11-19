@@ -6,8 +6,8 @@ import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * TransientEntitySectionManager's EntityTickList callbacks. A tracked non-player ticks only in a ticking chunk;
@@ -17,7 +17,6 @@ import java.util.List;
 final class ClientEntityTickOrder {
     private final CompensatedEntities owner;
     private final CompensatedWorld world;
-    private final IdentityHashMap<PacketEntity, Member> members = new IdentityHashMap<>();
     // The positioned non-players of each chunk column, linked from the last one to enter it.
     private final Long2ObjectOpenHashMap<Member> columns = new Long2ObjectOpenHashMap<>();
     private long sectionEntryOrder;
@@ -28,44 +27,49 @@ final class ClientEntityTickOrder {
         this.world = world;
     }
 
+    private static @Nullable Member member(PacketEntity entity) {
+        return (Member) entity.clientTickMember;
+    }
+
     void add(PacketEntity entity) {
         Member member = new Member(entity);
         entity.setClientTickOrder(Long.MAX_VALUE);
-        members.put(entity, member);
+        entity.clientTickMember = member;
         move(member);
     }
 
     void localPlayer(PacketEntity entity, Vec3 position) {
         if (localPlayer != entity) {
-            if (localPlayer != null) members.remove(localPlayer);
+            if (localPlayer != null) localPlayer.clientTickMember = null;
             localPlayer = entity;
-            members.put(entity, new Member(entity));
+            entity.clientTickMember = new Member(entity);
         }
-        move(members.get(entity), position.x, position.y, position.z);
+        move(member(entity), position.x, position.y, position.z);
     }
 
     long localSectionEntry() {
-        return members.get(localPlayer).enteredSection;
+        return member(localPlayer).enteredSection;
     }
 
     /** When {@code entity} entered its current entity section, in section entry order; unknown entities last. */
     long sectionEntry(PacketEntity entity) {
-        Member member = members.get(entity);
+        Member member = member(entity);
         return member == null ? Long.MAX_VALUE : member.enteredSection;
     }
 
     void remove(PacketEntity entity) {
-        Member member = members.remove(entity);
+        Member member = member(entity);
+        entity.clientTickMember = null;
         if (member != null) unlink(member);
     }
 
     void moved(PacketEntity entity) {
-        Member member = members.get(entity);
+        Member member = member(entity);
         if (member != null) move(member);
     }
 
     boolean isTicking(PacketEntity entity) {
-        Member member = members.get(entity);
+        Member member = member(entity);
         return member != null && member.ticking;
     }
 
@@ -77,14 +81,14 @@ final class ClientEntityTickOrder {
         if (z != 0) return z < 0;
         int y = Integer.compare((CultMath.floor(a.y) >> 4) & 0xFFFFF, (CultMath.floor(b.y) >> 4) & 0xFFFFF);
         if (y != 0) return y < 0;
-        Member left = members.get(first), right = members.get(second);
+        Member left = member(first), right = member(second);
         return left != null && right != null
                 ? firstEntry < right.enteredSection
                 : first.getClientTickOrder() < second.getClientTickOrder();
     }
 
     void moved(PacketEntity entity, double x, double y, double z) {
-        Member member = members.get(entity);
+        Member member = member(entity);
         if (member != null) move(member, x, y, z);
     }
 
@@ -108,7 +112,9 @@ final class ClientEntityTickOrder {
             if (column) link(member);
         }
         if (member.entity != localPlayer)
-            membership(member, member.entity.type == EntityTypeIds.PLAYER || world.isClientEntityTickingChunk(x, z));
+            membership(
+                    member,
+                    member.entity.type == EntityTypeIds.PLAYER || member.entity.isInClientTickingChunk(world, x, z));
     }
 
     void chunk(int x, int z, boolean ticking) {

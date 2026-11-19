@@ -76,7 +76,7 @@ public class PunishmentManager implements ConfigReloadable {
                         command.command(),
                         alertFormat(config, command.command())));
             }
-            groups.add(new PunishGroup(held, parsed, rule.removeViolationsAfter() * 1000));
+            groups.add(new PunishGroup(new HashSet<>(held), parsed, rule.removeViolationsAfter() * 1000));
         }
         for (int i = 0; i < known.length; i++) {
             if (PunishmentRules.holds(rules.unreadGroupSelectors(), names[i], alternativeNames[i])) {
@@ -359,7 +359,7 @@ public class PunishmentManager implements ConfigReloadable {
 
 @RequiredArgsConstructor
 class PunishGroup {
-    public final List<AbstractCheck> checks;
+    public final Set<AbstractCheck> checks;
     public final List<ParsedCommand> commands;
     public final Long2ObjectMap<Check> violations = new Long2ObjectOpenHashMap<>();
     public final int removeViolationsAfter; // time to remove violations after in milliseconds

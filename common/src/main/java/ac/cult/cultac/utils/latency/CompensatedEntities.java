@@ -1863,8 +1863,8 @@ public class CompensatedEntities {
         if (!player.isBedrockMovement() && isUntrackedRider(entity)) return clientTickMembership.isTicking(entity);
         Vec3 position = entity.clientPhysicalPosition;
         return position != null
-                && player.compensatedWorld.isClientEntityTickingChunk(
-                        CultMath.floor(position.x) >> 4, CultMath.floor(position.z) >> 4);
+                && entity.isInClientTickingChunk(
+                        player.compensatedWorld, CultMath.floor(position.x) >> 4, CultMath.floor(position.z) >> 4);
     }
 
     public void tickClientEntities(Consumer<PacketEntity> tick) {

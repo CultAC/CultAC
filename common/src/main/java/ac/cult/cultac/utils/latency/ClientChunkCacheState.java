@@ -12,6 +12,7 @@ final class ClientChunkCacheState {
     private final CompensatedWorld world;
     private Int2LongOpenHashMap slots = new Int2LongOpenHashMap();
     private final LongOpenHashSet ticking = new LongOpenHashSet();
+    private long tickingVersion;
     private boolean enabled;
     private int serverRadius = 3;
     private int radius = 6;
@@ -31,6 +32,7 @@ final class ClientChunkCacheState {
         for (long key : ticking) world.entityChunkTicking(x(key), z(key), false);
         slots.clear();
         ticking.clear();
+        tickingVersion++;
         radius = Math.max(2, serverRadius) + 3;
         centerX = centerZ = 0;
     }
@@ -84,6 +86,11 @@ final class ClientChunkCacheState {
         return bounded() ? centerZ + radius : Integer.MAX_VALUE;
     }
 
+    /** Changes whenever {@link #ticks} may answer differently for a chunk; negative while no ticking set answers. */
+    long tickingVersion() {
+        return enabled ? tickingVersion : -1;
+    }
+
     boolean ticks(int x, int z) {
         return !enabled ? world.isChunkLoaded(x, z) : ticking.contains(key(x, z));
     }
@@ -97,11 +104,12 @@ final class ClientChunkCacheState {
             long old = slots.get(index);
             if (old != key) {
                 ticking.remove(old);
+                tickingVersion++;
                 world.unloadClientChunk(x(old), z(old));
             }
         }
         slots.put(index, key);
-        ticking.add(key);
+        if (ticking.add(key)) tickingVersion++;
         return true;
     }
 
@@ -110,6 +118,7 @@ final class ClientChunkCacheState {
         if (!contains(x, z)) return false;
         slots.remove(index(x, z));
         ticking.remove(key(x, z));
+        tickingVersion++;
         return true;
     }
 
