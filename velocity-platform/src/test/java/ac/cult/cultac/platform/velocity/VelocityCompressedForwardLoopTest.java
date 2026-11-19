@@ -26,6 +26,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.local.LocalAddress;
@@ -35,13 +36,19 @@ import io.netty.channel.local.LocalServerChannel;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import java.io.ByteArrayOutputStream;
+import java.lang.management.LockInfo;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -378,6 +385,121 @@ class VelocityCompressedForwardLoopTest {
             assertEquals(2, packets.size());
             assertArrayEquals(first, packets.get(0), "the first frame reaches the next handler compressed");
             assertArrayEquals(second, packets.get(1));
+        }
+    }
+
+    @Test
+    void handlerAddedOnAnotherExecutorWhileTheClientInstallWaitsGetsNoForwarderAsWithTheSwitchOff() throws Exception {
+        var foreign = new DefaultEventExecutorGroup(1);
+        try {
+            List<List<String>> seen = new ArrayList<>();
+            for (boolean on : new boolean[] {false, true}) {
+                Pair client = connect(true);
+                ChannelPipeline pipeline = client.proxySide().pipeline();
+                Thread loop = onLoop(() -> {
+                    var compressor = new SharedCompressor();
+                    pipeline.addLast("cipher-encoder", new CipherEncoder());
+                    pipeline.addLast(
+                            VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+                    pipeline.addLast(
+                            CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+                    pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
+                    pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
+                    return Thread.currentThread();
+                });
+                List<String> expected = new ArrayList<>(onLoop(pipeline::names));
+                expected.addFirst("foreign");
+                var refusals = new CopyOnWriteArrayList<VelocityCompressedForward.Refusal>();
+                Future<CompressedForwarder> install = null;
+                synchronized (pipeline) {
+                    if (on) {
+                        install = client.proxySide()
+                                .eventLoop()
+                                .submit(() -> VelocityCompressedForward.install(
+                                        pipeline,
+                                        CompressEncoder.class,
+                                        CompressDecoder.class,
+                                        COMPRESSORS,
+                                        refusals::add));
+                        awaitBlockedOn(loop, pipeline);
+                    }
+                    pipeline.addFirst(foreign, "foreign", new ChannelInboundHandlerAdapter());
+                }
+                if (on) {
+                    assertNull(install.get(5, TimeUnit.SECONDS));
+                    assertEquals(List.of(VelocityCompressedForward.Refusal.EXECUTOR), refusals);
+                }
+                List<String> names = onLoop(pipeline::names);
+                assertEquals(expected, names, "exactly the foreign handler more than before");
+                seen.add(names);
+                client.proxySide().close().sync();
+            }
+            assertEquals(seen.get(0), seen.get(1));
+        } finally {
+            foreign.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
+    }
+
+    @Test
+    void handlerAddedOnAnotherExecutorWhileTheBackendLinkWaitsGetsNoKeepAsWithTheSwitchOff() throws Exception {
+        var foreign = new DefaultEventExecutorGroup(1);
+        try {
+            List<List<String>> seen = new ArrayList<>();
+            for (boolean on : new boolean[] {false, true}) {
+                Pair client = client();
+                var forwarder =
+                        (CompressedForwarder) client.proxySide().pipeline().get(CompressedForwarder.NAME);
+                assertNotNull(forwarder);
+                Pair backend = backend(client.proxySide());
+                ChannelPipeline pipeline = backend.proxySide().pipeline();
+                Thread loop = onLoop(Thread::currentThread);
+                List<String> expected = new ArrayList<>(onLoop(pipeline::names));
+                expected.addFirst("foreign");
+                Future<?> link = null;
+                synchronized (pipeline) {
+                    if (on) {
+                        link = backend.proxySide()
+                                .eventLoop()
+                                .submit(() -> VelocityCompressedForward.link(
+                                        forwarder,
+                                        client.proxySide(),
+                                        backend.proxySide(),
+                                        CompressDecoder.class,
+                                        COMPRESSORS));
+                        awaitBlockedOn(loop, pipeline);
+                    }
+                    pipeline.addFirst(foreign, "foreign", new ChannelInboundHandlerAdapter());
+                }
+                if (on) {
+                    link.get(5, TimeUnit.SECONDS);
+                    assertEquals("backend-executor", onLoop(forwarder::linkStatus));
+                }
+                List<String> names = onLoop(pipeline::names);
+                assertEquals(expected, names, "exactly the foreign handler more than before");
+                seen.add(names);
+                backend.proxySide().close().sync();
+                client.proxySide().close().sync();
+            }
+            assertEquals(seen.get(0), seen.get(1));
+        } finally {
+            foreign.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
+    }
+
+    /** Waits until {@code thread} is blocked entering {@code monitor}'s monitor. */
+    private static void awaitBlockedOn(Thread thread, Object monitor) {
+        ThreadMXBean threads = ManagementFactory.getThreadMXBean();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (true) {
+            ThreadInfo info = threads.getThreadInfo(thread.threadId());
+            LockInfo lock = info == null ? null : info.getLockInfo();
+            if (info != null
+                    && info.getThreadState() == Thread.State.BLOCKED
+                    && lock != null
+                    && lock.getIdentityHashCode() == System.identityHashCode(monitor)
+                    && lock.getClassName().equals(monitor.getClass().getName())) return;
+            if (System.nanoTime() > deadline) fail("not blocked on the pipeline: " + info);
+            Thread.onSpinWait();
         }
     }
 

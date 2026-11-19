@@ -14,7 +14,13 @@ import ac.cult.cultac.protocol.data.ProtocolData;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import com.velocitypowered.api.event.EventHandler;
+import com.velocitypowered.api.event.EventManager;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
+import com.velocitypowered.api.event.player.ServerPostConnectEvent;
+import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.proxy.network.limiter.PacketLimiter;
 import io.netty.buffer.AbstractByteBuf;
 import io.netty.buffer.AbstractByteBufAllocator;
@@ -87,6 +93,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.AdditionalAnswers;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Real frames through the forwarding handlers between stand-ins for Velocity's own, on two embedded channels. Every
@@ -3953,7 +3960,10 @@ class VelocityCompressedForwardTest {
         }
     }
 
-    /** A netty pipeline, built with leak detection disabled, that hands every call to {@code real}. */
+    /**
+     * A netty pipeline, built with leak detection disabled, that hands every call to {@code real}; its monitor is its
+     * own, so an installer's lock on it does not hold off a mutation of {@code real}.
+     */
     private static ChannelPipeline delegating(ChannelPipeline real) {
         ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
         ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
@@ -4032,48 +4042,59 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
-    void backendPipelineBuiltWithLeakDetectionGetsNoKeepAsWithTheSwitchOff() {
+    void backendPipelineBuiltWithLeakDetectionGetsNoKeepAsWithTheSwitchOff() throws Exception {
         byte[] packet = packet(3000, 154);
         byte[] body = body(packet, THRESHOLD);
-        List<String> seen = new ArrayList<>();
         ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
-        for (boolean on : new boolean[] {false, true}) {
-            try (var f = new Fixture(on ? Options.forwarding().unlinked() : Options.today())) {
-                var touching = f.backend(Options.forwarding(), new EmbeddedChannel());
-                ChannelPipeline pipeline = touching.channel.pipeline();
-                ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
-                try {
-                    assertTrue(CompressedForwarder.touches(pipeline), "built under the suite's paranoid level");
-                    if (on) {
-                        VelocityCompressedForward.place(
-                                f.forwarder,
-                                f.client.pipeline(),
-                                touching.channel,
-                                DECODER,
-                                COMPRESSORS,
-                                CompressedKeep.NETTY_ALLOCATORS);
-                        assertEquals(CompressedKeep.LEAK_DETECTION, f.forwarder.linkStatus());
-                        assertNull(pipeline.get(CompressedKeep.NAME));
+        var group = new DefaultEventExecutorGroup(1);
+        try {
+            for (boolean elsewhere : new boolean[] {false, true}) {
+                String side = elsewhere ? "with a handler on another executor" : "on the loop";
+                List<String> seen = new ArrayList<>();
+                for (boolean on : new boolean[] {false, true}) {
+                    try (var f = new Fixture(on ? Options.forwarding().unlinked() : Options.today())) {
+                        var touching = f.backend(Options.forwarding(), new EmbeddedChannel());
+                        ChannelPipeline pipeline = touching.channel.pipeline();
+                        if (elsewhere) pipeline.addLast(group, "elsewhere", new ChannelInboundHandlerAdapter());
+                        ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+                        try {
+                            assertTrue(CompressedForwarder.touches(pipeline), "built under the suite's paranoid level");
+                            if (on) {
+                                VelocityCompressedForward.place(
+                                        f.forwarder,
+                                        f.client.pipeline(),
+                                        touching.channel,
+                                        DECODER,
+                                        COMPRESSORS,
+                                        CompressedKeep.NETTY_ALLOCATORS);
+                                assertEquals(CompressedKeep.LEAK_DETECTION, f.forwarder.linkStatus(), side);
+                                assertNull(pipeline.get(CompressedKeep.NAME), side);
+                            }
+                            var frame = new TouchedOnce(body);
+                            Throwable thrown = null;
+                            try {
+                                pipeline.context("read-timeout").fireChannelRead(frame);
+                                pipeline.context("read-timeout").fireChannelReadComplete();
+                                touching.channel.checkException();
+                            } catch (Throwable failure) {
+                                thrown = failure;
+                            }
+                            seen.add("touches " + frame.touches.size() + ", " + sent(f.wire()) + ", " + describe(thrown)
+                                    + ", count " + frame.refCnt() + ", " + pipeline.names());
+                            if (frame.refCnt() > 0) frame.release(frame.refCnt());
+                        } finally {
+                            ResourceLeakDetector.setLevel(level);
+                        }
                     }
-                    var frame = new TouchedOnce(body);
-                    Throwable thrown = null;
-                    try {
-                        pipeline.context("read-timeout").fireChannelRead(frame);
-                        pipeline.context("read-timeout").fireChannelReadComplete();
-                        touching.channel.checkException();
-                    } catch (Throwable failure) {
-                        thrown = failure;
-                    }
-                    seen.add("touches " + frame.touches.size() + ", " + sent(f.wire()) + ", " + describe(thrown)
-                            + ", count " + frame.refCnt());
-                    if (frame.refCnt() > 0) frame.release(frame.refCnt());
-                } finally {
-                    ResourceLeakDetector.setLevel(level);
                 }
+                assertTrue(
+                        seen.get(0).startsWith("touches 1, [" + Arrays.toString(packet) + "], ok"),
+                        side + ": " + seen.get(0));
+                assertEquals(seen.get(0), seen.get(1), side);
             }
+        } finally {
+            group.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
         }
-        assertTrue(seen.get(0).startsWith("touches 1, [" + Arrays.toString(packet) + "], ok"), seen.get(0));
-        assertEquals(seen.get(0), seen.get(1));
     }
 
     @Test
@@ -4711,13 +4732,14 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
-    void linkHandOffThatThrowsAfterAnInstallLeavesTheForwarderUnlinked() {
+    void linkHandOffThatThrowsLeavesTheLinkStateAsItWas() {
         for (Throwable thrown : List.of(
                 new RejectedExecutionException("shut down"),
                 new IllegalStateException("loop"),
                 new OutOfMemoryError("queue"))) {
             String side = thrown.getClass().getSimpleName();
             var embedded = channel();
+            var previous = channel();
             try {
                 ChannelPipeline pipeline = embedded.pipeline();
                 var compressor = new SharedCompressor();
@@ -4734,14 +4756,50 @@ class VelocityCompressedForwardTest {
                                 pipeline.get(CompressedForwarder.NAME) == null ? embedded.eventLoop() : failing);
                 var connection = new CultConnection(client, new PacketDispatcher(RUNTIME), ignored -> null);
                 VelocityConnectionAdapter adapter = mock(VelocityConnectionAdapter.class);
-                assertDoesNotThrow(() -> forward().installClient(connection, adapter, null), side);
+                var proxy = mock(ProxyServer.class);
+                var events = mock(EventManager.class);
+                when(proxy.getEventManager()).thenReturn(events);
+                Object plugin = new Object();
+                var forward = new VelocityCompressedForward(
+                        proxy,
+                        plugin,
+                        player -> client,
+                        new VelocityCompressedForward.Codecs(CompressEncoder.class, DECODER, COMPRESSORS));
+                forward.listen();
+                @SuppressWarnings("unchecked")
+                ArgumentCaptor<EventHandler<ServerConnectedEvent>> connected =
+                        ArgumentCaptor.forClass(EventHandler.class);
+                @SuppressWarnings("unchecked")
+                ArgumentCaptor<EventHandler<ServerPostConnectEvent>> postConnected =
+                        ArgumentCaptor.forClass(EventHandler.class);
+                verify(events).register(eq(plugin), eq(ServerConnectedEvent.class), connected.capture());
+                verify(events).register(eq(plugin), eq(ServerPostConnectEvent.class), postConnected.capture());
+
+                assertDoesNotThrow(() -> forward.installClient(connection, adapter, null), side);
                 verify(failing).execute(any(Runnable.class));
                 var forwarder =
                         assertInstanceOf(CompressedForwarder.class, pipeline.get(CompressedForwarder.NAME), side);
                 verify(adapter).compressedForwarder(forwarder);
                 assertEquals("none", forwarder.linkStatus(), side);
+
+                previous.pipeline()
+                        .addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+                VelocityCompressedForward.place(forwarder, pipeline, previous, DECODER, COMPRESSORS, TRUSTED);
+                assertEquals("linked", forwarder.linkStatus(), side);
+                Player player = mock(Player.class);
+                assertDoesNotThrow(
+                        () -> connected
+                                .getValue()
+                                .execute(new ServerConnectedEvent(player, mock(RegisteredServer.class), null)),
+                        side);
+                assertDoesNotThrow(
+                        () -> postConnected.getValue().execute(new ServerPostConnectEvent(player, null)), side);
+                verify(failing, times(3)).execute(any(Runnable.class));
+                assertTrue(forwarder.linkedTo(previous), side);
+                assertEquals("linked", forwarder.linkStatus(), side);
             } finally {
                 embedded.finishAndReleaseAll();
+                previous.finishAndReleaseAll();
             }
         }
     }

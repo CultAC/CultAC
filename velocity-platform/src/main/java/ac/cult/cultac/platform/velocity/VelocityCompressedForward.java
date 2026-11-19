@@ -379,17 +379,27 @@ final class VelocityCompressedForward {
             refused.accept(Refusal.THRESHOLD);
             return null;
         }
-        try {
-            pipeline.addAfter(CompressedForwarder.COMPRESSION_ENCODER, CompressedForwarder.NAME, forwarder);
-        } catch (RuntimeException failure) {
-            CompressedForwarder.remove(pipeline, forwarder);
-            refused.accept(Refusal.CHANGED);
-            return null;
+        Refusal refusal = null;
+        // The touch check admits only netty's pipeline class, whose final mutators hold this monitor.
+        synchronized (pipeline) {
+            if (!CompressedForwarder.onLoop(pipeline)) {
+                refusal = Refusal.EXECUTOR;
+            } else {
+                try {
+                    pipeline.addAfter(CompressedForwarder.COMPRESSION_ENCODER, CompressedForwarder.NAME, forwarder);
+                    ChannelHandlerContext added = pipeline.context(forwarder);
+                    if (added == null
+                            || added.isRemoved()
+                            || encoder.isRemoved()
+                            || !CompressedForwarder.follows(added, encoder)) refusal = Refusal.CHANGED;
+                } catch (RuntimeException failure) {
+                    refusal = Refusal.CHANGED;
+                }
+                if (refusal != null) CompressedForwarder.remove(pipeline, forwarder);
+            }
         }
-        ChannelHandlerContext added = pipeline.context(forwarder);
-        if (added == null || added.isRemoved() || encoder.isRemoved() || !CompressedForwarder.follows(added, encoder)) {
-            CompressedForwarder.remove(pipeline, forwarder);
-            refused.accept(Refusal.CHANGED);
+        if (refusal != null) {
+            refused.accept(refusal);
             return null;
         }
         return forwarder;
@@ -686,6 +696,10 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-uncompressed");
             return;
         }
+        if (CompressedForwarder.touches(pipeline)) {
+            forwarder.linkStatus(CompressedKeep.LEAK_DETECTION);
+            return;
+        }
         Object handler = decoder.handler();
         if (handler.getClass() != decoderClass
                 || !(handler instanceof MessageToMessageDecoder<?>)
@@ -719,27 +733,31 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-occupied");
             return;
         }
-        if (CompressedForwarder.touches(pipeline)) {
-            forwarder.linkStatus(CompressedKeep.LEAK_DETECTION);
-            return;
-        }
         var keep = new CompressedKeep(
                 forwarder, trustedAllocators, deferred(backend, () -> refused.accept(Refusal.UNTRUSTED)));
-        try {
-            pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);
-        } catch (RuntimeException failure) {
-            forwarder.linkStatus("backend-install-failed");
-            CompressedForwarder.remove(pipeline, keep);
-            return;
-        }
-        ChannelHandlerContext keepContext = pipeline.context(keep);
-        if (keepContext == null
-                || keepContext.isRemoved()
-                || decoder.isRemoved()
-                || !CompressedForwarder.follows(decoder, keepContext)) {
-            forwarder.linkStatus("backend-adjacency");
-            CompressedForwarder.remove(pipeline, keep);
-            return;
+        ChannelHandlerContext keepContext;
+        // The touch check admits only netty's pipeline class, whose final mutators hold this monitor.
+        synchronized (pipeline) {
+            if (!CompressedForwarder.onLoop(pipeline)) {
+                forwarder.linkStatus("backend-executor");
+                return;
+            }
+            try {
+                pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);
+            } catch (RuntimeException failure) {
+                forwarder.linkStatus("backend-install-failed");
+                CompressedForwarder.remove(pipeline, keep);
+                return;
+            }
+            keepContext = pipeline.context(keep);
+            if (keepContext == null
+                    || keepContext.isRemoved()
+                    || decoder.isRemoved()
+                    || !CompressedForwarder.follows(decoder, keepContext)) {
+                forwarder.linkStatus("backend-adjacency");
+                CompressedForwarder.remove(pipeline, keep);
+                return;
+            }
         }
         keep.attach(keepContext, decoder, codec);
         forwarder.link(backend, keep);
