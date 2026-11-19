@@ -1750,6 +1750,35 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void handlerOnItsOwnExecutorAnywhereLeavesBothPipelinesAsTheyAre() throws Exception {
+        var group = new DefaultEventExecutorGroup(1);
+        var channel = channel();
+        try (var f = new Fixture(Options.forwarding().unlinked())) {
+            ChannelPipeline pipeline = channel.pipeline();
+            var compressor = new SharedCompressor();
+            pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+            pipeline.addLast(group, "elsewhere", new ChannelOutboundHandlerAdapter());
+            List<String> names = pipeline.names();
+            var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
+            assertNull(VelocityCompressedForward.install(
+                    pipeline, CompressEncoder.class, DECODER, COMPRESSORS, refusals::add));
+            assertEquals(List.of(VelocityCompressedForward.Refusal.EXECUTOR), refusals);
+            assertEquals(names, pipeline.names(), "the client pipeline as the switch off leaves it");
+
+            ChannelPipeline backend = f.backend.pipeline();
+            backend.addFirst(group, "elsewhere", new ChannelInboundHandlerAdapter());
+            names = backend.names();
+            VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), f.backend, DECODER, COMPRESSORS, TRUSTED);
+            assertEquals("backend-executor", f.forwarder.linkStatus());
+            assertEquals(names, backend.names(), "the backend pipeline as the switch off leaves it");
+        } finally {
+            channel.finishAndReleaseAll();
+            group.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
+    }
+
+    @Test
     void unmarkedMessageGetsNoCallFromTheForwarder() {
         byte[] packet = packet(3000, 84);
         leakDetectionDisabled(() -> {

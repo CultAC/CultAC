@@ -10,11 +10,13 @@ import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPipeline;
+import io.netty.channel.EventLoop;
 import io.netty.handler.codec.EncoderException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Locale;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Predicate;
@@ -357,6 +359,19 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return size;
     }
 
+    /**
+     * Whether every handler in {@code pipeline} runs on its channel's event loop; netty then passes an added handler
+     * over for every event it does not handle.
+     */
+    static boolean onLoop(ChannelPipeline pipeline) {
+        EventLoop loop = pipeline.channel().eventLoop();
+        for (Map.Entry<String, ChannelHandler> entry : pipeline) {
+            ChannelHandlerContext ctx = pipeline.context(entry.getValue());
+            if (ctx != null && ctx.executor() != loop) return false;
+        }
+        return true;
+    }
+
     /** Whether this handler directly follows the compression encoder it writes through. */
     static boolean adjacent(ChannelPipeline pipeline) {
         var names = pipeline.names();
@@ -458,8 +473,10 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     /**
      * The status, link and counters; a link whose backend channel is inactive reads {@code backend-closed}. The hit
-     * rate is over writes of the marked buffer that pass every gate below the maximum reference count and whose input
-     * release succeeds; {@code not marked} counts every other buffer written while enabled.
+     * rate is forwarded submissions over those plus the marked buffer's writes passed to the encoder for changed
+     * indices, changed content or a failed comparison, each counted when it is passed on; a write that fails at the
+     * forwarder's own release of its input is in neither part. {@code not marked} counts every other buffer written
+     * while enabled.
      */
     String stats() {
         long recompressed = indicesChanged + guardMismatch + forwardFailures;

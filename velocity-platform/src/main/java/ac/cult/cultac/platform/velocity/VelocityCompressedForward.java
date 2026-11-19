@@ -348,7 +348,8 @@ final class VelocityCompressedForward {
             return null;
         }
         if (encoder.executor() != pipeline.channel().eventLoop()
-                || decoder.executor() != pipeline.channel().eventLoop()) {
+                || decoder.executor() != pipeline.channel().eventLoop()
+                || !CompressedForwarder.onLoop(pipeline)) {
             refused.accept(Refusal.EXECUTOR);
             return null;
         }
@@ -451,9 +452,9 @@ final class VelocityCompressedForward {
         THRESHOLD("Cannot read a client's compression threshold; its frames are compressed by Velocity"),
         /** The client has no compression decoder of the accepted class. */
         DECODER("A client's compression decoder is not Velocity's; its frames are compressed by Velocity"),
-        /** The encoder or the decoder runs on an executor other than the client channel's event loop. */
-        EXECUTOR("A client's compression encoder or decoder runs off its channel's event loop; its frames are"
-                + " compressed by Velocity"),
+        /** The encoder, the decoder or another handler runs on an executor other than the client channel's event loop. */
+        EXECUTOR("A client's compression encoder, decoder or another handler runs off its channel's event loop; its"
+                + " frames are compressed by Velocity"),
         /**
          * The encoder and the decoder do not hold one open compressor of Velocity's classes, or either compressor
          * cannot be read.
@@ -679,7 +680,7 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-decoder");
             return;
         }
-        if (decoder.executor() != pipeline.channel().eventLoop()) {
+        if (decoder.executor() != pipeline.channel().eventLoop() || !CompressedForwarder.onLoop(pipeline)) {
             forwarder.linkStatus("backend-executor");
             return;
         }
