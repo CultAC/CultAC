@@ -14,11 +14,13 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
+import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
+import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -40,6 +42,8 @@ final class VelocityCompressedForward {
     static final String VELOCITY_JAVA_COMPRESSOR = "com.velocitypowered.natives.compression.JavaVelocityCompressor";
     static final String VELOCITY_LIBDEFLATE_COMPRESSOR =
             "com.velocitypowered.natives.compression.LibdeflateVelocityCompressor";
+    static final String VELOCITY_PRECONDITIONS = "com.velocitypowered.proxy.protocol.util.NettyPreconditions";
+    static final String VELOCITY_QUIET_EXCEPTION = "com.velocitypowered.proxy.util.except.QuietDecoderException";
 
     private final ProxyServer proxy;
     private final Object plugin;
@@ -255,13 +259,52 @@ final class VelocityCompressedForward {
     }
 
     /**
+     * Velocity's handles a decode of {@code decoder}'s class completes with: {@code account(int)} of its
+     * {@code packetLimiter} field's type, and {@value #VELOCITY_PRECONDITIONS}'s {@code checkFrame} and
+     * {@value #VELOCITY_QUIET_EXCEPTION}'s constructor as the decoder's loader resolves them; null when one cannot be
+     * bound.
+     */
+    static CompressedKeep.Decode decode(Object decoder) {
+        return DECODE.get(decoder.getClass()).orElse(null);
+    }
+
+    private static final ClassValue<Optional<CompressedKeep.Decode>> DECODE = new ClassValue<>() {
+        @Override
+        protected Optional<CompressedKeep.Decode> computeValue(Class<?> type) {
+            try {
+                ClassLoader loader = type.getClassLoader();
+                Class<?> limiter = type.getDeclaredField("packetLimiter").getType();
+                Class<?> preconditions = Class.forName(VELOCITY_PRECONDITIONS, false, loader);
+                Class<?> quiet = Class.forName(VELOCITY_QUIET_EXCEPTION, false, loader);
+                if (!DecoderException.class.isAssignableFrom(quiet)) return Optional.empty();
+                MethodHandle account = MethodHandles.privateLookupIn(limiter, MethodHandles.lookup())
+                        .findVirtual(limiter, "account", MethodType.methodType(boolean.class, int.class))
+                        .asType(MethodType.methodType(boolean.class, Object.class, int.class));
+                MethodHandle check = MethodHandles.privateLookupIn(preconditions, MethodHandles.lookup())
+                        .findStatic(
+                                preconditions,
+                                "checkFrame",
+                                MethodType.methodType(
+                                        void.class, boolean.class, String.class, Object.class, Object.class));
+                MethodHandle constructor = MethodHandles.privateLookupIn(quiet, MethodHandles.lookup())
+                        .findConstructor(quiet, MethodType.methodType(void.class, String.class))
+                        .asType(MethodType.methodType(DecoderException.class, String.class));
+                return Optional.of(new CompressedKeep.Decode(account, check, constructor));
+            } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
+                return Optional.empty();
+            }
+        }
+    };
+
+    /**
      * The keep's handles for {@code decoder}, whose limiter {@code limiter} reads, when its compressor is exactly one of
-     * {@code compressors}' classes, or null.
+     * {@code compressors}' classes and its {@link #decode} handles bind, or null.
      */
     static CompressedKeep.Codec codec(Object decoder, @Nullable MethodHandle limiter, Compressors compressors) {
         MethodHandle compressorReader = compressorReader(decoder, false);
         MethodHandle threshold = decoderThresholdReader(decoder);
-        if (limiter == null || compressorReader == null || threshold == null) return null;
+        CompressedKeep.Decode decode = decode(decoder);
+        if (limiter == null || compressorReader == null || threshold == null || decode == null) return null;
         try {
             Object compressor = (Object) compressorReader.invokeExact();
             if (!compressors.accepts(compressor)) return null;
@@ -276,7 +319,7 @@ final class VelocityCompressedForward {
                 inflateMethod = inflate;
             }
             boolean address = Compressors.is(compressor, compressors.libdeflate());
-            return new CompressedKeep.Codec(threshold, limiter, inflate.bindTo(compressor), address);
+            return new CompressedKeep.Codec(threshold, limiter, inflate.bindTo(compressor), address, decode);
         } catch (Throwable failure) {
             return null;
         }
@@ -306,6 +349,30 @@ final class VelocityCompressedForward {
             boolean small,
             boolean heap,
             Consumer<Refusal> refused) {
+        return install(
+                pipeline,
+                encoderClass,
+                decoderClass,
+                compressors,
+                small,
+                heap,
+                CompressedKeep.NETTY_ALLOCATORS,
+                refused);
+    }
+
+    /**
+     * As {@link #install}; the forwarder's fast paths run only under a client allocator {@code trustedAllocators}
+     * accepts, and {@code refused} also hears the first write it refuses.
+     */
+    static @Nullable CompressedForwarder install(
+            ChannelPipeline pipeline,
+            Class<?> encoderClass,
+            Class<?> decoderClass,
+            Compressors compressors,
+            boolean small,
+            boolean heap,
+            Predicate<ByteBufAllocator> trustedAllocators,
+            Consumer<Refusal> refused) {
         if (!CompressedForwarder.supported() || pipeline.get(CompressedForwarder.NAME) != null) return null;
         ChannelHandlerContext encoder = pipeline.context(CompressedForwarder.COMPRESSION_ENCODER);
         if (encoder == null) return null;
@@ -331,7 +398,16 @@ final class VelocityCompressedForward {
             return null;
         }
         boolean consume = Compressors.is(compressor, compressors.java());
-        var forwarder = new CompressedForwarder(threshold, encoder, decoder, small, heap, consume, disposed);
+        var forwarder = new CompressedForwarder(
+                threshold,
+                encoder,
+                decoder,
+                small,
+                heap,
+                consume,
+                disposed,
+                trustedAllocators,
+                () -> refused.accept(Refusal.CLIENT_UNTRUSTED));
         if (forwarder.threshold() < 0) {
             refused.accept(Refusal.THRESHOLD);
             return null;
@@ -408,8 +484,8 @@ final class VelocityCompressedForward {
     }
 
     /**
-     * Why {@link #install} gives no forwarder to a client with a compression encoder, or why a backend's keep holds no
-     * frames.
+     * Why {@link #install} gives no forwarder to a client with a compression encoder, why a forwarder disables, or why
+     * a backend's keep holds no frames.
      */
     enum Refusal {
         /** The encoder is not of the accepted class, or its threshold cannot be read. */
@@ -433,7 +509,14 @@ final class VelocityCompressedForward {
          * classes; the keep unlinks.
          */
         UNTRUSTED("Netty's leak detection is enabled, or a backend's allocator or leak detector is not netty's own; its"
-                + " frames are compressed by Velocity");
+                + " frames are compressed by Velocity"),
+        /**
+         * Netty's leak detection is enabled, or a client's allocator or netty's leak detector is not of netty's own
+         * classes; the forwarder disables.
+         */
+        CLIENT_UNTRUSTED(
+                "Netty's leak detection is enabled, or a client's allocator or leak detector is not netty's own;"
+                        + " its frames are framed and compressed by Velocity");
 
         final String warning;
 
@@ -620,6 +703,10 @@ final class VelocityCompressedForward {
         MethodHandle limiter = limiterReader(handler);
         if (CompressedKeep.limited(limiter)) {
             forwarder.linkStatus(CompressedKeep.LIMITED);
+            return;
+        }
+        if (decode(handler) == null) {
+            forwarder.linkStatus("backend-decoder");
             return;
         }
         CompressedKeep.Codec codec = codec(handler, limiter, compressors);

@@ -3,11 +3,13 @@ package ac.cult.cultac.platform.velocity;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.protocol.wire.Wire;
+import com.velocitypowered.proxy.network.limiter.PacketLimiter;
+import com.velocitypowered.proxy.protocol.util.NettyPreconditions;
+import com.velocitypowered.proxy.util.except.QuietDecoderException;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.MessageToByteEncoder;
 import io.netty.handler.codec.MessageToMessageDecoder;
@@ -322,16 +324,27 @@ final class CompressedFrames {
         }
     }
 
+    /** A limiter that runs {@code action} each time it accounts and allows every packet. */
+    static PacketLimiter limiter(Runnable action) {
+        return bytes -> {
+            action.run();
+            return true;
+        };
+    }
+
     /**
-     * Checks a compressed body's claimed length against its threshold, then inflates it with its compressor into a
-     * direct buffer of that length allocated through the context, or passes an uncompressed body on as itself.
+     * In the order of Velocity's decode: checks a compressed body's claimed length against its threshold and cap, then
+     * inflates it with its compressor into a direct buffer of that length allocated through the context, checks the
+     * inflated length and accounts the limiter, or passes an uncompressed body on as itself; fails through Velocity's
+     * {@link NettyPreconditions} and {@link QuietDecoderException} stand-ins.
      */
     static final class CompressDecoder extends MessageToMessageDecoder<ByteBuf> {
+        private static final int CAP = 8 * 1024 * 1024;
         int threshold;
         /** Every buffer this decoder published. */
         final List<ByteBuf> inflated = new ArrayList<>();
-        /** Stands in for Velocity's settable limiter field and runs where Velocity's decoder calls it. */
-        Runnable packetLimiter;
+        /** Stands in for Velocity's settable limiter field and is accounted where Velocity's decoder accounts it. */
+        PacketLimiter packetLimiter;
 
         final SharedCompressor compressor;
 
@@ -353,22 +366,31 @@ final class CompressedFrames {
         protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
             int dataLength = Wire.readVarInt(in);
             if (dataLength == 0) {
-                if (in.readableBytes() >= threshold) throw new DecoderException("uncompressed above threshold");
-                if (packetLimiter != null) packetLimiter.run();
+                int actual = in.readableBytes();
+                NettyPreconditions.checkFrame(actual < threshold, "uncompressed above threshold", actual, threshold);
+                if (packetLimiter != null && !packetLimiter.account(in.readableBytes()))
+                    throw new QuietDecoderException("Rate limit exceeded while processing packets for %s"
+                            .formatted(ctx.channel().remoteAddress()));
                 out.add(in.retain());
                 return;
             }
-            if (dataLength < threshold) throw new CorruptedFrameException("compressed below threshold");
+            NettyPreconditions.checkFrame(dataLength >= threshold, "compressed below threshold", dataLength, threshold);
+            NettyPreconditions.checkFrame(dataLength <= CAP, "compressed above the cap", dataLength, CAP);
             ByteBuf compatible = compressor.compatible(ctx, in);
             ByteBuf uncompressed = ctx.alloc().directBuffer(dataLength);
             try {
                 compressor.inflate(compatible, uncompressed, dataLength);
-                if (uncompressed.writerIndex() != dataLength)
-                    throw new CorruptedFrameException("decompressed size does not match the claimed size");
-                if (packetLimiter != null) packetLimiter.run();
+                NettyPreconditions.checkFrame(
+                        uncompressed.writerIndex() == dataLength,
+                        "decompressed size does not match the claimed size",
+                        uncompressed.writerIndex(),
+                        dataLength);
+                if (packetLimiter != null && !packetLimiter.account(dataLength))
+                    throw new QuietDecoderException("Rate limit exceeded while processing packets for %s"
+                            .formatted(ctx.channel().remoteAddress()));
                 inflated.add(uncompressed);
                 out.add(uncompressed);
-            } catch (Exception | Error failure) {
+            } catch (Exception failure) {
                 uncompressed.release();
                 throw failure;
             } finally {

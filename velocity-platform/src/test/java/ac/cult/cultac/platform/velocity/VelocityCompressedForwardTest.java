@@ -15,6 +15,7 @@ import ac.cult.cultac.protocol.netty.CultEncoder;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.proxy.network.limiter.PacketLimiter;
 import io.netty.buffer.AbstractByteBuf;
 import io.netty.buffer.AbstractByteBufAllocator;
 import io.netty.buffer.ByteBuf;
@@ -36,6 +37,7 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderException;
+import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
@@ -48,7 +50,9 @@ import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.Set;
@@ -1247,27 +1251,50 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
-    void failedAllocationPassesTheBackendsFrameOnUnheld() {
+    void failedAllocationFinishesTheDecodeAsWithTheSwitchOff() {
         byte[] packet = packet(3000, 79);
         byte[] read = frame(body(packet, THRESHOLD));
-        // The keep's private frame, then its inflate's destination.
+        // Direct allocation 1 is the decoder's output, 2 the keep's private frame; the switch-off read has only the
+        // first.
         for (int at : new int[] {1, 2}) {
-            String label = "direct allocation " + at;
-            try (var f = new Fixture(Options.forwarding())) {
-                var allocator = new RecordingAllocator();
-                allocator.beforeDirect = atDirectAllocation(at, () -> {
-                    throw new OutOfMemoryError("direct memory");
-                });
-                f.backend.config().setAllocator(allocator);
-                f.read(read);
-                assertEquals(1, f.decoder.inflated.size(), "the decoder decodes the backend's frame, " + label);
-                assertSameBytes(today(Options.forwarding(), read), f.wire());
-                assertEquals(0, f.forwarder.forwarded(), label);
-                assertEquals(1, f.forwarder.notMarked(), label);
-                assertEquals(0, f.frameDecoder.frames.getFirst().refCnt(), label);
-                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+            List<String> seen = new ArrayList<>();
+            for (boolean forward : new boolean[] {false, true}) {
+                String label = "direct allocation " + at + ", forward " + forward;
+                try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+                    var allocator = new RecordingAllocator();
+                    allocator.beforeDirect = atDirectAllocation(at, () -> {
+                        throw new OutOfMemoryError("direct memory");
+                    });
+                    f.backend.config().setAllocator(allocator);
+                    Throwable thrown = null;
+                    try {
+                        f.read(read.clone());
+                    } catch (Throwable failure) {
+                        thrown = failure;
+                    }
+                    seen.add((thrown == null ? "none" : thrown.getClass().getName()) + ", " + sent(f.wire()));
+                    ByteBuf frame = f.frameDecoder.frames.getFirst();
+                    // Velocity's decoder keeps its retained input when its allocation throws; the keep drops its own.
+                    assertEquals(!forward && at == 1 ? 1 : 0, frame.refCnt(), label);
+                    if (frame.refCnt() > 0) frame.release(frame.refCnt());
+                    if (forward) {
+                        assertEquals(0, f.forwarder.forwarded(), label);
+                        assertEquals(at == 1 ? 0 : 1, f.forwarder.notMarked(), label);
+                        assertEquals(List.of(), f.decoder.inflated, "the keep finishes the decode, " + label);
+                    }
+                    for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+                }
             }
+            assertEquals(seen.get(0), seen.get(1), "direct allocation " + at);
         }
+    }
+
+    /** The packets in {@code wire}, read by the vanilla rule. */
+    private static String sent(byte[] wire) {
+        return read(wire, THRESHOLD, true).stream()
+                .map(frame -> Arrays.toString(frame.packet()))
+                .toList()
+                .toString();
     }
 
     @Test
@@ -1373,7 +1400,7 @@ class VelocityCompressedForwardTest {
         for (int i = 0; i < sequences.size(); i++) {
             byte[] today;
             try (var f = new Fixture(Options.today())) {
-                f.decoder.packetLimiter = sequences.get(i).apply(f);
+                f.decoder.packetLimiter = limiter(sequences.get(i).apply(f));
                 f.read(read.clone());
                 today = f.wire();
             }
@@ -1381,7 +1408,7 @@ class VelocityCompressedForwardTest {
             for (boolean beforeLink : new boolean[] {true, false}) {
                 String label = "sequence " + i + ", limiter set before the link " + beforeLink;
                 try (var f = new Fixture(beforeLink ? Options.forwarding().unlinked() : Options.forwarding())) {
-                    f.decoder.packetLimiter = sequences.get(i).apply(f);
+                    f.decoder.packetLimiter = limiter(sequences.get(i).apply(f));
                     if (beforeLink) {
                         VelocityCompressedForward.place(
                                 f.forwarder, f.client.pipeline(), f.backend, DECODER, COMPRESSORS);
@@ -1483,14 +1510,14 @@ class VelocityCompressedForwardTest {
             });
             byte[] today;
             try (var f = new Fixture(Options.today())) {
-                f.decoder.packetLimiter = limiter.apply(f);
+                f.decoder.packetLimiter = limiter(limiter.apply(f));
                 f.read(read.clone());
                 today = f.wire();
             }
             assertPackets(List.of(other, packet), read(today, THRESHOLD));
             try (var f = new Fixture(Options.forwarding())) {
                 var allocator = new RecordingAllocator();
-                allocator.beforeDirect = once(() -> f.decoder.packetLimiter = limiter.apply(f));
+                allocator.beforeDirect = once(() -> f.decoder.packetLimiter = limiter(limiter.apply(f)));
                 f.backend.config().setAllocator(allocator);
                 f.read(read.clone());
                 assertSameBytes(today, f.wire());
@@ -1517,14 +1544,14 @@ class VelocityCompressedForwardTest {
     }
 
     /** A limiter that clears itself when it runs and fires {@code other}, inflated, from the decoder's context. */
-    private static Runnable selfClearingLimiter(Fixture f, byte[] other) {
-        return once(() -> {
+    private static PacketLimiter selfClearingLimiter(Fixture f, byte[] other) {
+        return limiter(once(() -> {
             f.decoder.packetLimiter = null;
             f.backend
                     .pipeline()
                     .context(VelocityCompressedForward.COMPRESSION_DECODER)
                     .fireChannelRead(f.track(Unpooled.directBuffer(other.length).writeBytes(other)));
-        });
+        }));
     }
 
     /** Runs {@code action} before the {@code n}th direct allocation only. */
@@ -2327,9 +2354,23 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
-    void handlerInsertedByTheKeepsAllocationGetsTheReadUnmarked() {
+    void handlerInsertedByTheKeepsAllocationLeavesTheReadAsWithTheSwitchOff() {
         byte[] packet = packet(3000, 110);
         byte[] other = packet(3000, 109);
+        byte[] read = frame(body(packet, THRESHOLD));
+        // Switched off, a handler inserted before the decoder at its allocation never sees the frame being decoded.
+        byte[] today;
+        try (var f = new Fixture(Options.today())) {
+            var allocator = new RecordingAllocator();
+            allocator.beforeDirect = atDirectAllocation(
+                    1,
+                    () -> f.backend
+                            .pipeline()
+                            .addBefore(VelocityCompressedForward.COMPRESSION_DECODER, "swap", swap(f, other)));
+            f.backend.config().setAllocator(allocator);
+            f.read(read.clone());
+            today = f.wire();
+        }
         var published = new ArrayList<byte[]>();
         try (var f = new Fixture(recording(published))) {
             var allocator = new RecordingAllocator();
@@ -2339,9 +2380,10 @@ class VelocityCompressedForwardTest {
                             .pipeline()
                             .addBefore(VelocityCompressedForward.COMPRESSION_DECODER, "swap", swap(f, other)));
             f.backend.config().setAllocator(allocator);
-            f.read(frame(body(packet, THRESHOLD)));
-            assertPackets(published, read(f.wire(), THRESHOLD));
-            assertArrayEquals(other, published.getFirst());
+            f.read(read.clone());
+            assertSameBytes(today, f.wire());
+            assertPackets(published, read(today, THRESHOLD));
+            assertArrayEquals(packet, published.getFirst());
             assertEquals(0, f.forwarder.forwarded());
             assertEquals("backend-adjacency", f.forwarder.linkStatus());
             for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation");
@@ -2360,7 +2402,7 @@ class VelocityCompressedForwardTest {
                 boolean[] set = {false};
                 allocator.beforeDirect = atDirectAllocation(n, () -> {
                     set[0] = true;
-                    f.decoder.packetLimiter = () -> {};
+                    f.decoder.packetLimiter = limiter(() -> {});
                 });
                 f.backend.config().setAllocator(allocator);
                 f.read(read.clone());
@@ -3058,10 +3100,10 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
-    void errorInTheKeepsCopiesPassesTheBackendsFrameOnUnheld() {
+    void errorInTheKeepsCopiesFinishesTheDecodeUnheld() {
         byte[] packet = packet(3000, 125);
         byte[] read = frame(body(packet, THRESHOLD));
-        // The keep's private frame is its first direct allocation, its comparison copy its first heap allocation.
+        // The keep's private frame is its second direct allocation, its comparison copy its first heap allocation.
         for (boolean copy : new boolean[] {false, true}) {
             String label = copy ? "comparison copy" : "private frame";
             try (var f = new Fixture(Options.forwarding())) {
@@ -3070,10 +3112,11 @@ class VelocityCompressedForwardTest {
                     throw new StackOverflowError(label);
                 };
                 if (copy) allocator.beforeHeap = atDirectAllocation(1, overflow);
-                else allocator.beforeDirect = atDirectAllocation(1, overflow);
+                else allocator.beforeDirect = atDirectAllocation(2, overflow);
                 f.backend.config().setAllocator(allocator);
                 f.read(read);
-                assertEquals(1, f.decoder.inflated.size(), "the decoder decodes the backend's frame, " + label);
+                assertEquals(List.of(), f.decoder.inflated, "the keep finishes the decode, " + label);
+                assertEquals(1, f.decoder.compressor.destinations.size(), "one inflate, of the frame, " + label);
                 assertSameBytes(today(Options.forwarding(), read), f.wire());
                 assertEquals(0, f.forwarder.forwarded(), label);
                 assertEquals(0, f.frameDecoder.frames.getFirst().refCnt(), label);
@@ -3277,7 +3320,9 @@ class VelocityCompressedForwardTest {
                 var allocator = new RecordingAllocator();
                 atAllocation(allocator, k, once(() -> held.getFirst().skipBytes(1)));
                 f.backend.config().setAllocator(allocator);
-                assertThrows(DecoderException.class, () -> f.read(read.clone()), label);
+                var failure = assertThrows(DecoderException.class, () -> f.read(read.clone()), label);
+                assertEquals(DecoderException.class, failure.getClass(), label);
+                assertInstanceOf(DataFormatException.class, failure.getCause(), label);
                 assertEquals(0, f.wire().length, label);
                 if (k > 0) assertEquals(0, f.forwarder.forwarded(), label);
                 assertTrue(held.getFirst().release(), label);
@@ -3545,6 +3590,271 @@ class VelocityCompressedForwardTest {
         }
     }
 
+    /** Runs {@code body} with netty's leak detection disabled, as Velocity sets it, and restores the level after. */
+    private static void leakDetectionDisabled(Runnable body) {
+        ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
+        ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+        try {
+            body.run();
+        } finally {
+            ResourceLeakDetector.setLevel(level);
+        }
+    }
+
+    /** The client allocation of a write: the encoder's, or the forwarder's own on its fast paths. */
+    private static void atClientAllocation(RecordingAllocator allocator, Runnable hook) {
+        Runnable first = once(hook);
+        allocator.beforeHeap = first;
+        allocator.beforeDirect = first;
+    }
+
+    /** Gives the buffer a client write sends for the backend's packet {@code buf}, and may arm {@code allocator}. */
+    private interface WriteHook {
+        ByteBuf prepare(ByteBuf buf, RecordingAllocator allocator);
+    }
+
+    /** {@code failure}'s class and its cause's class, or "ok". */
+    private static String describe(Throwable failure) {
+        if (failure == null) return "ok";
+        return failure.getClass().getName() + " / "
+                + (failure.getCause() == null
+                        ? null
+                        : failure.getCause().getClass().getName());
+    }
+
+    /**
+     * The packets sent and the promise's outcome for one write of {@code read}'s packet through a fixture whose client
+     * allocator (another than the backend's) {@code hook} arms; {@code clientTrust} null is the switch off. Adds the
+     * forwarder's status and counters to {@code statuses}.
+     */
+    private static String clientWrite(
+            byte[] read, Predicate<ByteBufAllocator> clientTrust, WriteHook hook, List<String> statuses) {
+        var allocator = new RecordingAllocator();
+        var writes = new ArrayList<ChannelFuture>();
+        var written = new ArrayList<ByteBuf>();
+        Options options = Options.forwarding().onFrame((fixture, buf) -> {
+            ByteBuf out = hook.prepare(buf, allocator);
+            written.add(out);
+            writes.add(fixture.client.writeAndFlush(out));
+        });
+        try (var f =
+                clientTrust == null ? new Fixture(options.withoutForwarding()) : new Fixture(options, clientTrust)) {
+            f.client.config().setAllocator(allocator);
+            f.read(read.clone());
+            assertEquals(1, writes.size());
+            String outcome =
+                    sent(f.wire()) + ", promise " + describe(writes.getFirst().cause());
+            if (f.forwarder != null)
+                statuses.add(f.forwarder.status() + ", forwarded " + f.forwarder.forwarded() + ", small "
+                        + f.forwarder.framedSmall());
+            for (ByteBuf buf : written) if (buf.refCnt() > 0) buf.release(buf.refCnt());
+            return outcome;
+        }
+    }
+
+    @Test
+    void smallPacketGrownAtTheClientsAllocationIsFramedAsWithTheSwitchOff() {
+        byte[] packet = packet(100, 140);
+        byte[] read = frame(body(packet, THRESHOLD));
+        WriteHook grow = (buf, allocator) -> {
+            ByteBuf mine = Unpooled.buffer(200).writeBytes(buf);
+            buf.release();
+            atClientAllocation(allocator, () -> mine.writeByte(0x33));
+            return mine;
+        };
+        leakDetectionDisabled(() -> {
+            List<String> statuses = new ArrayList<>();
+            String off = clientWrite(read, null, grow, statuses);
+            assertTrue(off.contains(Arrays.toString(concat(packet, new byte[] {0x33}))), off);
+            assertEquals(off, clientWrite(read, CompressedKeep.NETTY_ALLOCATORS, grow, statuses), "production check");
+            assertEquals(off, clientWrite(read, TRUSTED, grow, statuses), "an allocator the check accepts");
+            assertEquals(
+                    List.of(CompressedForwarder.UNTRUSTED + ", forwarded 0, small 0", "on, forwarded 0, small 1"),
+                    statuses);
+        });
+    }
+
+    @Test
+    void publishedPacketEditedAtTheClientsAllocationIsSentAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 141);
+        byte[] read = frame(body(packet, THRESHOLD));
+        byte[] edited = packet.clone();
+        edited[10] ^= 0x5a;
+        WriteHook edit = (buf, allocator) -> {
+            atClientAllocation(allocator, () -> {
+                int at = buf.readerIndex() + 10;
+                buf.setByte(at, buf.getByte(at) ^ 0x5a);
+            });
+            return buf;
+        };
+        leakDetectionDisabled(() -> {
+            List<String> statuses = new ArrayList<>();
+            String off = clientWrite(read, null, edit, statuses);
+            assertTrue(off.contains(Arrays.toString(edited)), off);
+            assertEquals(off, clientWrite(read, CompressedKeep.NETTY_ALLOCATORS, edit, statuses), "production check");
+            assertEquals(List.of(CompressedForwarder.UNTRUSTED + ", forwarded 0, small 0"), statuses);
+        });
+    }
+
+    @Test
+    void clientAllocationThatFailsFailsTheWriteAsWithTheSwitchOff() {
+        WriteHook refuse = (buf, allocator) -> {
+            atClientAllocation(allocator, () -> {
+                throw new OutOfMemoryError("client allocation");
+            });
+            return buf;
+        };
+        for (int size : new int[] {100, 3000}) {
+            String label = "packet of " + size;
+            byte[] read = frame(body(packet(size, 142), THRESHOLD));
+            leakDetectionDisabled(() -> {
+                List<String> statuses = new ArrayList<>();
+                String off = clientWrite(read, null, refuse, statuses);
+                assertTrue(
+                        off.endsWith("promise io.netty.handler.codec.EncoderException / java.lang.OutOfMemoryError"),
+                        off);
+                assertEquals(off, clientWrite(read, CompressedKeep.NETTY_ALLOCATORS, refuse, statuses), label);
+                if (size < THRESHOLD) assertEquals(off, clientWrite(read, TRUSTED, refuse, statuses), label);
+            });
+        }
+    }
+
+    @Test
+    void frameChangedAtEachKeepAllocationFinishesAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 143);
+        byte[] read = frame(body(packet, THRESHOLD));
+        String decoderName = VelocityCompressedForward.COMPRESSION_DECODER;
+        Map<String, BiConsumer<Fixture, ByteBuf>> changes = new LinkedHashMap<>();
+        changes.put("discardReadBytes", (f, frame) -> frame.discardReadBytes());
+        changes.put("reader rewound", (f, frame) -> frame.readerIndex(0));
+        changes.put("skipBytes(1)", (f, frame) -> frame.skipBytes(1));
+        changes.put("limiter that refuses", (f, frame) -> f.decoder.packetLimiter = recording(f, false));
+        changes.put("limiter that allows", (f, frame) -> f.decoder.packetLimiter = recording(f, true));
+        changes.put("threshold raised", (f, frame) -> f.decoder.threshold = 3001);
+        changes.put(
+                "handler between",
+                (f, frame) ->
+                        f.backend.pipeline().addBefore(decoderName, "between", new ChannelInboundHandlerAdapter()));
+        changes.put("decoder removed", (f, frame) -> f.backend.pipeline().remove(decoderName));
+        for (var change : changes.entrySet()) {
+            String off = changedAt(read, 0, false, change.getValue());
+            for (int k = 1; k <= 3; k++)
+                for (boolean finalTrust : new boolean[] {false, true})
+                    assertEquals(
+                            off,
+                            changedAt(read, k, finalTrust, change.getValue()),
+                            change.getKey() + " at keep allocation " + k + ", final trust " + finalTrust);
+        }
+    }
+
+    /** A limiter that records each count it accounts in the fixture's list and answers {@code allow}. */
+    private static PacketLimiter recording(Fixture f, boolean allow) {
+        return bytes -> {
+            f.accounted.add(bytes);
+            return allow;
+        };
+    }
+
+    /**
+     * One read of {@code read} with auto-read off, a plugin retaining the frame, and {@code change} at keep allocation
+     * {@code k} (or at the decoder's one allocation, switched off, when {@code k} is 0): what the client receives, the
+     * exception, the frame's indices and count, the accounted counts and the read requests. With {@code finalTrust}
+     * false the change also enables leak detection, which the keep's predicate reads.
+     */
+    private static String changedAt(byte[] read, int k, boolean finalTrust, BiConsumer<Fixture, ByteBuf> change) {
+        ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
+        ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+        try (var f = new Fixture(k == 0 ? Options.today() : Options.forwarding().unlinked())) {
+            if (k > 0) {
+                Predicate<ByteBufAllocator> trust =
+                        finalTrust ? TRUSTED : TRUSTED.and(alloc -> !ResourceLeakDetector.isEnabled());
+                VelocityCompressedForward.place(
+                        f.forwarder, f.client.pipeline(), f.backend, DECODER, COMPRESSORS, trust);
+                assertEquals("linked", f.forwarder.linkStatus());
+            }
+            var held = new ArrayList<ByteBuf>();
+            hold(f, held);
+            f.backend.config().setAutoRead(false);
+            int[] requests = {0};
+            f.backend.pipeline().addFirst("reads", new ChannelOutboundHandlerAdapter() {
+                @Override
+                public void read(ChannelHandlerContext ctx) {
+                    requests[0]++;
+                    ctx.read();
+                }
+            });
+            var allocator = new RecordingAllocator();
+            atAllocation(allocator, k, once(() -> {
+                if (!finalTrust) ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
+                change.accept(f, held.getFirst());
+            }));
+            f.backend.config().setAllocator(allocator);
+            Throwable thrown = null;
+            try {
+                f.read(read.clone());
+            } catch (Throwable failure) {
+                thrown = failure;
+            }
+            ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+            ByteBuf frame = held.getFirst();
+            String seen = sent(f.wire()) + ", " + describe(thrown) + ", reader " + frame.readerIndex() + ", writer "
+                    + frame.writerIndex() + ", count " + frame.refCnt() + ", accounted " + f.accounted + ", reads "
+                    + requests[0];
+            if (k > 0 && !finalTrust)
+                assertEquals(0, f.forwarder.forwarded(), "a refused trust check forwards nothing");
+            if (frame.refCnt() > 0) frame.release(frame.refCnt());
+            for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation");
+            return seen;
+        } finally {
+            ResourceLeakDetector.setLevel(level);
+        }
+    }
+
+    @Test
+    void limiterSetAfterTheLinkMakesNoKeepAllocation() {
+        byte[] packet = packet(3000, 144);
+        byte[] read = frame(body(packet, THRESHOLD));
+        try (var f = new Fixture(Options.forwarding())) {
+            assertEquals("linked", f.forwarder.linkStatus());
+            var allocator = new RecordingAllocator();
+            f.backend.config().setAllocator(allocator);
+            f.decoder.packetLimiter = recording(f, true);
+            f.read(read);
+            assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
+            assertEquals(1, allocator.allocated.size(), "only the decoder's own allocation");
+            assertEquals(1, f.decoder.inflated.size(), "the decoder decodes the frame");
+            assertEquals(List.of(3000), f.accounted);
+            assertEquals(CompressedKeep.LIMITED, f.forwarder.linkStatus());
+            assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
+        }
+    }
+
+    @Test
+    void decoderWhoseLimiterCannotAccountIsNotLinked() {
+        try (var f = new Fixture(Options.forwarding().unlinked())) {
+            String name = VelocityCompressedForward.COMPRESSION_DECODER;
+            f.backend.pipeline().replace(name, name, new RunnableLimiterDecoder());
+            VelocityCompressedForward.place(
+                    f.forwarder, f.client.pipeline(), f.backend, RunnableLimiterDecoder.class, COMPRESSORS, TRUSTED);
+            assertEquals("backend-decoder", f.forwarder.linkStatus());
+            assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
+            assertNull(VelocityCompressedForward.decode(new RunnableLimiterDecoder()));
+            assertNotNull(VelocityCompressedForward.decode(f.decoder));
+        }
+    }
+
+    /** A decoder of the stand-in's shape whose limiter field's type has no {@code account(int)}. */
+    static final class RunnableLimiterDecoder extends MessageToMessageDecoder<ByteBuf> {
+        int threshold = THRESHOLD;
+        final SharedCompressor compressor = new SharedCompressor();
+        Runnable packetLimiter;
+
+        @Override
+        protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
+            out.add(in.retain());
+        }
+    }
+
     /** An outbound handler with a threshold field that is not the encoder class the forwarder accepts. */
     static final class OtherEncoder extends ChannelOutboundHandlerAdapter {
         final int threshold;
@@ -3629,11 +3939,19 @@ class VelocityCompressedForwardTest {
         final CompressedForwarder forwarder;
         final CultConnection connection;
         private final List<ByteBuf> tracked = new ArrayList<>();
+        /** The counts a {@link #recording} limiter accounted. */
+        final List<Integer> accounted = new ArrayList<>();
+
         private final List<Backend> backends = new ArrayList<>();
         private final ByteArrayOutputStream wire = new ByteArrayOutputStream();
         private final Options options;
 
         Fixture(Options options) {
+            this(options, TRUSTED);
+        }
+
+        /** As the one-argument fixture; the forwarder's fast paths run under a client allocator {@code clientTrust} accepts. */
+        Fixture(Options options, Predicate<ByteBufAllocator> clientTrust) {
             this.options = options;
             compressor = options.consume() ? new SharedCompressor() : new AddressCompressor();
             encoder = new CompressEncoder(THRESHOLD, options.consume(), compressor);
@@ -3653,7 +3971,14 @@ class VelocityCompressedForwardTest {
             VelocityPacketPipeline.install(connection);
             forwarder = options.forward()
                     ? VelocityCompressedForward.install(
-                            pipeline, CompressEncoder.class, DECODER, COMPRESSORS, true, options.heap())
+                            pipeline,
+                            CompressEncoder.class,
+                            DECODER,
+                            COMPRESSORS,
+                            true,
+                            options.heap(),
+                            clientTrust,
+                            refusal -> {})
                     : null;
             var first = backend(options);
             backend = first.channel;

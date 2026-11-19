@@ -9,12 +9,14 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.handler.codec.EncoderException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -25,6 +27,8 @@ import org.jetbrains.annotations.Nullable;
 final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final String NAME = "cult-compressed-forward";
     static final String COMPRESSION_ENCODER = "compression-encoder";
+    // Leak detection is enabled, or the client's allocator or netty's leak detector is not of netty's own classes.
+    static final String UNTRUSTED = "client-untrusted";
     private static final int MAX_FRAME_LENGTH = (1 << 21) - 1;
     // Velocity's encoder fails a write whose deflate output is this long or longer.
     private static final int MAX_COMPRESSED_LENGTH = 1 << 21;
@@ -41,6 +45,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private final boolean heap;
     private final boolean consume;
     private final MethodHandle disposed;
+    private final Predicate<ByteBufAllocator> trustedAllocators;
+    private final Runnable untrusted;
     private @Nullable ChannelHandlerContext compression;
     private final ChannelHandlerContext inbound;
 
@@ -62,7 +68,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     /**
      * {@code encoderThreshold} reads {@code compression}'s threshold as {@code ()int}; {@code inbound} is the client's
      * compression decoder, which shares the encoder's compressor; {@code disposed} reads that compressor's closed flag
-     * as {@code ()boolean}.
+     * as {@code ()boolean}; both fast paths run only while {@code trustedAllocators} accepts the client channel's
+     * allocator, and {@code untrusted} runs when it refuses.
      */
     CompressedForwarder(
             MethodHandle encoderThreshold,
@@ -71,8 +78,12 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             boolean small,
             boolean heap,
             boolean consume,
-            MethodHandle disposed) {
+            MethodHandle disposed,
+            Predicate<ByteBufAllocator> trustedAllocators,
+            Runnable untrusted) {
         this.encoderThreshold = encoderThreshold;
+        this.trustedAllocators = trustedAllocators;
+        this.untrusted = untrusted;
         this.threshold = encoderThreshold();
         this.compression = compression;
         this.inbound = inbound;
@@ -174,6 +185,15 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
+        if (!trustedAllocators.test(ctx.alloc())) {
+            try {
+                disable(UNTRUSTED);
+                untrusted.run();
+            } finally {
+                ctx.write(msg, promise);
+            }
+            return;
+        }
         int n = b.readableBytes();
         boolean marked = b == markBuf;
         if (n < threshold) {
@@ -259,26 +279,39 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         out.writeBytes(frame, body, length);
     }
 
+    /**
+     * Frames {@code b} uncompressed as Velocity's encoder does: allocates for the {@code n} bytes read before, then
+     * reads the length and bytes; a failed allocation fails the write as the encoder's does.
+     */
     private void frameSmall(
             ChannelHandlerContext ctx, ChannelHandlerContext target, ByteBuf b, int n, ChannelPromise promise) {
-        ByteBuf out = null;
+        int size = varIntSize(n + 1) + n + 1;
+        ByteBuf out;
         try {
-            int length = n + 1;
-            int size = varIntSize(length) + length;
             out = heap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
-            Wire.writeVarInt(out, length);
-            out.writeByte(0);
-            int at = out.writerIndex();
-            b.getBytes(b.readerIndex(), out, at, n);
-            out.writerIndex(at + n);
         } catch (Throwable failure) {
             failures++;
-            if (out != null) out.release();
+            throw failure instanceof EncoderException encoder ? encoder : new EncoderException(failure);
+        }
+        int length;
+        try {
+            length = b.readableBytes();
+            if (length >= threshold) {
+                out.release();
+                ctx.write(b, promise);
+                return;
+            }
+            Wire.writeVarInt(out, length + 1);
+            out.writeByte(0);
+            out.writeBytes(b, b.readerIndex(), length);
+        } catch (Throwable failure) {
+            failures++;
+            out.release();
             ctx.write(b, promise);
             return;
         }
         try {
-            b.skipBytes(n);
+            b.skipBytes(length);
             b.release();
         } catch (Throwable failure) {
             out.release();
@@ -436,7 +469,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         try {
             pipeline.remove(handler);
         } catch (NoSuchElementException gone) {
-            // Already removed.
+            // A handler another path removed first leaves nothing to remove.
         }
     }
 
