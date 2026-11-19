@@ -31,7 +31,9 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     /** 1,838,585: the longest inflated frame whose {@link #deflateBound} is below Velocity's compressed limit. */
     static final int MAX_FORWARDED_LENGTH = maxForwardedLength();
     // Netty follows this link from a context to the next outbound handler toward the head.
-    private static final @Nullable VarHandle PREVIOUS = previous();
+    private static final @Nullable VarHandle PREVIOUS = link("prev");
+    // A context removed from another thread keeps its own links until its removal runs on the loop.
+    private static final @Nullable VarHandle NEXT = link("next");
 
     private final MethodHandle encoderThreshold;
     private final int threshold;
@@ -91,14 +93,14 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return n;
     }
 
-    private static @Nullable VarHandle previous() {
+    private static @Nullable VarHandle link(String name) {
         try {
             Class<?> context = Class.forName(
                     "io.netty.channel.AbstractChannelHandlerContext",
                     false,
                     ChannelHandlerContext.class.getClassLoader());
             return MethodHandles.privateLookupIn(context, MethodHandles.lookup())
-                    .findVarHandle(context, "prev", context);
+                    .findVarHandle(context, name, context);
         } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
             return null;
         }
@@ -106,12 +108,18 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     /** Whether this netty lets a handler read which context its writes reach next. */
     static boolean supported() {
-        return PREVIOUS != null;
+        return PREVIOUS != null && NEXT != null;
     }
 
-    /** Whether {@code before} is the context directly head-side of {@code ctx}, with no handler between them. */
+    /**
+     * Whether {@code before} is the context directly head-side of {@code ctx} and links to it, with no handler between
+     * them.
+     */
     static boolean follows(ChannelHandlerContext ctx, ChannelHandlerContext before) {
-        return PREVIOUS != null && PREVIOUS.getVolatile(ctx) == before;
+        return PREVIOUS != null
+                && NEXT != null
+                && PREVIOUS.getVolatile(ctx) == before
+                && NEXT.getVolatile(before) == ctx;
     }
 
     /** The encoder's threshold read at install. */
@@ -243,7 +251,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             Wire.writeVarInt(out, length);
             out.writeBytes(frame, frame.readerIndex(), length);
             return out;
-        } catch (RuntimeException | OutOfMemoryError failure) {
+        } catch (Throwable failure) {
             failures++;
             if (out != null) out.release();
             return null;

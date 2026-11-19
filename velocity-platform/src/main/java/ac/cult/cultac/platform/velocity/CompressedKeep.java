@@ -58,6 +58,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     private @Nullable ChannelHandlerContext keepContext, decoderContext;
     private @Nullable MessageToMessageDecoder<?> decoder;
     private @Nullable Codec codec;
+    // Set by a successful inflate and read before any other code runs: the frame bytes the decoder's read consumes.
+    private int consumed;
 
     CompressedKeep(CompressedForwarder forwarder) {
         this(forwarder, NETTY_ALLOCATORS);
@@ -167,10 +169,17 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         ByteBuf client = null;
         ByteBuf inflated = null;
         ByteBuf copy = null;
+        int reader = 0;
         if (held(frame) && trusted(ctx)) {
             client = forwarder.frame(ctx.alloc(), frame, codec.address());
             if (client != null) inflated = inflate(ctx, codec, client, frame.readableBytes());
-            if (inflated != null) copy = copy(ctx, inflated);
+            if (inflated != null) {
+                // Velocity's libdeflate path inflates a frame without a memory address from a copy that reads it all.
+                reader = codec.address() && !frame.hasMemoryAddress()
+                        ? frame.writerIndex()
+                        : frame.readerIndex() + consumed;
+                copy = copy(ctx, inflated);
+            }
         }
         // A leak report in these allocations runs log and listener code, which can change the pipeline or the limiter.
         boolean adjacent = adjacent();
@@ -188,15 +197,21 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             CompressedForwarder.rethrow(failure);
             return;
         }
-        publish(frame, decoder, inflated, copy, client);
+        publish(frame, reader, decoder, inflated, copy, client);
     }
 
     /**
-     * Publishes {@code inflated}, its indices, {@code copy} and {@code client}, releases the backend's {@code frame} and
-     * fires {@code inflated} from the decoder's context, as the decoder's own read does; restores the previous mark.
+     * Publishes {@code inflated}, its indices, {@code copy} and {@code client}, moves the backend's {@code frame} to
+     * {@code reader}, releases it and fires {@code inflated} from the decoder's context, as the decoder's own read does;
+     * restores the previous mark.
      */
     private void publish(
-            ByteBuf frame, MessageToMessageDecoder<?> decoder, ByteBuf inflated, ByteBuf copy, ByteBuf client) {
+            ByteBuf frame,
+            int reader,
+            MessageToMessageDecoder<?> decoder,
+            ByteBuf inflated,
+            ByteBuf copy,
+            ByteBuf client) {
         CompressedForwarder target = forwarder;
         ByteBuf previous = target.markBuf;
         int previousReader = target.markReader();
@@ -208,6 +223,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         try {
             DECODE_CALLED.set(decoder, true);
             MESSAGE_PRODUCED.set(decoder, true);
+            frame.readerIndex(Math.min(reader, frame.writerIndex()));
             released = CompressedForwarder.release(frame, null);
             decoderContext.fireChannelRead(inflated);
         } finally {
@@ -227,9 +243,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     /**
      * The backend frame at the end of {@code client}, {@code length} bytes, inflated by the decoder's compressor into a
      * direct buffer of its claimed length, as Velocity's decoder inflates it, or null when any step fails or a check
-     * the decoder makes does not pass.
+     * the decoder makes does not pass; on success {@link #consumed} holds the frame bytes the decoder's read consumes.
      */
-    private static @Nullable ByteBuf inflate(ChannelHandlerContext ctx, Codec codec, ByteBuf client, int length) {
+    private @Nullable ByteBuf inflate(ChannelHandlerContext ctx, Codec codec, ByteBuf client, int length) {
         int end = client.writerIndex();
         int start = end - length;
         int n = CompressedForwarder.dataLength(client, start, end);
@@ -248,7 +264,10 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             ByteBuf source = client.slice(body, end - body);
             out = ctx.alloc().directBuffer(n);
             codec.inflate().invokeExact(source, out, n);
-            if (out.writerIndex() == n) return out;
+            if (out.writerIndex() == n) {
+                consumed = body - start + source.readerIndex();
+                return out;
+            }
         } catch (Throwable failure) {
             // The decoder inflates the frame again and raises its own exception.
         }
@@ -264,7 +283,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             copy = ctx.alloc().buffer(n, n);
             copy.writeBytes(inflated, inflated.readerIndex(), n);
             return copy;
-        } catch (RuntimeException | OutOfMemoryError failure) {
+        } catch (Throwable failure) {
             CompressedForwarder.release(copy, null);
             return null;
         }

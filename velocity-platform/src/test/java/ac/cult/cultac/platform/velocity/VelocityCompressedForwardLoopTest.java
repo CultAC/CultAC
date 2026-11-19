@@ -34,6 +34,7 @@ import io.netty.channel.local.LocalIoHandler;
 import io.netty.channel.local.LocalServerChannel;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -327,6 +328,62 @@ class VelocityCompressedForwardLoopTest {
             backend.proxySide().close().sync();
         } finally {
             decoders.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
+    }
+
+    @Test
+    void decoderRemovedFromAnotherThreadDuringAReadLeavesTheReadAsWithTheSwitchOff() throws Exception {
+        byte[] first = body(packet(3000, 94), THRESHOLD);
+        byte[] second = body(packet(3000, 95), THRESHOLD);
+        List<List<byte[]>> got = new ArrayList<>();
+        for (boolean forward : new boolean[] {false, true}) {
+            synchronized (received) {
+                received.reset();
+            }
+            Pair client = client();
+            var forwarder = (CompressedForwarder) client.proxySide().pipeline().get(CompressedForwarder.NAME);
+            Pair backend = backend(client.proxySide());
+            onLoop(() -> {
+                var pipeline = backend.proxySide().pipeline();
+                pipeline.addAfter("frame-decoder", "remover", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                        ctx.pipeline().remove(this);
+                        var remover = new Thread(() -> pipeline.remove(VelocityCompressedForward.COMPRESSION_DECODER));
+                        remover.start();
+                        remover.join();
+                        ctx.fireChannelRead(msg);
+                    }
+                });
+                if (forward)
+                    VelocityCompressedForward.link(
+                            forwarder,
+                            client.proxySide(),
+                            backend.proxySide(),
+                            CompressDecoder.class.getName(),
+                            COMPRESSORS);
+                return null;
+            });
+            if (forward) assertEquals("linked", onLoop(forwarder::linkStatus));
+            backend.remote()
+                    .writeAndFlush(Unpooled.wrappedBuffer(concat(frame(first), frame(second))))
+                    .sync();
+            backend.proxySide().eventLoop().execute(() -> {
+                backend.proxySide().config().setAutoRead(true);
+                backend.proxySide().read();
+            });
+            got.add(packets(awaitFrames(2)));
+            if (forward) {
+                assertEquals(0L, onLoop(forwarder::forwarded));
+                assertEquals("backend-adjacency", onLoop(forwarder::linkStatus));
+            }
+            backend.proxySide().close().sync();
+            client.proxySide().close().sync();
+        }
+        for (List<byte[]> packets : got) {
+            assertEquals(2, packets.size());
+            assertArrayEquals(first, packets.get(0), "the first frame reaches the next handler compressed");
+            assertArrayEquals(second, packets.get(1));
         }
     }
 

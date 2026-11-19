@@ -2956,6 +2956,85 @@ class VelocityCompressedForwardTest {
         assertPackets(List.of(small), read(wires[1], THRESHOLD));
     }
 
+    @Test
+    void retainedBackendFrameEndsWithTheIndicesAndCountOfTheSwitchOff() {
+        byte[] packet = packet(3000, 124);
+        byte[] read = frame(concat(body(packet, THRESHOLD), new byte[] {1, 2, 3}));
+        for (boolean consume : new boolean[] {true, false}) {
+            for (boolean direct : new boolean[] {false, true}) {
+                List<String> seen = new ArrayList<>();
+                for (boolean forward : new boolean[] {false, true}) {
+                    String label =
+                            "compressor consumes " + consume + ", direct frame " + direct + ", forward " + forward;
+                    var options = Options.forwarding().consume(consume);
+                    try (var f = new Fixture(forward ? options : options.withoutForwarding())) {
+                        var held = new ArrayList<ByteBuf>();
+                        var during = new StringBuilder();
+                        f.backend.pipeline().addAfter("frame-decoder", "hold", new ChannelInboundHandlerAdapter() {
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                                held.add(((ByteBuf) msg).retain());
+                                ctx.fireChannelRead(msg);
+                            }
+                        });
+                        if (direct)
+                            replaceFrames(
+                                    f,
+                                    frame -> PooledByteBufAllocator.DEFAULT
+                                            .directBuffer(frame.readableBytes())
+                                            .writeBytes(frame, frame.readerIndex(), frame.readableBytes()));
+                        f.backend
+                                .pipeline()
+                                .addAfter(
+                                        VelocityCompressedForward.COMPRESSION_DECODER,
+                                        "probe",
+                                        new ChannelInboundHandlerAdapter() {
+                                            @Override
+                                            public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                                                during.append(held.getLast().refCnt());
+                                                ctx.fireChannelRead(msg);
+                                            }
+                                        });
+                        f.read(read.clone());
+                        assertPackets(List.of(packet), read(f.wire(), THRESHOLD, true));
+                        if (forward) assertEquals(1, f.forwarder.forwarded(), label);
+                        ByteBuf frame = held.getFirst();
+                        assertEquals(direct, frame.hasMemoryAddress(), label);
+                        seen.add("reader " + frame.readerIndex() + ", writer " + frame.writerIndex() + ", count "
+                                + frame.refCnt() + ", count after the decoder " + during);
+                        assertTrue(frame.release(), label);
+                    }
+                }
+                assertEquals(seen.get(0), seen.get(1), "consume " + consume + ", direct " + direct);
+            }
+        }
+    }
+
+    @Test
+    void errorInTheKeepsCopiesPassesTheBackendsFrameOnUnheld() {
+        byte[] packet = packet(3000, 125);
+        byte[] read = frame(body(packet, THRESHOLD));
+        // The keep's private frame is its first direct allocation, its comparison copy its first heap allocation.
+        for (boolean copy : new boolean[] {false, true}) {
+            String label = copy ? "comparison copy" : "private frame";
+            try (var f = new Fixture(Options.forwarding())) {
+                var allocator = new RecordingAllocator();
+                Runnable overflow = () -> {
+                    throw new StackOverflowError(label);
+                };
+                if (copy) allocator.beforeHeap = atDirectAllocation(1, overflow);
+                else allocator.beforeDirect = atDirectAllocation(1, overflow);
+                f.backend.config().setAllocator(allocator);
+                f.read(read);
+                assertEquals(1, f.decoder.inflated.size(), "the decoder decodes the backend's frame, " + label);
+                assertSameBytes(today(Options.forwarding(), read), f.wire());
+                assertEquals(0, f.forwarder.forwarded(), label);
+                assertEquals(0, f.frameDecoder.frames.getFirst().refCnt(), label);
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+            }
+        }
+    }
+
     /** An outbound handler with a threshold field that is not the encoder class the forwarder accepts. */
     static final class OtherEncoder extends ChannelOutboundHandlerAdapter {
         final int threshold;
@@ -3083,7 +3162,9 @@ class VelocityCompressedForwardTest {
             pipeline.addLast("read-timeout", new ChannelInboundHandlerAdapter());
             CompressDecoder decoder = null;
             if (options.backendThreshold() >= 0) {
-                decoder = new CompressDecoder(options.backendThreshold());
+                decoder = options.consume()
+                        ? new CompressDecoder(options.backendThreshold())
+                        : new CompressDecoder(options.backendThreshold(), new AddressCompressor());
                 pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, decoder);
             }
             if (options.copyAfterMark()) pipeline.addLast("via-decoder", new CopyDecoder());
