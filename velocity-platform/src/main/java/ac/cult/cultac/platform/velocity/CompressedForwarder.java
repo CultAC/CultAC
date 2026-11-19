@@ -249,10 +249,14 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** Writes {@code varint(length)} and the {@code length} bytes of the backend's {@code frame} at {@code start}. */
-    static void fillFrame(ByteBuf out, ByteBuf frame, int start, int length) {
-        Wire.writeVarInt(out, length);
-        out.writeBytes(frame, start, length);
+    /**
+     * Writes a compressed frame claiming {@code n} bytes: its length, {@code varint(n)} and the {@code length} body
+     * bytes of the backend's {@code frame} at {@code body}.
+     */
+    static void fillFrame(ByteBuf out, int n, ByteBuf frame, int body, int length) {
+        Wire.writeVarInt(out, varIntSize(n) + length);
+        Wire.writeVarInt(out, n);
+        out.writeBytes(frame, body, length);
     }
 
     private void frameSmall(

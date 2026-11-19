@@ -1959,7 +1959,9 @@ class VelocityCompressedForwardTest {
             ByteBuf kept = f.track(Unpooled.wrappedBuffer(body));
             ByteBuf frame = f.forwarder.frameBuffer(ByteBufAllocator.DEFAULT, kept.readableBytes(), false);
             assertNotNull(frame);
-            CompressedForwarder.fillFrame(frame, kept, kept.readerIndex(), kept.readableBytes());
+            int header = CompressedForwarder.varIntSize(packet.length);
+            CompressedForwarder.fillFrame(
+                    frame, packet.length, kept, kept.readerIndex() + header, kept.readableBytes() - header);
             ChannelFuture write;
             f.forwarder.mark(input, input.readerIndex(), input.writerIndex(), copy, frame);
             try {
@@ -3144,6 +3146,130 @@ class VelocityCompressedForwardTest {
             }
         }
         assertEquals(seen.get(0), seen.get(1));
+    }
+
+    /** Runs {@code hook} at keep allocation {@code k}, or at the decoder's one allocation when {@code k} is 0. */
+    private static void atAllocation(RecordingAllocator allocator, int k, Runnable hook) {
+        // The keep's third allocation is its comparison copy, on the heap.
+        if (k == 3) allocator.beforeHeap = hook;
+        else allocator.beforeDirect = atDirectAllocation(Math.max(k, 1), hook);
+    }
+
+    @Test
+    void heldFrameAtAKeepAllocationIsAsTheDecoderLeavesItAtItsAllocation() {
+        byte[] read = frame(body(packet(3000, 132), THRESHOLD));
+        List<String> seen = new ArrayList<>();
+        for (int k = 0; k <= 3; k++) {
+            String label = k == 0 ? "switch off" : "keep allocation " + k;
+            try (var f = new Fixture(k == 0 ? Options.today() : Options.forwarding())) {
+                var held = new ArrayList<ByteBuf>();
+                hold(f, held);
+                var allocator = new RecordingAllocator();
+                atAllocation(allocator, k, once(() -> {
+                    ByteBuf frame = held.getFirst();
+                    seen.add("reader " + frame.readerIndex() + ", readable " + frame.readableBytes() + ", count "
+                            + frame.refCnt());
+                }));
+                f.backend.config().setAllocator(allocator);
+                f.read(read.clone());
+                if (k > 0) assertEquals(1, f.forwarder.forwarded(), label);
+                assertTrue(held.getFirst().release(), label);
+            }
+        }
+        for (int k = 1; k <= 3; k++) assertEquals(seen.get(0), seen.get(k), "keep allocation " + k);
+    }
+
+    @Test
+    void claimChangedAtAKeepAllocationDecodesAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 133);
+        byte[] body = body(packet, THRESHOLD);
+        byte[] read = frame(body);
+        for (int k = 0; k <= 3; k++) {
+            String label = k == 0 ? "switch off" : "keep allocation " + k;
+            try (var f = new Fixture(k == 0 ? Options.today() : Options.forwarding())) {
+                var held = new ArrayList<ByteBuf>();
+                hold(f, held);
+                var allocator = new RecordingAllocator();
+                // 3000 is 0xB8 0x17; the bump makes the frame claim 3001.
+                atAllocation(allocator, k, once(() -> held.getFirst().setByte(0, 0xB9)));
+                f.backend.config().setAllocator(allocator);
+                f.read(read.clone());
+                var frames = read(f.wire(), THRESHOLD);
+                assertPackets(List.of(packet), frames);
+                if (k > 0) {
+                    assertEquals(1, f.forwarder.forwarded(), label);
+                    assertArrayEquals(body, frames.getFirst().body(), label);
+                }
+                assertTrue(held.getFirst().release(), label);
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+            }
+        }
+    }
+
+    @Test
+    void readerMovedAtAKeepAllocationFailsAsWithTheSwitchOff() {
+        byte[] read = frame(body(packet(3000, 134), THRESHOLD));
+        for (int k = 0; k <= 3; k++) {
+            String label = k == 0 ? "switch off" : "keep allocation " + k;
+            try (var f = new Fixture(k == 0 ? Options.today() : Options.forwarding())) {
+                var held = new ArrayList<ByteBuf>();
+                hold(f, held);
+                var allocator = new RecordingAllocator();
+                atAllocation(allocator, k, once(() -> held.getFirst().skipBytes(1)));
+                f.backend.config().setAllocator(allocator);
+                assertThrows(DecoderException.class, () -> f.read(read.clone()), label);
+                assertEquals(0, f.wire().length, label);
+                if (k > 0) assertEquals(0, f.forwarder.forwarded(), label);
+                assertTrue(held.getFirst().release(), label);
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+            }
+        }
+    }
+
+    @Test
+    void frameOverReleasedAtAKeepAllocationEndsAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 135);
+        byte[] read = frame(body(packet, THRESHOLD));
+        for (int releases = 2; releases <= 3; releases++) {
+            List<String> seen = new ArrayList<>();
+            for (int k = 0; k <= 3; k++) {
+                String label = (k == 0 ? "switch off" : "keep allocation " + k) + ", releases " + releases;
+                try (var f = new Fixture(k == 0 ? Options.today() : Options.forwarding())) {
+                    var held = new ArrayList<ByteBuf>();
+                    hold(f, held);
+                    var allocator = new RecordingAllocator();
+                    int count = releases;
+                    atAllocation(allocator, k, once(() -> held.getFirst().release(count)));
+                    f.backend.config().setAllocator(allocator);
+                    Throwable thrown = null;
+                    try {
+                        f.read(read.clone());
+                    } catch (RuntimeException failure) {
+                        thrown = failure;
+                    }
+                    assertNotNull(thrown, label);
+                    List<byte[]> packets = new ArrayList<>();
+                    for (var frame : read(f.wire(), THRESHOLD)) packets.add(frame.packet());
+                    seen.add(thrown.getClass().getName() + " / "
+                            + (thrown.getCause() == null
+                                    ? null
+                                    : thrown.getCause().getClass().getName())
+                            + ", packets "
+                            + packets.stream().map(Arrays::toString).toList()
+                            + ", count " + held.getFirst().refCnt());
+                    for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+                }
+            }
+            for (int k = 1; k <= 3; k++) assertEquals(seen.get(0), seen.get(k), "keep allocation " + k);
+        }
+    }
+
+    @Test
+    void onlyNettysOwnLeakDetectorIsTrusted() throws Exception {
+        assertTrue(CompressedKeep.nettyLeakDetector(leakDetector()));
+        assertTrue(CompressedKeep.NETTY_ALLOCATORS.test(PooledByteBufAllocator.DEFAULT));
+        assertFalse(CompressedKeep.nettyLeakDetector(new ResourceLeakDetector<ByteBuf>(ByteBuf.class, 1) {}));
+        assertFalse(CompressedKeep.nettyLeakDetector(null));
     }
 
     @Test
