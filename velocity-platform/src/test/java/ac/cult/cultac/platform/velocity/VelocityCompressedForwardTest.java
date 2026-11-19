@@ -19,6 +19,7 @@ import io.netty.buffer.AbstractByteBufAllocator;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.buffer.UnpooledDirectByteBuf;
@@ -40,6 +41,7 @@ import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import java.io.ByteArrayOutputStream;
 import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -48,11 +50,14 @@ import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.zip.Adler32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -68,7 +73,10 @@ class VelocityCompressedForwardTest {
     private static final String DECODER = CompressDecoder.class.getName();
     private static ResourceLeakDetector.Level previousLevel;
     private static final List<String> LEAKS = new ArrayList<>();
-    /** Netty's allocators and {@link RecordingAllocator}, whose hooks stand for code a trusted allocator never runs. */
+    /**
+     * Netty's allocators and {@link RecordingAllocator}, whose hooks stand for the log and leak-listener code netty's
+     * allocators run when they report a leak.
+     */
     private static final Predicate<ByteBufAllocator> TRUSTED =
             CompressedKeep.NETTY_ALLOCATORS.or(alloc -> alloc instanceof RecordingAllocator);
 
@@ -2087,6 +2095,98 @@ class VelocityCompressedForwardTest {
     }
 
     /**
+     * A heap buffer of a class netty does not provide that records the calls it gets, reports {@code nio} NIO buffers,
+     * and runs the hook set by {@link #onFirst} once, on the first call of that name.
+     */
+    static final class Watched extends UnpooledHeapByteBuf {
+        private final List<String> calls;
+        private final int nio;
+        private String hookOn;
+        private Runnable hook;
+
+        Watched(int capacity, int nio, List<String> calls) {
+            super(UnpooledByteBufAllocator.DEFAULT, capacity, capacity);
+            this.nio = nio;
+            this.calls = calls;
+        }
+
+        Watched onFirst(String call, Runnable hook) {
+            hookOn = call;
+            this.hook = hook;
+            return this;
+        }
+
+        private void seen(String call) {
+            if (calls == null) return;
+            calls.add(call);
+            Runnable run = call.equals(hookOn) ? hook : null;
+            if (run == null) return;
+            hook = null;
+            run.run();
+        }
+
+        @Override
+        public boolean isReadable() {
+            seen("isReadable");
+            return super.isReadable();
+        }
+
+        @Override
+        public int readableBytes() {
+            seen("readableBytes");
+            return super.readableBytes();
+        }
+
+        @Override
+        public int refCnt() {
+            seen("refCnt");
+            return super.refCnt();
+        }
+
+        @Override
+        public int nioBufferCount() {
+            seen("nioBufferCount");
+            return nio;
+        }
+
+        @Override
+        public byte getByte(int index) {
+            seen("getByte");
+            return super.getByte(index);
+        }
+
+        @Override
+        public ByteBuf getBytes(int index, byte[] dst, int dstIndex, int length) {
+            seen("getBytes");
+            return super.getBytes(index, dst, dstIndex, length);
+        }
+
+        @Override
+        public ByteBuf getBytes(int index, ByteBuf dst, int dstIndex, int length) {
+            seen("getBytes");
+            return super.getBytes(index, dst, dstIndex, length);
+        }
+
+        @Override
+        public ByteBuf getBytes(int index, ByteBuffer dst) {
+            seen("getBytes");
+            return super.getBytes(index, dst);
+        }
+
+        @Override
+        public ByteBuffer nioBuffer(int index, int length) {
+            seen("nioBuffer");
+            return super.nioBuffer(index, length);
+        }
+
+        @Override
+        public boolean release() {
+            seen("release");
+            return super.release();
+        }
+    }
+
+    /**
      * Unpooled buffers from an allocator netty does not provide: {@link #onHeap} runs before the next heap allocation,
      * and {@link #onSharedRelease} when a release of the next direct buffer leaves it one reference.
      */
@@ -2372,6 +2472,206 @@ class VelocityCompressedForwardTest {
             assertEquals("backend-adjacency", f.forwarder.linkStatus());
             assertNull(real.get(CompressedKeep.NAME));
             assertNull(real.get(CompressedMark.NAME));
+        }
+    }
+
+    /** Replaces each backend frame with what {@code replace} makes of it, and releases the frame. */
+    private static void replaceFrames(Fixture f, Function<ByteBuf, ByteBuf> replace) {
+        f.backend.pipeline().addAfter("frame-decoder", "replace", new ChannelInboundHandlerAdapter() {
+            @Override
+            public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                ByteBuf frame = (ByteBuf) msg;
+                ByteBuf replaced;
+                try {
+                    replaced = replace.apply(frame);
+                } finally {
+                    frame.release();
+                }
+                ctx.fireChannelRead(replaced);
+            }
+        });
+    }
+
+    /**
+     * Each backend frame replaced as {@code replace} makes it, given the fixture and a list its {@link Watched} buffers
+     * record into: the client gets {@code expected} with the same bytes as with the switch off, nothing is forwarded,
+     * and the watched buffers get the same calls in the same order.
+     */
+    private void checkReplacedFrames(
+            BiFunction<Fixture, List<String>, Function<ByteBuf, ByteBuf>> replace, List<byte[]> expected) {
+        byte[] read = frame(body(packet(3000, 108), THRESHOLD));
+        byte[][] wires = new byte[2][];
+        List<List<String>> calls = new ArrayList<>();
+        for (boolean forward : new boolean[] {false, true}) {
+            var recorded = new ArrayList<String>();
+            try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+                replaceFrames(f, replace.apply(f, recorded));
+                f.read(read.clone());
+                wires[forward ? 1 : 0] = f.wire();
+                if (forward) assertEquals(0, f.forwarder.forwarded());
+            }
+            calls.add(recorded);
+        }
+        assertSameBytes(wires[0], wires[1]);
+        assertPackets(expected, read(wires[1], THRESHOLD));
+        assertEquals(calls.get(0), calls.get(1), "the watched buffers' calls");
+    }
+
+    /**
+     * A FixedCompositeByteBuf over a watched copy of the frame, whose first {@code hookOn} runs {@code hook}, and an
+     * empty watched buffer that reports no NIO buffers, so the composite reports one.
+     */
+    private static Function<ByteBuf, ByteBuf> fixedComposite(
+            Fixture f, List<String> calls, String hookOn, Runnable hook) {
+        return frame -> {
+            var input = new Watched(frame.readableBytes(), 1, calls);
+            f.track(input).writeBytes(frame);
+            input.onFirst(hookOn, hook);
+            ByteBuf fixed = Unpooled.wrappedUnmodifiableBuffer(input, f.track(new Watched(0, 0, calls)));
+            assertEquals(
+                    "io.netty.buffer.FixedCompositeByteBuf", fixed.getClass().getName());
+            assertEquals(1, fixed.nioBufferCount());
+            return f.track(fixed);
+        };
+    }
+
+    @Test
+    void fixedCompositeOverForeignBuffersLeavesTheReadAsWithTheSwitchOff() {
+        checkReplacedFrames(
+                (f, calls) -> fixedComposite(f, calls, "release", insertSwap().apply(f)), List.of(packet(3000, 108)));
+        checkReplacedFrames(
+                (f, calls) -> fixedComposite(
+                        f, calls, "release", () -> f.decoder.packetLimiter = selfClearingLimiter(f, packet(3000, 109))),
+                List.of(packet(3000, 108)));
+    }
+
+    @Test
+    void foreignFrameIsPassedOnBeforeTheKeepCallsAnyOfItsMethods() {
+        checkReplacedFrames(
+                (f, calls) -> frame -> {
+                    var input = new Watched(frame.readableBytes(), 1, calls);
+                    f.track(input).writeBytes(frame);
+                    return input.onFirst("isReadable", insertSwap().apply(f));
+                },
+                List.of(packet(3000, 108)));
+    }
+
+    @Test
+    void bufferOfNettysPackageFromAnotherLoaderIsNotHeld() throws Exception {
+        Class<? extends UnpooledHeapByteBuf> type = new ByteBuddy()
+                .subclass(UnpooledHeapByteBuf.class)
+                .name("io.netty.buffer.OtherLoaderHeapByteBuf")
+                .make()
+                .load(VelocityCompressedForwardTest.class.getClassLoader(), ClassLoadingStrategy.Default.WRAPPER)
+                .getLoaded();
+        assertEquals(ByteBuf.class.getPackageName(), type.getPackageName());
+        assertNotSame(ByteBuf.class.getClassLoader(), type.getClassLoader());
+        var constructor = type.getConstructor(ByteBufAllocator.class, int.class, int.class);
+        checkReplacedFrames(
+                (f, calls) -> frame -> {
+                    ByteBuf input;
+                    try {
+                        int n = frame.readableBytes();
+                        input = constructor.newInstance(UnpooledByteBufAllocator.DEFAULT, n, n);
+                    } catch (ReflectiveOperationException failure) {
+                        throw new AssertionError(failure);
+                    }
+                    return f.track(input.writeBytes(frame));
+                },
+                List.of(packet(3000, 108)));
+    }
+
+    @Test
+    void releasedFrameRaisesWhatTheDecoderRaisesWithTheSwitchOff() {
+        checkReleasedFrame(frame -> {
+            ByteBuf copy = Unpooled.buffer(frame.readableBytes()).writeBytes(frame);
+            copy.release();
+            return copy;
+        });
+        var pooled = new PooledByteBufAllocator(true);
+        checkReleasedFrame(frame -> {
+            ByteBuf parent = pooled.directBuffer(frame.readableBytes()).writeBytes(frame);
+            ByteBuf slice = parent.retainedSlice();
+            parent.release();
+            slice.release();
+            return slice;
+        });
+    }
+
+    /** A backend frame at reference count 0 raises the decoder's exception in both modes, and no packet is sent. */
+    private void checkReleasedFrame(Function<ByteBuf, ByteBuf> released) {
+        byte[] read = frame(body(packet(3000, 113), THRESHOLD));
+        for (boolean forward : new boolean[] {false, true}) {
+            String label = "forward " + forward;
+            try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+                replaceFrames(f, released);
+                var failure = assertThrows(DecoderException.class, () -> f.read(read.clone()), label);
+                assertInstanceOf(IllegalReferenceCountException.class, failure.getCause(), label);
+                assertEquals(0, f.wire().length, label);
+                if (forward) assertEquals(0, f.forwarder.forwarded(), label);
+            }
+        }
+    }
+
+    @Test
+    void allocatorSetByTheKeepsAllocationGetsTheReadUnmarked() {
+        byte[] packet = packet(3000, 114);
+        byte[] body = body(packet, THRESHOLD);
+        assertRecompressedDiffers(body);
+        byte[] today = today(Options.forwarding(), frame(body));
+        try (var f = new Fixture(Options.forwarding())) {
+            var allocator = new RecordingAllocator();
+            allocator.beforeDirect =
+                    atDirectAllocation(1, () -> f.backend.config().setAllocator(new ForeignAllocator()));
+            f.backend.config().setAllocator(allocator);
+            f.read(frame(body));
+            assertSameBytes(today, f.wire());
+            assertEquals(0, f.forwarder.forwarded());
+            assertEquals("linked", f.forwarder.linkStatus());
+            for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation");
+        }
+    }
+
+    @Test
+    void failingReleaseOfAHeldPooledSliceSurfacesAfterItsPacket() {
+        byte[] packet = packet(3000, 115);
+        byte[] read = frame(body(packet, THRESHOLD));
+        var pooled = new PooledByteBufAllocator(true);
+        for (boolean forward : new boolean[] {false, true}) {
+            String label = "forward " + forward;
+            var parents = new ArrayList<ByteBuf>();
+            var slices = new ArrayList<ByteBuf>();
+            var allocator = new RecordingAllocator();
+            try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+                f.backend.config().setAllocator(allocator);
+                // The slice's release releases its released duplicate, which throws.
+                replaceFrames(f, frame -> {
+                    ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
+                    ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+                    try {
+                        ByteBuf parent =
+                                pooled.directBuffer(frame.readableBytes()).writeBytes(frame);
+                        ByteBuf duplicate = parent.retainedDuplicate();
+                        ByteBuf slice = duplicate.retainedSlice();
+                        duplicate.release();
+                        duplicate.release();
+                        parents.add(parent);
+                        slices.add(slice);
+                        return slice;
+                    } finally {
+                        ResourceLeakDetector.setLevel(level);
+                    }
+                });
+                var failure = assertThrows(DecoderException.class, () -> f.read(read.clone()), label);
+                assertInstanceOf(IllegalReferenceCountException.class, failure.getCause(), label);
+                assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
+                if (forward) assertEquals(1, f.forwarder.forwarded(), label);
+                assertEquals(0, slices.getFirst().refCnt(), "the slice whose release failed, " + label);
+                assertEquals(1, parents.getFirst().refCnt(), "the slice's pooled buffer, " + label);
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+            } finally {
+                for (ByteBuf parent : parents) parent.release();
+            }
         }
     }
 

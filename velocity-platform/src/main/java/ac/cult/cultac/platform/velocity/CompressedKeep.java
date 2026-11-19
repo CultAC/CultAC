@@ -9,6 +9,7 @@ import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.DecoderException;
+import io.netty.util.IllegalReferenceCountException;
 import java.lang.invoke.MethodHandle;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -34,7 +35,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         protected Boolean computeValue(Class<?> type) {
             return type.getClassLoader() == ByteBuf.class.getClassLoader()
                     && type.getPackageName().equals(ByteBuf.class.getPackageName())
-                    && !CompositeByteBuf.class.isAssignableFrom(type);
+                    && !CompositeByteBuf.class.isAssignableFrom(type)
+                    // FixedCompositeByteBuf holds buffers of any class and exposes none through unwrap().
+                    && !type.getName().equals("io.netty.buffer.FixedCompositeByteBuf");
         }
     };
 
@@ -104,9 +107,15 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         return trustedAllocators.test(ctx.alloc());
     }
 
-    /** Whether {@code frame} and each buffer it wraps are of netty's own non-composite buffer classes. */
+    /** Whether {@code frame} and each buffer it unwraps to are of netty's own buffer classes other than its composites. */
     static boolean nettyFrame(ByteBuf frame) {
-        for (ByteBuf buf = frame; buf != null; buf = buf.unwrap()) if (!NETTY_BUFFERS.get(buf.getClass())) return false;
+        try {
+            for (ByteBuf buf = frame; buf != null; buf = buf.unwrap())
+                if (!NETTY_BUFFERS.get(buf.getClass())) return false;
+        } catch (IllegalReferenceCountException released) {
+            // A released pooled slice or duplicate throws from unwrap().
+            return false;
+        }
         return true;
     }
 
@@ -125,7 +134,12 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        if (forwarder.disabled || !(msg instanceof ByteBuf frame) || !frame.isReadable()) {
+        // The class check runs before any method of the frame; a released frame passes on for the decoder to refuse.
+        if (forwarder.disabled
+                || !(msg instanceof ByteBuf frame)
+                || !nettyFrame(frame)
+                || frame.refCnt() == 0
+                || !frame.isReadable()) {
             ctx.fireChannelRead(msg);
             return;
         }
@@ -135,9 +149,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         ByteBuf previousSlice = keptSlice;
         boolean previousArmed = armed;
         boolean adjacent = ctx == keepContext && adjacent();
-        ByteBuf copy = adjacent && nettyFrame(frame) && held(frame) && trusted(ctx)
-                ? forwarder.frame(ctx.alloc(), frame)
-                : null;
+        ByteBuf copy = adjacent && held(frame) && trusted(ctx) ? forwarder.frame(ctx.alloc(), frame) : null;
         ByteBuf slice = null;
         Throwable released = null;
         int start = 0;
