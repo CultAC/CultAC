@@ -35,6 +35,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultEventLoop;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.EncoderException;
@@ -63,6 +64,7 @@ import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -2659,6 +2661,71 @@ class VelocityCompressedForwardTest {
             assertEquals("backend-adjacency", f.forwarder.linkStatus());
             for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation");
         }
+    }
+
+    @Test
+    void rejectedFireIsDeliveredFromTheDecodersContextAsWithTheSwitchOff() throws Exception {
+        byte[] read = frame(body(packet(3000, 110), THRESHOLD));
+        boolean[] rejecting = {false};
+        var executor = new DefaultEventLoop() {
+            @Override
+            public void execute(Runnable task) {
+                if (rejecting[0]) throw new RejectedExecutionException("shut down");
+                super.execute(task);
+            }
+        };
+        var seen = new ArrayList<List<String>>();
+        try {
+            for (boolean forward : new boolean[] {false, true}) {
+                var caught = new ArrayList<String>();
+                try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+                    ChannelPipeline pipeline = f.backend.pipeline();
+                    pipeline.addAfter(
+                            executor,
+                            VelocityCompressedForward.COMPRESSION_DECODER,
+                            "rejecting",
+                            new ChannelInboundHandlerAdapter() {
+                                @Override
+                                public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                                    ctx.fireChannelRead(msg);
+                                }
+                            });
+                    pipeline.addAfter(
+                            VelocityCompressedForward.COMPRESSION_DECODER, "after", new ChannelInboundHandlerAdapter() {
+                                @Override
+                                public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                                    caught.add("after: " + describe(cause));
+                                }
+                            });
+                    var allocator = new RecordingAllocator();
+                    allocator.beforeDirect = atDirectAllocation(
+                            1,
+                            () -> pipeline.addBefore(
+                                    VelocityCompressedForward.COMPRESSION_DECODER,
+                                    "between",
+                                    catching("between", caught)));
+                    f.backend.config().setAllocator(allocator);
+                    rejecting[0] = true;
+                    try {
+                        f.read(read.clone());
+                    } finally {
+                        rejecting[0] = false;
+                    }
+                    for (ByteBuf buf : allocator.allocated) if (buf.refCnt() != 0) buf.release(buf.refCnt());
+                    assertEquals(0, f.wire().length, "forward " + forward);
+                    if (forward) {
+                        assertEquals(0, f.forwarder.forwarded());
+                        assertEquals("backend-adjacency", f.forwarder.linkStatus());
+                    }
+                }
+                seen.add(caught);
+            }
+        } finally {
+            executor.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
+        String rejected = "after: " + RejectedExecutionException.class.getName() + " / null";
+        assertEquals(List.of(rejected, rejected), seen.getFirst(), "the read and its read complete");
+        assertEquals(seen.getFirst(), seen.get(1));
     }
 
     @Test

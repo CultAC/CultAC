@@ -389,8 +389,12 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
                 Throwable released = null;
                 if (inflated != null) {
                     MESSAGE_PRODUCED.set(decoder, true);
-                    if (published) released = publish(output, inflated, copy, client);
-                    else output.fireChannelRead(inflated);
+                    try {
+                        if (published) released = publish(output, inflated, copy, client);
+                        else output.fireChannelRead(inflated);
+                    } catch (Throwable fired) {
+                        failure = fired;
+                    }
                 }
                 if (failure == null) failure = released;
                 else if (released != null) failure.addSuppressed(released);
