@@ -145,12 +145,20 @@ final class VelocityCompressedForward {
         proxy.getEventManager().unregister(plugin, postConnected);
     }
 
-    /** Installs the forwarder on a Java client's channel, on that channel's loop, after Cult's encoder. */
+    /**
+     * Installs the forwarder on a Java client's channel, on that channel's loop, after Cult's encoder; a refusal's
+     * warning runs as a task on that loop, after the read or write that installs.
+     */
     void installClient(CultConnection connection, VelocityConnectionAdapter adapter, Player player) {
         Channel channel = connection.channel();
         if (connection.owner() != channel.eventLoop()) return;
         var pipeline = channel.pipeline();
-        var forwarder = install(pipeline, encoderClass, decoderClass, compressors, this::refused);
+        var forwarder = install(
+                pipeline,
+                encoderClass,
+                decoderClass,
+                compressors,
+                refusal -> deferred(channel, () -> refused(refusal)).run());
         if (forwarder == null) return;
         adapter.compressedForwarder(forwarder);
         schedule(
@@ -464,9 +472,12 @@ final class VelocityCompressedForward {
         /** After the insert, the encoder is not the validated one or the forwarder does not directly follow it. */
         CHANGED("A client's compression encoder is not where the forwarder expects it after the insert; its frames are"
                 + " compressed by Velocity"),
-        /** The client's pipeline was built with netty's leak detection enabled, or how it was built cannot be read. */
-        LEAK_DETECTION("A client's pipeline was built with Netty's leak detection enabled; its frames are compressed by"
-                + " Velocity"),
+        /**
+         * The client's pipeline was built with netty's leak detection enabled, is not netty's pipeline class or a
+         * subclass of it, or how it was built cannot be read.
+         */
+        LEAK_DETECTION("A client's pipeline was built with Netty's leak detection enabled, or is not Netty's own"
+                + " pipeline; its frames are compressed by Velocity"),
         /**
          * Netty's leak detection is enabled, or the backend's allocator or netty's leak detector is not of netty's own
          * classes; the keep unlinks.

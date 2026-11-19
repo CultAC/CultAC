@@ -37,6 +37,7 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPipeline;
 import io.netty.channel.DefaultEventLoop;
+import io.netty.channel.EventLoop;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.EncoderException;
@@ -2212,6 +2213,7 @@ class VelocityCompressedForwardTest {
             var connection = new CultConnection(client, new PacketDispatcher(RUNTIME), ignored -> null);
             forward.installClient(connection, null, null);
             forward.installClient(connection, null, null);
+            client.runPendingTasks();
             log.verify(
                     () -> LogUtil.warn(
                             "Cannot read a client's compression threshold; its frames are compressed by Velocity"),
@@ -4553,6 +4555,159 @@ class VelocityCompressedForwardTest {
         }
         assertTrue(seen.get(0).endsWith(", promise ok"), seen.get(0));
         assertEquals(seen.get(0), seen.get(1));
+    }
+
+    @Test
+    void untrustedClientWriteOnALoopThatRejectsIsSentAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 158);
+        byte[] read = frame(body(packet, THRESHOLD));
+        List<String> seen = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            var writes = new ArrayList<ChannelFuture>();
+            try (var log = mockStatic(LogUtil.class);
+                    var f = new Fixture(
+                            Options.today().onFrame((fixture, buf) -> writes.add(fixture.client.write(buf))))) {
+                var forward = forward();
+                boolean[] rejecting = {false};
+                EventLoop rejected = mock(EventLoop.class);
+                doThrow(new RejectedExecutionException("shut down"))
+                        .when(rejected)
+                        .execute(any(Runnable.class));
+                Channel client = mock(Channel.class);
+                when(client.eventLoop()).thenAnswer(call -> rejecting[0] ? rejected : f.client.eventLoop());
+                ChannelPipeline pipeline = delegating(f.client.pipeline());
+                doReturn(client).when(pipeline).channel();
+                if (on) {
+                    CompressedForwarder forwarder = VelocityCompressedForward.install(
+                            pipeline,
+                            CompressEncoder.class,
+                            DECODER,
+                            COMPRESSORS,
+                            CompressedKeep.NETTY_ALLOCATORS,
+                            forward::refused);
+                    assertNotNull(forwarder);
+                    VelocityCompressedForward.place(
+                            forwarder, f.client.pipeline(), f.backend, DECODER, COMPRESSORS, TRUSTED);
+                    assertEquals("linked", forwarder.linkStatus());
+                }
+                rejecting[0] = true;
+                f.client.config().setAllocator(new RecordingAllocator());
+                f.read(read.clone());
+                f.client.runPendingTasks();
+                assertEquals(1, writes.size());
+                seen.add(sent(f.wire()) + ", promise "
+                        + describe(writes.getFirst().cause()));
+                log.verify(() -> LogUtil.warn(anyString()), never());
+                forward.refused(VelocityCompressedForward.Refusal.CLIENT_UNTRUSTED);
+                log.verify(() -> LogUtil.warn(VelocityCompressedForward.Refusal.CLIENT_UNTRUSTED.warning), times(1));
+            }
+        }
+        assertEquals("[" + Arrays.toString(packet) + "], promise ok", seen.get(0));
+        assertEquals(seen.get(0), seen.get(1));
+    }
+
+    @Test
+    void pipelineOfAnotherClassGetsNoForwarder() {
+        var channel = channel();
+        try {
+            ChannelPipeline real = channel.pipeline();
+            var compressor = new SharedCompressor();
+            real.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+            real.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+            List<String> names = real.names();
+            ChannelPipeline foreign = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
+            assertNull(VelocityCompressedForward.install(
+                    foreign, CompressEncoder.class, DECODER, COMPRESSORS, refusals::add));
+            assertEquals(List.of(VelocityCompressedForward.Refusal.LEAK_DETECTION), refusals);
+            assertEquals(names, real.names());
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    void installRefusalInsideAReadWarnsAfterTheReadAsWithTheSwitchOff() {
+        byte[] own = packet(50, 157);
+        List<List<String>> seen = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            var client = channel();
+            List<String> order = new ArrayList<>();
+            try (var log = mockStatic(LogUtil.class)) {
+                var forward = new VelocityCompressedForward(
+                        mock(ProxyServer.class),
+                        new Object(),
+                        p -> null,
+                        new VelocityCompressedForward.Codecs(OtherEncoder.class, DECODER, COMPRESSORS));
+                client.pipeline().addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD));
+                var connection = new CultConnection(client, new PacketDispatcher(RUNTIME), ignored -> null);
+                log.when(() -> LogUtil.warn(anyString())).thenAnswer(call -> {
+                    order.add("logger");
+                    client.writeAndFlush(Unpooled.wrappedBuffer(own));
+                    return null;
+                });
+                client.pipeline().addFirst("adopt", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        if (on) forward.installClient(connection, null, null);
+                        order.add("ack passed on with "
+                                + client.outboundMessages().size() + " sent");
+                        ctx.fireChannelRead(msg);
+                    }
+                });
+                client.pipeline().addLast("handler", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        order.add("ack read with " + client.outboundMessages().size() + " sent");
+                    }
+                });
+                client.writeInbound("ack");
+                client.runPendingTasks();
+                if (on) log.verify(() -> LogUtil.warn(VelocityCompressedForward.Refusal.THRESHOLD.warning), times(1));
+                seen.add(order);
+            } finally {
+                client.finishAndReleaseAll();
+            }
+        }
+        assertEquals(List.of("ack passed on with 0 sent", "ack read with 0 sent"), seen.get(0));
+        var expected = new ArrayList<>(seen.get(0));
+        expected.add("logger");
+        assertEquals(expected, seen.get(1));
+    }
+
+    @ChannelHandler.Sharable
+    static final class SharedHandler extends ChannelDuplexHandler {}
+
+    @Test
+    void sharedHandlerAlsoOnItsOwnExecutorLeavesBothPipelinesAsTheyAre() throws Exception {
+        var group = new DefaultEventExecutorGroup(1);
+        var channel = channel();
+        var shared = new SharedHandler();
+        try (var f = new Fixture(Options.forwarding().unlinked())) {
+            ChannelPipeline pipeline = channel.pipeline();
+            var compressor = new SharedCompressor();
+            pipeline.addLast("same", shared);
+            pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+            pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+            pipeline.addLast(group, "elsewhere", shared);
+            List<String> names = pipeline.names();
+            var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
+            assertNull(VelocityCompressedForward.install(
+                    pipeline, CompressEncoder.class, DECODER, COMPRESSORS, refusals::add));
+            assertEquals(List.of(VelocityCompressedForward.Refusal.EXECUTOR), refusals);
+            assertEquals(names, pipeline.names(), "the client pipeline as the switch off leaves it");
+
+            ChannelPipeline backend = f.backend.pipeline();
+            backend.addFirst("same", shared);
+            backend.addLast(group, "elsewhere", shared);
+            names = backend.names();
+            VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), f.backend, DECODER, COMPRESSORS, TRUSTED);
+            assertEquals("backend-executor", f.forwarder.linkStatus());
+            assertEquals(names, backend.names(), "the backend pipeline as the switch off leaves it");
+        } finally {
+            channel.finishAndReleaseAll();
+            group.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
     }
 
     /** A forward over the stand-in codecs whose {@link VelocityCompressedForward#refused} logs through LogUtil. */

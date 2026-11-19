@@ -366,7 +366,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static boolean onLoop(ChannelPipeline pipeline) {
         EventLoop loop = pipeline.channel().eventLoop();
         for (Map.Entry<String, ChannelHandler> entry : pipeline) {
-            ChannelHandlerContext ctx = pipeline.context(entry.getValue());
+            ChannelHandlerContext ctx = pipeline.context(entry.getKey());
             if (ctx != null && ctx.executor() != loop) return false;
         }
         return true;
