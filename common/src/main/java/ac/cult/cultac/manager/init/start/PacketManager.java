@@ -8,7 +8,6 @@ import ac.cult.cultac.events.packets.PacketServerPlayerRotation;
 import ac.cult.cultac.events.packets.PacketServerRegistries;
 import ac.cult.cultac.events.packets.PlayerLoginHooks;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.listeners.PacketConfigurationListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
@@ -77,9 +76,6 @@ public class PacketManager implements StartableInitable {
         PacketPlayerSteer steerListener = new PacketPlayerSteer();
         registrar.registerReceiveListener(PacketListenerPriority.LOW, steerListener);
 
-        PacketBlockAction blockActionListener = new PacketBlockAction();
-        registrar.registerSendListener(PacketListenerPriority.HIGH, blockActionListener);
-
         PacketSelfMetadataListener selfMetadataListener = new PacketSelfMetadataListener();
         registrar.registerSendListener(PacketListenerPriority.HIGH, selfMetadataListener);
 
@@ -99,9 +95,7 @@ public class PacketManager implements StartableInitable {
 
         // Proxy details may arrive before a CultPlayer exists.
         registrar.receiveConnection(
-                ServerboundPackets.CUSTOM_PAYLOAD,
-                PacketListenerPriority.NORMAL,
-                new PacketPluginMessage()::handle);
+                ServerboundPackets.CUSTOM_PAYLOAD, PacketListenerPriority.NORMAL, new PacketPluginMessage()::handle);
         registrar.registerSendListener(PacketListenerPriority.LOW, new PacketServerPlayerRotation());
         registrar.registerSendListener(PacketListenerPriority.NORMAL, new PacketServerRegistries());
         registrar.registerSendListener(PacketListenerPriority.LOWEST, new PacketModelRegistryNames());

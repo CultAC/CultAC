@@ -38,7 +38,7 @@ public record BedrockReplayBoatMetadata(
                 leashed == null ? old.leashed() : leashed,
                 seat == null ? old.seat() : seat);
         return state.withBoat(
-                        state.boat().withProperties(properties, state.boat().analogPaddles()))
+                        state.boat().withProperties(properties, state.boat().paddleInput()))
                 .withPlayerDimensions(properties.dimensions(), true);
     }
 }

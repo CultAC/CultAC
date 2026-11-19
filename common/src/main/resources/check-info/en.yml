@@ -114,9 +114,6 @@ checks:
   InputKeys:
     summary: "Sent movement controls that Minecraft can't produce"
     details: "A cheat client that moves the player on its own, or fakes which keys they're holding, does this. Some Speed cheats work this way."
-  InvalidStep:
-    summary: "Stepped up a ledge Minecraft wouldn't step up"
-    details: "You can walk up slabs and stairs without jumping. Step cheats let the player walk straight up taller ledges the same way."
   ItemUseBurst:
     summary: "Skipped the slowdown from using an item"
     details: "Eating, drinking, blocking or drawing a bow slows you down while you do it. NoSlow and Timer cheats let the player dodge that slowdown."

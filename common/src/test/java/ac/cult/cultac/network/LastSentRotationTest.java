@@ -90,7 +90,9 @@ class LastSentRotationTest {
             assertEquals(teleportYaw, f.player.xRot, "the acceptance did not apply its look");
 
             f.input(FORWARD);
-            PredictionResult step = step(f, STEP_WEST);
+            // The teleport left no velocity: the step walks at the ground speed of the standing player, and
+            // Entity#move, not stopped on a way down, clears the ground it reports.
+            PredictionResult step = step(f, STEP_WEST, false);
             assertTrue(exact(step), describe(step));
             assertEquals(WEST, f.player.xRot);
         }

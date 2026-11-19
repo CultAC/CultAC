@@ -313,6 +313,7 @@ class JavaTravelAttributeTest {
         }
     }
 
+    /** LocalPlayer#modifyInput scales a sneaking player's keys by sneaking_speed: at 1.0 it walks the edge unslowed. */
     @Test
     void sneakingSpeedAttributeSetsTheEdgeSneakVelocity() throws Exception {
         try (var f = new JavaTickFixture()) {
@@ -321,7 +322,8 @@ class JavaTravelAttributeTest {
 
             f.input(SNEAK);
             assertExact(f.tick(new Vec3(EDGE_X, FLOOR_Y, 0.6), true));
-            assertExact(f.tick(new Vec3(EDGE_X, FLOOR_Y, 0.6 + 0.1 * GROUND_FRICTION + EDGE_SNEAK), true));
+            f.input(SNEAK_FORWARD);
+            assertExact(f.tick(new Vec3(EDGE_X, FLOOR_Y, 0.6 + 0.1 * GROUND_FRICTION + WALK), true));
         }
     }
 
@@ -399,11 +401,29 @@ class JavaTravelAttributeTest {
         try (var f = new JavaTickFixture()) {
             PacketEntityNautilus nautilus = (PacketEntityNautilus) vehicleOnSoulSand(
                     f, EntityTypes.defaults().byKey("minecraft:nautilus").id());
-            nautilus.pendingJumpScale = 1.0;
+            nautilus.pendingJumpScale = 1.0F;
             Vec3 dash = new Vec3(0.0, 0.0, 0.5F * 1.0 * 0.4F);
-            assertDash(dash, nautilusDash(f, nautilus));
+            assertDash(dash, nautilusDash(f, nautilus, false));
             f.player.isFlying = true;
-            assertDash(dash, nautilusDash(f, nautilus));
+            assertDash(dash, nautilusDash(f, nautilus, false));
+        }
+    }
+
+    /**
+     * AbstractNautilus#executeRidersJump in water at a partial charge: 1.2F times the float charge rounds to a float,
+     * which then scales the unrounded movement_speed, here a value no float holds.
+     */
+    @Test
+    void aNautilusDashRoundsItsChargeButNotItsMovementSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityNautilus nautilus = (PacketEntityNautilus) vehicleOnSoulSand(
+                    f, EntityTypes.defaults().byKey("minecraft:nautilus").id());
+            f.player.compensatedEntities.updateAttributes(
+                    100, List.of(snapshot("minecraft:movement_speed", 512.00003, 0.0)));
+            // PlayerRideableJumping#getPlayerJumpPendingScale for a jump bar of 45.
+            nautilus.pendingJumpScale = 0.4F + 0.4F * 45 / 90.0F;
+            float charge = 1.2F * nautilus.pendingJumpScale;
+            assertDash(new Vec3(0.0, 0.0, charge * 512.00003 * 0.4F), nautilusDash(f, nautilus, true));
         }
     }
 
@@ -538,13 +558,8 @@ class JavaTravelAttributeTest {
 
     /** {@link #riddenHorseInWater} for a saddled horse of this type. */
     private static void riddenInWater(JavaTickFixture f, int type, double waterMovementEfficiency, boolean onGround) {
-        for (int x = -2; x <= 2; x++) {
-            for (int z = -2; z <= 3; z++) {
-                f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), BlockIds.WATER.defaultState());
-            }
-        }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
-        f.player.compensatedEntities.addEntity(100, type, new Vec3(0.5, FLOOR_Y, 0.5), 0, 0, 0);
+        Vec3 seat = new Vec3(0.5, FLOOR_Y, 0.5);
+        f.player.compensatedEntities.addEntity(100, type, seat, 0, 0, 0);
         ((PacketEntityHorse) f.player.compensatedEntities.getEntity(100)).hasSaddle = true;
         var packet = new ClientboundSetPassengers(100, List.of(f.player.entityID));
         var event = new PacketSendEvent<>(
@@ -553,17 +568,33 @@ class JavaTravelAttributeTest {
         event.tasksAfter().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());
         f.pongThrough(sendAttribute(f, 100, "minecraft:water_movement_efficiency", 0.0, waterMovementEfficiency));
-        // Entity#move reports the ground only for a downward move it clipped, so a horse resting in water keeps sinking.
-        if (onGround) {
-            f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0, RESTING_IN_WATER_Y, 0));
+        // The horse stands on the dry floor through CompensatedVehicleState's five-tick vehicle-switch window, which
+        // answers a wrong move with a resync instead of a flag. Its first ridden travel moves by nothing before its
+        // gravity, so that tick is off the ground.
+        for (int tick = 0; tick < 5; tick++) JavaTickFixture.assertVehicleExact(f.rideTick(seat, tick > 0), tick);
+        for (int x = -2; x <= 2; x++) {
+            for (int z = -2; z <= 3; z++) {
+                f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), BlockIds.WATER.defaultState());
+            }
         }
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        // Entity#move reports the ground only for a downward move it clipped, so a horse resting in water keeps sinking;
+        // one that is off the ground has no vertical motion to clip.
+        f.player
+                .checkManager
+                .getSimulationProcessor()
+                .seedStartingVelocity(onGround ? new Vec3(0, RESTING_IN_WATER_Y, 0) : Vec3.ZERO);
         // AbstractHorse#tick runs before LocalPlayer#rideTick hands it this tick's keys.
         f.input(FORWARD);
         f.rideTick(new Vec3(0.5, FLOOR_Y, 0.5), onGround);
     }
 
     private static PredictionResult rideForward(JavaTickFixture f, double distance) {
-        return f.rideTick(new Vec3(0.5, FLOOR_Y, 0.5 + distance), true);
+        // The preceding water travel landed, then floatInLiquidWhileRidden added 0.04F after gravity.
+        // Skeleton horses are absent from CAN_FLOAT_WHILE_RIDDEN and retain the floor-level move.
+        boolean floats = f.player.compensatedEntities.getEntityInControl().type == EntityTypeIds.HORSE;
+        double y = FLOOR_Y + (floats ? (double) 0.04F - 0.08 / 16.0 : 0);
+        return f.rideTick(new Vec3(0.5, y, 0.5 + distance), !floats);
     }
 
     private static PacketEntity horseOnSoulSand(JavaTickFixture f) {
@@ -585,12 +616,13 @@ class JavaTravelAttributeTest {
         return new Vec3(dashed.x, dashed.y, dashed.z);
     }
 
-    /** The dry dash VelocityTransformer adds from rest for {@code nautilus} on its soul sand. */
-    private static Vec3 nautilusDash(JavaTickFixture f, PacketEntityNautilus nautilus) throws Exception {
+    /** The dash VelocityTransformer adds from rest for {@code nautilus} on its soul sand. */
+    private static Vec3 nautilusDash(JavaTickFixture f, PacketEntityNautilus nautilus, boolean inWater)
+            throws Exception {
         Method dash = VelocityTransformer.class.getDeclaredMethod(
                 "applyNautilusDash", CultPlayer.class, PredVector.class, PacketEntityNautilus.class, boolean.class);
         dash.setAccessible(true);
-        Vec3 dashed = (Vec3) dash.invoke(dashing(f, nautilus), f.player, new PredVector(Vec3.ZERO), nautilus, false);
+        Vec3 dashed = (Vec3) dash.invoke(dashing(f, nautilus), f.player, new PredVector(Vec3.ZERO), nautilus, inWater);
         return new Vec3(dashed.x, dashed.y, dashed.z);
     }
 
@@ -631,13 +663,10 @@ class JavaTravelAttributeTest {
                 false,
                 false,
                 null,
-                0.0F,
-                0,
                 DesyncStatus.FALSE,
                 0,
                 0,
                 0,
-                null,
                 false,
                 null,
                 false,
@@ -662,7 +691,7 @@ class JavaTravelAttributeTest {
                         new BlockPos(x, FLOOR_Y - 1, z), BlockIds.SOUL_SAND.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         standOnSoulSand(f);
         return f;
     }
@@ -683,7 +712,7 @@ class JavaTravelAttributeTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(new Vec3(0.5, FLOOR_Y, 0.5), Vec3.ZERO);
         return f;
     }

@@ -20,7 +20,7 @@ import java.util.UUID;
 final class DiagCuts {
     /** Room a part keeps for its own fields besides its ticks. */
     private static final int PART_FIELDS = 64;
-    /** The most UTF-8 bytes of the header; the client's brand is in it. */
+    /** The most UTF-8 bytes of the header's first line; the client's brand is in it. */
     static final int MAX_HEADER_BYTES = 256;
 
     private DiagCuts() {}
@@ -33,7 +33,10 @@ final class DiagCuts {
         }
     }
 
-    /** What the cut covers of the ring, and why not all of it. */
+    /**
+     * What the cut covers of the ring, and why not all of it. Ticks before the watch's first prediction hold traces
+     * only, so a cut reaching back to them is {@code late-start}.
+     */
     static Coverage coverage(Cut cut, DiagWatch watch, List<DiagRing.Tick> range) {
         DiagRing ring = watch.ring;
         if (range.isEmpty()) {
@@ -43,7 +46,7 @@ final class DiagCuts {
             return Coverage.none("dropped");
         }
         String reason = null;
-        if (watch.firstSeq > cut.fromSeq()) reason = "late-start";
+        if (watch.firstSeq == Long.MIN_VALUE || watch.firstSeq > cut.fromSeq()) reason = "late-start";
         else if (ring.evictedThrough() >= cut.fromSeq()) reason = "evicted";
         else if (ring.newest() < cut.toSeq())
             reason = watch.ended && watch.endReason != null ? watch.endReason : "dropped";
@@ -61,7 +64,7 @@ final class DiagCuts {
             Coverage coverage,
             int partBytes,
             int bundleBytes) {
-        header = truncate(header, MAX_HEADER_BYTES);
+        header = boundHeader(header);
         if (history != null) history = truncate(history, partBytes / 2);
         long middle = cut.fullFromSeq() + (cut.fullToSeq() - cut.fullFromSeq()) / 2;
         List<Entry> entries = new ArrayList<>(range.size());
@@ -128,6 +131,18 @@ final class DiagCuts {
 
     private static int utf8(String text) {
         return text.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    /**
+     * The header's first line cut to {@link #MAX_HEADER_BYTES} and the engine state on the lines after it to
+     * {@link EngineStateSnapshot#MAX_BYTES}.
+     */
+    static String boundHeader(String header) {
+        int lineEnd = header.indexOf('\n');
+        if (lineEnd < 0) return truncate(header, MAX_HEADER_BYTES);
+        return truncate(header.substring(0, lineEnd), MAX_HEADER_BYTES)
+                + '\n'
+                + truncate(header.substring(lineEnd + 1), EngineStateSnapshot.MAX_BYTES);
     }
 
     /** {@code text} cut to at most {@code maxBytes} UTF-8 bytes, never mid-character. */

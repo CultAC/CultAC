@@ -9,8 +9,8 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CheckingCollisionProbe;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
@@ -30,26 +30,6 @@ import org.objenesis.ObjenesisStd;
 /** The prediction pipeline's shortcuts against what they replace, over the seeded {@link PredictionScenarios}. */
 class PredictionPipelineEquivalenceTest {
     private static final int SCENARIOS = 66;
-
-    /** A probe reusing resolved axis steps returns, bit for bit, what the probe as of 515d08404 returned. */
-    @Test
-    void probesMatchTheProbeWithoutStepReuse() throws Exception {
-        int probes = 0;
-        int grounded = 0;
-        List<String> mismatches = new ArrayList<>();
-        for (long seed = 0; seed < SCENARIOS; seed++) {
-            try (var f = new JavaTickFixture()) {
-                CheckingCollisionProbe probe = new CheckingCollisionProbe(PredictionDigestTest::axes);
-                swap(f, "collisionProbe", probe);
-                PredictionScenarios.run(f, seed, result -> {});
-                probes += probe.probes;
-                grounded += probe.groundedProbes;
-                for (String mismatch : probe.mismatches) mismatches.add(seed + ": " + mismatch);
-            }
-        }
-        assertEquals(List.of(), mismatches);
-        assertTrue(grounded > 100 && probes > grounded, probes + " probes, " + grounded + " grounded");
-    }
 
     /** Carry states share one world build, so a second build for the same context must give the same world. */
     @Test
@@ -112,7 +92,7 @@ class PredictionPipelineEquivalenceTest {
                             CultPlayer player, SimulationContext context, Vec3 multiplier) {
                         boolean carry = walker.walk(frames -> frames.skip(1)
                                 .findFirst()
-                                .map(frame -> frame.getMethodName().equals("createSimulationContexts"))
+                                .map(frame -> frame.getMethodName().equals("createFluidOrderContexts"))
                                 .orElse(false));
                         if (carry) {
                             WorldData attached = context.getWorldData();
@@ -135,7 +115,7 @@ class PredictionPipelineEquivalenceTest {
                         return super.adjustStuckSpeedMultiplierForCurrentTick(player, context, multiplier);
                     }
                 };
-                PredictionScenarios.run(f, seed, result -> {});
+                PredictionScenarios.run(f, seed, result -> carryASecondState(f));
             }
         }
         assertEquals(List.of(), mismatches);
@@ -147,15 +127,15 @@ class PredictionPipelineEquivalenceTest {
     void aWorldCopyCarriesEveryFieldToItself() throws Exception {
         Constructor<?> constructor = WorldData.class.getDeclaredConstructors()[0];
         List<Field> fields = instanceFields();
-        assertEquals(fields.size(), constructor.getParameterCount());
+        Object[] args = new Object[constructor.getParameterCount()];
+        for (int i = 0; i < args.length; i++) args[i] = plain(constructor.getParameterTypes()[i]);
         for (int marked = 0; marked < fields.size(); marked++) {
-            Object[] args = new Object[fields.size()];
-            for (int i = 0; i < args.length; i++) {
-                args[i] = i == marked
-                        ? marker(fields.get(i).getType())
-                        : plain(fields.get(i).getType());
-            }
+            // The constructor takes only some of the fields, so each one is written directly.
             WorldData world = (WorldData) constructor.newInstance(args);
+            for (int i = 0; i < fields.size(); i++) {
+                Class<?> type = fields.get(i).getType();
+                fields.get(i).set(world, i == marked ? marker(type) : plain(type));
+            }
             WorldData copy = world.copy();
             for (Field field : fields) {
                 Object want = field.get(world);
@@ -184,13 +164,33 @@ class PredictionPipelineEquivalenceTest {
         }
         PredVector start = new PredVector(new Vec3(0.25, 0, 0));
         PredictionResult result = new PredictionResult(null, start, null, Vec3.ZERO, null, List.of(), List.of());
-        ValidMovements valid = new ValidMovements(start, null, result, false, List.copyOf(handlers));
+        ValidMovements valid = new ValidMovements(start, null, result, List.copyOf(handlers));
         handlers.clear();
 
         Vec3 moved = valid.transformTowards(Vec3.ZERO, null);
 
         assertEquals(List.of(0, 1, 2, 3, 4), calls);
         assertEquals(10.25, moved.x);
+    }
+
+    /**
+     * The scenarios seldom leave more than one carried state, and one state builds its own world: the next tick also
+     * starts from a second state, the first with its velocity one step off, which shares the first one's world.
+     */
+    private static void carryASecondState(JavaTickFixture f) {
+        try {
+            Field field = SimulationProcessor.class.getDeclaredField("profileCarry");
+            field.setAccessible(true);
+            SimulationProcessor processor = f.player.checkManager.getSimulationProcessor();
+            if (!(field.get(processor) instanceof JavaPredictionCarry carry)
+                    || carry.states().size() != 1) return;
+            JavaPredictionCarry.State state = carry.states().getFirst();
+            Vec3 velocity = state.velocity();
+            Vec3 beside = new Vec3(velocity.x, velocity.y, Math.nextUp(velocity.z));
+            field.set(processor, carry.withStates(List.of(state, state.withVelocity(beside))));
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static void swap(JavaTickFixture f, String name, Object value) throws Exception {
@@ -237,6 +237,7 @@ class PredictionPipelineEquivalenceTest {
     private static Object plain(Class<?> type) {
         if (type == boolean.class) return false;
         if (type == int.class) return 0;
+        if (type == double.class) return 0.0;
         if (type == DesyncStatus.class) return DesyncStatus.FALSE;
         assertTrue(!type.isPrimitive(), type.getName());
         return null;
@@ -245,7 +246,9 @@ class PredictionPipelineEquivalenceTest {
     private static Object marker(Class<?> type) {
         if (type == boolean.class) return true;
         if (type == int.class) return 7;
+        if (type == double.class) return 7.5;
         if (type == DesyncStatus.class) return DesyncStatus.TRUE;
+        if (type == List.class) return new ArrayList<>();
         return new ObjenesisStd().newInstance(type);
     }
 }

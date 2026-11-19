@@ -10,17 +10,28 @@ public record BedrockBoatState(
         int paddleTick,
         Paddle left,
         Paddle right,
-        boolean analogPaddles) {
+        PaddleInput paddleInput) {
     public static BedrockBoatState initial(PacketEntity actor) {
-        return new BedrockBoatState(actor, actor.bedrockBoat, 0, 0, 0, Paddle.INITIAL, Paddle.INITIAL, true);
+        return new BedrockBoatState(
+                actor, actor.bedrockBoat, 0, 0, 0, Paddle.INITIAL, Paddle.INITIAL, PaddleInput.ANALOG);
     }
 
-    public BedrockBoatState withProperties(BedrockBoatProperties value, boolean analog) {
-        return new BedrockBoatState(actor, value, angularVelocity, submergedTicks, paddleTick, left, right, analog);
+    public BedrockBoatState withProperties(BedrockBoatProperties value, PaddleInput input) {
+        return new BedrockBoatState(actor, value, angularVelocity, submergedTicks, paddleTick, left, right, input);
     }
 
     public BedrockBoatState withAngularVelocity(float value) {
-        return new BedrockBoatState(actor, properties, value, submergedTicks, paddleTick, left, right, analogPaddles);
+        return new BedrockBoatState(actor, properties, value, submergedTicks, paddleTick, left, right, paddleInput);
+    }
+
+    /**
+     * How the rider's input reaches the paddles on a tick: as forces, as two pressed paddles, or not at all. A boat
+     * whose rider gives no input releases both paddles.
+     */
+    public enum PaddleInput {
+        ANALOG,
+        DIGITAL,
+        NONE
     }
 
     public record Paddle(int lastStroke, int strokeStart, float strength) {

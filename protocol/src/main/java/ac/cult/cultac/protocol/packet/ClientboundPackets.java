@@ -37,6 +37,7 @@ import ac.cult.cultac.protocol.codec.movement.PlayerPositionCodec;
 import ac.cult.cultac.protocol.codec.movement.PlayerRotationCodec;
 import ac.cult.cultac.protocol.codec.world.BlockChangedAckCodec;
 import ac.cult.cultac.protocol.codec.world.BlockEventCodec;
+import ac.cult.cultac.protocol.codec.world.ChunkCacheCodecs;
 import ac.cult.cultac.protocol.codec.world.ExplodeCodec;
 import ac.cult.cultac.protocol.codec.world.ForgetLevelChunkCodec;
 import ac.cult.cultac.protocol.codec.world.GameEventCodec;
@@ -148,6 +149,11 @@ public final class ClientboundPackets {
             PLAY.add("set_health", ClientboundSetHealth.class, new SetHealthCodec());
     public static final PacketType<ClientboundPlayerCombatKill> PLAYER_COMBAT_KILL =
             PLAY.add("player_combat_kill", ClientboundPlayerCombatKill.class, new PlayerCombatKillCodec());
+    public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam>
+            SET_PLAYER_TEAM = PLAY.add(
+                    "set_player_team",
+                    ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam.class,
+                    new ac.cult.cultac.protocol.codec.entity.SetPlayerTeamCodec());
     public static final PacketType<ClientboundPlayerInfoUpdate> PLAYER_INFO_UPDATE =
             PLAY.add("player_info_update", ClientboundPlayerInfoUpdate.class, new PlayerInfoUpdateCodec());
     public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove>
@@ -197,6 +203,16 @@ public final class ClientboundPackets {
             PLAY.add("swing_animation", ClientboundSwingAnimation.class, new SwingAnimationCodec());
 
     // World.
+    public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheCenter>
+            SET_CHUNK_CACHE_CENTER = PLAY.add(
+                    "set_chunk_cache_center",
+                    ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheCenter.class,
+                    new ChunkCacheCodecs.Center());
+    public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheRadius>
+            SET_CHUNK_CACHE_RADIUS = PLAY.add(
+                    "set_chunk_cache_radius",
+                    ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheRadius.class,
+                    new ChunkCacheCodecs.Radius());
     public static final PacketType<ClientboundForgetLevelChunk> FORGET_LEVEL_CHUNK = PLAY.add(
             "forget_chunk", "forget_level_chunk", ClientboundForgetLevelChunk.class, new ForgetLevelChunkCodec());
     public static final PacketType<ClientboundBlockEvent> BLOCK_EVENT =

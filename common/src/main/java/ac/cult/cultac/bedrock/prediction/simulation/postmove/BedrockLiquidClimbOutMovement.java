@@ -39,13 +39,11 @@ public final class BedrockLiquidClimbOutMovement {
             BedrockCollisionFlags flags,
             BlockCollisionWorld blockCollisionWorld,
             PlayerDimensionsState dimensions) {
+        // Only a move the blocks stopped horizontally climbs out: a box that touches a wall, or overlaps one it
+        // grew into, without the move colliding does not.
         return liquidTravelActive
-                && hasHorizontalClimbOutContact(flags)
+                && flags.horizontalCollision()
                 && hasFreeClimbOutSpace(previousPosition, nextPosition, velocity, blockCollisionWorld, dimensions);
-    }
-
-    private static boolean hasHorizontalClimbOutContact(BedrockCollisionFlags flags) {
-        return flags.horizontalCollision() || flags.horizontalBlockContact();
     }
 
     private static boolean hasFreeClimbOutSpace(
@@ -76,10 +74,11 @@ public final class BedrockLiquidClimbOutMovement {
     }
 
     private static WorldCollisionBox liquidClearanceBox(PlacedBlockCollision block) {
-        return BedrockLiquidGeometry.liquidBlockBox(block)
-                .orElseGet(() -> block.javaStateProperties().waterlogged()
-                        ? BedrockLiquidGeometry.fullBlockBox(block.position())
-                        : EMPTY_BOX);
+        return BedrockLiquidGeometry.isWaterBlock(block)
+                        || BedrockLiquidGeometry.isLavaBlock(block)
+                        || block.javaStateProperties().waterlogged()
+                ? BedrockLiquidGeometry.fullBlockBox(block.position())
+                : EMPTY_BOX;
     }
 
     private static final WorldCollisionBox EMPTY_BOX = new WorldCollisionBox(0.0D, 0.0D, 0.0D, 0.0D, 0.0D, 0.0D);

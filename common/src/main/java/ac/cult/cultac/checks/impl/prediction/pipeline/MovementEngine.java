@@ -10,12 +10,10 @@ import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
@@ -35,25 +33,17 @@ public interface MovementEngine {
             CultPlayer player,
             Set<Vec3> startingVelocities,
             SimulationContext context,
-            PredictionResult lastPrediction,
-            boolean canTickSkip);
+            PredictionResult lastPrediction);
 
     List<PredVector> startingVelocities(
             VelocityTransformer transformer, CultPlayer player, List<PredVector> input, SimulationContext context);
 
-    ValidMovements createValidMovements(
-            PredVector initialStartingVelocity, CultPlayer player, PredictionResult result, boolean canStep);
+    ValidMovements createValidMovements(PredVector initialStartingVelocity, CultPlayer player, PredictionResult result);
 
-    CollideAxisData probeCollisions(
-            CollisionModifier modifier,
-            CultPlayer player,
-            SimulationContext context,
-            double minY,
-            Vec3 target,
-            Vec3 playerPos,
-            PredVector initialStartingVelocity,
-            SimpleCollisionBox attemptedMovementExtents,
-            boolean canStep);
+    /** The collision of {@code result}'s candidate travel, for an engine whose candidates arrive already collided. */
+    default CollideAxisData travelCollisions(PredictionResult result) {
+        throw new UnsupportedOperationException("This engine resolves collisions forward");
+    }
 
     default void evaluateCandidate(CultPlayer player, PredictionResult result) {}
 

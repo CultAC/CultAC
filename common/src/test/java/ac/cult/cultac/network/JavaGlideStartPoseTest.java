@@ -37,7 +37,7 @@ class JavaGlideStartPoseTest {
         try (var f = new JavaTickFixture()) {
             // The standing box reaches into this web; the gliding box stays below it.
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 2, 0), BlockIds.COBWEB.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.player
                     .getInventory()
                     .inventory

@@ -2,9 +2,12 @@ package ac.cult.cultac.checks.impl.prediction.checks;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -15,6 +18,8 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -123,6 +128,28 @@ class PhaseDismountTest {
         teleportTo(phase, destination);
         move(phase, new Vec3(5.51, SEAT.y, 5.5));
         assertEquals(0, phase.flags);
+    }
+
+    @Test
+    void anAcknowledgedTeleportAfterLaterRideTicksMovesTheClientOffTheirSeat() throws Exception {
+        planks(5, 109, 5);
+        RecordingPhase phase = mountedBeforeAt(BEFORE_MOUNT);
+        rideTickSeat(SEAT);
+        Vec3 destination = new Vec3(5.5, SEAT.y, 5.5);
+        acknowledgeTeleport(phase, destination);
+        move(phase, new Vec3(5.5, SEAT.y, 5.5196));
+        assertEquals(0, phase.flags);
+    }
+
+    // From 26.3 the answer is ServerboundAcceptTeleportationPacket, which reaches Phase only as a teleport prediction.
+    private void acknowledgeTeleport(RecordingPhase phase, Vec3 position) {
+        PredictionResult result = mock(PredictionResult.class);
+        TeleportData teleport = mock(TeleportData.class);
+        when(teleport.getLocation()).thenReturn(position);
+        when(result.getSetBackData()).thenReturn(teleport);
+        when(result.isTeleport()).thenReturn(true);
+        phase.onPredictionComplete(new PredictionComplete(result));
+        at(position);
     }
 
     private void teleportTo(RecordingPhase phase, Vec3 position) {

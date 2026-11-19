@@ -8,9 +8,12 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.proxy.Player;
@@ -69,6 +72,35 @@ class VelocityTransportLoginTest {
                 .attach(any(), any(), any(), any());
         login(transport, player, channel);
         verify(player, never()).disconnect(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void bedrockPlayerWithoutBridgeJoinsUninspectedOnlyWhereExempt(boolean exempt) throws Exception {
+        var channel = new EmbeddedChannel();
+        var player = mock(Player.class);
+        var transport = transport(player, channel);
+        var clients = mock(VelocityClientSupport.class);
+        when(clients.isBedrock(any())).thenReturn(true);
+        set(transport, "clients", clients);
+        Object config = VelocityClientAdmissionTest.swap("configManager", new BaseConfigManager() {
+            @Override
+            public boolean isExemptBedrockPlayers() {
+                return exempt;
+            }
+
+            @Override
+            public boolean failsOpen() {
+                return false;
+            }
+        });
+        try {
+            login(transport, player, channel);
+        } finally {
+            VelocityClientAdmissionTest.swap("configManager", config);
+        }
+        verify(transport, never()).attach(any(), any(), any(), any());
+        verify(player, times(exempt ? 0 : 1)).disconnect(VelocityTransport.REFUSED);
     }
 
     private static VelocityTransport transport(Player player, Channel channel) throws Exception {

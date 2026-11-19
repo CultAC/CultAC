@@ -14,7 +14,7 @@ public class ElytraCheck implements EngineCheck {
             return;
         }
         if (!result.getSimulationContext().usesFallFlyingMovement()
-                || result.getSimulationContext().getWorldData().mustBeInLiquid()) {
+                || result.getSimulationContext().getWorldData().isInLiquid()) {
             return;
         }
 

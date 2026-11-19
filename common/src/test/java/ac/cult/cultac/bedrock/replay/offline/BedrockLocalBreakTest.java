@@ -173,45 +173,51 @@ public class BedrockLocalBreakTest {
     }
 
     @Test
-    public void instantBreaksAndDropsAreModeledWithoutGeyser() {
+    public void breaksWaitForTheReportedDestroyAndDropsAreModeled() {
         OfflineCultTestBootstrap.installConfig();
         var p = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             p.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            var registry = DataTables.defaults().registry();
+            int slime = registry.block("minecraft:slime_block").defaultState();
+            int stone = registry.block("minecraft:stone").defaultState();
+            // A block that breaks at once still leaves only with the destroy the client reports.
             p.gamemode = GameMode.SURVIVAL;
-            p.compensatedWorld.updateBlock(
-                    2,
-                    64,
-                    0,
-                    DataTables.defaults()
-                            .registry()
-                            .block("minecraft:slime_block")
-                            .defaultState());
+            p.compensatedWorld.updateBlock(2, 64, 0, slime);
             p.bedrockState.blockBreakActions.apply(
                     p,
                     BedrockCoordinateFrame.IDENTITY,
                     null,
                     List.of(action(PlayerActionType.START_BREAK, WALL)),
                     local -> {});
-            assertTrue(DataTables.defaults()
-                    .registry()
-                    .facts(p.compensatedWorld.getBlockStateIdAt(WALL))
-                    .has(ac.cult.blocksim.data.StateFacts.AIR));
-            p.gamemode = GameMode.CREATIVE;
-            p.compensatedWorld.updateBlock(
-                    2,
-                    64,
-                    0,
-                    DataTables.defaults().registry().block("minecraft:stone").defaultState());
+            assertEquals(slime, p.compensatedWorld.getBlockStateIdAt(WALL));
             p.bedrockState.blockBreakActions.apply(
                     p,
                     BedrockCoordinateFrame.IDENTITY,
                     null,
-                    List.of(action(PlayerActionType.BLOCK_CONTINUE_DESTROY, WALL)),
+                    List.of(
+                            action(PlayerActionType.START_BREAK, WALL),
+                            action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL)),
                     local -> {});
-            assertTrue(DataTables.defaults()
-                    .registry()
-                    .facts(p.compensatedWorld.getBlockStateIdAt(WALL))
+            assertTrue(registry.facts(p.compensatedWorld.getBlockStateIdAt(WALL))
+                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+            // Capture 1794673089650, tick 21267: a creative start alone left the block in the boat's way that tick.
+            p.gamemode = GameMode.CREATIVE;
+            p.compensatedWorld.updateBlock(2, 64, 0, stone);
+            for (var lone : List.of(PlayerActionType.START_BREAK, PlayerActionType.BLOCK_CONTINUE_DESTROY)) {
+                p.bedrockState.blockBreakActions.apply(
+                        p, BedrockCoordinateFrame.IDENTITY, null, List.of(action(lone, WALL)), local -> {});
+                assertEquals(stone, p.compensatedWorld.getBlockStateIdAt(WALL));
+            }
+            p.bedrockState.blockBreakActions.apply(
+                    p,
+                    BedrockCoordinateFrame.IDENTITY,
+                    null,
+                    List.of(
+                            action(PlayerActionType.BLOCK_CONTINUE_DESTROY, WALL),
+                            action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL)),
+                    local -> {});
+            assertTrue(registry.facts(p.compensatedWorld.getBlockStateIdAt(WALL))
                     .has(ac.cult.blocksim.data.StateFacts.AIR));
             p.compensatedWorld.updateBlock(
                     2,

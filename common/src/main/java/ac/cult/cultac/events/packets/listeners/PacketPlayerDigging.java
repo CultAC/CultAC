@@ -3,7 +3,6 @@ package ac.cult.cultac.events.packets.listeners;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
@@ -12,8 +11,11 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
-import ac.cult.cultac.utils.data.PacketStateData;
+import ac.cult.cultac.utils.data.ClientItemUseState;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
+import java.util.ArrayList;
+import java.util.List;
 
 public class PacketPlayerDigging {
     // LOW
@@ -21,46 +23,32 @@ public class PacketPlayerDigging {
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
         Hand hand = packet.hand();
         SimItemStack item = player.getInventory().getHandItem(hand);
-        if (RiptideUtil.isTrident(item)
-                && !item.nextDamageWillBreak()
-                && (RiptideUtil.getRiptideLevel(item) <= 0
-                        || RiptideUtil.inWaterOrRain(player).determineOptimistically())) {
+        if (chargesRiptide(player, item)) {
             RiptideUtil.startTrackedUse(player, hand);
-        } else {
+        } else if (player.usesModernJavaItemUse() || hand == player.packetStateData.riptideUseHand) {
+            // Minecraft#handleKeybinds runs Minecraft#startUseItem only while LocalPlayer#isUsingItem is false, so a
+            // Java UseItem of either hand that starts no trident use proves the client runs no use.
             RiptideUtil.clearTrackedUse(player);
         }
+    }
+
+    /**
+     * Whether a use of {@code item} may end in a riptide release. LivingEntity#updatingUsingItem keeps a Java use and
+     * its timer across a switch to another stack of the same item, so any trident use can release a riptide one.
+     */
+    private static boolean chargesRiptide(CultPlayer player, SimItemStack item) {
+        return player.usesModernJavaItemUse()
+                ? item != null && item.getItem() == ItemTypes.TRIDENT
+                : RiptideUtil.getRiptideLevel(item) > 0;
     }
 
     @CultPacketHandler
     public void onPlayerAction(
             PacketReceiveEvent<ServerboundPlayerAction> event, CultPlayer player, ServerboundPlayerAction packet) {
         if (packet.action() == PlayerAction.RELEASE_USE_ITEM) {
-            PacketStateData state = player.packetStateData;
-            Hand hand = state.riptideUseHand;
-            SimItemStack item = hand == null ? null : player.getInventory().getHandItem(hand);
-            int held = RiptideUtil.releaseLevel(item);
-            int used = held;
-            if (hand == Hand.MAIN_HAND
-                    && state.riptideSelectClientTick == state.acceptedClientTick
-                    && player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)) {
-                SimItemStack before = RiptideUtil.hotbarItem(player, state.riptideSlotBeforeSelect);
-                SimItemStack first = RiptideUtil.hotbarItem(player, state.riptideFirstSelectSlot);
-                held = RiptideUtil.releaseLevel(RiptideUtil.isTrident(first) ? first : before);
-                used = RiptideUtil.releaseLevel(RiptideUtil.isTrident(before) ? before : first);
-            }
-            int j = Math.max(held, used);
-            int other = Math.min(held, used);
-
-            if (j > 0 && RiptideUtil.isValidRiptideRelease(player, hand)) {
-                // Entity#rideTick zeroes a passenger's delta before its tick, so its release pushes nothing.
-                if (!player.compensatedEntities.getSelf().inVehicle()) {
-                    state.riptideLevel = j;
-                    state.riptideAlternativeLevel = other != j ? other : 0;
-                    state.riptideReleaseCertain = other > 0 && RiptideUtil.isCertainRiptideRelease(player);
-                }
-                player.riptideSpinAttackTicks = 20;
-                player.riptideSpinCertain = state.riptideReleaseCertain;
-            }
+            // Runs before ActionManager ends the use, so ClientItemUseState still holds the stacks it bound.
+            if (player.usesModernJavaItemUse()) releaseJavaUse(player);
+            else releaseTrackedHand(player);
             RiptideUtil.clearTrackedUse(player);
         }
 
@@ -101,25 +89,75 @@ public class PacketPlayerDigging {
         // Stop people from spamming the server with out of bounds exceptions
         if (slotId > 8 || slotId < 0) return;
 
-        PacketStateData state = player.packetStateData;
-        state.lastSlotSelected = slotId;
-        if (state.riptideUseHand != Hand.MAIN_HAND) return;
-        if (player.isBedrockMovement()) {
+        player.packetStateData.lastSlotSelected = slotId;
+        // ServerGamePacketListenerImpl#handleSetCarriedItem stops only the server's use. A Java client keeps its use
+        // and charge until that stop reaches it, and ClientItemUseState decides what a release in between releases.
+        if (!player.usesModernJavaItemUse() && player.packetStateData.riptideUseHand != Hand.OFF_HAND) {
             RiptideUtil.clearTrackedUse(player);
+        }
+    }
+
+    /**
+     * TridentItem#releaseUsing on each stack LivingEntity#releaseUsingItem may release. It spins only after ten ticks
+     * of use, in water or rain, with a riptide trident whose next damage leaves it intact. The release is invalid only
+     * when every stack it may release is a riptide trident that cannot spin for its charge or surroundings.
+     */
+    private static void releaseJavaUse(CultPlayer player) {
+        var inventory = player.getInventory();
+        List<ClientItemUseState.Release> releases = player.clientItemUse.releases(
+                player.getClientVersion(),
+                orEmpty(inventory.getHandItem(Hand.MAIN_HAND)),
+                orEmpty(inventory.getHandItem(Hand.OFF_HAND)));
+        List<Integer> levels = new ArrayList<>(1);
+        boolean mayNotSpin = false;
+        Hand invalid = null;
+        boolean certainlyInvalid = !releases.isEmpty();
+        for (var release : releases) {
+            int level = RiptideUtil.getRiptideLevel(release.stack());
+            boolean valid = RiptideUtil.isValidRiptideRelease(player, release.hand());
+            if (level > 0 && valid && !release.stack().nextDamageWillBreak()) {
+                if (!levels.contains(level)) levels.add(level);
+                continue;
+            }
+            mayNotSpin = true;
+            if (level > 0 && !valid) invalid = release.hand();
+            else certainlyInvalid = false;
+        }
+        if (!levels.isEmpty()) spin(player, levels, mayNotSpin);
+        else if (certainlyInvalid) rejectRelease(player, invalid);
+    }
+
+    /** The release the Bedrock bridge models: the riptide trident the tracked hand holds now. */
+    private static void releaseTrackedHand(CultPlayer player) {
+        Hand hand = player.packetStateData.riptideUseHand;
+        SimItemStack item = hand == null ? null : player.getInventory().getHandItem(hand);
+        int level = RiptideUtil.getRiptideLevel(item);
+        if (level > 0 && RiptideUtil.isValidRiptideRelease(player, hand)) spin(player, List.of(level), false);
+        else if (level > 0) rejectRelease(player, hand);
+    }
+
+    /** A release that spins at one of {@code levels}, or may also not spin. */
+    private static void spin(CultPlayer player, List<Integer> levels, boolean mayNotSpin) {
+        if (player.compensatedEntities.getSelf().inVehicle()) {
+            // Entity#rideTick zeroes a passenger's delta before its tick and Entity#positionRider replaces the lift,
+            // so a passenger's release only starts the spin.
+            player.riptideSpinAttackTicks = 20;
+            player.riptideSpinCertain = false;
             return;
         }
-        int tick = state.acceptedClientTick;
-        if (state.riptideSelectClientTick != tick) {
-            if (!RiptideUtil.isTrident(RiptideUtil.hotbarItem(player, state.riptideUseSlot))
-                    && (tick > state.riptideSelectClientTick + 1
-                            || !RiptideUtil.isTrident(RiptideUtil.hotbarItem(player, slotId)))) {
-                RiptideUtil.clearTrackedUse(player);
-                return;
-            }
-            state.riptideSlotBeforeSelect = state.riptideUseSlot;
-            state.riptideFirstSelectSlot = slotId;
-            state.riptideSelectClientTick = tick;
-        }
-        state.riptideUseSlot = slotId;
+        player.packetStateData.riptideLevel = levels.getFirst();
+        player.packetStateData.riptideAlternativeLevels = List.copyOf(levels.subList(1, levels.size()));
+        player.packetStateData.riptideReleaseCertain = !mayNotSpin && RiptideUtil.isCertainRiptideRelease(player);
+        player.riptideSpinAttackTicks = 20;
+        player.riptideSpinCertain = player.packetStateData.riptideReleaseCertain;
+    }
+
+    private static void rejectRelease(CultPlayer player, Hand hand) {
+        player.packetStateData.invalidRiptideRelease = true;
+        player.packetStateData.invalidRiptideReleaseReason = RiptideUtil.invalidReleaseReason(player, hand);
+    }
+
+    private static SimItemStack orEmpty(SimItemStack stack) {
+        return stack == null ? SimItemStack.EMPTY : stack;
     }
 }

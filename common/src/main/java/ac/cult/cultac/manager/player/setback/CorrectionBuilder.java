@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
@@ -109,7 +110,7 @@ public final class CorrectionBuilder {
         // prove both the motion and a later explosion.
         final boolean explosionIsNewer = inputs.playerImpulsesApply()
                 && isPendingImpulse(inputs, sentExplosion)
-                && (sentKnockback == null || TransactionVel.compareClientOrder(sentExplosion, sentKnockback) > 0);
+                && (sentKnockback == null || sentExplosion.getOutboundSequence() > sentKnockback.getOutboundSequence());
         if (explosionIsNewer) {
             clientVel = clientVel.add(sentExplosion.getVel());
         }
@@ -125,7 +126,9 @@ public final class CorrectionBuilder {
                 && flagged != null
                 && !player.isBedrockMovement()
                 && flagged.getSimulationContext().getVehicle() != null;
-        boolean onFootTick = simulateNext
+        Vec3 serverVehiclePosition = vehicleSimulated ? null : unplacedVehiclePosition(safe);
+        boolean onFootTick = serverVehiclePosition == null
+                && simulateNext
                 && lastPrediction != null
                 && !player.compensatedEntities.getSelf().inVehicle();
         // We don't want to make it IMPOSSIBLE for high ping players to play after taking knockback
@@ -197,8 +200,8 @@ public final class CorrectionBuilder {
                 clientVel = SetbackPhysics.simulateFriction(
                         player,
                         clientVel,
-                        context.getWorldData().getInWater().determineOptimistically(),
-                        context.getWorldData().getInLava().determineOptimistically(),
+                        context.getWorldData().mayBeInWater(),
+                        context.getWorldData().mayBeInLava(),
                         context.usesFallFlyingMovement(),
                         context.getLastOnGround().determineOptimistically(),
                         stuckSpeedMultiplier != null,
@@ -213,10 +216,12 @@ public final class CorrectionBuilder {
             // The vehicle's simulated tick from the safe state: its Entity#move and the deltaMovement it carries on.
             Vec3 movement = flagged.getAcceptedClosestToTarget();
             position = flagged.getSimulationContext().getStart().add(movement);
-            clientVel = NextTickVelocityDeriver.findVelocitiesForNextTick(
-                            player, flagged, lastPrediction, movement, null)
+            clientVel = NextTickVelocityDeriver.findVelocitiesForNextTick(player, flagged, lastPrediction, null)
                     .iterator()
                     .next();
+        } else if (serverVehiclePosition != null) {
+            position = serverVehiclePosition;
+            clientVel = Vec3.ZERO;
         }
 
         if (bedrockVehicle && profileState != null) {
@@ -262,14 +267,23 @@ public final class CorrectionBuilder {
     }
 
     /**
+     * Where the server has the vehicle a Java setback moves when the safe position is not one of that vehicle's, such
+     * as an on-foot position from before the server seated the player; null otherwise.
+     */
+    private Vec3 unplacedVehiclePosition(SetbackPosWithVector safe) {
+        if (player.isBedrockMovement()) return null;
+        SetbackEntity moved = SetbackEntity.current(player);
+        if (moved.isPlayer() || moved.equals(safe.getOwner())) return null;
+        TrackerData tracked = player.compensatedEntities.getTrackedEntity(moved.vehicleId());
+        return tracked == null ? null : new Vec3(tracked.getX(), tracked.getY(), tracked.getZ());
+    }
+
+    /**
      * Whether the client has yet to take {@code impulse} from the safe state. The safe vector carries one the safe tick
-     * took, and the latest Java correction's delta movement replaced one the client applied before that teleport. A
-     * push the client's own tick applies after travel follows the packets its transaction proves and precedes the rest.
+     * took, and the latest Java correction's delta movement replaced one the client applied before that teleport.
      */
     private static boolean isPendingImpulse(Inputs inputs, TransactionVel impulse) {
         if (impulse == null || inputs.safe().carries(impulse)) return false;
-        return impulse.isAppliedAfterTravel()
-                ? impulse.getTransaction() > inputs.correctionTransaction()
-                : impulse.getTransaction() >= inputs.correctionTransaction();
+        return impulse.getTransaction() >= inputs.correctionTransaction();
     }
 }

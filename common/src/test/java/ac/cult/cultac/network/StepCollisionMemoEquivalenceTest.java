@@ -11,32 +11,31 @@ import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.PacketWorldBorder;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
-/** Every memoised step-proof collision equals a fresh one computed later in the same prediction. */
+/** Every memoised collision below a destination equals a fresh one computed later in the same prediction. */
 class StepCollisionMemoEquivalenceTest {
     private static final int SCENARIOS = 66;
-    private static final long STEP = 1L;
-    private static final long Z_FIRST = 4L;
     private static final long ON_GROUND = 8L;
     private static final long FULL_BLOCK = 16L;
+    private static final long EMPTY = 32L;
 
     @Test
     void memoisedCollisionsMatchFreshOnesAtEveryLaterCheck() throws Exception {
         Field keys = field("keys");
         Field values = field("values");
+        Field empties = field("empties");
         Field size = field("size");
         Field open = field("open");
         int[] verified = {0};
+        int[] emptyVerified = {0};
         int[] entries = {0};
         List<String> mismatches = new ArrayList<>();
         for (long seed = 0; seed < SCENARIOS; seed++) {
@@ -55,9 +54,11 @@ class StepCollisionMemoEquivalenceTest {
                         entries[0] = Math.max(entries[0], count);
                         long[] k = (long[]) keys.get(memo);
                         Object[] v = (Object[]) values.get(memo);
+                        boolean[] empty = (boolean[]) empties.get(memo);
                         for (int e = 0; e < count; e++) {
-                            String mismatch = verify(player, k, e * 10, v[e]);
+                            String mismatch = verify(player, k, e * 10, v[e], empty[e]);
                             verified[0]++;
+                            if ((k[e * 10] & EMPTY) != 0) emptyVerified[0]++;
                             if (mismatch != null) mismatches.add(scenario + ": " + mismatch);
                         }
                     } catch (IllegalAccessException e) {
@@ -77,7 +78,9 @@ class StepCollisionMemoEquivalenceTest {
         }
         assertEquals(List.of(), mismatches);
         assertTrue(verified[0] > SCENARIOS, verified[0] + " verified entries");
-        System.out.println("verified " + verified[0] + " memo entries, at most " + entries[0] + " per prediction");
+        assertTrue(emptyVerified[0] > SCENARIOS, emptyVerified[0] + " verified block-only scan entries");
+        System.out.println("verified " + verified[0] + " memo entries (" + emptyVerified[0]
+                + " block-only scans), at most " + entries[0] + " per prediction");
     }
 
     /** The memo stays closed while a time-based border lerp makes each collision read the clock. */
@@ -138,7 +141,7 @@ class StepCollisionMemoEquivalenceTest {
         }
     }
 
-    private static String verify(CultPlayer player, long[] k, int at, Object memoised) {
+    private static String verify(CultPlayer player, long[] k, int at, Object memoised, boolean memoisedEmpty) {
         long tag = k[at];
         SimpleCollisionBox box = new SimpleCollisionBox(
                 d(k[at + 1]),
@@ -148,19 +151,11 @@ class StepCollisionMemoEquivalenceTest {
                 d(k[at + 5]),
                 d(k[at + 6]),
                 (tag & FULL_BLOCK) != 0);
-        boolean onGround = (tag & ON_GROUND) != 0;
-        if ((tag & STEP) != 0) {
-            List<Collisions.Axis> order = (tag & Z_FIRST) != 0
-                    ? List.of(Collisions.Axis.Y, Collisions.Axis.Z, Collisions.Axis.X)
-                    : List.of(Collisions.Axis.Y, Collisions.Axis.X, Collisions.Axis.Z);
-            Collisions.SteppedCollision fresh = Collisions.collideWithStepComparison(
-                    player, box, d(k[at + 7]), d(k[at + 8]), d(k[at + 9]), order, Collections.emptyList(), onGround);
-            Collisions.SteppedCollision cached = (Collisions.SteppedCollision) memoised;
-            if (same(fresh.movement(), cached.movement()) && same(fresh.withoutStep(), cached.withoutStep())) {
-                return null;
-            }
-            return "step " + box + " " + cached + " != " + fresh;
+        if ((tag & EMPTY) != 0) {
+            boolean fresh = Collisions.isEmpty(player, box, d(k[at + 7]));
+            return fresh == memoisedEmpty ? null : "empty " + box + " " + memoisedEmpty + " != " + fresh;
         }
+        boolean onGround = (tag & ON_GROUND) != 0;
         boolean saved = player.lastOnGround;
         player.lastOnGround = onGround;
         try {
@@ -170,12 +165,6 @@ class StepCollisionMemoEquivalenceTest {
         } finally {
             player.lastOnGround = saved;
         }
-    }
-
-    private static boolean same(Vec3 a, Vec3 b) {
-        return Double.doubleToRawLongBits(a.x) == Double.doubleToRawLongBits(b.x)
-                && Double.doubleToRawLongBits(a.y) == Double.doubleToRawLongBits(b.y)
-                && Double.doubleToRawLongBits(a.z) == Double.doubleToRawLongBits(b.z);
     }
 
     private static double d(long bits) {

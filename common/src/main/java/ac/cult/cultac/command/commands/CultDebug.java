@@ -41,7 +41,21 @@ public class CultDebug implements BuildableCommand {
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
                 .meta(NetworkPlayerArguments.LOCAL, true)
-                .handler(this::handleDebug);
+                .flag(commandManager
+                        .flagBuilder("verbose")
+                        .withAliases("v")
+                        .withDescription(Description.of("Also show the start (S) and end (E) of tick velocities")))
+                .handler(context -> handleDebug(context, context.flags().hasFlag("verbose")));
+
+        // Cloud parses flags after positional arguments. This literal also allows -v before or
+        // without the player.
+        commandManager.command(cultCommand
+                .literal("debug")
+                .literal("-v", Description.of("Toggle debug output with start and end of tick velocities"), "--verbose")
+                .permission("cult.debug")
+                .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
+                .handler(context -> handleDebug(context, true)));
 
         commandManager.command(cultCommand
                 .literal("debug")
@@ -657,7 +671,7 @@ public class CultDebug implements BuildableCommand {
         return DataTables.defaults().registry().block(state).key();
     }
 
-    private void handleDebug(@NotNull CommandContext<Sender> context) {
+    private void handleDebug(@NotNull CommandContext<Sender> context, boolean verbose) {
         Sender sender = context.sender();
         PlayerSelector playerSelector = context.getOrDefault("target", null);
 
@@ -670,7 +684,7 @@ public class CultDebug implements BuildableCommand {
         }
 
         if (sender.isConsole()) {
-            targetCultPlayer.checkManager.getDebugHandler().toggleConsoleOutput();
+            targetCultPlayer.checkManager.getDebugHandler().toggleConsoleOutput(verbose);
         } else if (sender.isPlayer()) {
             CultPlayer senderCultPlayer =
                     CultAPI.INSTANCE.getPlayerDataManager().getPlayer(sender.getUniqueId());
@@ -679,7 +693,7 @@ public class CultDebug implements BuildableCommand {
                         sender, "sender-not-found", "%prefix% &cYou cannot be exempt to use this command!"));
                 return;
             }
-            targetCultPlayer.checkManager.getDebugHandler().toggleListener(senderCultPlayer.platformPlayer);
+            targetCultPlayer.checkManager.getDebugHandler().toggleListener(senderCultPlayer.platformPlayer, verbose);
         } else {
             sender.sendMessage(MessageUtil.getParsedComponent(
                     sender,

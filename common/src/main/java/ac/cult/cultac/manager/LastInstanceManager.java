@@ -23,6 +23,11 @@ public class LastInstanceManager extends Check implements PostPredictionListener
 
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
+        tick();
+    }
+
+    /** One client tick passes for every instance. */
+    public void tick() {
         for (LastInstance instance : instances) {
             instance.tick();
         }

@@ -45,6 +45,33 @@ public class GeyserEntityAttributesTest {
         assertEquals(0.35F, harness.horse.bedrockAttributes.movement().current(), 0);
     }
 
+    // Replays of the jump strength attribute set to 0.8, 0.1 and 0.5 on the player: every
+    // jump start still rises 0.42, while a ridden horse launches by its own value.
+    @Test
+    public void jumpStrengthReachesAHorseButNeverThePlayersAttributes() {
+        var harness = new Harness();
+        harness.capture(3, new AttributeData("minecraft:horse.jump_strength", 0, 2, 0.8F, 0.7F));
+        assertFalse(harness.tracker.hasPending());
+        harness.capture(
+                3,
+                new AttributeData("minecraft:movement", 0, 1024, 0.14F, 0.1F),
+                new AttributeData("minecraft:horse.jump_strength", 0, 2, 0.1F, 0.7F));
+        harness.capture(4, new AttributeData("minecraft:horse.jump_strength", 0, 2, 0.8F, 0.7F));
+        harness.boundary();
+        harness.receipts.removeFirst().run();
+        harness.spawns.forEach(Runnable::run);
+        assertEquals(0.14F, harness.self.bedrockAttributes.movement().current(), 0);
+        assertFalse(harness.self.bedrockAttributes.values().containsKey("minecraft:horse.jump_strength"));
+        assertEquals(
+                0.42F,
+                harness.self
+                        .bedrockAttributes
+                        .apply(ac.cult.cultac.bedrock.prediction.model.AttributeState.DEFAULT)
+                        .jumpStrength(),
+                0);
+        assertEquals(0.8F, harness.horse.bedrockAttributes.current("minecraft:horse.jump_strength", 0), 0);
+    }
+
     @Test
     public void entityIdReuseCannotReceiveAnOldRuntimeActorsAttributes() {
         var harness = new Harness();
@@ -93,9 +120,13 @@ public class GeyserEntityAttributesTest {
         }
 
         void capture(long actor, float value) {
+            capture(actor, new AttributeData("minecraft:movement", 0, 1024, value, 0.1F));
+        }
+
+        void capture(long actor, AttributeData... attributes) {
             var packet = new UpdateAttributesPacket();
             packet.setRuntimeEntityId(actor);
-            packet.setAttributes(List.of(new AttributeData("minecraft:movement", 0, 1024, value, 0.1F)));
+            packet.setAttributes(List.of(attributes));
             tracker.capture(session, player, GeyserReplayUpdate.capture(packet));
         }
 

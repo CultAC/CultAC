@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.prediction.runner;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
-import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.EngineCheck;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
@@ -16,6 +15,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Getter;
@@ -26,6 +26,26 @@ import lombok.ToString;
 public class PacketModHandler extends Check implements EngineCheck, PostPredictionListener {
     /** A later velocity replaces the client's delta movement, so only the newest overridden ones stay candidates. */
     static final int MAX_OVERRIDDEN_VELS = 16;
+
+    // Ordered LocalPlayer#onGameModeChanged writes also apply to an older callback confirmed later.
+    private long verticalResetSequence = Long.MIN_VALUE;
+
+    public void resetVerticalBefore(long sequence) {
+        verticalResetSequence = Math.max(verticalResetSequence, sequence);
+        resetVertical(firstBread);
+        resetVertical(secondBread);
+        resetVertical(lastSent);
+        overriddenVels.forEach(this::resetVertical);
+    }
+
+    private void resetVertical(TransactionVel velocity) {
+        if (velocity != null) velocity.setVel(resetVertical(velocity, velocity.getVel()));
+    }
+
+    private Vec3 resetVertical(TransactionVel velocity, Vec3 original) {
+        return velocity.getOutboundSequence() < verticalResetSequence
+                ? original.with(ac.cult.cultac.protocol.value.Direction.Axis.Y, 0) : original;
+    }
 
     double offsetToFlag;
     double maxAdvantage, immediate, ceiling, multiplier;
@@ -40,8 +60,8 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     @Getter
     public transient TransactionVel lastSent = null;
 
-    @Getter
-    boolean canTickSkip = false;
+    /** Java impulses in send order, from the oldest the client has not proven. */
+    private final transient ArrayDeque<TransactionVel> unproven = new ArrayDeque<>();
 
     @Setter
     boolean isSetbackVal = false;
@@ -52,17 +72,11 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
 
     @Override
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
-        if (firstBread == null && secondBread == null) return;
-
-        PredVector start = result.getInitialStartingVel();
-        boolean isPointThree = (start.hasPacketModifier(firstBread) || start.hasPacketModifier(secondBread))
-                && result.getSimulationContext().isTestingPointThree()
-                && result.getOffset() < player.getMovementThreshold();
-
-        if (isPointThree) {
-            canTickSkip = true;
-        }
-        if (result.getSimulationContext().isTestingPointThree()) return;
+        // Every predicted client tick records the velocity's offset, including one whose position
+        // LocalPlayer#sendPosition withheld; the must-move test's stationary tick never ran on the client.
+        if (firstBread == null && secondBread == null
+                || player.isBedrockMovement() && result.getSimulationContext().isWithheldPosition()
+                || player.checkManager.getSimulationProcessor().isPredictingStationaryTick()) return;
 
         double flags = result.getFlagSeverity();
 
@@ -129,14 +143,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             return;
         }
 
-        final boolean possibleSkip = this.canTickSkip;
-        // If there is a velocity going to 0, and the player moved slow enough to reach 0, assume movement skipped.
-        if (this.canTickSkip) {
-            this.canTickSkip = false;
-            if (this.firstBread != null) this.firstBread.addOffset(0);
-            if (this.secondBread != null) this.secondBread.addOffset(0);
-        }
-
         if (predictionComplete.getPredictionResult().getInitialStartingVel().hasPacketModifier(this.firstBread)) {
             List<PredictionResult> realities =
                     predictionComplete.getPredictionResult().getRealities();
@@ -166,7 +172,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             // TODO: Perhaps if the velocity overrode other velocities, we flag multiple times?
             // TODO: Perhaps add maximum latency for velocity.
             if (player.getSetbackTeleportUtil().isDebug()) {
-                LogUtil.info("Velocity flag: " + this.secondBread.getOffset() + " skip=" + possibleSkip);
+                LogUtil.info("Velocity flag: " + this.secondBread.getOffset());
             }
             if (!this.secondBread.isSetbackVel()) {
                 final double offset = this.secondBread.getOffset();
@@ -180,7 +186,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
                 }
 
             } else { // We still need to increase violations.
-                player.getSetbackTeleportUtil().executeViolationSetback();
+                player.getSetbackTeleportUtil().executeViolationSetback(this);
             }
         }
 
@@ -290,7 +296,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         int transaction = player.lastTransactionSent.get();
         TransactionVel velocity = new TransactionVel(
                 playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId, player.nextImpulseSequence());
-        lastSent = velocity;
+        sent(velocity);
         player.latencyUtils.addRealTimeTaskWithNextTransaction(
                 transaction,
                 () -> makeVelocityPossible(velocity, playerVelocity),
@@ -299,9 +305,13 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     }
 
     protected void makeVelocityPossible(TransactionVel velocity, Vec3 originalVelocity) {
-        if (!velocity.isVelocity() && shouldCarryPreviousPacketModifier(secondBread, false, velocity)) {
-            velocity.setVel(originalVelocity.add(secondBread.getVel()));
-        }
+        if (!velocity.isVelocity()) {
+            // The older callback owns only originalVelocity. SECOND_BREAD can already include a later
+            // contribution, whose Y the earlier packet's tab-mode reset must never overwrite.
+            Vec3 original = resetVertical(velocity, originalVelocity);
+            velocity.setVel(shouldCarryPreviousPacketModifier(secondBread, false, velocity)
+                    ? original.add(secondBread.getVel()) : original);
+        } else resetVertical(velocity);
         firstBread = velocity;
     }
 
@@ -315,11 +325,12 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             overriddenVels.add(secondBread);
         }
         if (!velocity.isVelocity()) {
+            Vec3 original = resetVertical(velocity, originalVelocity);
             velocity.setVel(
                     shouldCarryPreviousPacketModifier(secondBread, false, velocity)
-                            ? originalVelocity.add(secondBread.getVel())
-                            : originalVelocity);
-        }
+                            ? original.add(secondBread.getVel())
+                            : original);
+        } else resetVertical(velocity);
         if (firstBread == velocity) firstBread = null;
         secondBread = velocity;
     }
@@ -329,8 +340,31 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         if (transaction <= 0) return;
         TransactionVel velocity = new TransactionVel(
                 playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId, player.nextImpulseSequence());
-        lastSent = velocity;
+        sent(velocity);
         player.latencyUtils.addRealTimeTask(transaction, () -> confirmVelocity(velocity, playerVelocity));
+    }
+
+    /** {@code velocity} is the newest impulse the server sent the player. */
+    protected void sent(TransactionVel velocity) {
+        lastSent = velocity;
+        oldestUnproven();
+        unproven.addLast(velocity);
+    }
+
+    /** The oldest impulse the client has not proven, or null; the client proves them in send order. */
+    public TransactionVel oldestUnproven() {
+        while (!unproven.isEmpty() && proven(unproven.peekFirst())) unproven.pollFirst();
+        return unproven.peekFirst();
+    }
+
+    /** Leaves every impulse sent so far out of {@link #oldestUnproven}. */
+    public void forgetUnproven() {
+        unproven.clear();
+    }
+
+    private boolean proven(TransactionVel velocity) {
+        return player.lastTransactionReceived.get()
+                >= Math.max(velocity.getTransaction(), velocity.getProofTransaction());
     }
 
     private boolean shouldCarryPreviousPacketModifier(
@@ -345,14 +379,11 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         // packet's proof transaction, the previous modifier is already consumed. Before the
         // client has loaded, LocalPlayer#tick returns at once and only Entity#rideTick zeroes
         // the delta, so an explosion's Entity#push adds to a push before an unridden tick; a
-        // velocity's Entity#lerpMotion replaces the delta at any tick. A push the client's own
-        // tick applies after its travel is consumed by the next tick.
+        // velocity's Entity#lerpMotion replaces the delta at any tick.
         int consumedThrough = currentIsVelocity || player.isBedrockMovement()
                 ? player.packetStateData.lastClientTickEndTransaction
                 : player.packetStateData.lastDeltaConsumedTickEndTransaction;
-        if (previous.isAppliedAfterTravel()
-                ? player.packetStateData.acceptedClientTick >= previous.getConsumedAtClientTick()
-                : consumedThrough >= previous.getTransaction()) {
+        if (consumedThrough >= previous.getTransaction()) {
             return false;
         }
 
@@ -373,8 +404,8 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             TransactionVel previous, TransactionVel velocity, TransactionVel current) {
         return velocity != null
                 && velocity.isVelocity()
-                && TransactionVel.compareClientOrder(velocity, previous) > 0
-                && TransactionVel.compareClientOrder(velocity, current) <= 0;
+                && velocity.getOutboundSequence() > previous.getOutboundSequence()
+                && velocity.getOutboundSequence() <= current.getOutboundSequence();
     }
 
     public boolean hasPacketVelocity() {
@@ -383,14 +414,11 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
 
     /**
      * {@link #lastSent} if the client tick being predicted began with it applied, else null. Minecraft#runTick handles
-     * a Java velocity's bundle, proof ping included, before it ticks; a push applied after travel is taken next tick.
+     * a Java velocity's bundle, proof ping included, before it ticks.
      */
     public TransactionVel lastSentAppliedBeforeTick() {
         TransactionVel sent = lastSent;
         if (sent == null || player.isBedrockMovement()) return null;
-        if (sent.isAppliedAfterTravel()) {
-            return player.packetStateData.acceptedClientTick + 1 >= sent.getConsumedAtClientTick() ? sent : null;
-        }
         // A velocity whose trailing ping could not be sent has no proof.
         int proof = sent.getProofTransaction();
         return proof >= sent.getTransaction() && player.lastTransactionReceived.get() >= proof ? sent : null;
@@ -408,5 +436,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             lastSent = null;
         }
         overriddenVels.removeIf(vel -> vel.getSourceEntityId() == entityId);
+        unproven.removeIf(vel -> vel.getSourceEntityId() == entityId);
     }
 }

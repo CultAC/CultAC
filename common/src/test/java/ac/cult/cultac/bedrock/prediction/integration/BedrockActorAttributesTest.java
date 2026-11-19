@@ -81,33 +81,182 @@ public class BedrockActorAttributesTest {
     }
 
     @Test
-    public void horseHistoricalReplacementWaitsThenReplaysUsingItsOwnAttributes() {
+    public void horseStampedReplacementAppliesToTheNextFrameWithoutReplayingItsStampFrame() {
         var history = new BedrockActorHistory();
         var first = BedrockActorHistoryTest.forward(
                 entry(attributes(0.2F, false).state(horse())), 1, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
         history.record(first);
         var rewind = new BedrockMovementRewind(history);
-        var current = commit(history.current());
         rewind.queue(1, true, attributes(0.35F, true));
-        assertSame(current, rewind.apply(null, current));
-        var second = BedrockActorHistoryTest.forward(
-                first.end().getFirst(), 2, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
-        history.record(second);
         var published = rewind.apply(null, commit(history.current()));
         var actual = BedrockProfileState.previousState(published.carry());
+        var recorded = first.end().getFirst().state();
+        assertEquals(recorded.physicalFeetPosition(), actual.physicalFeetPosition());
+        assertEquals(recorded.velocity(), actual.velocity());
+        assertEquals(0.35F, actual.movementAttribute().current(), 0);
         var expected = BedrockActorHistoryTest.forward(
-                        entry(attributes(0.35F, false)
-                                .state(first.end().getFirst().state())),
+                        entry(attributes(0.35F, false).state(recorded)),
                         2,
                         BedrockActorHistoryTest.ground(),
                         new Vec3d(0, 0, 1))
                 .end()
                 .getFirst()
                 .state();
-        assertEquals(expected.physicalFeetPosition(), actual.physicalFeetPosition());
-        assertEquals(expected.velocity(), actual.velocity());
-        assertEquals(0.35F, actual.movementAttribute().current(), 0);
-        assertEquals(0.2F, second.end().getFirst().state().movementAttribute().current(), 0);
+        var next = BedrockActorHistoryTest.forward(
+                        entry(actual), 2, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1))
+                .end()
+                .getFirst()
+                .state();
+        assertEquals(expected.physicalFeetPosition(), next.physicalFeetPosition());
+        assertEquals(expected.velocity(), next.velocity());
+    }
+
+    @Test
+    public void speedStampedTicksAgoChangesOnlyTheTicksAfterItsAcknowledgement() {
+        // A capture over a delayed connection: 0.3 stamped five ticks before the client acknowledged it.
+        // The ticks in between moved at 0.1, and the first tick after it gained 0.98 * (0.3 - 0.1).
+        var history = BedrockActorHistoryTest.history(1, 6);
+        var before = history.frames();
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(1, true, attributes(0.3F, true));
+        var published = rewind.apply(null, commit(history.current()));
+        var applied = BedrockProfileState.previousState(published.carry());
+        var newest = before.getLast().end().getFirst().state();
+        assertEquals(6, applied.clientTick());
+        assertEquals(newest.physicalFeetPosition(), applied.physicalFeetPosition());
+        assertEquals(newest.velocity(), applied.velocity());
+        assertEquals(0.3F, applied.movementAttribute().current(), 0);
+        for (int i = 0; i < before.size(); i++) {
+            assertEquals(
+                    before.get(i).end().getFirst().state().physicalFeetPosition(),
+                    history.frames().get(i).end().getFirst().state().physicalFeetPosition());
+        }
+        var slow = step(newest, 7);
+        var fast = step(applied, 7);
+        // Positions are floats near x=289: one step resolves to about 3e-5.
+        assertEquals(0.98 * (0.3 - 0.1), fast.subtract(slow).length(), 1e-4);
+    }
+
+    @Test
+    public void speedStampedWithTheNewestTickSlowsTheVeryNextTick() {
+        // A capture over a direct connection: 0.05 stamped 882 was acknowledged before input 883, and
+        // tick 883 already accelerated by a sixth of what tick 882 did at 0.3.
+        var history = new BedrockActorHistory();
+        var entry = entry(attributes(0.3F, false)
+                .state(BedrockMovementState.fromPhysicalFeet(
+                        new Vec3d(289, 82, -86),
+                        new Vec3d(0, -0.0784F, 0),
+                        BedrockInputFrame.idle(0),
+                        BedrockCollisionFlags.ON_GROUND)));
+        for (long tick = 1; tick <= 3; tick++) {
+            var frame =
+                    BedrockActorHistoryTest.forward(entry, tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
+            history.record(frame);
+            entry = frame.end().getFirst();
+        }
+        var newest = entry.state();
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(3, true, attributes(0.05F, true));
+        var applied = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(newest.physicalFeetPosition(), applied.physicalFeetPosition());
+        assertEquals(0.05F, applied.movementAttribute().current(), 0);
+        double carried = Math.hypot(newest.velocity().x(), newest.velocity().z());
+        assertEquals(0.98 * 0.3, step(newest, 4).length() - carried, 1e-4);
+        assertEquals(0.98 * 0.05, step(applied, 4).length() - carried, 1e-4);
+    }
+
+    @Test
+    public void jumpStrengthAcknowledgedWithAReplaySurvivesItAndEveryLaterReplay() {
+        // A capture: the restore to 0.42 was acknowledged in the same input window as a correction, and
+        // no later packet repeats it.
+        for (boolean replayFirst : List.of(true, false)) {
+            var history = new BedrockActorHistory();
+            var entry = entry(jumpStrength(0.5F)
+                    .state(BedrockMovementState.fromPhysicalFeet(
+                            new Vec3d(289, 82, -86),
+                            new Vec3d(0, -0.0784F, 0),
+                            BedrockInputFrame.idle(0),
+                            BedrockCollisionFlags.ON_GROUND)));
+            for (long tick = 1; tick <= 3; tick++) {
+                var frame = BedrockActorHistoryTest.forward(
+                        entry, tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
+                history.record(frame);
+                entry = frame.end().getFirst();
+            }
+            var rewind = new BedrockMovementRewind(history);
+            var correction = new BedrockReplayEvent.Motion(new Vec3d(0, -0.0784F, 0));
+            if (replayFirst) rewind.queue(1, true, correction);
+            rewind.queue(0, false, jumpStrength(0.42F));
+            if (!replayFirst) rewind.queue(1, true, correction);
+            var published = rewind.apply(null, commit(history.current()));
+            var state = BedrockProfileState.previousState(published.carry());
+            assertNotEquals("The correction replayed", entry.state().physicalFeetPosition(), state.physicalFeetPosition());
+            assertEquals(0.42F, state.attributes().current("minecraft:horse.jump_strength", 0), 0);
+            // It takes effect after the newest frame; the replayed frames before it keep 0.5.
+            assertEquals(
+                    0.5F,
+                    history.frames()
+                            .get(1)
+                            .end()
+                            .getFirst()
+                            .state()
+                            .attributes()
+                            .current("minecraft:horse.jump_strength", 0),
+                    0);
+
+            history.record(BedrockActorHistoryTest.forward(
+                    history.current().getFirst(), 4, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1)));
+            rewind.queue(2, true, new BedrockReplayEvent.Motion(new Vec3d(0, -0.0784F, 0)));
+            state = BedrockProfileState.previousState(
+                    rewind.apply(null, commit(history.current())).carry());
+            assertEquals(4, state.clientTick());
+            assertEquals(0.42F, state.attributes().current("minecraft:horse.jump_strength", 0), 0);
+        }
+    }
+
+    @Test
+    public void riddenHorseAttributesAcknowledgedWithAReplaySurviveIt() {
+        for (boolean replayFirst : List.of(true, false)) {
+            var history = new BedrockActorHistory();
+            var entry = entry(jumpStrength(0.8F).state(attributes(0.35245588F, false).state(horse())));
+            for (long tick = 1; tick <= 3; tick++) {
+                var frame = BedrockActorHistoryTest.forward(
+                        entry, tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
+                history.record(frame);
+                entry = frame.end().getFirst();
+            }
+            var rewind = new BedrockMovementRewind(history);
+            var correction = new BedrockReplayEvent.Motion(Vec3d.ZERO);
+            if (replayFirst) rewind.queue(1, true, correction);
+            rewind.queue(0, false, attributes(0.2961814F, false));
+            rewind.queue(0, false, jumpStrength(0.67052144F));
+            if (!replayFirst) rewind.queue(1, true, correction);
+            var state = BedrockProfileState.previousState(
+                    rewind.apply(null, commit(history.current())).carry());
+            assertTrue(state.isHorse());
+            assertNotEquals("The correction replayed", entry.state().physicalFeetPosition(), state.physicalFeetPosition());
+            assertEquals(0.2961814F, state.movementAttribute().current(), 0);
+            assertEquals(0.67052144F, state.attributes().current("minecraft:horse.jump_strength", 0), 0);
+            var replayed = history.frames().get(1).end().getFirst().state();
+            assertEquals(0.35245588F, replayed.movementAttribute().current(), 0);
+            assertEquals(0.8F, replayed.attributes().current("minecraft:horse.jump_strength", 0), 0);
+        }
+    }
+
+    private static BedrockReplayAttributeEvent jumpStrength(float value) {
+        return new BedrockReplayAttributeEvent(
+                Map.of("minecraft:horse.jump_strength", BedrockMovementAttributeState.serverValue(value, false)), false);
+    }
+
+    private static Vec3d step(BedrockMovementState state, long tick) {
+        var end = BedrockActorHistoryTest.forward(
+                        entry(state), tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1))
+                .end()
+                .getFirst()
+                .state();
+        var moved = end.physicalFeetPosition().subtract(state.physicalFeetPosition());
+        return new Vec3d(moved.x(), 0, moved.z());
     }
 
     @Test
@@ -128,6 +277,151 @@ public class BedrockActorAttributesTest {
         var attributes = initial.attributes().apply(world.attributeState());
         assertEquals(0.35F, attributes.baseMovementSpeed(), 0);
         assertEquals(0.8F, attributes.jumpStrength(), 0);
+    }
+
+    @Test
+    public void speedReceivedOnTheTickTheClientTakesACorrectionIsLost() {
+        // A capture of a donkey mounted as it spawned: the correction of its second ridden tick and then its only
+        // movement speed, 0.175, reached the client after that tick; the speed was acknowledged only after its
+        // third. The client took the correction on its fourth tick and kept 0.7: its first step ridden forward
+        // later is 0.7 and its second 0.7 * 0.546 + 0.7. No later packet carries the 0.175 again.
+        var history = donkeyRide(false);
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(2, true, correction(history, 2));
+        rewind.apply(null, commit(history.current()));
+        history.record(BedrockActorHistoryTest.forward(
+                history.current().getFirst(), 3, BedrockActorHistoryTest.ground(), Vec3d.ZERO));
+
+        rewind.queue(0, false, attributes(0.175F, false));
+        var corrected = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(3, corrected.clientTick());
+        assertEquals(0.7F, corrected.movementAttribute().current(), 0);
+
+        var first = BedrockActorHistoryTest.forward(
+                        entry(corrected), 4, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1))
+                .end()
+                .getFirst()
+                .state();
+        // Positions are floats near x=289: one step resolves to about 3e-5.
+        assertEquals(
+                0.7,
+                first.physicalFeetPosition()
+                        .subtract(corrected.physicalFeetPosition())
+                        .length(),
+                3.0E-5);
+        assertEquals(1.0822, step(first, 5).length(), 6.0E-5);
+    }
+
+    @Test
+    public void speedReceivedBeforeTheTickACorrectionReplaysSurvivesIt() {
+        // A capture of a donkey mounted as it spawned: the correction of its first ridden tick and then its 0.175
+        // were both acknowledged before its second tick. The client took the correction on its third tick, and
+        // every later ridden step on the ground gained 0.175.
+        var history = donkeyRide(false);
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(2, true, correction(history, 2));
+        rewind.queue(0, false, attributes(0.175F, false));
+        var updated = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(0.175F, updated.movementAttribute().current(), 0);
+        history.record(
+                BedrockActorHistoryTest.forward(entry(updated), 3, BedrockActorHistoryTest.ground(), Vec3d.ZERO));
+
+        var corrected = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(3, corrected.clientTick());
+        assertEquals(0.175F, corrected.movementAttribute().current(), 0);
+        assertEquals(0.175, step(corrected, 4).length(), 3.0E-5);
+    }
+
+    @Test
+    public void correctionToATickAfterTheMountsSpeedArrivedKeepsIt() {
+        // The same ride without the early correction: the donkey's first step is 0.175, and the corrections
+        // of its later ticks leave it at that speed.
+        var history = donkeyRide(false);
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(0, false, attributes(0.175F, false));
+        var updated = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        for (long tick = 3; tick <= 4; tick++)
+            history.record(BedrockActorHistoryTest.forward(
+                    history.current().getFirst(), tick, BedrockActorHistoryTest.ground(), Vec3d.ZERO));
+        assertEquals(0.175F, updated.movementAttribute().current(), 0);
+
+        rewind.queue(3, true, correction(history, 3));
+        var corrected = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(0.175F, corrected.movementAttribute().current(), 0);
+        assertEquals(0.175, step(corrected, 5).length(), 3.0E-5);
+    }
+
+    @Test
+    public void mountThatHadItsSpeedBeforeItWasRiddenKeepsItThroughACorrection() {
+        // The same donkey when its 0.175 reached the client before the ride: its first step is 0.175.
+        var history = donkeyRide(true);
+        history.record(BedrockActorHistoryTest.forward(
+                history.current().getFirst(), 3, BedrockActorHistoryTest.ground(), Vec3d.ZERO));
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(1, true, correction(history, 1));
+        var corrected = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(0.175F, corrected.movementAttribute().current(), 0);
+        assertEquals(0.175, step(corrected, 4).length(), 3.0E-5);
+    }
+
+    /** Two idle ticks of a newly ridden donkey, which has its movement speed already or has none yet. */
+    private static BedrockActorHistory donkeyRide(boolean speedReceived) {
+        var mount = org.mockito.Mockito.mock(ac.cult.cultac.utils.data.packetentity.PacketEntityHorse.class);
+        mount.bedrockAttributes = speedReceived
+                ? ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY.replace(
+                        Map.of("minecraft:movement", BedrockMovementAttributeState.serverValue(0.175F, false)))
+                : ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
+        mount.onGround = true;
+        var context = org.mockito.Mockito.mock(ac.cult.cultac.checks.impl.prediction.SimulationContext.class);
+        org.mockito.Mockito.when(context.getVehicle()).thenReturn(mount);
+        org.mockito.Mockito.when(context.getStart()).thenReturn(new ac.cult.cultac.utils.math.Vec3(289, 82, -86));
+        var donkey = BedrockInitialStateFactory.resolve(
+                context,
+                BedrockInputFrame.idle(1),
+                BedrockActorHistoryTest.ground().movementContext(),
+                null,
+                null);
+        assertEquals(speedReceived ? 0.175F : 0.7F, donkey.movementAttribute().current(), 0);
+        var history = new BedrockActorHistory();
+        var entry = entry(donkey);
+        for (long tick = 1; tick <= 2; tick++) {
+            var frame = BedrockActorHistoryTest.forward(entry, tick, BedrockActorHistoryTest.ground(), Vec3d.ZERO);
+            history.record(frame);
+            entry = frame.end().getFirst();
+        }
+        return history;
+    }
+
+    /** A correction of the ridden mount to where it already was at the end of that tick. */
+    private static BedrockReplayEvent.Transform correction(BedrockActorHistory history, long tick) {
+        var state = history.frames().stream()
+                .filter(frame -> frame.tick() == tick)
+                .findFirst()
+                .orElseThrow()
+                .end()
+                .getFirst()
+                .state();
+        return new BedrockReplayEvent.Transform(new ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection(
+                1,
+                0,
+                71,
+                171,
+                tick,
+                BedrockVectorAdapter.toJava(state.physicalFeetPosition()),
+                BedrockVectorAdapter.toJava(state.velocity()),
+                state.inputFrame().yaw(),
+                state.inputFrame().pitch(),
+                state.collisionFlags().onGround(),
+                state.coordinateFrame(),
+                -1,
+                null,
+                true));
     }
 
     @Test

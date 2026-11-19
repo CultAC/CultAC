@@ -51,7 +51,7 @@ class VoxelTieCpuBenchTest {
         int warmup = Integer.getInteger("bench.warmup", 8);
         int reps = Integer.getInteger("bench.reps", 15);
         int inner = Integer.getInteger("bench.inner", 40);
-        var actor = new JavaCollisionState(0, false, false, false);
+        var actor = new JavaCollisionState(0, false, false, false, false);
         var thread = (ThreadMXBean) ManagementFactory.getThreadMXBean();
         long sink = 0;
         for (int i = 0; i < warmup; i++) sink += pass(player, queries, actor);

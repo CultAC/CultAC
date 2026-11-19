@@ -4,12 +4,11 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
-import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockStepProjectionResolver;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockSolidActorOrders;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInput;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelOptions;
-import ac.cult.cultac.bedrock.prediction.simulation.reconciliation.BedrockNextTickStateDeriver;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
@@ -18,7 +17,6 @@ import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 public final class BedrockSimulation {
     public static final double DEFAULT_MAX_AUTO_STEP = 0.5625D;
@@ -27,6 +25,14 @@ public final class BedrockSimulation {
 
     /** Runs one movement tick with bounded controls. */
     public static Candidate movementTick(Input input, Vec3d control) {
+        return movementTick(input, control, 0);
+    }
+
+    private static Candidate movementTick(Input input, Vec3d control, int solidActorOrder) {
+        return movementTick(input, control, solidActorOrder, null);
+    }
+
+    private static Candidate movementTick(Input input, Vec3d control, int solidActorOrder, Vec3d nominalEnd) {
         if (control.y() != 0.0D
                 || !Double.isFinite(control.x())
                 || !Double.isFinite(control.z())
@@ -37,11 +43,10 @@ public final class BedrockSimulation {
         if (!input.actorMovementTick()) return candidates(input).getFirst();
         var state = input.previousState();
         if (state.isHorse()) state = state.withHorse(state.horse().withForwardJump(control.z() > 0.0D));
-        var options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
-                .withTravelActive(!state.hasTeleported());
-        var scaffolding = !state.isVehicle()
-                        && input.intent().vertical().descendInput()
-                        && state.climbableContact().descendAllowed()
+        var options =
+                BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep()).withTickStart(state.tickStart());
+        if (solidActorOrder != 0) options = options.withSolidActorOrder(solidActorOrder, nominalEnd);
+        var scaffolding = !state.isVehicle() && descendRequested(state, input)
                 ? BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND
                 : BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE;
         var result = BedrockTravelEngine.INSTANCE.travel(
@@ -68,21 +73,43 @@ public final class BedrockSimulation {
                     input.mobJumpComponent()));
         }
         if (input.control() != null || input.previousState().isBoat()) {
-            return List.of(movementTick(input, input.control() == null ? Vec3d.ZERO : input.control()));
+            Vec3d control = input.control() == null ? Vec3d.ZERO : input.control();
+            Candidate first = movementTick(input, control, 0);
+            int collected = first.movementResult().solidActorOrder();
+            if (collected == 0) return List.of(first);
+            ArrayList<Candidate> orders = new ArrayList<>(first.movementResult().solidActorOrders());
+            orders.add(first);
+            Vec3d nominalEnd = first.movementResult()
+                    .predictedPosition()
+                    .subtract(input.previousState().physicalFeetPosition());
+            for (int index = 1; index < first.movementResult().solidActorOrders(); index++) {
+                Candidate candidate =
+                        movementTick(input, control, BedrockSolidActorOrders.order(collected, index), nominalEnd);
+                if (realizesPositionState(candidate.movementResult())) orders.add(candidate);
+            }
+            return List.copyOf(orders);
         }
         ArrayList<Candidate> candidates = new ArrayList<>();
         if (input.previousState().isHorse()) {
             addHorseCandidates(candidates, input);
             return List.copyOf(candidates);
         }
-        if (input.intent().vertical().descendInput()
-                && input.previousState().climbableContact().descendAllowed()) {
-            addBranchCandidates(candidates, input, BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND);
-            addBranchCandidates(candidates, input, BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE);
-        } else {
-            addBranchCandidates(candidates, input, BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE);
-        }
+        addBranchCandidates(
+                candidates,
+                input,
+                descendRequested(input.previousState(), input)
+                        ? BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND
+                        : BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE);
         return List.copyOf(candidates);
+    }
+
+    /**
+     * The descend control of the frame's input mode falls through scaffolding or powder snow whenever the row
+     * below the feet holds it, whatever else is held. Nothing else decides the branch, so there is one candidate.
+     */
+    private static boolean descendRequested(BedrockMovementState state, Input input) {
+        return input.intent().vertical().descendThroughBlock()
+                && state.climbableContact().descendAllowed();
     }
 
     private static void addHorseCandidates(List<Candidate> candidates, Input input) {
@@ -90,53 +117,30 @@ public final class BedrockSimulation {
         int branches = horse.canLaunch(input.previousState().collisionFlags().onGround()) ? 2 : 1;
         for (int branch = 0; branch < branches; branch++) {
             var state = input.previousState().withHorse(horse.withForwardJump(branch == 1));
-            var result = travel(
-                    state,
-                    input.frame(),
-                    input.intent(),
-                    input.snapshot(),
-                    BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
-                    BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
-                            .withTravelActive(!state.hasTeleported()),
-                    input.mobJumpComponent());
-            candidates.add(new Candidate(result.movementResult(), result.mobJumpComponent()));
+            var options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
+                    .withTickStart(state.tickStart());
+            int collected = 0;
+            Vec3d nominalEnd = null;
+            for (int index = 0; index < BedrockSolidActorOrders.variants(collected); index++) {
+                var result = travel(
+                        state,
+                        input.frame(),
+                        input.intent(),
+                        input.snapshot(),
+                        BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
+                        index == 0
+                                ? options
+                                : options.withSolidActorOrder(
+                                        BedrockSolidActorOrders.order(collected, index), nominalEnd),
+                        input.mobJumpComponent());
+                if (index == 0) {
+                    collected = result.movementResult().solidActorOrder();
+                    nominalEnd = result.movementResult().predictedPosition().subtract(state.physicalFeetPosition());
+                }
+                if (realizesPositionState(result.movementResult()))
+                    candidates.add(new Candidate(result.movementResult(), result.mobJumpComponent()));
+            }
         }
-    }
-
-    public static List<NextState> deriveNextStates(
-            BedrockMovementResult result, List<BedrockMovementState> sourceStates, Vec3d acceptedDiff) {
-        return deriveNextStates(result, sourceStates, acceptedDiff, false, false);
-    }
-
-    public static List<NextState> deriveNextStates(
-            BedrockMovementResult result,
-            List<BedrockMovementState> sourceStates,
-            Vec3d acceptedDiff,
-            boolean selectedXCollision,
-            boolean selectedZCollision) {
-        return deriveNextStates(result, sourceStates, acceptedDiff, selectedXCollision, selectedZCollision, false);
-    }
-
-    public static List<NextState> deriveNextStates(
-            BedrockMovementResult result,
-            List<BedrockMovementState> sourceStates,
-            Vec3d acceptedDiff,
-            boolean selectedXCollision,
-            boolean selectedZCollision,
-            boolean canStep) {
-        return BedrockNextTickStateDeriver.withAcceptedDiff(
-                        result, sourceStates, acceptedDiff, selectedXCollision, selectedZCollision, canStep)
-                .stream()
-                .map(state -> new NextState(state.state(), state.lineageState()))
-                .toList();
-    }
-
-    public static Optional<Vec3d> stepCandidate(BedrockMovementResult result) {
-        return BedrockStepProjectionResolver.candidatePosition(result);
-    }
-
-    public static Optional<Vec3d> stepCandidate(BedrockMovementResult result, Vec3d requestedDelta) {
-        return BedrockStepProjectionResolver.candidatePosition(result, requestedDelta);
     }
 
     static BedrockMovementResult move(
@@ -163,24 +167,46 @@ public final class BedrockSimulation {
             List<Candidate> candidates, Input input, BedrockTravelInput.ScaffoldingVerticalBranch scaffolding) {
         ArrayList<Candidate> branch = new ArrayList<>();
         BedrockTravelOptions options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
-                .withTravelActive(!input.previousState().hasTeleported());
+                .withTickStart(input.previousState().tickStart());
         for (BedrockTravelOptions.SprintTravelSpeedMode speed : sprintSpeedModes()) {
             for (BedrockTravelOptions.SprintJumpImpulseMode jump : sprintJumpModes(input)) {
-                BedrockTravelResult result = travel(
-                        input.previousState(),
-                        input.frame(),
-                        input.intent(),
-                        snapshotForBranch(input.snapshot(), scaffolding),
-                        scaffolding,
-                        options.withSprintTravelSpeedMode(speed).withSprintJumpImpulseMode(jump),
-                        input.mobJumpComponent());
-                Candidate candidate = new Candidate(result.movementResult(), result.mobJumpComponent());
-                if (!branch.contains(candidate)) {
-                    branch.add(candidate);
+                BedrockTravelOptions mode =
+                        options.withSprintTravelSpeedMode(speed).withSprintJumpImpulseMode(jump);
+                int collected = 0;
+                Vec3d nominalEnd = null;
+                for (int index = 0; index < BedrockSolidActorOrders.variants(collected); index++) {
+                    BedrockTravelResult result = travel(
+                            input.previousState(),
+                            input.frame(),
+                            input.intent(),
+                            snapshotForBranch(input.snapshot(), scaffolding),
+                            scaffolding,
+                            index == 0
+                                    ? mode
+                                    : mode.withSolidActorOrder(
+                                            BedrockSolidActorOrders.order(collected, index), nominalEnd),
+                            input.mobJumpComponent());
+                    if (index == 0) {
+                        collected = result.movementResult().solidActorOrder();
+                        nominalEnd = result.movementResult()
+                                .predictedPosition()
+                                .subtract(input.previousState().physicalFeetPosition());
+                    }
+                    Candidate candidate = new Candidate(result.movementResult(), result.mobJumpComponent());
+                    if (realizesPositionState(result.movementResult()) && !branch.contains(candidate)) {
+                        branch.add(candidate);
+                    }
                 }
             }
         }
         candidates.addAll(branch);
+    }
+
+    private static boolean realizesPositionState(BedrockMovementResult result) {
+        var flags = result.predictedState().collisionFlags();
+        int contacts =
+                (flags.xCollision() ? 1 : 0) | (flags.verticalCollision() ? 2 : 0) | (flags.zCollision() ? 4 : 0);
+        return BedrockSolidActorOrders.realizesPositionState(result.solidActorOrder(), contacts);
     }
 
     private static BedrockWorldSnapshot snapshotForBranch(
@@ -362,13 +388,6 @@ public final class BedrockSimulation {
         public Candidate {
             Objects.requireNonNull(movementResult, "movementResult");
             mobJumpComponent = mobJumpComponent == null ? BedrockMobJumpComponentState.DEFAULT : mobJumpComponent;
-        }
-    }
-
-    public record NextState(BedrockMovementState state, BedrockMovementState lineageState) {
-        public NextState {
-            Objects.requireNonNull(state, "state");
-            Objects.requireNonNull(lineageState, "lineageState");
         }
     }
 }

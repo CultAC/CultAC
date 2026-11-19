@@ -31,8 +31,10 @@ public record BedrockMovementResult(
         double maxUpStep,
         boolean travelActive,
         boolean groundJumpApplied,
-        Vec3d nonHopVelocity,
-        WorldCollisionBox collisionFetchBox) {
+        WorldCollisionBox collisionFetchBox,
+        int solidActorOrder,
+        BedrockActorOrderRange solidActorOrderRange,
+        Vec3d preCastPhysicalFeetPosition) {
     public BedrockMovementResult(
             BedrockMovementState previousState,
             BedrockMovementContext movementContext,
@@ -56,7 +58,9 @@ public record BedrockMovementResult(
             double maxUpStep,
             boolean travelActive,
             boolean groundJumpApplied,
-            Vec3d nonHopVelocity) {
+            WorldCollisionBox collisionFetchBox,
+            int solidActorOrder,
+            BedrockActorOrderRange solidActorOrderRange) {
         this(
                 previousState,
                 movementContext,
@@ -80,7 +84,110 @@ public record BedrockMovementResult(
                 maxUpStep,
                 travelActive,
                 groundJumpApplied,
-                nonHopVelocity,
+                collisionFetchBox,
+                solidActorOrder,
+                solidActorOrderRange,
+                null);
+    }
+
+    public BedrockMovementResult(
+            BedrockMovementState previousState,
+            BedrockMovementContext movementContext,
+            BedrockMovementContext postMoveContext,
+            BedrockMovementState predictedState,
+            Vec3d rawPredictedPhysicalFeetPosition,
+            Vec3d collisionInputVelocity,
+            boolean orderedPostMoveOwnsHorizontalVelocity,
+            boolean orderedPostMoveOwnsVerticalVelocity,
+            boolean standingBounceBounced,
+            boolean standingSurfaceHorizontalSlowdownApplied,
+            BlockMovementSlowdownState currentBlockMovementSlowdownState,
+            HoneySlideState honeySlideState,
+            boolean selectedGlidingTravel,
+            boolean selectedWaterTravel,
+            double horizontalInputLimit,
+            double horizontalFriction,
+            boolean steppedUp,
+            boolean stepRetryAllowed,
+            boolean canStep,
+            double maxUpStep,
+            boolean travelActive,
+            boolean groundJumpApplied,
+            WorldCollisionBox collisionFetchBox) {
+        this(
+                previousState,
+                movementContext,
+                postMoveContext,
+                predictedState,
+                rawPredictedPhysicalFeetPosition,
+                collisionInputVelocity,
+                orderedPostMoveOwnsHorizontalVelocity,
+                orderedPostMoveOwnsVerticalVelocity,
+                standingBounceBounced,
+                standingSurfaceHorizontalSlowdownApplied,
+                currentBlockMovementSlowdownState,
+                honeySlideState,
+                selectedGlidingTravel,
+                selectedWaterTravel,
+                horizontalInputLimit,
+                horizontalFriction,
+                steppedUp,
+                stepRetryAllowed,
+                canStep,
+                maxUpStep,
+                travelActive,
+                groundJumpApplied,
+                collisionFetchBox,
+                0,
+                null);
+    }
+
+    public BedrockMovementResult(
+            BedrockMovementState previousState,
+            BedrockMovementContext movementContext,
+            BedrockMovementContext postMoveContext,
+            BedrockMovementState predictedState,
+            Vec3d rawPredictedPhysicalFeetPosition,
+            Vec3d collisionInputVelocity,
+            boolean orderedPostMoveOwnsHorizontalVelocity,
+            boolean orderedPostMoveOwnsVerticalVelocity,
+            boolean standingBounceBounced,
+            boolean standingSurfaceHorizontalSlowdownApplied,
+            BlockMovementSlowdownState currentBlockMovementSlowdownState,
+            HoneySlideState honeySlideState,
+            boolean selectedGlidingTravel,
+            boolean selectedWaterTravel,
+            double horizontalInputLimit,
+            double horizontalFriction,
+            boolean steppedUp,
+            boolean stepRetryAllowed,
+            boolean canStep,
+            double maxUpStep,
+            boolean travelActive,
+            boolean groundJumpApplied) {
+        this(
+                previousState,
+                movementContext,
+                postMoveContext,
+                predictedState,
+                rawPredictedPhysicalFeetPosition,
+                collisionInputVelocity,
+                orderedPostMoveOwnsHorizontalVelocity,
+                orderedPostMoveOwnsVerticalVelocity,
+                standingBounceBounced,
+                standingSurfaceHorizontalSlowdownApplied,
+                currentBlockMovementSlowdownState,
+                honeySlideState,
+                selectedGlidingTravel,
+                selectedWaterTravel,
+                horizontalInputLimit,
+                horizontalFriction,
+                steppedUp,
+                stepRetryAllowed,
+                canStep,
+                maxUpStep,
+                travelActive,
+                groundJumpApplied,
                 null);
     }
 
@@ -102,6 +209,11 @@ public record BedrockMovementResult(
         if (!Double.isFinite(maxUpStep) || maxUpStep < 0.0D) {
             maxUpStep = 0.0D;
         }
+    }
+
+    /** How many current-tick moves its solid actors' orders and bounded contact-position states can produce. */
+    public int solidActorOrders() {
+        return ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockSolidActorOrders.variants(solidActorOrder);
     }
 
     public Vec3d predictedPosition() {

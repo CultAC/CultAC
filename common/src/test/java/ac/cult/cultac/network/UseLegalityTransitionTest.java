@@ -40,11 +40,13 @@ class UseLegalityTransitionTest {
             var player = survival(fixture, item("minecraft:bread", 2));
             var sent = gameMode(player, 1);
             ackPrecedingPing(player, sent);
-            assertEquals(GameMode.CREATIVE, player.gamemode);
+            // MultiPlayerGameMode#setLocalMode sets the mode and its abilities in one call, at the bundled proof.
+            assertEquals(GameMode.SURVIVAL, player.gamemode);
             assertFalse(player.isInvulnerable);
             assertOffhandRefused(player, 1);
 
             ackTrailingProof(player, sent);
+            assertEquals(GameMode.CREATIVE, player.gamemode);
             assertTrue(player.isInvulnerable);
             assertTrue(player.canInstabuild);
             useOffhand(player, 2);
@@ -97,24 +99,31 @@ class UseLegalityTransitionTest {
         }
     }
 
+    /**
+     * A respawn is written outside any bundle, so the client may handle it any time after the ping ahead of it:
+     * ClientPacketListener#handleRespawn's new LocalPlayer has the mode's abilities and full food from then on.
+     */
     @Test
-    void aBundledRespawnIntoSurvivalAppliesItsAbilitiesAndFoodAtItsProof() {
+    void aRespawnIntoSurvivalRevokesAbilitiesAndFillsFoodFromThePingAheadOfIt() {
         try (var fixture = fixture()) {
             var player = survival(fixture, item("minecraft:bread", 2));
             acknowledge(player, login(player, GameMode.CREATIVE));
             setOffhand(player, item("minecraft:bread", 2));
             player.food = 10;
-
-            int proof = respawn(player, "minecraft:overworld", GameMode.SURVIVAL);
             assertTrue(player.isInvulnerable);
             assertTrue(player.canInstabuild);
-            assertEquals(10, player.food);
+
+            int proof = respawn(player, "minecraft:overworld", GameMode.SURVIVAL);
+            assertFalse(player.isInvulnerable);
+            assertFalse(player.canInstabuild);
+            assertEquals(20, player.food);
+            assertOffhandRefused(player, 1);
 
             acknowledge(player, proof);
             assertFalse(player.isInvulnerable);
             assertFalse(player.canInstabuild);
             assertEquals(20, player.food);
-            useOffhand(player, 1);
+            useOffhand(player, 2);
             assertFalse(player.isClientUsingItem());
             assertNoAttackCancellation(fixture, player);
         }

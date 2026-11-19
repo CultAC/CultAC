@@ -70,6 +70,29 @@ public final class BedrockPlayerTransportGateTest {
     }
 
     @Test
+    public void geyserTransportTeleportStaysUnansweredUntilItsHandleTeleport() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            var teleports = player.getSetbackTeleportUtil().bedrockTeleports();
+            long revision = teleports.addImmediateBedrockTransportTeleport(new Vec3(325.5D, 84.0D, -51.5D), false);
+            assertTrue(teleports.mustAcknowledgeBedrockTransportTeleport());
+            assertTrue(teleports.unansweredBedrockTransport(revision) != null);
+            assertTrue(teleports.unansweredBedrockTransport(revision + 1) == null);
+            assertTrue(teleports.unansweredBedrockTransport(-1L) == null);
+
+            long resent = teleports.addImmediateBedrockTransportTeleport(new Vec3(325.5D, 84.0D, -51.5D), false);
+            teleports.acknowledgeBedrockTeleportFrame(new Vec3(325.5D, 84.0D, -51.5D));
+            // The answer to the emission again supersedes the stalled one.
+            assertTrue(teleports.unansweredBedrockTransport(revision) == null);
+            assertTrue(teleports.unansweredBedrockTransport(resent) == null);
+            assertFalse(teleports.mustAcknowledgeBedrockTransportTeleport());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
     public void serverResponseDoesNotAcknowledgeRoundedBedrockTeleport() {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();

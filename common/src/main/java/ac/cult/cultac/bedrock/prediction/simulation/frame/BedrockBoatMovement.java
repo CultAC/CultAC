@@ -56,7 +56,7 @@ public final class BedrockBoatMovement {
         float side = (float) input.x(), forward = (float) input.z();
         var left = boat.left();
         var right = boat.right();
-        if (boat.analogPaddles()) {
+        if (boat.paddleInput() == BedrockBoatState.PaddleInput.ANALOG) {
             float magnitude = (float) Math.sqrt(forward * forward + side * side);
             if (forward < 0) {
                 magnitude *= -0.15F;
@@ -99,7 +99,7 @@ public final class BedrockBoatMovement {
                 boat.paddleTick() + 1,
                 left,
                 right,
-                boat.analogPaddles());
+                boat.paddleInput());
         return new Step(next, new Vec3d(x, velocity.y(), z), yaw, friction);
     }
 
@@ -114,10 +114,20 @@ public final class BedrockBoatMovement {
                 float fraction = (float) origin.y() - (float) Math.floor((float) origin.y());
                 float depth =
                         submerged ? 1.0F : Math.clamp((properties.baseBuoyancy() - fraction) * 0.9F + 0.1F, 0.0F, 1.0F);
-                if (depth != 0) y = Math.min((depth - 0.1F) * 0.15F, y * 0.7F + 0.05F);
+                if (depth != 0) y = buoyancy(properties.leashed(), (depth - 0.1F) * 0.15F, y);
             }
         }
         return new Vec3d(velocity.x(), y, velocity.z());
+    }
+
+    /**
+     * The lift for the boat's depth, damped from its velocity after gravity. A leashed boat that gravity leaves rising
+     * takes the whole lift instead, unless a twentieth of its damped velocity is more.
+     */
+    private static float buoyancy(boolean leashed, float lift, float y) {
+        float damped = y * 0.7F;
+        if (leashed && damped > 0) return Math.max(lift, damped * 0.05F);
+        return Math.min(lift, damped + 0.05F);
     }
 
     private static boolean canFloat(BedrockMovementState state, BlockCollisionWorld world, Vec3d origin) {
@@ -170,10 +180,13 @@ public final class BedrockBoatMovement {
     static BedrockFrameState prepare(BedrockTravelInput input, BedrockMobJumpComponentState mobJump) {
         var current = input.previousState();
         var world = input.worldSnapshot().blockCollisionWorld();
+        // The lerp step drops the motion the tick carries in, the current's push with it; the paddles still apply.
+        var carried = input.options().lerpStep()
+                ? Vec3d.ZERO
+                : liquidVelocity(current, input.startingVelocity(), input.worldSnapshot().movementContext());
         var step = control(
                 current,
-                liquidVelocity(
-                        current, input.startingVelocity(), input.worldSnapshot().movementContext()),
+                carried,
                 surface(current, world),
                 input.control() == null ? Vec3d.ZERO : input.control());
         var frame = current.withRotation(step.yaw(), input.inputFrame().pitch()).inputFrame();

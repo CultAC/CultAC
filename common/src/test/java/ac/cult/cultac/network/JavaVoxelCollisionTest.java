@@ -40,7 +40,8 @@ class JavaVoxelCollisionTest {
                                 ac.cult.cultac.protocol.value.Direction.EAST,
                                 true,
                                 false,
-                                .5F);
+                                .5F,
+                                null);
                 // Original PistonMovingBlockEntity shifts the client's bulb half a block west.
                 // Through 1.21.4, PitcherCropBlock tests age before half; later clients return empty.
                 if (client.isOlderThan(ClientVersion.V_1_21_5)) {
@@ -113,7 +114,7 @@ class JavaVoxelCollisionTest {
                     ClientVersion.V_1_21_2, ClientVersion.V_1_21_4, ClientVersion.V_1_21_5, ClientVersion.V_26_3)) {
                 version.set(fixture.player, client);
                 var collider = ClientBlockShapes.movement(
-                        fixture.player, state, 4, 64, 4, 64.1, new JavaCollisionState(0, false, false, false));
+                        fixture.player, state, 4, 64, 4, 64.1, new JavaCollisionState(0, false, false, false, false));
                 var boxes = new ArrayList<SimpleCollisionBox>();
                 collider.copy().offset(-4, -64, -4).downCastForMovement(boxes);
                 var result = Collisions.collideBoundingBoxLegacy(

@@ -26,13 +26,15 @@ class RiddenHorseSlimeTest {
     private static final int HORSE = 100;
     // The captured horse's movement_speed: the float whose LivingEntity#travelRidden input reproduces every
     // captured move over the slime to 1.2E-9.
-    private static final float SPEED = 0.14517796F;
+    private static final float SPEED = 0.14814077F;
+    // The rider's forward key as LocalPlayer#modifyInput stores it in zza, which AbstractHorse#getRiddenInput returns.
+    private static final double FORWARD_INPUT = 0.98F;
     // LivingEntity#travelInAir: a grounded horse's next vertical delta, (0 - 0.08) * 0.98F.
     private static final double GROUNDED_Y = -0.0784000015258789;
     // LivingEntity#travelInAir: slime's 0.8F friction times the 0.91F air drag.
     private static final double SLIME_FRICTION = 0.8F * 0.91F;
     // LivingEntity#getFrictionInfluencedSpeed: the grounded horse's ridden input on slime's 0.8F friction.
-    private static final double GROUND_INPUT = SPEED * (0.21600002F / (0.8F * 0.8F * 0.8F));
+    private static final double GROUND_INPUT = FORWARD_INPUT * (SPEED * (0.21600002F / (0.8F * 0.8F * 0.8F)));
     private static final float[] EAST = {-90.0F, -90.0F};
     private static final float[] LEVEL = {0.0F, 0.0F};
 
@@ -101,7 +103,7 @@ class RiddenHorseSlimeTest {
             mount(f, start, false).hasGravity = false;
             Vec3 seed = new Vec3(0.05D, 0.0D, 0.0D);
             // LivingEntity#getFlyingSpeed of a horse that a player controls.
-            double input = SPEED * 0.1F;
+            double input = FORWARD_INPUT * (SPEED * 0.1F);
             Vec3 first = start.add(seed.x + input, 0.0D, 0.0D);
             Vec3 carried = new Vec3((first.x - start.x) * 0.91F, 0.0D, 0.0D);
             Vec3 second = first.add(carried.x + input, 0.0D, 0.0D);
@@ -230,7 +232,7 @@ class RiddenHorseSlimeTest {
 
     /** A saddled horse at {@code start} with the player riding it. */
     private static PacketEntityHorse mount(JavaTickFixture f, Vec3 start, boolean onGround) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, start, 0, 0, 0);
         PacketEntityHorse horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE);
         horse.hasSaddle = true;

@@ -111,6 +111,30 @@ public class GeyserTeleportRecoveryTest {
     }
 
     @Test
+    public void transportTeleportRetriesOnlyTwentyInputsAfterItsReceipt() {
+        var recovery = new GeyserTeleportRecovery();
+        // Inputs before the receipt are a slow client still on its way to the teleport.
+        for (int input = 0; input < 200; input++) assertEquals(-1L, recovery.transportInput(revision -> true));
+        recovery.transportReceipt(189);
+        for (int input = 1; input < 20; input++) assertEquals(-1L, recovery.transportInput(revision -> true));
+        assertEquals(189L, recovery.transportInput(revision -> revision == 189));
+        // The emission's own receipt restarts the count.
+        for (int input = 0; input < 200; input++) assertEquals(-1L, recovery.transportInput(revision -> true));
+    }
+
+    @Test
+    public void answeredTransportTeleportIsNotRetried() {
+        var recovery = new GeyserTeleportRecovery();
+        recovery.transportReceipt(5);
+        for (int input = 1; input < 10; input++) assertEquals(-1L, recovery.transportInput(revision -> true));
+        assertEquals(-1L, recovery.transportInput(revision -> false));
+        for (int input = 0; input < 40; input++) assertEquals(-1L, recovery.transportInput(revision -> true));
+        recovery.transportReceipt(6);
+        recovery.clearTransport();
+        for (int input = 0; input < 40; input++) assertEquals(-1L, recovery.transportInput(revision -> true));
+    }
+
+    @Test
     public void absolutePlayerTeleportResetUsesTheSameFinalWireDestination() {
         var teleport = new MoveEntityAbsolutePacket();
         teleport.setRuntimeEntityId(3);

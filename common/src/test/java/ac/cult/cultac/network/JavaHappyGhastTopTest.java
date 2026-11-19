@@ -8,15 +8,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import java.nio.ByteBuffer;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
  * HappyGhast#canBeCollidedWith admits a Player at or above the top of the ghast's own bounding box, so a player
- * standing on a ghast that is not staying still stays on it.
+ * standing on a ghast that is not staying still stays on it, while the ghast is alive.
  */
 class JavaHappyGhastTopTest {
     private static final ServerboundPlayerInput NONE =
@@ -46,6 +50,26 @@ class JavaHappyGhastTopTest {
 
             PredictionResult hover = f.tick(above, true);
             assertFalse(exact(hover), describe(hover));
+        }
+    }
+
+    @Test
+    void aPlayerOnAHappyGhastWithoutHealthFallsThroughItsTop() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntity ghast = ghast(f);
+            Vec3 top = new Vec3(0.5, ghast.getPossibleMovementCollisionBoxes().maxY, 0.5);
+            // LivingEntity#isAlive reads DATA_HEALTH_ID, which can reach zero before the death entity event.
+            f.player.compensatedEntities.updateEntityMetadata(
+                    GHAST,
+                    List.of(new EntityMetadata.Entry(WatchableIndexUtil.LIVING_HEALTH, 0.0F, ByteBuffer.allocate(0))));
+            assertTrue(!ghast.actionAlive && !ghast.isDead);
+            Vec3 velocity = new Vec3(0, -0.0784000015258789, 0);
+            f.place(top, velocity);
+            f.player.onGround = f.player.lastOnGround = true;
+            f.input(NONE);
+
+            PredictionResult fall = f.tick(top.add(velocity), false);
+            assertTrue(exact(fall), describe(fall));
         }
     }
 

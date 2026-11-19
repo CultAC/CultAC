@@ -62,7 +62,7 @@ class JavaSlimeSettledWalkTest {
                             new BlockPos(x, FLOOR_Y - 1, z), BlockIds.SLIME_BLOCK.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(position, new Vec3(0.0, RISE, 0.0));
             f.player.xRot = 0.0F;

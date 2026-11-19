@@ -30,7 +30,7 @@ import org.junit.Test;
 
 public final class BedrockRiptideContinuationTest {
     @Test
-    public void localSpinPoseResizesBeforeWaterSensingAndTravelSelection() {
+    public void activeSpinPoseSensesWaterAndSelectsWaterTravel() {
         Vec3d carriedVelocity = new Vec3d(-0.1572998046875D, 0.22865478515625D, -0.9177398681640625D);
         BedrockMovementState state = activeSpinState(
                 new Vec3d(257.4089660644531D, 82.6134033203125D, -51.02273941040039D),
@@ -100,7 +100,9 @@ public final class BedrockRiptideContinuationTest {
                         BedrockInputFrame.idle(2L),
                         BedrockCollisionFlags.AIR,
                         initial.boundingBoxMode(),
-                        initial.playerDimensions(),
+                        // The spin resized the actor on the tick it began: liquid sensing reads the box a tick starts
+                        // with, before that tick's own resize.
+                        new PlayerDimensionsState(0.6D, 0.6000000238418579D),
                         0.0F,
                         0L,
                         new BedrockMovementUpdate.Glide(false, false),

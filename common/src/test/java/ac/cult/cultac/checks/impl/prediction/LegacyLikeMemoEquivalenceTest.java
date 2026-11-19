@@ -11,6 +11,7 @@ import static org.mockito.Mockito.mock;
 
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
@@ -58,6 +59,9 @@ class LegacyLikeMemoEquivalenceTest {
     void readsLeaveEqualityAndTextAlone() {
         SimulationContext context = mock(SimulationContext.class);
         doReturn(0.25).when(context).getHorizontalInputRadius(any(), any());
+        WorldData world = mock(WorldData.class);
+        doReturn(DesyncStatus.FALSE).when(world).getClimbingAtStart();
+        doReturn(world).when(context).getWorldData();
         Vec3 target = new Vec3(0.3, 0, 0.1);
         PredVector start = new PredVector(Vec3.ZERO);
         CultPlayer player = mock(CultPlayer.class);

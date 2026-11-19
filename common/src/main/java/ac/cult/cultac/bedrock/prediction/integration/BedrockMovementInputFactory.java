@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
+import ac.cult.cultac.bedrock.player.BedrockClientChunks;
+
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
@@ -8,6 +10,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockHorseMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
+import ac.cult.cultac.bedrock.prediction.state.BedrockBoatState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
@@ -15,8 +18,6 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import ac.cult.cultac.utils.latency.CompensatedWorld;
-import ac.cult.cultac.utils.math.CultMath;
 
 final class BedrockMovementInputFactory {
     private final BedrockTickInputBuilder tickInputs;
@@ -28,6 +29,14 @@ final class BedrockMovementInputFactory {
     }
 
     Input create(CultPlayer player, SimulationContext context) {
+        return create(player, context, null);
+    }
+
+    /**
+     * @param required the region the block collision sample must cover, or null for the region a move at the
+     *     velocity carried into the tick stays in
+     */
+    Input create(CultPlayer player, SimulationContext context, BedrockCollisionSampleRegion required) {
         BedrockAuthInputFrame frame = trustedFrame(player, context);
         if (frame == null) {
             return null;
@@ -38,7 +47,10 @@ final class BedrockMovementInputFactory {
                 : player.bedrockState.getClientPoseState(frame).gliding();
         BedrockCollisionOverrideCatalog geometry = geometryCatalog();
         BedrockPlayerContext playerContext = BedrockPlayerContext.from(player, context, frame, actorGliding);
-        BedrockWorldSnapshot worldSnapshot = worldSnapshots.create(player, context, geometry, frame, playerContext);
+        BedrockCollisionSampleRegion sampledRegion =
+                required == null ? worldSnapshots.carriedMoveRegion(context, playerContext) : required;
+        BedrockWorldSnapshot worldSnapshot =
+                worldSnapshots.create(player, context, geometry, frame, playerContext, sampledRegion);
         BedrockTickInput tickInput = context.getVehicle() instanceof PacketEntityHorse horse
                 ? tickInputs.createHorse(player, frame, profilePreviousState, horse)
                 : context.getVehicle() != null && context.getVehicle().isBoat()
@@ -59,19 +71,38 @@ final class BedrockMovementInputFactory {
                     .horse()
                     .forFrame(horse.horseFlagsRevision, horse.isRearing, player.bedrockState.horseJumpRelease(frame)));
         } else if (previousState.isBoat()) {
+            var boat = previousState
+                    .boat()
+                    .withProperties(previousState.boat().actor().bedrockBoat, paddleInput(player, frame));
+            // The link that seats the rider sets the boat's angular velocity before the tick.
+            if (player.bedrockState.seatsRider(frame.getClientTick()))
+                boat = boat.withAngularVelocity(player.bedrockState.seatedVehicleAngularVelocity());
             previousState = previousState
-                    .withBoat(previousState
-                            .boat()
-                            .withProperties(previousState.boat().actor().bedrockBoat, analogBoatInput(frame)))
+                    .withBoat(boat)
                     .withPlayerDimensions(
                             previousState.boat().actor().bedrockBoat.dimensions(), true);
         } else if (player.bedrockState != null) {
-            previousState = player.bedrockState.applyConfirmedBoundingBoxSize(previousState, tickInput.inputFrame());
+            previousState = player.bedrockState.applyConfirmedBoundingBoxSize(
+                    previousState, tickInput.inputFrame(), context.getScale());
         }
         worldSnapshot = BedrockSnapshotResolver.forState(worldSnapshot, previousState, tickInput.inputFrame());
-        boolean actorMovementTick =
-                !player.bedrockState.loadingScreen.active() && hasAcknowledgedStartChunk(player, context);
-        player.bedrockState.movementEffects.glideBoost(frame, actorMovementTick);
+        // The loading screen holds the player's own actor; a vehicle it controls travels on. The column under the
+        // actor's position, when the client's chunk view holds nothing in it, holds it either, except on the tick that
+        // handles a teleport, the actor's own or its seated rider's. A tick the chunk view holds still takes a pending
+        // teleport: the next tick moves normally. While the client may or may not have committed the column, the tick
+        // is the move here and the hold in its held variant.
+        boolean loading = player.bedrockState.loadingScreen.active() && !previousState.isVehicle();
+        var position = previousState.physicalFeetPosition();
+        var chunkHold = loading || context.handlesBedrockTeleport()
+                ? BedrockClientChunks.Hold.FREE
+                : player.bedrockState.clientChunks.hold(
+                        previousState.coordinateFrame(), position.x(), position.z(), frame.getClientTick());
+        boolean heldByChunkView = chunkHold == BedrockClientChunks.Hold.HELD;
+        boolean actorMovementTick = !loading && !heldByChunkView;
+        // The boost the tick samples does not depend on whether it moves; only a move spends a tick of it, which a
+        // tick the chunk view may hold spends when its move is the one taken.
+        player.bedrockState.movementEffects.glideBoost(
+                frame, actorMovementTick && chunkHold != BedrockClientChunks.Hold.EITHER);
         return new Input(
                 frame,
                 previousState,
@@ -82,13 +113,20 @@ final class BedrockMovementInputFactory {
                         ? BedrockHorseMovement.maxUpStep(previousState, worldSnapshot.movementContext())
                         : previousState.isBoat() ? boatStep(previousState) : BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                 mobJumpComponent,
-                actorMovementTick);
+                actorMovementTick,
+                heldByChunkView,
+                chunkHold == BedrockClientChunks.Hold.EITHER,
+                sampledRegion);
     }
 
-    private static boolean analogBoatInput(BedrockAuthInputFrame frame) {
+    private static BedrockBoatState.PaddleInput paddleInput(CultPlayer player, BedrockAuthInputFrame frame) {
+        // The rider's input reaches the boat from the tick after the one that seats it.
+        if (player.bedrockState.seatsRider(frame.getClientTick())) return BedrockBoatState.PaddleInput.NONE;
         return frame.getInputMode() != org.cloudburstmc.protocol.bedrock.data.InputMode.TOUCH.ordinal()
-                || frame.getInteractionModel()
-                        != org.cloudburstmc.protocol.bedrock.data.InputInteractionModel.CLASSIC.ordinal();
+                        || frame.getInteractionModel()
+                                != org.cloudburstmc.protocol.bedrock.data.InputInteractionModel.CLASSIC.ordinal()
+                ? BedrockBoatState.PaddleInput.ANALOG
+                : BedrockBoatState.PaddleInput.DIGITAL;
     }
 
     private static double boatStep(BedrockMovementState state) {
@@ -110,13 +148,6 @@ final class BedrockMovementInputFactory {
         return frame;
     }
 
-    private static boolean hasAcknowledgedStartChunk(CultPlayer player, SimulationContext context) {
-        int chunkX = CultMath.floor(context.getStart().x) >> 4;
-        int chunkZ = CultMath.floor(context.getStart().z) >> 4;
-        CompensatedWorld.CachedChunk chunk = player.compensatedWorld.getChunk(chunkX, chunkZ);
-        return chunk != null && chunk.getTransaction() <= player.lastTransactionReceived.get();
-    }
-
     public record Input(
             BedrockAuthInputFrame authFrame,
             BedrockMovementState previousState,
@@ -125,7 +156,13 @@ final class BedrockMovementInputFactory {
             BedrockWorldSnapshot worldSnapshot,
             double maxUpStep,
             BedrockMobJumpComponentState mobJumpComponent,
-            boolean actorMovementTick) {
+            boolean actorMovementTick,
+            // The chunk view holds the actor: the tick still takes a pending teleport.
+            boolean heldByChunkView,
+            // The client may or may not have committed the column under the actor: the tick is the move or the hold.
+            boolean chunkHoldUnproven,
+            // Null when the world snapshot was not sampled from a region of the player's world.
+            BedrockCollisionSampleRegion sampledRegion) {
         public Input(
                 BedrockAuthInputFrame authFrame,
                 BedrockMovementState previousState,
@@ -134,7 +171,18 @@ final class BedrockMovementInputFactory {
                 BedrockWorldSnapshot worldSnapshot,
                 double maxUpStep,
                 BedrockMobJumpComponentState mobJumpComponent) {
-            this(authFrame, previousState, tickInput, inputIntent, worldSnapshot, maxUpStep, mobJumpComponent, true);
+            this(
+                    authFrame,
+                    previousState,
+                    tickInput,
+                    inputIntent,
+                    worldSnapshot,
+                    maxUpStep,
+                    mobJumpComponent,
+                    true,
+                    false,
+                    false,
+                    null);
         }
 
         public Input(
@@ -150,7 +198,10 @@ final class BedrockMovementInputFactory {
                     worldSnapshot,
                     BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                     BedrockMobJumpComponentState.DEFAULT,
-                    true);
+                    true,
+                    false,
+                    false,
+                    null);
         }
 
         public Input {
@@ -187,14 +238,15 @@ final class BedrockMovementInputFactory {
                         .forFrame(snapshot.metadataRevision(), snapshot.standing(), snapshot.release()));
             }
             if (previousState.isBoat()) {
+                var frameBoat = this.previousState.boat();
+                var boat = previousState.boat().withProperties(frameBoat.properties(), frameBoat.paddleInput());
+                // A tick whose rider's input does not reach the boat is the one a link seats it on, and every
+                // candidate starts it with the angular velocity of that link.
+                if (frameBoat.paddleInput() == BedrockBoatState.PaddleInput.NONE)
+                    boat = boat.withAngularVelocity(frameBoat.angularVelocity());
                 previousState = previousState
-                        .withBoat(previousState
-                                .boat()
-                                .withProperties(
-                                        this.previousState.boat().properties(),
-                                        this.previousState.boat().analogPaddles()))
-                        .withPlayerDimensions(
-                                this.previousState.boat().properties().dimensions(), true);
+                        .withBoat(boat)
+                        .withPlayerDimensions(frameBoat.properties().dimensions(), true);
             }
             if (java.util.Objects.equals(this.previousState, previousState)) {
                 if (java.util.Objects.equals(this.mobJumpComponent, mobJumpComponent)) {
@@ -211,7 +263,26 @@ final class BedrockMovementInputFactory {
                             ? BedrockHorseMovement.maxUpStep(previousState, movementContext())
                             : maxUpStep,
                     mobJumpComponent,
-                    actorMovementTick);
+                    actorMovementTick,
+                    heldByChunkView,
+                    chunkHoldUnproven,
+                    sampledRegion);
+        }
+
+        /** The tick as the hold of a chunk view that may not have committed the column under the actor yet. */
+        public Input heldByUncommittedChunk() {
+            return new Input(
+                    authFrame,
+                    previousState,
+                    tickInput,
+                    inputIntent,
+                    worldSnapshot,
+                    maxUpStep,
+                    mobJumpComponent,
+                    false,
+                    true,
+                    true,
+                    sampledRegion);
         }
     }
 

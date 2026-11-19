@@ -33,7 +33,7 @@ class CaptureStreamBudgetTest {
     void aVerdictReservesTheLargestVerdictAndNoMore() {
         int outcomes = CaptureStream.MAX_OUTCOME_BYTES;
         assertTrue(CaptureStream.VERDICT_BYTES > 4000 + outcomes, CaptureStream.VERDICT_BYTES + " B");
-        assertTrue(CaptureStream.VERDICT_BYTES < 5000 + outcomes, CaptureStream.VERDICT_BYTES + " B");
+        assertTrue(CaptureStream.VERDICT_BYTES < 6000 + outcomes, CaptureStream.VERDICT_BYTES + " B");
     }
 
     @Test

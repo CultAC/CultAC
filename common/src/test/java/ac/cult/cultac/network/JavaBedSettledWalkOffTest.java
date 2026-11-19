@@ -34,6 +34,8 @@ class JavaBedSettledWalkOffTest {
             new ServerboundPlayerInput(true, false, false, true, false, false, true);
     private static final ServerboundPlayerInput FORWARD =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    private static final ServerboundPlayerInput RELEASED =
+            new ServerboundPlayerInput(false, false, false, false, false, false, true);
 
     @Test
     void theFirstMoveOffTheBedFallsByTheSettledBounce() throws Exception {
@@ -89,7 +91,7 @@ class JavaBedSettledWalkOffTest {
         }
         f.player.compensatedWorld.updateBlock(new BlockPos(0, 69, 0), head);
         f.player.compensatedWorld.updateBlock(new BlockPos(0, 69, 1), foot);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
         double velocityY = -0.0784000015258789;
         for (int tick = 0; tick < 200; tick++) velocityY = settle(velocityY);
@@ -101,7 +103,7 @@ class JavaBedSettledWalkOffTest {
         return f;
     }
 
-    /** Seqs 64984 to 64989: strafing, then sprinting forward across the bed to its edge. */
+    /** Seqs 64984 to 64989: strafing, then sprinting forward across the bed to its edge, where the keys go up. */
     private static void walkToTheEdge(JavaTickFixture f) throws Exception {
         f.input(RIGHT);
         check(f, "64984", 569.6365F, 30.278019F, 2683.396465266544, 69.5625, -1305.9743170151419, true);
@@ -114,6 +116,8 @@ class JavaBedSettledWalkOffTest {
         check(f, "64988", 577.9079F, 31.00674F, 2684.22072274031, 69.5625, -1305.8944520917798, true);
         f.input(FORWARD);
         check(f, "64989", 576.41394F, 31.771898F, 2684.437597422976, 69.5625, -1306.0068983806905, true);
+        // From seq 64990 the moves are the carried velocity alone: the movement keys are up.
+        f.input(RELEASED);
     }
 
     private static void check(

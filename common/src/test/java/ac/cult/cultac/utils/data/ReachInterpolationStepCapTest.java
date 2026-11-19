@@ -44,10 +44,10 @@ class ReachInterpolationStepCapTest {
 
         int ticks = 0;
         while (data.hasActiveInterpolationTarget()) {
-            data.tickMovement(true, true);
+            data.tickMovement(true);
             assertTrue(++ticks < 1_000, "the client's catch-up drains the folded queue");
         }
-        data.tickMovement(true, true);
+        data.tickMovement(true);
 
         assertFalse(data.hasActiveInterpolationTarget());
         assertEquals(0.0F, remainingTicks(data));
@@ -61,7 +61,8 @@ class ReachInterpolationStepCapTest {
         player.packetStateData = new PacketStateData();
         PacketEntity entity = new PacketEntity(EntityTypeIds.ZOMBIE, 1);
         SimpleCollisionBox start = new SimpleCollisionBox(-0.3, 1, -0.3, 0.3, 2.95, 0.3);
-        ReachInterpolationData data = new ReachInterpolationData(player, start, 0, 1, 0, 0, 0, 0, 0, entity);
+        ReachInterpolationData data =
+                new ReachInterpolationData(player, start, 0, 1, 0, 0, 0, 0, 0, entity);
         assertTrue(data.usesSteppedInterpolation());
         return data;
     }

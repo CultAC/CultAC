@@ -14,7 +14,6 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMov
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockClimbState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidStateResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockGlideState;
-import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJump;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelTypeResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockMoveRequest;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockTravelHorizontalControl;
@@ -84,6 +83,10 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
         return plan.frame().branch().playerFlyingTravel();
     }
 
+    boolean actorHasGravity() {
+        return context().modifierState().hasGravity();
+    }
+
     boolean navigationCanWalkInLava() {
         return plan.frame().frameFacts().navigationCanWalkInLava();
     }
@@ -109,16 +112,16 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
         return plan.frame().branch().selection().liquidTravelActive();
     }
 
-    BedrockMobJump mobJump() {
-        return plan.frame().mobJump();
-    }
-
     BedrockPostMoveFrame startEffectFrame(Vec3d velocity, BedrockCollisionFlags flags, boolean standingBounceBounced) {
         return BedrockPostMoveFrame.initial(velocity, flags, context(), standingBounceBounced, horizontalFriction());
     }
 
-    BedrockPostMoveFrame applyWaterJumpGroundReset(BedrockPostMoveFrame frame) {
-        if (mobJump().zeroedWaterVelocity()) {
+    /**
+     * A flying player is on the ground only on a tick whose move the ground stopped. Hovering
+     * at ground level with no vertical move leaves it, as any other airborne tick would.
+     */
+    BedrockPostMoveFrame applyFlyingGroundContact(BedrockPostMoveFrame frame) {
+        if (playerFlying() && frame.flags().onGround() && !frame.flags().verticalCollisionBelow()) {
             return frame.withFlags(frame.flags().withOnGround(false));
         }
         return frame;
@@ -126,20 +129,23 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
 
     BedrockPostMoveFrame applyStandingBounce(
             BedrockPostMoveFrame frame, Vec3d nextPosition, WorldCollisionBox fetchBox) {
+        // The rebound reads the fall the actor carried into the move, which a block slowdown already cleared.
+        double fallingVelocityY = moveRequest.collisionInputVelocity().y();
         if (fetchBox == null
                 || !frame.flags().verticalCollision()
                 || !frame.flags().onGround()
-                || moveRequest.move().y() >= 0.0D) {
+                || fallingVelocityY >= 0.0D) {
             return frame;
         }
         var block = BedrockStandingBlockResolver.resolveFetched(
                         nextPosition, blockCollisionWorld(), movementDimensions(), fetchBox)
-                .flatMap(support -> BounceBlockState.fromCollisionBlock(support.block(), support.surfaceY()));
+                .flatMap(support -> BounceBlockState.fromCollisionBlock(support.block()));
         if (block.isEmpty()) return frame;
         var bounce = BedrockBounceBlockMovement.applyAfterVerticalReset(
                 current().physicalFeetPosition(),
+                nextPosition,
                 frame.velocity(),
-                moveRequest.move().y(),
+                fallingVelocityY,
                 frame(),
                 block.get(),
                 !gliding().activeAtTravelSensing());
@@ -147,25 +153,17 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
     }
 
     BedrockPostMoveFrame applyStandingSurface(BedrockPostMoveFrame frame, Vec3d nextPosition) {
-        if (postMoveVelocityEffectsSuppressed()) {
-            return frame;
-        }
+        // Slime and honey slow a glide that lands on them, though the landing skips friction and drag.
         Vec3d velocity = BedrockBlockSurfaceMovement.applyStandingAfterMove(
                 frame.velocity(),
                 nextPosition,
+                current().isHorse(),
                 frame().sneaking(),
                 frame.flags().onGround(),
                 blockCollisionWorld(),
                 movementDimensions());
         return frame.withVelocityAndStandingSurfaceSlowdown(
                 velocity, horizontalVelocityChanged(frame.velocity(), velocity));
-    }
-
-    BedrockPostMoveFrame applyBlockMovementSlowdownClear(BedrockPostMoveFrame frame) {
-        if (clearVelocityAfterSlowdownMove()) {
-            return frame.withVelocity(Vec3d.ZERO);
-        }
-        return frame;
     }
 
     BedrockPostMoveFrame resolvePostMoveFluidContext(BedrockPostMoveFrame frame, Vec3d nextPosition) {
@@ -180,22 +178,27 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
         }
         boolean gravityAndVerticalDragApplies = gravityAndVerticalDragApplies(frame);
         BedrockPostMoveVerticalEffects.DragResult drag = BedrockPostMoveVerticalEffects.applyLiquidDrag(
-                this, frame.postMoveContext(), frame.velocity(), gravityAndVerticalDragApplies);
+                this,
+                frame.postMoveContext(),
+                frame.velocity(),
+                gravityAndVerticalDragApplies,
+                frame.flags().onGround());
         return frame.withVelocityAndHorizontalFriction(drag.velocity(), drag.horizontalFriction());
     }
 
     BedrockPostMoveFrame applyLevitation(BedrockPostMoveFrame frame) {
-        if (postMoveVelocityEffectsSuppressed() || !gravityAndVerticalDragApplies(frame)) {
+        // A glide move or a climb skips gravity and drag, but the client still levitates its result.
+        if (frame.standingBounceBounced() || climb().descendingThroughScaffolding()) {
             return frame;
         }
         return frame.withVelocity(
                 BedrockPostMoveVerticalEffects.applyLevitation(this, frame.postMoveContext(), frame.velocity()));
     }
 
-    double waterDragHorizontalFriction(BedrockMovementContext effectContext) {
+    double waterDragHorizontalFriction(BedrockMovementContext effectContext, boolean onGround) {
         // The vanilla water-drag system reads the ordered sprinting actor
         // flag state.
-        return BedrockTravelHorizontalControl.waterHorizontalDrag(effectContext, actorSprinting());
+        return BedrockTravelHorizontalControl.waterHorizontalDrag(effectContext, actorSprinting(), onGround);
     }
 
     BedrockPostMoveFrame applyGravity(BedrockPostMoveFrame frame) {
@@ -255,7 +258,7 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
     }
 
     BedrockPostMoveResult withPostMoveStateModes(BedrockPostMoveResult result, Vec3d nextPosition) {
-        boolean gliding = BedrockGlidePostMoveMovement.activeAfterMove(gliding(), climb().climbing());
+        boolean gliding = BedrockGlidePostMoveMovement.activeAfterMove(gliding(), climb().climbing() && !climb().inScaffolding());
         boolean waterTravelActive = plan.frame().input().options().travelActive()
                 && BedrockTravelTypeResolver.waterActive(result.postMoveContext(), nextPosition, movementDimensions());
         return result.withStateModes(
@@ -265,7 +268,10 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
     }
 
     private boolean gravityAndVerticalDragApplies(BedrockPostMoveFrame frame) {
-        return !frame.standingBounceBounced() && !frame.climbVelocityApplied();
+        // A descent in or over scaffolding already carries its dragged descend velocity, with no gravity after it.
+        return !frame.standingBounceBounced()
+                && !frame.climbVelocityApplied()
+                && !climb().descendingThroughScaffolding();
     }
 
     private boolean postMoveVelocityEffectsSuppressed() {

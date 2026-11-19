@@ -110,7 +110,7 @@ class JavaRiptideGroundReleaseTest {
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 4; z++) f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y + 2, z), slab);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.compensatedEntities.getSelf().bounciness = BOUNCINESS;
         return release(f, pitch, true, JUMP_KEY);
     }

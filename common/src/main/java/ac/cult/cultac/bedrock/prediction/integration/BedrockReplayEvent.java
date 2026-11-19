@@ -3,7 +3,9 @@ package ac.cult.cultac.bedrock.prediction.integration;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 
 /** Value-only, ordered changes to a historical movement frame. */
@@ -14,6 +16,7 @@ public sealed interface BedrockReplayEvent
                 BedrockReplayEvent.Reposition,
                 BedrockReplayEvent.Metadata,
                 BedrockReplayEvent.Boost,
+                BedrockReplayEvent.GeyserBoost,
                 BedrockReplayEvent.HorseMetadata,
                 BedrockReplayBoatMetadata,
                 BedrockReplayContextEvent {
@@ -87,8 +90,34 @@ public sealed interface BedrockReplayEvent
             Boolean crawling,
             Boolean swimming,
             Boolean spinning,
-            Boolean sprinting)
+            Boolean sprinting,
+            PlayerDimensionsState scaledDefinition,
+            // The client recomputes these after its next move, so they are neither tracked nor replayed.
+            BedrockClimberFlags climberFlags)
             implements BedrockReplayEvent {
+        public Metadata(
+                Float width,
+                Float height,
+                Boolean gliding,
+                Boolean crawling,
+                Boolean swimming,
+                Boolean spinning,
+                Boolean sprinting) {
+            this(width, height, gliding, crawling, swimming, spinning, sprinting, null);
+        }
+
+        public Metadata(
+                Float width,
+                Float height,
+                Boolean gliding,
+                Boolean crawling,
+                Boolean swimming,
+                Boolean spinning,
+                Boolean sprinting,
+                PlayerDimensionsState scaledDefinition) {
+            this(width, height, gliding, crawling, swimming, spinning, sprinting, scaledDefinition, null);
+        }
+
         static Metadata trackedValuesOf(BedrockMovementState state) {
             var dimensions = metadataDimensions(state);
             return new Metadata(
@@ -98,7 +127,8 @@ public sealed interface BedrockReplayEvent
                     state.horizontalPose(),
                     state.swimming(),
                     state.riptideSpinActive(),
-                    state.sprinting());
+                    state.sprinting(),
+                    state.collisionDefinition());
         }
 
         static PlayerDimensionsState metadataDimensions(BedrockMovementState state) {
@@ -118,11 +148,12 @@ public sealed interface BedrockReplayEvent
                     flags.crawling,
                     flags.swimming,
                     flags.spinning,
-                    flags.sprinting);
+                    flags.sprinting,
+                    java.util.Objects.equals(scaledDefinition, before.scaledDefinition) ? null : scaledDefinition);
         }
 
         boolean hasValues() {
-            return hasFlags() || width != null || height != null;
+            return hasFlags() || width != null || height != null || scaledDefinition != null;
         }
 
         Metadata changedFlags(Metadata before) {
@@ -143,6 +174,7 @@ public sealed interface BedrockReplayEvent
         @Override
         public BedrockMovementState state(BedrockMovementState state) {
             state = replayState(state);
+            if (climberFlags != null && !state.isVehicle()) state = state.withClimberFlags(climberFlags);
             return width == null && height == null
                     ? state
                     : state.withPlayerDimensions(metadataDimensions(state), true);
@@ -153,6 +185,10 @@ public sealed interface BedrockReplayEvent
             if (gliding != null) state = state.withAcknowledgedGliding(gliding);
             if (sprinting != null) state = state.withSprinting(sprinting);
             state = state.withAcknowledgedPose(crawling, swimming, spinning);
+            // A scale change resizes the client's box when it is received, in live ticks and in replays alike.
+            if (scaledDefinition != null && !state.isVehicle()) {
+                state = BedrockActorDimensions.withCollisionDefinition(state, scaledDefinition);
+            }
             if (width != null || height != null) {
                 var dimensions = metadataDimensions(state);
                 state = state.withAcknowledgedPlayerDimensions(new PlayerDimensionsState(
@@ -185,6 +221,13 @@ public sealed interface BedrockReplayEvent
                                 height == null ? state.playerDimensions().height() : height),
                         true);
             return state;
+        }
+    }
+
+    record GeyserBoost(int duration) implements BedrockReplayEvent {
+        @Override
+        public BedrockMovementState state(BedrockMovementState state) {
+            return state.withGeyserBoostTicks(duration == -1 ? -1 : Math.max(1, duration));
         }
     }
 

@@ -30,7 +30,7 @@ public class FluidPush implements UncertaintyHandler {
 
     @Override
     public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
-        return !pushes(context) || flowingCurrentRadius(context, lastResult) <= 0.0D;
+        return !player.isBedrockMovement() || !pushes(context) || flowingCurrentRadius(context, lastResult) <= 0.0D;
     }
 
     @Override
@@ -42,7 +42,7 @@ public class FluidPush implements UncertaintyHandler {
             PredictionResult lastContext,
             PredVector start,
             Vec3 end) {
-        if (!pushes(context)) return start;
+        if (!player.isBedrockMovement() || !pushes(context)) return start;
         double waterRadius = flowingCurrentRadius(context, lastContext);
         double verticalRadius = FluidPush.verticalRadius(waterRadius, start, end);
         if (waterRadius <= 0.0D) {
@@ -53,29 +53,6 @@ public class FluidPush implements UncertaintyHandler {
         return verticalRadius > 0.0D ? UncertaintyHelper.handleVertical(adjusted, end, verticalRadius) : adjusted;
     }
 
-    @Override
-    public void positionInto(
-            double[] xyz,
-            CultPlayer player,
-            ValidMovements valid,
-            PredictionResult result,
-            SimulationContext context,
-            PredictionResult lastContext,
-            PredVector carrier,
-            double endX,
-            double endY,
-            double endZ) {
-        if (!pushes(context)) return;
-        double waterRadius = flowingCurrentRadius(context, lastContext);
-        double verticalRadius = endY < xyz[1] ? waterRadius : 0.0D;
-        if (waterRadius <= 0.0D) {
-            return;
-        }
-
-        UncertaintyHelper.circularInto(xyz, endX, endZ, waterRadius);
-        if (verticalRadius > 0.0D) UncertaintyHelper.verticalInto(xyz, endY, verticalRadius);
-    }
-
     private boolean pushes(SimulationContext context) {
         return CollisionModifier.isJavaVehicleMove(context) == beforeCollision;
     }
@@ -84,9 +61,9 @@ public class FluidPush implements UncertaintyHandler {
         WorldData curWorldData = context.getWorldData();
         WorldData lastWorldData =
                 lastContext == null ? null : lastContext.getSimulationContext().getWorldData();
-        boolean inFlowingLiquid = curWorldData.getInFlowingLiquid().determineOptimistically();
+        boolean inFlowingLiquid = curWorldData.mayBeInFlowingLiquid();
         boolean enteredFlowingLiquid = inFlowingLiquid
-                && (lastWorldData == null || !lastWorldData.getInFlowingLiquid().determinePessimistically());
+                && (lastWorldData == null || !lastWorldData.isInFlowingLiquid());
         if (isPigOrStriderWater(context) || enteredFlowingLiquid) {
             return WATER_ENTRY_RADIUS;
         }
@@ -105,7 +82,6 @@ public class FluidPush implements UncertaintyHandler {
 
     private boolean isPigOrStriderWater(SimulationContext context) {
         return isPigOrStriderRoot(context)
-                && (context.getWorldData().getInWater().determineOptimistically()
-                        || context.getWorldData().getInFlowingLiquid().determineOptimistically());
+                && (context.getWorldData().mayBeInWater() || context.getWorldData().mayBeInFlowingLiquid());
     }
 }

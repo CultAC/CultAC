@@ -67,6 +67,8 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     private boolean lastClickMirrored;
     private int observedWindowId;
     private AbstractContainerMenu observedMenu;
+    // The server menu's slot count set by its open_screen or mount screen type, 0 when the type is unknown.
+    private int observedMenuTypeSlots;
     private List<MerchantOffer> merchantOffers = List.of();
     private int selectedMerchantOffer = 0;
 
@@ -79,12 +81,6 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
         menu = inventory;
         observedMenu = inventory;
-    }
-
-    /** Outbound server values never include local item-use/placement predictions. */
-    public SimItemStack serverSlotForCorrection(int slot) {
-        SimItemStack item = serverView.playerSlot(slot);
-        return item == null ? ItemUtil.copy(inventory.getInventoryStorage().getItem(slot)) : item;
     }
 
     /** The server's value for a player storage slot as last sent or silently accepted, or null if unknown. */
@@ -211,6 +207,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     /** Called after all click checks for a click forwarded to the server. */
     public void onClickForwarded(InventoryClick click) {
         if (player.isBedrockMovement() || click.windowId() != observedWindowId) return;
+        if (serverIgnoresClickedSlot(click)) return;
         // ServerGamePacketListenerImpl#handleContainerClick records the client's claimed slots as the
         // remote state and corrects only differences, so a click it accepts is never echoed back.
         boolean known = lastClickMirrored && click.windowId() == openWindowID;
@@ -223,15 +220,40 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         serverView.carried(known ? menu.getCarried() : null);
     }
 
+    /**
+     * ServerGamePacketListenerImpl#handleContainerClick returns without clicking or correcting anything when the
+     * slot fails AbstractContainerMenu#isValidSlotIndex for the server's open menu.
+     */
+    private boolean serverIgnoresClickedSlot(InventoryClick click) {
+        if (click.windowId() != observedWindowId) return false;
+        int slot = click.slot();
+        int slots = click.windowId() == 0
+                ? inventory.getSlots().size()
+                : observedMenuTypeSlots > 0 ? observedMenuTypeSlots : observedMenu.getSlots().size();
+        return slot != -1 && slot != -999 && slot >= slots;
+    }
+
     private void deferServerInventoryTask(PacketSendEvent<?> event, Runnable task) {
         serverView.packetSent();
         deferClientboundInventoryTask(event, () -> {
             try {
-                task.run();
+                applyServerUpdate(task);
             } finally {
                 serverView.packetApplied();
             }
         });
+    }
+
+    /**
+     * Applies a server packet's change to the inventory as the client handles it, and reports one that changes the
+     * item in either hand: the vehicle state's controlling passenger reads the hands again from then on.
+     */
+    void applyServerUpdate(Runnable update) {
+        ItemDefinition mainHand = getClientSelectedHeldItem().getItem();
+        ItemDefinition offHand = getOffHand().getItem();
+        update.run();
+        if (getClientSelectedHeldItem().getItem() != mainHand || getOffHand().getItem() != offHand)
+            player.compensatedEntities.vehicles.onServerHandChange();
     }
 
     private void setClientCarried(SimItemStack stack) {
@@ -517,9 +539,12 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     @CultPacketHandler
     public void onContainerClick(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
+        boolean ignoredByServer = false;
         if (player.isBedrockMovement()) {
             if (event.isCancelled()) return;
         } else {
+            ignoredByServer = serverIgnoresClickedSlot(packet);
+            if (ignoredByServer) event.setCancelled(true);
             int currentTick = ac.cult.cultac.CultAPI.INSTANCE.getTickManager().currentTick;
             if (lastClickServerTick != currentTick) {
                 clicksThisServerTick = 0;
@@ -534,6 +559,10 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                             || packet.button() != 0)) {
                 clicksThisServerTick++;
             }
+        }
+        if (ignoredByServer) {
+            lastClickMirrored = false;
+            return;
         }
         // MultiPlayerGameMode#handleContainerInput applies the click before sending it.
         // Cancelling server processing does not undo that local prediction. Keep validating
@@ -1011,6 +1040,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             // The server's container closes when it handles this packet.
             observedWindowId = 0;
             observedMenu = inventory;
+            observedMenuTypeSlots = 0;
             serverView.containerClosed();
         }
         closeContainer();
@@ -1186,6 +1216,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         MenuType menuType = MenuType.fromRegistryKey(packet.menuType());
         observedWindowId = packet.containerId();
         observedMenu = menuFromOpenScreenType(menuType);
+        observedMenuTypeSlots = menuType == MenuType.UNKNOWN ? 0 : observedMenu.getSlots().size();
         serverView.containerOpened(observedMenu.getSlots().size());
         // There doesn't seem to be a check against using 0 as the window ID - let's consider that an invalid packet
         // It will probably mess up a TON of logic both client and server sided, so don't do that!
@@ -1203,6 +1234,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             PacketSendEvent<ClientboundMountScreenOpen> event, CultPlayer player, ClientboundMountScreenOpen packet) {
         observedWindowId = packet.containerId();
         observedMenu = menuFromMountScreen(packet.inventoryColumns());
+        observedMenuTypeSlots = observedMenu.getSlots().size();
         serverView.containerOpened(observedMenu.getSlots().size());
         deferClientboundInventoryTask(event, () -> {
             PacketEntity mount = player.compensatedEntities.getEntity(packet.entityId());
@@ -1241,6 +1273,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose packet) {
         observedWindowId = 0;
         observedMenu = inventory;
+        observedMenuTypeSlots = 0;
         serverView.containerClosed();
         // Disregard provided window ID, client doesn't care...
         // We need to do this because the client doesn't send a packet when closing the window
@@ -1343,6 +1376,8 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 int carried = player.checkManager.getListener(BadPacketsA.class).carriedIndex();
                 player.packetStateData.heldSlotEcho = slot != carried ? slot : -1;
                 player.packetStateData.heldSlotSetWithScreenOpen = player.openWindow.mustBeOpen();
+                // The server's slot replaces any the client had selected without a claim yet, even this one.
+                player.compensatedEntities.vehicles.onServerHandChange();
             });
         }
     }

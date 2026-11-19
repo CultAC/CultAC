@@ -44,7 +44,9 @@ class EntityViewCountInvariantTest {
         accept.put("PUSH_OR_COLLIDE", PacketEntity::mayPushOrCollide);
         accept.put("BOATS", PacketEntity::isBoat);
         accept.put("CAMELS", e -> e instanceof PacketEntityCamel);
-        accept.put("POSE_COLLISION", e -> e.isBoat() || e.type == EntityTypeIds.SHULKER || e.isHappyGhast());
+        accept.put(
+                "POSE_COLLISION",
+                e -> e.isBoat() || e.isMinecart() || e.type == EntityTypeIds.SHULKER || e.isHappyGhast());
         accept.put("UNKNOWN_COLLISION", unknown);
         accept.put("COLLISION_OR_PLAYER", unknown.or(e -> e instanceof PacketEntityPlayer));
         int[] index = new int[accept.size()];

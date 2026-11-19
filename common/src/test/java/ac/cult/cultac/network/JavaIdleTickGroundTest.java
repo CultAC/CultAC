@@ -3,7 +3,6 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.assertRejected;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
@@ -71,22 +70,22 @@ class JavaIdleTickGroundTest {
             for (int tick = 0; tick < 5; tick++) f.tickEnd();
             f.input(SPRINT_FORWARD);
             f.command(PlayerCommandAction.START_SPRINTING);
-            assertRejected(f.tick(WARP, true), "InputKeys");
+            // The travel adds exactly the sprinting input of the reported keys; a move without it is Speed's.
+            assertRejected(f.tick(WARP, true), "Speed");
         }
     }
 
     @Test
-    void aGroundClaimHoveringAboveTheFloorStillFlagsTheStrafe() throws Exception {
+    void aGroundClaimHoveringAboveTheFloorFlagsTheNextUnsentTick() throws Exception {
         try (var f = spawnedBeforeTheChunk()) {
             loadFloor(f);
             double hover = FLOOR + 1.0;
             f.place(new Vec3(SPAWN.x, hover, SPAWN.z), Vec3.ZERO);
             f.statusTick(true, false);
-            for (int tick = 0; tick < 6; tick++) f.tickEnd();
-            f.input(SPRINT_LEFT);
-            PredictionResult result = f.tick(new Vec3(STRAFE_X[0], hover, SPAWN.z), true);
-            assertRejected(result, "Strafe");
-            assertRejected(result, "GroundSpoof");
+            assertRejected(f.player.checkManager.getSimulationProcessor().getLastPrediction(), "GroundSpoof");
+            f.tickEnd();
+            // The unsent ticks fall from rest like sent ones.
+            assertRejected(f.player.checkManager.getSimulationProcessor().getLastPrediction(), "VerticalOffset");
         }
     }
 
@@ -96,11 +95,12 @@ class JavaIdleTickGroundTest {
         try (var f = spawnedBeforeTheChunk(new Vec3(SPAWN.x, hover, SPAWN.z), FALLING)) {
             f.statusTick(true, false);
             loadFloor(f);
-            for (int tick = 0; tick < 6; tick++) f.tickEnd();
-            // A fall that could reach the floor does not re-prove a claim the client never moved down to.
-            assertEquals(
-                    DesyncStatus.FALSE,
-                    f.player.checkManager.getSimulationProcessor().getLastOnGround());
+            for (int tick = 0; tick < 6; tick++) {
+                f.tickEnd();
+                // A fall that could reach the floor does not prove a claim the client never moved down to: each idle
+                // tick still owes the fall onto it.
+                assertRejected(f.player.checkManager.getSimulationProcessor().getLastPrediction(), "VerticalOffset");
+            }
             f.input(SPRINT_LEFT);
             PredictionResult result = f.tick(new Vec3(STRAFE_X[0], hover, SPAWN.z), true);
             assertRejected(result, "VerticalOffset");
@@ -120,6 +120,8 @@ class JavaIdleTickGroundTest {
         f.player.xRot = 0.0F;
         f.player.yRot = 0.0F;
         f.place(spawn, velocity);
+        // The teleport's delta movement, not the gravity of a player at rest: no floor is loaded under it yet.
+        f.player.checkManager.getSimulationProcessor().seedStartingVelocity(velocity);
         f.player.onGround = false;
         f.player.lastOnGround = false;
         f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.FALSE);
@@ -140,6 +142,6 @@ class JavaIdleTickGroundTest {
                         new BlockPos(x, (int) spawn.y - 1, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 }

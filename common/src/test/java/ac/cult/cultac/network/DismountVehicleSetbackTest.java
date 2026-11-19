@@ -53,14 +53,20 @@ class DismountVehicleSetbackTest {
         }
     }
 
+    /**
+     * ClientPacketListener#handleMoveVehicle echoes a correction from the packet handler, after the handler of the ping
+     * sent before it. A client that read the move_vehicle while it still rode answers that ping, echoes the snap and
+     * only then reads the removal: the echo completes the correction, and no player correction follows it.
+     */
     @Test
-    void aVehicleRemovedBeforeItsCorrectionIsAnsweredLeavesTheCorrectionToThePlayer() throws Exception {
+    void aVehicleRemovedBeforeItsCorrectionIsAnsweredTakesTheEchoSentWhileItStillRode() throws Exception {
         try (var f = mounted()) {
             var teleports = f.player.getSetbackTeleportUtil();
             assertTrue(teleports.executeViolationSetback());
             List<String> correction = written(f);
             assertTrue(correction.contains("minecraft:move_vehicle"), correction.toString());
             assertEquals(1, teleports.vehicleTeleports().queuedVehicleTeleportCount());
+            int leading = teleports.getRequiredSetBack().getTeleportData().getTransaction();
 
             removeVehicle(f);
             List<String> removal = written(f);
@@ -68,15 +74,16 @@ class DismountVehicleSetbackTest {
             assertFalse(removal.contains("minecraft:player_position"), removal.toString());
             assertTrue(teleports.isPendingSetback());
 
-            // The echo of the move_vehicle the client read while it still rode, then the removal's ping.
+            // The ping before the move_vehicle, its echo while the client still rode, then the removal's ping.
+            f.pongThrough(leading);
             var echo = new ServerboundMoveVehicle(new Vec3d(SAFE.x, SAFE.y, SAFE.z), 0, 0, false, false);
             f.listener.onMoveVehicle(f.event(ServerboundPackets.MOVE_VEHICLE, echo), f.player, echo);
+            assertEquals(0, teleports.vehicleTeleports().queuedVehicleTeleportCount());
+            assertFalse(teleports.isPendingSetback());
             f.pongThrough(f.player.lastTransactionSent.get());
             assertFalse(f.player.compensatedEntities.getSelf().inVehicle());
             List<String> written = written(f);
-            assertTrue(written.contains("minecraft:player_position"), written.toString());
-            acceptEveryTeleport(f);
-            assertFalse(f.player.compensatedEntities.getSelf().inVehicle());
+            assertFalse(written.contains("minecraft:player_position"), written.toString());
             assertFalse(teleports.isPendingSetback());
             assertFalse(teleports.shouldBlockMovement());
         }

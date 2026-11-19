@@ -73,13 +73,20 @@ public class OffsetHandler extends Check implements PostPredictionListener {
                     || predictionResult.hasFlag(OmniSprint.class);
 
             if (isSetback) {
-                player.getSetbackTeleportUtil().executeViolationSetback(predictionResult);
+                player.getSetbackTeleportUtil().executeViolationSetback(predictionResult, this);
             }
 
             advantageGained = Math.min(advantageGained, maxCeiling);
         } else {
             advantageGained *= setbackDecayMultiplier;
         }
+    }
+
+    /** Whether this move is explained within the flag threshold, so that onPredictionComplete neither flags it. */
+    public boolean accepts(PredictionResult predictionResult) {
+        if (predictionResult.flagSeverity == 0.0) return true;
+        double offset = setbackOffset(predictionResult);
+        return offset < threshold && offset < immediateSetbackThreshold;
     }
 
     private double setbackOffset(PredictionResult predictionResult) {

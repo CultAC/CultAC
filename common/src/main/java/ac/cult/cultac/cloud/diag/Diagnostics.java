@@ -1,5 +1,6 @@
 package ac.cult.cultac.cloud.diag;
 
+import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -26,8 +27,8 @@ import java.util.function.Supplier;
  * <p>Off costs nothing: no thread, queue or ring exists until the service's limits enable diagnostics and a watch
  * starts, and an unwatched player's packet thread reads one null field per prediction and per tick end. While watched, the
  * packet thread copies each prediction ({@link DiagWatch#capture}) into a bounded queue; the single
- * {@code cult-cloud-diag} thread prints the state and the block grid, compresses the text, keeps the ring and builds
- * the parts, which {@link DiagUpload} paces onto the socket. Nothing runs on the server's main thread and nothing is written to a
+ * {@code cult-cloud-diag} thread keeps the ring, prints and compresses a tick's state and block grid once a flag or a
+ * cut asks for that tick, and builds the parts, which {@link DiagUpload} paces onto the socket. Nothing runs on the server's main thread and nothing is written to a
  * player's connection. Three failures anywhere in diagnostics trip it off for the process; prediction goes on.
  */
 public final class Diagnostics {
@@ -49,6 +50,8 @@ public final class Diagnostics {
     private static final int MAX_REFUSALS = 64;
     private static final long POLL_MILLIS = 50;
     private static final int ZSTD_LEVEL = 1;
+    /** A held {@link DiagWatch.Raw} itself. */
+    static final int RAW_BYTES = 80;
 
     private static final LogThrottle FAILURES = new LogThrottle();
     private static final AtomicInteger failures = new AtomicInteger();
@@ -98,44 +101,51 @@ public final class Diagnostics {
     private long rateRefilled;
     private volatile long ringBytes;
     private final Costs costs = new Costs();
+    private DiagText text;
 
-    /** The last {@link #SAMPLES} captures' packet-thread and diag-thread nanoseconds, and text sizes; for status. */
+    /**
+     * The last {@link #SAMPLES} captures' packet-thread nanoseconds and full texts' diag-thread nanoseconds, and text
+     * sizes; for status.
+     */
     static final class Costs {
         static final int SAMPLES = 1024;
         private final long[] capture = new long[SAMPLES];
         private final long[] render = new long[SAMPLES];
-        private long count;
+        private long captures;
         private long renders;
         private long textChars;
         private long fullBytes;
 
-        synchronized void add(long captureNanos, long renderNanos, int chars, int compressed) {
-            int at = (int) (count++ % SAMPLES);
-            capture[at] = captureNanos;
-            render[at] = renderNanos;
-            if (chars > 0) {
-                renders++;
-                textChars += chars;
-                fullBytes += compressed;
-            }
+        synchronized void capture(long nanos) {
+            capture[(int) (captures++ % SAMPLES)] = nanos;
+        }
+
+        synchronized void render(long nanos, int chars, int compressed) {
+            render[(int) (renders++ % SAMPLES)] = nanos;
+            textChars += chars;
+            fullBytes += compressed;
         }
 
         /** Capture p50 and p99, render p50 and p99 (ns), mean text chars and compressed bytes per full text. */
         synchronized long[] summary() {
-            int n = (int) Math.min(count, SAMPLES);
-            if (n == 0) return new long[6];
-            long[] captures = Arrays.copyOf(capture, n);
-            long[] renderings = Arrays.copyOf(render, n);
-            Arrays.sort(captures);
-            Arrays.sort(renderings);
-            return new long[] {
-                captures[n / 2],
-                captures[(n * 99 - 1) / 100],
-                renderings[n / 2],
-                renderings[(n * 99 - 1) / 100],
-                renders == 0 ? 0 : textChars / renders,
-                renders == 0 ? 0 : fullBytes / renders
-            };
+            long[] summary = new long[6];
+            int n = (int) Math.min(captures, SAMPLES);
+            if (n > 0) {
+                long[] sorted = Arrays.copyOf(capture, n);
+                Arrays.sort(sorted);
+                summary[0] = sorted[n / 2];
+                summary[1] = sorted[(n * 99 - 1) / 100];
+            }
+            int m = (int) Math.min(renders, SAMPLES);
+            if (m > 0) {
+                long[] sorted = Arrays.copyOf(render, m);
+                Arrays.sort(sorted);
+                summary[2] = sorted[m / 2];
+                summary[3] = sorted[(m * 99 - 1) / 100];
+                summary[4] = textChars / renders;
+                summary[5] = fullBytes / renders;
+            }
+            return summary;
         }
     }
 
@@ -205,12 +215,27 @@ public final class Diagnostics {
      * Starts or renews a watch on the player's packet thread. {@code history} is read only when a watch starts.
      * Returns the running watch, or null when none runs: a lease of 0, diagnostics off, or no room ({@code busy}).
      */
+    public DiagWatch watch(
+            UUID player,
+            long generation,
+            int leaseSeconds,
+            LongSupplier pendingSeq,
+            Supplier<String> history,
+            Consumer<DiagWatch> detach) {
+        return watch(player, generation, leaseSeconds, pendingSeq, history, List::of, detach);
+    }
+
+    /**
+     * As the other {@code watch}; {@code historyTicks}, read only when a watch starts, are the traces of the ticks before
+     * it, which its ring starts with.
+     */
     public synchronized DiagWatch watch(
             UUID player,
             long generation,
             int leaseSeconds,
             LongSupplier pendingSeq,
             Supplier<String> history,
+            Supplier<List<SuperDebug.HistoryTick>> historyTicks,
             Consumer<DiagWatch> detach) {
         DiagWatch current = watches.get(player);
         if (leaseSeconds <= 0) {
@@ -232,11 +257,12 @@ public final class Diagnostics {
             return null;
         }
         DiagWatch watch = new DiagWatch(this, player, generation, leaseEnd, pendingSeq, history.get(), limits, detach);
+        watch.before = historyTicks.get();
         watches.put(player, watch);
         reserved += watch.ringBytes;
         refusals.remove(player);
         ensureThread();
-        if (!command(() -> known.add(watch))) {
+        if (!command(() -> started(watch))) {
             watches.remove(player, watch);
             reserved -= watch.ringBytes;
             refusals.put(player, "busy");
@@ -346,6 +372,7 @@ public final class Diagnostics {
 
     private void run() {
         try (DiagText text = new DiagText(ZSTD_LEVEL)) {
+            this.text = text;
             while (true) {
                 Object item = inbox.poll(POLL_MILLIS, TimeUnit.MILLISECONDS);
                 runCommands();
@@ -401,8 +428,11 @@ public final class Diagnostics {
             switch (item) {
                 case DiagWatch.Raw raw -> captured(raw, text);
                 case DiagWatch.TickEnd end -> {
-                    if (!end.watch().ended && end.watch().ring != null)
-                        end.watch().ring.flags(end.seq(), end.flags());
+                    DiagRing ring = end.watch().ring;
+                    if (!end.watch().ended && ring != null && !end.flags().isEmpty()) {
+                        render(ring, ring.find(end.seq()));
+                        ring.flags(end.seq(), end.flags());
+                    }
                 }
                 default -> {}
             }
@@ -411,20 +441,40 @@ public final class Diagnostics {
         }
     }
 
+    /** A watch began: its ring, when it has ticks from before the watch, starts with their traces. */
+    private void started(DiagWatch watch) {
+        known.add(watch);
+        if (!watch.before.isEmpty() && !watch.ended) ring(watch);
+    }
+
+    /** The watch's ring, made on first use with the traces of the ticks before the watch. */
+    private static DiagRing ring(DiagWatch watch) {
+        if (watch.ring != null) return watch.ring;
+        DiagRing ring = new DiagRing(watch.ringTicks, watch.ringBytes);
+        for (SuperDebug.HistoryTick tick : watch.before) ring.add(tick.seq(), Double.NaN, tick.trace(), null);
+        watch.before = List.of();
+        watch.ring = ring;
+        return ring;
+    }
+
     private void captured(DiagWatch.Raw raw, DiagText text) {
         DiagWatch watch = raw.watch();
         if (watch.ended) return;
-        if (watch.ring == null) watch.ring = new DiagRing(watch.ringTicks, watch.ringBytes);
+        ring(watch);
         if (watch.firstSeq == Long.MIN_VALUE) watch.firstSeq = raw.seq();
-        long start = System.nanoTime();
-        byte[] full = null;
-        int chars = 0;
-        if (raw.state() != null) {
-            full = text.compress(raw.state(), raw.grid());
-            chars = text.length();
+        costs.capture(raw.nanos());
+        if (raw.state() == null) {
+            watch.ring.add(raw.seq(), raw.offset(), raw.trace(), null);
+        } else if (raw.recorded() && !asked(watch, raw.seq()) && !watch.ring.flagged(raw.seq())) {
+            long held = retained(raw);
+            if (watch.ring.fits(raw.trace(), held)) {
+                watch.ring.add(raw.seq(), raw.offset(), raw.trace(), null, raw, held);
+            } else {
+                watch.ring.add(raw.seq(), raw.offset(), raw.trace(), compress(raw, text));
+            }
+        } else {
+            watch.ring.add(raw.seq(), raw.offset(), raw.trace(), compress(raw, text));
         }
-        costs.add(raw.nanos(), System.nanoTime() - start, chars, full == null ? 0 : full.length);
-        watch.ring.add(raw.seq(), raw.offset(), raw.trace(), full);
         watch.captureNanos[watch.captures++ % CAPTURE_WINDOW] = raw.nanos();
         // The first window is the JIT's: its interpreted captures say nothing about the steady cost.
         if (watch.captures % CAPTURE_WINDOW == 0
@@ -432,6 +482,52 @@ public final class Diagnostics {
                 && p99(watch.captureNanos) > captureLimitNanos) {
             end(watch, "failed");
         }
+    }
+
+    private byte[] compress(DiagWatch.Raw raw, DiagText text) {
+        long start = System.nanoTime();
+        byte[] full = text.compress(raw.state(), raw.grid());
+        costs.render(System.nanoTime() - start, text.length(), full.length);
+        return full;
+    }
+
+    /** What a held state keeps of the heap at most: its text, its block grid and the copy holding them. */
+    static long retained(DiagWatch.Raw raw) {
+        return RAW_BYTES
+                + raw.state().retainedBytes()
+                + (raw.grid() == null ? 0 : raw.grid().retainedBytes());
+    }
+
+    /** Whether a cut waiting for {@code watch}'s ring names {@code seq} in its full range. */
+    private boolean asked(DiagWatch watch, long seq) {
+        for (Pending pending : cuts) {
+            Cut cut = pending.cut();
+            if (pending.watch() == watch && seq >= cut.fullFromSeq() && seq <= cut.fullToSeq()) return true;
+        }
+        return false;
+    }
+
+    /** Prints and compresses the held states {@code cut} sends in full: its full range and its flagged ticks. */
+    private void render(DiagRing ring, Cut cut) {
+        if (ring == null) return;
+        for (DiagRing.Tick tick : ring.range(cut.fromSeq(), cut.toSeq())) {
+            if (tick.seq >= cut.fullFromSeq() && tick.seq <= cut.fullToSeq() || !tick.flags.isEmpty()) {
+                render(ring, tick);
+            }
+        }
+        ring.trim();
+    }
+
+    /** Prints and compresses {@code tick}'s held state; a failure loses that full text and counts toward the trip. */
+    private void render(DiagRing ring, DiagRing.Tick tick) {
+        if (tick == null || tick.state == null) return;
+        byte[] full = null;
+        try {
+            full = compress(tick.state, text);
+        } catch (RuntimeException failure) {
+            failed(failure);
+        }
+        ring.rendered(tick, full);
     }
 
     static long p99(long[] samples) {
@@ -451,6 +547,7 @@ public final class Diagnostics {
             return;
         }
         cuts.add(new Pending(player, cut, header, watch, clock.getAsLong() + CUT_WAIT_NANOS));
+        render(watch.ring, cut);
     }
 
     /** The {@code bundles_per_hour} bucket, full at first. */
@@ -501,6 +598,7 @@ public final class Diagnostics {
         DiagWatch watch = pending.watch();
         Cut cut = pending.cut();
         if (watch.generation != generation || !offered) return;
+        render(watch.ring, cut);
         List<DiagRing.Tick> range = watch.ring == null ? List.of() : watch.ring.range(cut.fromSeq(), cut.toSeq());
         DiagCuts.Coverage coverage = DiagCuts.coverage(cut, watch, range);
         String history = watch.firstSeq > cut.fromSeq() || watch.firstSeq == Long.MIN_VALUE ? watch.history : null;

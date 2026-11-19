@@ -11,10 +11,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * PlaceVisibility for a Bedrock client's block uses. A use names the block its pick hit and the point on it, relative
- * to the block, so it is judged at that point, with the clicked block itself never in the way. A use the player's input
- * made is judged as it arrives, from the eye path like an attack; one the client's tick made is judged at the next tick
- * end with the path to that tick's position, and only flagged.
+ * PlaceVisibility for a Bedrock client's block uses. A use the player's input made names the block its pick hit and the
+ * point on it, relative to the block; one the client's tick made names the block it builds on and, relative to that
+ * block, the point the eye's pick hit, or zero when it names no point. A use is judged at its point, or on the whole
+ * block without one, with the clicked block itself never in the way. A use the player's input made is judged as it
+ * arrives, from the eye path like an attack; one the client's tick made is judged at the next tick end with the path to
+ * that tick's position, and only flagged.
  */
 @CheckData(
         name = "bPlaceVisibility",
@@ -41,7 +43,7 @@ public final class BedrockPlaceVisibility extends BedrockVisibilityCheck {
      */
     public boolean dropsUse(BlockPos block, int face, Vec3 click, boolean playerInput) {
         if (!judged()) return false;
-        SimpleCollisionBox target = target(block, click);
+        SimpleCollisionBox target = target(block, playerInput || !zero(click) ? click : null);
         String detail = block(block, face);
         if (!playerInput) {
             if (deferred.size() < MAX_DEFERRED) deferred.add(new Deferred(lastLeg(), target, block, detail));
@@ -62,6 +64,10 @@ public final class BedrockPlaceVisibility extends BedrockVisibilityCheck {
                     use.leg().to(), new Vec3(player.x, player.y, player.z), BedrockEye.ofOrAny(player));
             if (hidden(List.of(use.leg(), next), use.target(), use.block())) flag(use.detail());
         }
+    }
+
+    private static boolean zero(Vec3 click) {
+        return click != null && click.x == 0 && click.y == 0 && click.z == 0;
     }
 
     // The point the pick hit, or the whole block when the client sent no point on it.

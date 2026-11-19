@@ -11,7 +11,9 @@ public record MovementModifierState(
         boolean rainContact,
         boolean itemUseSlowdownActive,
         double itemUseMovementModifier,
-        long itemUseSlowdownDurationTicks) {
+        long itemUseSlowdownDurationTicks,
+        boolean hasGravity,
+        boolean noClip) {
     private static final double DEFAULT_ITEM_USE_MOVEMENT_MODIFIER = 0.35D;
     private static final double DEFAULT_MOVEMENT_ABILITY_FLY_SPEED = 0.05D;
     public static final MovementModifierState NONE = new MovementModifierState(
@@ -25,7 +27,37 @@ public record MovementModifierState(
             false,
             false,
             DEFAULT_ITEM_USE_MOVEMENT_MODIFIER,
-            0L);
+            0L,
+            true,
+            false);
+
+    public MovementModifierState(
+            boolean elytraGlideAvailable,
+            boolean movementAbilityMayFly,
+            boolean movementAbilityFlying,
+            boolean movementAbilityInstabuild,
+            double movementAbilityFlySpeed,
+            boolean navigationCanWalkInLava,
+            boolean riptideAvailable,
+            boolean rainContact,
+            boolean itemUseSlowdownActive,
+            double itemUseMovementModifier,
+            long itemUseSlowdownDurationTicks) {
+        this(
+                elytraGlideAvailable,
+                movementAbilityMayFly,
+                movementAbilityFlying,
+                movementAbilityInstabuild,
+                movementAbilityFlySpeed,
+                navigationCanWalkInLava,
+                riptideAvailable,
+                rainContact,
+                itemUseSlowdownActive,
+                itemUseMovementModifier,
+                itemUseSlowdownDurationTicks,
+                true,
+                false);
+    }
 
     public MovementModifierState {
         if (movementAbilityFlying && !movementAbilityMayFly) {

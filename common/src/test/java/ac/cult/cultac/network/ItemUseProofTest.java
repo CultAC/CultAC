@@ -225,8 +225,7 @@ class ItemUseProofTest {
                 new CollideResult(false, targetX, 0),
                 new CollideResult(false, 0),
                 new CollideResult(true, 0),
-                new CollideResult(wallSide != 0, 0, wallSide),
-                List.of()));
+                new CollideResult(wallSide != 0, 0, wallSide)));
         realities.add(result);
         new ItemUseAnalyzer().handleResult(player, result, null);
         var check = player.checkManager.getListener(NoSlow.class);

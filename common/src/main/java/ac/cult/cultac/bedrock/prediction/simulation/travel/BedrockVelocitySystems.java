@@ -37,7 +37,10 @@ public final class BedrockVelocitySystems {
                     frame.input().previousState().physicalFeetPosition(),
                     facts.movementDimensions());
             velocity = BedrockAerialMovement.glideVelocity(
-                    velocity, frame.input().inputFrame(), frame.input().glideBoost());
+                    velocity,
+                    frame.input().inputFrame(),
+                    frame.input().glideBoost(),
+                    facts.effectState().slowFalling());
             return plan(frame, velocity, new BedrockTravelHorizontalControl.Step(0.0D, 1.0D), false);
         }
 
@@ -47,12 +50,17 @@ public final class BedrockVelocitySystems {
             velocity = BedrockDefaultMoveClimbVertical.apply(
                     velocity, facts.climb(), facts.rawPowderSnowAtFeetAscendable());
         }
-        if (branch.playerFlyingTravel()) {
+        boolean flightStarts = frame.inputIntent().fly().start() && facts.context().movementAbilityFlying();
+        if (branch.playerFlyingTravel() || flightStarts) {
             velocity = BedrockFlyingTravelMovement.applyVerticalInput(
                     velocity,
                     frame.input().inputFrame(),
                     frame.inputIntent(),
-                    BedrockLiquidVerticalMovement.descendInput(frame.inputIntent()));
+                    BedrockLiquidVerticalMovement.descendInput(frame.inputIntent()),
+                    frame.input().control(),
+                    facts.context().movementAbilityInstabuild());
+            horizontal = BedrockFlyingTravelMovement.brakeHorizontal(
+                    horizontal, frame.input().control(), facts.context().movementAbilityInstabuild());
         }
         velocity = BedrockBlockSurfaceMovement.applyHoneySlideBeforeMove(
                 velocity,
@@ -67,10 +75,10 @@ public final class BedrockVelocitySystems {
             Vec3d velocity,
             BedrockTravelHorizontalControl.Step horizontal,
             boolean lavaSwimUpApplied) {
-        BedrockTravelMoveVector.Step move =
-                BedrockTravelMoveVector.resolve(velocity, frame.frameFacts().climb());
-        BedrockResolvedMove resolvedMove =
-                new BedrockResolvedMove(lavaSwimUpApplied, move.move(), move.collisionInputVelocity());
+        BedrockTravelMoveVector.Step move = BedrockTravelMoveVector.resolve(
+                velocity, frame.frameFacts().climb(), frame.branch().glidingTravel());
+        BedrockResolvedMove resolvedMove = new BedrockResolvedMove(
+                lavaSwimUpApplied, BedrockTravelMoveRequest.clampedMove(move.move()), move.collisionInputVelocity());
         BedrockMoveRequest request = new BedrockMoveRequest(
                 resolvedMove,
                 BedrockTravelMoveRequest.requestedPosition(frame.input().previousState(), resolvedMove.move()));
@@ -123,7 +131,13 @@ public final class BedrockVelocitySystems {
                 ? 1.0F
                 : control.moveInputScale();
         if (branch.playerFlyingTravel()) {
-            return BedrockFlyingTravelMovement.speed(facts.context(), moveInputScale);
+            return BedrockFlyingTravelMovement.speed(
+                    facts.context(),
+                    moveInputScale,
+                    frame.travelActorSprinting(),
+                    BedrockTravelHorizontalControl.groundOrAirFriction(
+                            facts.standingSurfaceState(),
+                            frame.input().previousState().collisionFlags().onGround()));
         }
         if (branch.airTravel()) {
             return BedrockAirTravelMovement.resolveHorizontal(frame);
@@ -153,7 +167,6 @@ public final class BedrockVelocitySystems {
                 facts.effectState(),
                 facts.standingSurfaceState(),
                 facts.climb(),
-                facts.inPowderSnow(),
                 control.sprintSpeedInput(),
                 moveInputScale,
                 true);

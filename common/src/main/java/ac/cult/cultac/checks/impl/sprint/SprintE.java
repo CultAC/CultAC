@@ -6,11 +6,7 @@ import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.type.PostPredictionListener;
-import ac.cult.cultac.network.CultPacketHandler;
-import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
-import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 
 @CheckData(
@@ -20,46 +16,40 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
         setback = 5,
         experimental = true)
 public final class SprintE extends Check implements PostPredictionListener {
-    private boolean startedSprintingThisTick;
     private boolean wasHardHorizontalCollision;
     private boolean previousPredictionChecked;
-    private ClientHorizontalCollision.Input previousInput;
 
     public SprintE(CultPlayer player) {
         super(player);
     }
 
-    @CultPacketHandler
-    public void onPlayerCommand(
-            PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
-        if (packet.action() == PlayerCommandAction.START_SPRINTING) {
-            startedSprintingThisTick = true;
-        }
-    }
-
     @Override
     public void onPredictionComplete(PredictionComplete complete) {
+        // A pass replayed since the last travel (a block entity after the report before 26.3, a shulker ticking before
+        // the player) ran Entity#move after it, which set both flags again from its own movement: LocalPlayer#aiStep
+        // reads its collision in place of the travel's.
+        DesyncStatus afterPass = player.checkManager.getSimulationProcessor().takeHardCollisionAfterPass();
+        if (afterPass != null) wasHardHorizontalCollision = afterPass.determinePessimistically();
         if (complete.isTeleport()) {
             wasHardHorizontalCollision = false;
             previousPredictionChecked = false;
-            previousInput = null;
-            startedSprintingThisTick = false;
             return;
         }
 
         PredictionResult result = complete.getPredictionResult();
-        boolean checked = !complete.isExempt() && result != null;
+        // A move Simulation accepts commits its explaining candidate, collision included; one it flags leaves the
+        // collision unknown. A residual below its threshold therefore cannot hide a hard collision.
+        boolean checked = !complete.isExempt()
+                && result != null
+                && player.checkManager.getOffsetHandler().accepts(result);
         boolean inWater = result != null
-                && result.getSimulationContext().getWorldData().getInWater().determineOptimistically();
-        DesyncStatus shoved = checked && previousInput != null
-                ? ClientHorizontalCollision.hardBeforeTravel(result, previousInput)
-                : null;
-        boolean wasHard = shoved == null ? wasHardHorizontalCollision : shoved.determinePessimistically();
+                && result.getSimulationContext().getWorldData().isInWater();
 
+        // LocalPlayer#aiStep stops a sprint it started in the same tick once the last move collided hard, so no
+        // START precedes a sprinting move after one.
         if (checked
                 && previousPredictionChecked
-                && wasHard
-                && !startedSprintingThisTick
+                && wasHardHorizontalCollision
                 && !player.inVehicle()
                 && !inWater) {
             if (player.isSprinting) {
@@ -69,10 +59,9 @@ public final class SprintE extends Check implements PostPredictionListener {
             }
         }
 
+        // Only a hard collision every candidate agrees on stops the sprint for certain.
         wasHardHorizontalCollision =
-                checked && ClientHorizontalCollision.hard(result).determinePessimistically();
+                checked && ClientHorizontalCollision.hardForEveryReality(result).determinePessimistically();
         previousPredictionChecked = checked;
-        previousInput = checked ? ClientHorizontalCollision.input(result) : null;
-        startedSprintingThisTick = false;
     }
 }

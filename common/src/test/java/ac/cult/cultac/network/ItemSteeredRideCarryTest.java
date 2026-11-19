@@ -41,14 +41,16 @@ class ItemSteeredRideCarryTest {
 
     private static void assertCarriesFewStates(boolean held) {
         assertTimeoutPreemptively(Duration.ofSeconds(60), () -> {
-            try (var f = new JavaTickFixture()) {
+            // The reported stillness is flagged every tick; observe-only keeps a setback from holding the moves back.
+            try (var f = new JavaTickFixture();
+                    var ignored = JavaTickFixture.observeOnly()) {
                 int water = BlockIds.WATER.defaultState();
                 for (int x = -8; x <= 8; x++) {
                     for (int z = -8; z <= 8; z++) {
                         f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), water);
                     }
                 }
-                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
                 Vec3 at = new Vec3(0.5, FLOOR_Y, 0.5);
                 f.place(at.add(0, 1, 0), Vec3.ZERO);
                 send(

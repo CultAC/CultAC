@@ -102,6 +102,7 @@ import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.PacketTypeTable;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
@@ -115,6 +116,7 @@ import ac.cult.cultac.utils.latency.KeepAliveProcessor;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
+import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import com.google.common.collect.ClassToInstanceMap;
 import com.google.common.collect.ImmutableClassToInstanceMap;
@@ -174,7 +176,6 @@ public class CheckManager {
     private final NoSlow noSlow;
     private final JavaAutoJump javaAutoJump;
     private final NoFallPseudo noFallPseudo;
-    private final InvalidStep invalidStep;
     private final VerticalOffset verticalOffset;
     private final CompensatedCooldown compensatedCooldown;
     private final DebugHandler debugHandler;
@@ -248,7 +249,6 @@ public class CheckManager {
         noSlow = getListener(NoSlow.class);
         javaAutoJump = getListener(JavaAutoJump.class);
         noFallPseudo = getListener(NoFallPseudo.class);
-        invalidStep = getListener(InvalidStep.class);
         verticalOffset = getListener(VerticalOffset.class);
         compensatedCooldown = getListener(CompensatedCooldown.class);
         debugHandler = getListener(DebugHandler.class);
@@ -565,7 +565,6 @@ public class CheckManager {
 
     private static ClassToInstanceMap<PostPredictionListener> buildPseudoChecks(CultPlayer player) {
         return listenerMap(List.<PostPredictionListener>of(
-                new InvalidStep(player),
                 new NoSneakSlow(player),
                 new InputKeys(player),
                 new OmniSprint(player),
@@ -585,6 +584,8 @@ public class CheckManager {
         // These callbacks were pre-Via in the committed listener. The raw
         // packet identity is unavailable here, but decoded cancellation and
         // relative ordering are preserved ahead of every ordinary processor.
+        // Non-finite movement is rejected before any handler writes player state.
+        registerEarlyReceive(registrations, prePredictionChecks.get(CrashC.class));
         registerEarlyReceive(registrations, packetChecks.get(ChatA.class));
         registerEarlyReceive(registrations, packetChecks.get(ChatB.class));
         registerEarlyReceive(registrations, packetChecks.get(ChatC.class));
@@ -736,8 +737,6 @@ public class CheckManager {
                 PacketOrderL.class,
                 PacketOrderM.class,
                 BadPacketsX.class,
-                SprintD.class,
-                SprintE.class,
                 MultiInteractA.class,
                 MultiInteractB.class,
                 ElytraB.class,
@@ -993,6 +992,9 @@ public class CheckManager {
         getListener(BedrockPlayerReach.class).endClientTick();
         getListener(BedrockEntityReach.class).endClientTick();
         getListener(BedrockPlaceVisibility.class).endClientTick();
+        // The lids step once the tick's move is predicted: the next tick's move meets this step.
+        player.bedrockState.shulkerBoxLids.tick(position -> ClientBlockProperties.isShulkerBox(
+                player.compensatedWorld.getBlockStateIdAt(BlockPos.of(position))));
         getListener(PacketEntityReplication.class).tickBedrockClient();
     }
 
@@ -1018,6 +1020,12 @@ public class CheckManager {
         Object routedPacket = event.getPacket();
         var route = earlyReceiveRoutes.get(event.getPacketType());
         if (route != null) route.dispatch(event, player, routedPacket);
+    }
+
+    /** An early handler cancelled {@code packet}, which skips every ordinary handler, the sequence check included. */
+    public void onEarlyCancel(Object packet) {
+        BadPacketsH sequences = getListener(BadPacketsH.class);
+        if (shouldDispatch(sequences)) sequences.onEarlyCancel(packet);
     }
 
     public void dispatchReceiveHandlers(final PacketReceiveEvent packet) {
@@ -1247,11 +1255,6 @@ public class CheckManager {
     /** {@code getListener(NoFallPseudo.class)}, read on every prediction. */
     public NoFallPseudo getNoFallPseudo() {
         return noFallPseudo;
-    }
-
-    /** {@code getListener(InvalidStep.class)}. */
-    public InvalidStep getInvalidStep() {
-        return invalidStep;
     }
 
     /** {@code getListener(VerticalOffset.class)}. */

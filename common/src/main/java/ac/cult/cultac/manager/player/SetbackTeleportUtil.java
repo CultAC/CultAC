@@ -1,5 +1,6 @@
 package ac.cult.cultac.manager.player;
 
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -16,14 +17,17 @@ import ac.cult.cultac.manager.player.setback.SafePositionTracker;
 import ac.cult.cultac.manager.player.setback.SafeProof;
 import ac.cult.cultac.manager.player.setback.SetbackEntity;
 import ac.cult.cultac.manager.player.setback.SetbackPolicy;
+import ac.cult.cultac.manager.player.setback.SetbackReason;
 import ac.cult.cultac.manager.player.setback.TeleportAnswers;
 import ac.cult.cultac.manager.player.setback.VehicleTeleportTracker;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.Collection;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import lombok.Getter;
+import org.jetbrains.annotations.Nullable;
 
 public class SetbackTeleportUtil extends CultProcessor
         implements PostPredictionListener, SafePositionTracker.Corrections, MovementGate.Teleports, CorrectionReissue {
@@ -50,6 +54,9 @@ public class SetbackTeleportUtil extends CultProcessor
     @Getter
     private boolean debug = false;
 
+    /** The last answered ping when a revocation bound last set the player back. */
+    private int revocationStall = Integer.MIN_VALUE;
+
     /** The packets a correction is sent with. */
     public CorrectionSender sender() {
         return sender;
@@ -63,6 +70,16 @@ public class SetbackTeleportUtil extends CultProcessor
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
         capture.capture(predictionComplete);
     }
+
+    /**
+     * SimulationProcessor committed {@code result}, carrying {@code carried} into the next client tick, the selected
+     * travel's first. That is the deltaMovement LivingEntity#travel left after Entity#move cleared each collided axis
+     * and the travel's friction: the velocity of a safe state taken from this prediction.
+     */
+    public void onJavaPredictionCommitted(PredictionResult result, Collection<Vec3> carried) {
+        capture.onJavaPredictionCommitted(result, carried);
+    }
+
     /** The entity a setback moves now. */
     @Override
     public SetbackEntity setbackEntity() {
@@ -170,13 +187,42 @@ public class SetbackTeleportUtil extends CultProcessor
         return policy.executeViolationSetback();
     }
 
+    /** A setback for a violation of {@code check}, null when no check of the caller raised it. */
+    public boolean executeViolationSetback(Check check) {
+        return policy.executeViolationSetback(check);
+    }
+
     /** A setback for the rejected {@code flagged} movement; a ridden vehicle takes the tick simulated for it. */
     public boolean executeViolationSetback(PredictionResult flagged) {
         return policy.executeViolationSetback(flagged);
     }
 
+    /** As {@link #executeViolationSetback(PredictionResult)}, for a violation of {@code check}, or null. */
+    public boolean executeViolationSetback(PredictionResult flagged, Check check) {
+        return policy.executeViolationSetback(flagged, check);
+    }
+
     public boolean executeTooHighLatencySetback(String cause) {
         return policy.executeTooHighLatencySetback(cause);
+    }
+
+    public boolean executeTooHighLatencySetback(String cause, boolean ignoreUnchanged) {
+        return policy.executeTooHighLatencySetback(cause, ignoreUnchanged);
+    }
+
+    /**
+     * A revocation the client has not proven by {@code transaction} sets it back once per stall: revocations that
+     * expire while the client still has answered the same last ping share the one setback.
+     */
+    public void revocationExpired(int transaction, String cause) {
+        int received = player.lastTransactionReceived.get();
+        if (received >= transaction || received == revocationStall) return;
+        if (executeTooHighLatencySetback(cause)) revocationStall = received;
+    }
+
+    /** Movements stage no safe position until the client answers {@code transaction}. */
+    public void holdSafePositionsUntil(int transaction) {
+        capture.holdUntil(transaction);
     }
 
     /**
@@ -228,7 +274,7 @@ public class SetbackTeleportUtil extends CultProcessor
 
     @Override
     public void sendDismounted(SetBackData data) {
-        sender.sendSetback(data, false, true);
+        sender.sendSetback(data, false, true, SetbackReason.RESEND, "dismounted", null);
     }
 
     /**
@@ -312,6 +358,24 @@ public class SetbackTeleportUtil extends CultProcessor
     public boolean mustAcknowledgeBedrockTransportTeleport() {
         return bedrock.mustAcknowledgeBedrockTransportTeleport();
     }
+
+    /** {@link JavaTeleportTracker#takeAuthoredTeleportAcknowledgment(int)}. */
+    public boolean takeAuthoredTeleportAcknowledgment(int teleportId) {
+        return javaTeleports.takeAuthoredTeleportAcknowledgment(teleportId);
+    }
+
+    /** {@link VehicleTeleportTracker#retireVehicleTeleports(int)}. */
+    public void retireVehicleTeleports(int transaction) {
+        vehicles.retireVehicleTeleports(transaction);
+    }
+
+    /** A vehicle teleport whose target the client fixes only when it handles the packet. */
+    public interface HandledVehicleTeleport {
+        /** The teleport as the client handled it, or, unless {@code resolve}, null while nothing has resolved it. */
+        @Nullable
+        VehicleTeleportData state(boolean resolve);
+    }
+
     /** The Java client's answers to player_position and rotation teleports. */
     public JavaTeleportTracker javaTeleports() {
         return javaTeleports;

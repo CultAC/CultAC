@@ -17,6 +17,7 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -119,7 +120,7 @@ class JavaSprintModifierGroundTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, y, 1), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             position = startSprint(f, 0.0F, CHARGE_TICKS);
             holdQuadrupledModifier(f);
             attack(f);
@@ -286,7 +287,7 @@ class JavaSprintModifierGroundTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(i, y, 1), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         position = startSprint(f, INTO_CORNER, CHARGE_TICKS);
         holdQuadrupledModifier(f);
         attack(f);
@@ -340,8 +341,13 @@ class JavaSprintModifierGroundTest {
         return new Vec3(delta.x * FRICTION, 0.0, delta.z * FRICTION);
     }
 
-    /** MultiPlayerGameMode#attack on an entity the server never sent: the reset is only possible. */
+    /** MultiPlayerGameMode#attack on a player whose spawn the client may not hold yet: the reset is only possible. */
     private static void attack(JavaTickFixture f) {
+        var add = new ClientboundAddEntity(99, "minecraft:player", new Vec3d(64.0, FLOOR_Y, 64.0), 0, 0, 0);
+        var spawn = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, add, false);
+        f.player.packetEntityReplication.onAddEntity(spawn, f.player, add);
+        spawn.tasksAfter().forEach(Runnable::run);
         var attack = new ServerboundInteract(99, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
         new PacketPlayerAttack().onInteract(f.event(ServerboundPackets.INTERACT, attack), f.player, attack);
     }

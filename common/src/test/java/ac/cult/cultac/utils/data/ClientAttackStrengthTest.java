@@ -42,6 +42,38 @@ class ClientAttackStrengthTest {
     }
 
     @Test
+    void aSwingInATickWithoutAnAttackMayBeAMissAtItsEnd() {
+        SimItemStack sword = item("minecraft:diamond_sword");
+        ClientAttackStrength strength = holding(sword, 20);
+        strength.onPossibleMiss();
+        strength.onClientTickEnd();
+        strength.onClientTick(sword, false);
+        assertTrue(strength.canBeFullStrength(SWORD_DELAY));
+        assertFalse(strength.isFullStrength(SWORD_DELAY));
+    }
+
+    @Test
+    void aSwingInATickThatAttacksIsNoMiss() {
+        SimItemStack sword = item("minecraft:diamond_sword");
+        ClientAttackStrength strength = holding(sword, 20);
+        strength.onPossibleMiss();
+        strength.onEntityAttack();
+        assertTrue(strength.isFullStrength(SWORD_DELAY));
+        strength.onClientTickEnd();
+        strength.onClientTick(sword, false);
+        assertTrue(strength.isFullStrength(SWORD_DELAY));
+    }
+
+    @Test
+    void aSwingBeforeATickEndTheModelDidNotSeeStillMayBeAMiss() {
+        SimItemStack sword = item("minecraft:diamond_sword");
+        ClientAttackStrength strength = holding(sword, 20);
+        strength.onPossibleMiss();
+        strength.onClientTick(sword, false);
+        assertFalse(strength.isFullStrength(SWORD_DELAY));
+    }
+
+    @Test
     void claimedItemChangeMayHaveResetInThePreviousTick() {
         SimItemStack sword = item("minecraft:diamond_sword");
         SimItemStack axe = item("minecraft:diamond_axe");

@@ -18,7 +18,6 @@ final class BedrockAirTravelMovement {
                 frameFacts.effectState(),
                 frameFacts.standingSurfaceState(),
                 frameFacts.climb(),
-                frameFacts.inPowderSnow(),
                 inputControl.sprintSpeedInput(),
                 frame.input().control() != null
                                 && !frame.input().previousState().isVehicle()

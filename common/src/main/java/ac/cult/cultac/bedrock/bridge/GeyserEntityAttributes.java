@@ -11,9 +11,13 @@ final class GeyserEntityAttributes {
     private ArrayList<Runnable> pending = new ArrayList<>();
 
     void capture(GeyserSession session, CultPlayer player, GeyserReplayUpdate update) {
-        if (!(update.event() instanceof BedrockReplayAttributeEvent attributes)) return;
+        if (!(update.event() instanceof BedrockReplayAttributeEvent captured)) return;
         long runtimeId = update.actorId();
         boolean self = runtimeId == session.getPlayerEntity().geyserId();
+        // The jump strength instance launches a ridden horse. It is also written for the
+        // player, whose jump does not follow it, so it never enters the player's attributes.
+        var attributes = self ? withoutHorseJumpStrength(captured) : captured;
+        if (attributes.attributes().isEmpty()) return;
         var translated =
                 self ? session.getPlayerEntity() : session.getEntityCache().getEntityByGeyserId(runtimeId);
         if (translated == null) return;
@@ -27,6 +31,13 @@ final class GeyserEntityAttributes {
             entity.bedrockAttributes = entity.bedrockAttributes.replace(attributes.attributes());
             player.bedrockState.movementCorrections.attributes(player, entity, update.tick(), attributes);
         }));
+    }
+
+    private static BedrockReplayAttributeEvent withoutHorseJumpStrength(BedrockReplayAttributeEvent event) {
+        if (!event.attributes().containsKey("minecraft:horse.jump_strength")) return event;
+        var kept = new java.util.LinkedHashMap<>(event.attributes());
+        kept.remove("minecraft:horse.jump_strength");
+        return new BedrockReplayAttributeEvent(kept, event.historical());
     }
 
     boolean hasPending() {

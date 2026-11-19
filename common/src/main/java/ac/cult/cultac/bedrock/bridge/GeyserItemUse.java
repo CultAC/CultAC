@@ -78,10 +78,17 @@ final class GeyserItemUse {
                 int sequence = sequence(session);
                 if (sequence == previousSequence && packet.getActionType() != 0) return;
                 player.lastBlockPlaceUseItem = System.currentTimeMillis();
-                if (packet.getActionType() == 0 && packet.getBlockFace() >= 0 && packet.getBlockFace() < FACES.length) {
+                // A use on a block that the client reports as failed changed nothing on the client. What the server
+                // makes of it reaches the client with the server's update.
+                boolean failedUseOn = packet.getActionType() == 0
+                        && packet.getClientInteractPrediction() != ItemUseTransaction.PredictedResult.SUCCESS;
+                if (!failedUseOn
+                        && packet.getActionType() == 0
+                        && packet.getBlockFace() >= 0
+                        && packet.getBlockFace() < FACES.length) {
                     var pos = packet.getBlockPosition();
                     var cursor = packet.getClickPosition();
-                    player.compensatedWorld.advanceClientPredictionSequence();
+                    player.compensatedWorld.advanceClientPredictionSequence(sequence);
                     var worldPos = GeyserBedrockBridgeRuntime.worldBlock(session, pos);
                     PlaceHandler.handleQueuedUseItemOn(
                             player,
@@ -101,17 +108,18 @@ final class GeyserItemUse {
                     // Only the raycast block actions formerly handled by UseItemHandler
                     // belong in the host block-action runtime (buckets and water plants).
                     var held = player.getInventory().getHandItem(Hand.MAIN_HAND);
-                    if (java.util.List.of(held.definition()
-                                            .bindings()
-                                            .get("classHierarchy")
-                                            .split(","))
-                                    .contains("net.minecraft.world.item.BucketItem")
-                            || java.util.List.of(held.definition()
-                                            .bindings()
-                                            .get("classHierarchy")
-                                            .split(","))
-                                    .contains("net.minecraft.world.item.PlaceOnWaterBlockItem")) {
-                        player.compensatedWorld.advanceClientPredictionSequence();
+                    if (!failedUseOn
+                            && (java.util.List.of(held.definition()
+                                                    .bindings()
+                                                    .get("classHierarchy")
+                                                    .split(","))
+                                            .contains("net.minecraft.world.item.BucketItem")
+                                    || java.util.List.of(held.definition()
+                                                    .bindings()
+                                                    .get("classHierarchy")
+                                                    .split(","))
+                                            .contains("net.minecraft.world.item.PlaceOnWaterBlockItem"))) {
+                        player.compensatedWorld.advanceClientPredictionSequence(sequence);
                         PlaceHandler.handleQueuedUseItem(
                                 player, new ServerboundUseItem(Hand.MAIN_HAND, sequence, yaw, pitch));
                     }

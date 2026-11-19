@@ -64,6 +64,9 @@ public class BaseConfigManager {
 
     @Getter
     private int maxPingKnockback = 1000;
+
+    @Getter
+    private int maxPendingPingMs = 0;
     // cult.client-brand.strip-pattern regex; null when disabled (empty key)
     private Pattern brandRemover = null;
 
@@ -91,6 +94,12 @@ public class BaseConfigManager {
 
     @Getter
     private boolean bedrockMovementSetbacksEnabled = true;
+
+    @Getter
+    private boolean exemptBedrockPlayers = false;
+
+    @Getter
+    private boolean exemptJavaPlayers = false;
 
     private static double nonNegativeElse(ConfigManager config, String key, double fallback) {
         double value = config.getDoubleElse(key, fallback);
@@ -156,6 +165,7 @@ public class BaseConfigManager {
         disablePongCancelling = config.getBooleanElse("disable-pong-cancelling", false);
         launchFailOpen = config.getBooleanElse("launch-safety.fail-open", true);
         maxPingKnockback = config.getIntElse("cult.prediction.max-knockback-ping-ms", 1000);
+        maxPendingPingMs = config.getIntElse("max-pending-ping-ms", 0);
 
         // owner-authored config semantics: strip e.g. the " (Velocity)" suffix from brands
         String brandRegex = config.getStringElse("cult.client-brand.strip-pattern", " \\(Velocity\\)$");
@@ -185,6 +195,8 @@ public class BaseConfigManager {
         bedrockMovementVelocityFlagThreshold =
                 nonNegativeElse(config, "cult.checks.bedrock-movement.velocity-flag-threshold", 0.001D);
         bedrockMovementSetbacksEnabled = config.getBooleanElse("cult.checks.bedrock-movement.enable-setbacks", true);
+        exemptBedrockPlayers = config.getBooleanElse("cult.exempt-bedrock-players", false);
+        exemptJavaPlayers = config.getBooleanElse("cult.exempt-java-players", false);
     }
 
     /** {@code CULTAC_OBSERVE_ONLY} when it reads true/1/yes or false/0/no, else {@code observe-only}. */

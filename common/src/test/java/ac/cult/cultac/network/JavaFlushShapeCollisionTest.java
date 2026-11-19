@@ -134,7 +134,8 @@ class JavaFlushShapeCollisionTest {
         try (var f = new JavaTickFixture()) {
             set(f, 1, FLOOR_Y, 0, ANDESITE_WALL);
             Vec3 start = start(f, 1.25, 1.0E-3);
-            assertRejected(f.tick(new Vec3(start.x, FLOOR_Y, start.z + INPUT * COS), true), "Angle");
+            // The travel adds exactly the forward input, so the thousandth the move left out is Speed's.
+            assertRejected(f.tick(new Vec3(start.x, FLOOR_Y, start.z + INPUT * COS), true), "Speed");
         }
     }
 
@@ -158,7 +159,7 @@ class JavaFlushShapeCollisionTest {
 
     private static void set(JavaTickFixture f, int x, int y, int z, int state) {
         f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), state);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** Mth#sin's table entry from 1.21.11 on. */

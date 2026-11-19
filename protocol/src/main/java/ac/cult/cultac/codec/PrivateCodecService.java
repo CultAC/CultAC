@@ -236,9 +236,11 @@ public final class PrivateCodecService implements WireValueDecoder {
         if (reused != null) return reused;
         var type = types(version);
         var scan = input.duplicate();
-        ItemStructureGuard.scanItemStack(type, version, scan, false);
+        var scanned = ScannedComponents.of(type.item(), type.structuredData());
+        if (scanned == null) ItemStructureGuard.scanItemStack(type, version, scan, false);
+        else ItemStructureGuard.scanItemStack(type, version, scan, scanned);
         int start = input.readerIndex(), end = scan.readerIndex();
-        var decoded = readScanned(type, input, false, false);
+        var decoded = readScanned(scanned == null ? type.item() : scanned.item(), input, false);
         return reuse.decoded(item(decoded.item(), registries, version, decoded.patch(), factory), input, start, end);
     }
 
@@ -248,14 +250,13 @@ public final class PrivateCodecService implements WireValueDecoder {
         boolean lengthPrefixed = creative && version.atLeast(ProtocolVersion.V1_21_5);
         // The structure budget runs on a view: an oversized item must never reach the readers below.
         ItemStructureGuard.scanItemStack(type, version, input.duplicate(), lengthPrefixed);
-        return readScanned(type, input, creative, lengthPrefixed);
+        // 1.21.5 introduced the length-prefixed creative component codec.
+        return readScanned(lengthPrefixed ? type.lengthPrefixedItem() : type.item(), input, creative);
     }
 
-    private static ItemInput readScanned(
-            VersionedTypesHolder type, ByteBuf input, boolean creative, boolean lengthPrefixed) {
+    private static ItemInput readScanned(Type<Item> reader, ByteBuf input, boolean creative) {
         int start = input.readerIndex();
-        // 1.21.5 introduced the length-prefixed creative component codec.
-        Item item = (lengthPrefixed ? type.lengthPrefixedItem() : type.item()).read(input);
+        Item item = reader.read(input);
         // Keep the creative count domain used by the inventory view. The backend
         // validates persistent fields of unused components on the original frame.
         if (creative && item != null && !item.isEmpty() && item.amount() > 99)
@@ -290,7 +291,7 @@ public final class PrivateCodecService implements WireValueDecoder {
                 layoutBytes = ByteBufUtil.getBytes(output);
             }
             // Via's component writers preserve fields that the persistent NBT codec omits.
-            var encodings = values.encodings();
+            var encodings = values.encodings(scratchCapacity(wirePatch));
             return new ItemValue(
                     item.identifier(),
                     item.amount(),
@@ -310,7 +311,7 @@ public final class PrivateCodecService implements WireValueDecoder {
         if (item == null || item.isEmpty()) return new DecodedItem<>(0, 0, null, null, Map.of(), null);
         var context = new ValueContext(registries, version, mappings(version, ProtocolVersion.V26_3));
         var values = ComponentValues.components(item, context);
-        var encodings = values.encodings();
+        var encodings = values.encodings(scratchCapacity(wirePatch));
         return new DecodedItem<>(
                 item.identifier(),
                 item.amount(),
@@ -318,6 +319,11 @@ public final class PrivateCodecService implements WireValueDecoder {
                 values.layouts().isEmpty() ? null : PortableNbt.read(values.layouts(), factory),
                 encodings,
                 wirePatch == null ? null : new ComponentEncoding(version.protocol(), wirePatch, context.references()));
+    }
+
+    /** A capacity hint for the encodings scratch: the patch length when known, else netty's default. */
+    private static int scratchCapacity(byte[] wirePatch) {
+        return wirePatch == null ? 256 : wirePatch.length;
     }
 
     @Override
@@ -350,7 +356,14 @@ public final class PrivateCodecService implements WireValueDecoder {
                 factory);
     }
 
-    record MetadataTypes(int floatingPoint, int pose, int optionalInt, int painting, int particle, int particles) {}
+    record MetadataTypes(
+            int floatingPoint,
+            int pose,
+            int optionalInt,
+            int painting,
+            int particle,
+            int particles,
+            int optionalUuid) {}
 
     private static final Map<ProtocolVersion, MetadataTypes> METADATA_TYPES = new ConcurrentHashMap<>();
 
@@ -367,7 +380,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes1_21_5 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -375,7 +389,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes1_21_9 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -383,7 +398,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes1_21_11 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -391,7 +407,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes26_1 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -399,7 +416,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes26_3 values ->
                 new MetadataTypes(
                         values.floatType.typeId(),
@@ -407,7 +425,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                         values.optionalVarIntType.typeId(),
                         values.paintingVariantType.typeId(),
                         values.particleType.typeId(),
-                        values.particlesType.typeId());
+                        values.particlesType.typeId(),
+                        values.optionalUUIDType.typeId());
             default -> throw new IllegalStateException("Unsupported entity metadata schema");
         };
     }
@@ -465,6 +484,7 @@ public final class PrivateCodecService implements WireValueDecoder {
         int pose = serializers.pose(), optional = serializers.optionalInt();
         int painting = serializers.painting();
         int particle = serializers.particle(), particles = serializers.particles();
+        int optionalUuid = serializers.optionalUuid();
         for (int index; (index = input.readUnsignedByte()) != 255; ) {
             int start = input.readerIndex() - 1;
             int id = Types.VAR_INT.readPrimitive(input);
@@ -478,6 +498,7 @@ public final class PrivateCodecService implements WireValueDecoder {
             else if (id == 12) kind = "direction";
             else if (id == painting) kind = "painting_variant";
             else if (id == 11) kind = "optional_position";
+            else if (id == optionalUuid) kind = "optional_uuid";
             else if (id == particle) kind = "particle";
             else if (id == particles) kind = "particles";
             Object value = null;

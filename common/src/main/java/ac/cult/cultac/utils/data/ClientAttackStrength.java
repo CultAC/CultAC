@@ -15,6 +15,8 @@ public final class ClientAttackStrength {
 
     private int minTicker;
     private int maxTicker;
+    // Minecraft#pick sets one hit result per tick, so a tick that attacks an entity has no startAttack miss.
+    private boolean possibleMiss;
     private boolean possibleMainHandChange;
     private int unconfirmedHotbarSlots;
     // Player#lastItemInMainHand
@@ -27,6 +29,7 @@ public final class ClientAttackStrength {
      * minimum.
      */
     public void onClientTick(SimItemStack mainHand, boolean claimedSlotChanged) {
+        onClientTickEnd();
         minTicker = Math.min(minTicker + 1, SATURATED);
         maxTicker = Math.min(maxTicker + 1, SATURATED);
         // A proven use-completion packet can replace the last item. Player#tick, not the packet handler,
@@ -38,6 +41,10 @@ public final class ClientAttackStrength {
                 minTicker = 0;
                 if (claimedSlotChanged) maxTicker = Math.min(maxTicker, 1);
             }
+            lastMainHand = mainHand.copy();
+        } else if (lastMainHand.patch() != mainHand.patch()
+                || lastMainHand.capturedPrototype() != mainHand.capturedPrototype()) {
+            // An equal stack: its copy shares the held stack's components, so later ticks compare them by reference.
             lastMainHand = mainHand.copy();
         }
     }
@@ -63,6 +70,22 @@ public final class ClientAttackStrength {
      */
     public void onPossibleReset() {
         minTicker = 0;
+    }
+
+    /** A main-hand swing: Minecraft#startAttack's miss resets before it, unless this tick attacks an entity. */
+    public void onPossibleMiss() {
+        possibleMiss = true;
+    }
+
+    /** MultiPlayerGameMode#attack: this tick's hit result is an entity, so none of its swings was a miss. */
+    public void onEntityAttack() {
+        possibleMiss = false;
+    }
+
+    /** ServerboundClientTickEnd: a swing of the ended tick that no attack ruled out may have been a miss. */
+    public void onClientTickEnd() {
+        if (possibleMiss) minTicker = 0;
+        possibleMiss = false;
     }
 
     /** A client-visible item replacement whose effect on the selected hand is not yet provable. */
@@ -119,6 +142,7 @@ public final class ClientAttackStrength {
     /** A new LocalPlayer starts with a zero ticker and an empty lastItemInMainHand. */
     public void reset() {
         onReset();
+        possibleMiss = false;
         possibleMainHandChange = false;
         unconfirmedHotbarSlots = 0;
         lastMainHand = SimItemStack.EMPTY;

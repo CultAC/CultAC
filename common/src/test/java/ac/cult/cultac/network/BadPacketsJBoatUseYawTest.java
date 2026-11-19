@@ -149,30 +149,40 @@ class BadPacketsJBoatUseYawTest {
     }
 
     /** AbstractBoat#controlBoat turns a driven boat by its deltaRotation, which positionRider turns the rider by. */
+    /**
+     * The left key turns the boat, and a mouse turn ends at the edge clampRotation sets against the turned boat's yaw:
+     * that edge holds, and a use 150 degrees from the boat, which the next Rot carries on, flags once each time.
+     */
     @Test
     void aDrivenBoatTurnsByItsDeltaRotation() throws Exception {
         try (var f = new JavaTickFixture()) {
             ride(f, 0.0F, false);
             BadPacketsJ check = f.player.checkManager.getListener(BadPacketsJ.class);
-            rot(f, 0.0F);
-            moveBoat(f, 0.0F);
-            f.tickEnd();
-            float[] uses = {100.0F, -40.0F, 170.0F, 10.0F, -120.0F, 60.0F};
-            for (int i = 0; i < uses.length; i++) {
-                float yaw = uses[i];
-                float boatYaw = yaw - (i % 2 == 0 ? 180.0F : -180.0F);
-                float sent = clampRotation(yaw, boatYaw);
-                use(f, yaw);
-                rot(f, sent);
+            float friction = stoneFriction();
+            float deltaRotation = 0.0F;
+            float boatYaw = 0.0F;
+            float yaw = 0.0F;
+            int flagged = 0;
+            for (int tick = 0; tick < 12; tick++) {
+                if (tick == 0) f.input(new ServerboundPlayerInput(false, false, true, false, false, false, false));
+                if (tick > 1) {
+                    float past = boatYaw + (tick % 4 < 2 ? 150.0F : -150.0F);
+                    yaw = tick % 2 == 0 ? past : clampRotation(past, boatYaw);
+                    use(f, yaw);
+                    if (tick % 2 == 0) flagged++;
+                    assertEquals(flagged, check.getViolations(), "tick " + tick + " boat yaw " + boatYaw);
+                }
+                deltaRotation *= friction;
+                if (tick > 0) deltaRotation--;
+                boatYaw += deltaRotation;
+                yaw = clampRotation(yaw + deltaRotation, boatYaw);
+                rot(f, yaw);
                 moveBoat(f, boatYaw);
                 f.tickEnd();
-                assertEquals(i + 1, check.getViolations(), "use yaw " + yaw);
-                if (i + 1 < uses.length) {
-                    rot(f, sent);
-                    moveBoat(f, uses[i + 1]);
-                    f.tickEnd();
-                }
+                assertEquals(boatYaw, riding(f).clientPhysicalYaw, "tick " + tick);
             }
+            assertTrue(boatYaw < -10.0F, "boat yaw " + boatYaw);
+            assertEquals(5, flagged);
         }
     }
 
@@ -405,7 +415,10 @@ class BadPacketsJBoatUseYawTest {
                 yaw = clampRotation(turned, boatYaw);
                 if (yaw != turned) clamped++;
                 rot(f, yaw);
-                moveBoat(f, new Vec3d(boat.x, boat.y, boat.z), boatYaw);
+                // fromEntity reports the active path's target position and rotation, while controlBoat and
+                // positionRider above turned the boat's own yaw.
+                Vec3 reported = steps > 0 ? target : boat;
+                moveBoat(f, new Vec3d(reported.x, reported.y, reported.z), steps > 0 ? targetYaw : boatYaw);
                 f.tickEnd();
                 if (tick == 0) f.pongThrough(nextPing);
             }
@@ -476,7 +489,10 @@ class BadPacketsJBoatUseYawTest {
                 if (yaw != turned) clamped++;
                 boat = boat.add(DRIFT);
                 rot(f, yaw);
-                moveBoat(f, new Vec3d(boat.x, boat.y, boat.z), boatYaw);
+                // fromEntity reports the active path's target position and rotation, while controlBoat and
+                // positionRider above turned the boat's own yaw.
+                Vec3 reported = steps > 0 ? target : boat;
+                moveBoat(f, new Vec3d(reported.x, reported.y, reported.z), steps > 0 ? targetYaw : boatYaw);
                 f.tickEnd();
             }
             assertTrue(clamped > 0);
@@ -494,7 +510,7 @@ class BadPacketsJBoatUseYawTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     // AbstractBoat#getGroundFriction averages the friction of the nine stone blocks under the boat.

@@ -13,6 +13,14 @@ public record BedrockMobJumpComponentState(boolean reduceNextSwimUpImpulse, int 
         return withJumpCooldownTicks(jumping ? Math.max(0, jumpCooldownTicks - 1) : 0);
     }
 
+    /**
+     * A tick on which the actor is held in place, riding or asleep. It starts no jump of
+     * its own, so nothing arms the cooldown; a cooldown already running keeps counting.
+     */
+    public BedrockMobJumpComponentState afterHeldTick(boolean jumping) {
+        return beginTick(jumping);
+    }
+
     BedrockMobJumpComponentState afterJumpRequest() {
         return withJumpCooldownTicks(10);
     }

@@ -115,7 +115,6 @@ public final class BedrockFluidStateResolver {
                 fluidState.bubbleColumnDown(),
                 fluidState.currentState(),
                 fluidState.bubbleColumnState(),
-                fluidState.waterWalkOnGroundComponentPresent(),
                 fluidState.swimSpeedMultiplier(),
                 actorSwimming);
     }

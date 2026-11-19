@@ -76,6 +76,23 @@ class ReceivedBiomesTest {
             assertFalse(world.clientIsRainingAt(rainPos));
             world.applyBlockChangeRawDANGER(8, 65, 8, 0);
             assertTrue(world.clientIsRainingAt(rainPos));
+            // Level#precipitationAt also needs BlockAndLightGetter#canSeeSky: blocks outside the MOTION_BLOCKING
+            // heightmap that dampen light, at the position or above it, keep its sky light below 15.
+            var registry = DataTables.defaults().registry();
+            int powderSnow = registry.block("minecraft:powder_snow").defaultState();
+            int cobweb = registry.block("minecraft:cobweb").defaultState();
+            int torch = registry.block("minecraft:torch").defaultState();
+            world.applyBlockChangeRawDANGER(8, 64, 8, powderSnow);
+            assertFalse(world.clientIsRainingAt(rainPos));
+            world.applyBlockChangeRawDANGER(8, 64, 8, 0);
+            world.applyBlockChangeRawDANGER(8, 70, 8, powderSnow);
+            assertFalse(world.clientIsRainingAt(rainPos));
+            world.applyBlockChangeRawDANGER(8, 70, 8, cobweb);
+            assertFalse(world.clientIsRainingAt(rainPos));
+            world.applyBlockChangeRawDANGER(8, 70, 8, torch);
+            assertTrue(world.clientIsRainingAt(rainPos));
+            world.applyBlockChangeRawDANGER(8, 70, 8, 0);
+            assertTrue(world.clientIsRainingAt(rainPos));
             world.setDimension("minecraft:overworld", dimension);
             assertTrue(world.clientIsRainingAt(rainPos));
             world.onClientLogin();

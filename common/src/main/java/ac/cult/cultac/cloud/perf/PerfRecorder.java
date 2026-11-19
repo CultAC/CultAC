@@ -2,6 +2,7 @@ package ac.cult.cultac.cloud.perf;
 
 import ac.cult.cultac.cloud.intake.v3.PerfAllocCalibration;
 import ac.cult.cultac.cloud.intake.v3.PerfClassAlloc;
+import ac.cult.cultac.cloud.intake.v3.PerfMachineLoad;
 import ac.cult.cultac.cloud.intake.v3.PerfOutcome;
 import ac.cult.cultac.cloud.intake.v3.PerfProfile;
 import ac.cult.cultac.platform.api.PlatformServer;
@@ -24,6 +25,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import jdk.jfr.EventType;
@@ -64,6 +66,7 @@ public final class PerfRecorder {
     private static final String CPU_TIME_LOST_EVENT = "jdk.CPUTimeSamplesLost";
     private static final boolean LINUX = System.getProperty("os.name", "").startsWith("Linux");
     private static final ProcCpu PROC = new ProcCpu(Path.of("/proc"));
+    private static final MachineLoad MACHINE = new MachineLoad(Path.of("/proc"), Path.of("/sys/devices/system/cpu"));
 
     /** Set once a cpu-time window sampled nothing; every later window of this JVM samples execution. */
     static volatile boolean cpuTimeFailed;
@@ -88,16 +91,32 @@ public final class PerfRecorder {
     private final AgentInfo agent;
     private final Clock clock;
     private final Supplier<RecordingStream> streams;
+    private final IntSupplier trackedPlayers;
 
     public PerfRecorder(PlatformServer platform, AgentInfo agent, Clock clock) {
         this(platform, agent, clock, PerfRecorder::newStream);
     }
 
+    /** {@code trackedPlayers}: the anticheat's players now, read once at the window end; below zero when unknown. */
+    public PerfRecorder(PlatformServer platform, IntSupplier trackedPlayers, AgentInfo agent, Clock clock) {
+        this(platform, agent, clock, PerfRecorder::newStream, trackedPlayers);
+    }
+
     PerfRecorder(PlatformServer platform, AgentInfo agent, Clock clock, Supplier<RecordingStream> streams) {
+        this(platform, agent, clock, streams, AnticheatState.NO_PLAYERS);
+    }
+
+    PerfRecorder(
+            PlatformServer platform,
+            AgentInfo agent,
+            Clock clock,
+            Supplier<RecordingStream> streams,
+            IntSupplier trackedPlayers) {
         this.platform = platform;
         this.agent = agent;
         this.clock = clock;
         this.streams = streams;
+        this.trackedPlayers = trackedPlayers;
     }
 
     private static RecordingStream newStream() {
@@ -145,6 +164,8 @@ public final class PerfRecorder {
                 threadAlloc,
                 PerfRecorder::threadAllocatedBytes);
         ProcCpu.Snapshot procStart = procCpu();
+        MachineLoad.Snapshot machineStart = machine();
+        Map<String, JvmState.Totals> collections = JvmState.collections();
         load.players(platform, start);
         long dispatchCpu;
         long[] exactAlloc;
@@ -193,6 +214,7 @@ public final class PerfRecorder {
         window.rethrow();
         long wall = System.nanoTime() - start;
         ProcCpu.Snapshot procEnd = procCpu();
+        PerfProfile machine = machineLoad(machineStart, machine(), procStart, procEnd);
         load.read(platform, start + wall);
         Window.Calibration calibration = window.calibrate(exactAlloc);
         PerfProfile header = PerfProfile.newBuilder()
@@ -227,6 +249,9 @@ public final class PerfRecorder {
                 .addAllJvmThreadCpu(ProcCpu.threadCpu(procStart, procEnd))
                 .setAllocCalibrated(calibration.calibrated())
                 .addAllAllocCalibration(calibration.groups())
+                .mergeFrom(JvmState.read(collections))
+                .mergeFrom(AnticheatState.read(trackedPlayers))
+                .mergeFrom(machine)
                 .build();
         if (sampler.equals(CPU_TIME) && window.trie.cpuTotal() == 0) cpuTimeFailed = true;
         return withReason(
@@ -266,6 +291,25 @@ public final class PerfRecorder {
 
     private static ProcCpu.Snapshot procCpu() {
         return LINUX ? PROC.read() : ProcCpu.NONE;
+    }
+
+    private static MachineLoad.Snapshot machine() {
+        return LINUX ? MACHINE.read() : MachineLoad.NONE;
+    }
+
+    private static PerfProfile machineLoad(
+            MachineLoad.Snapshot start,
+            MachineLoad.Snapshot end,
+            ProcCpu.Snapshot procStart,
+            ProcCpu.Snapshot procEnd) {
+        return LINUX ? machineLoad(MACHINE.window(start, end, procStart, procEnd)) : PerfProfile.getDefaultInstance();
+    }
+
+    /** A profile holding only {@code machine}; empty when no source was readable. */
+    static PerfProfile machineLoad(PerfMachineLoad machine) {
+        return machine.equals(PerfMachineLoad.getDefaultInstance())
+                ? PerfProfile.getDefaultInstance()
+                : PerfProfile.newBuilder().setMachineLoad(machine).build();
     }
 
     /** {@code trie}'s stacks with {@code header} as zstd within the profile budget; {@code FAILED} once cancelled. */

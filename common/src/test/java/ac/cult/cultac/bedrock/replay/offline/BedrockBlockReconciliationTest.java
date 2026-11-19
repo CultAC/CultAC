@@ -29,7 +29,7 @@ public class BedrockBlockReconciliationTest {
             var pos = new BlockPos(2901, 69, -30);
             world.ensureValidationChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4);
             world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), server);
-            for (int i = 0; i < 32; i++) world.advanceClientPredictionSequence();
+            for (int i = 0; i < 32; i++) world.advanceClientPredictionSequence(i);
             world.startPredicting();
             world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), local);
             world.stopPredicting(31);
@@ -64,14 +64,14 @@ public class BedrockBlockReconciliationTest {
                     .defaultState();
             world.ensureValidationChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4);
             world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), grass);
-            world.advanceClientPredictionSequence();
+            world.advanceClientPredictionSequence(1);
             world.startPredicting();
             world.updateBlock(
                     pos.getX(),
                     pos.getY(),
                     pos.getZ(),
                     DataTables.defaults().registry().block("minecraft:air").defaultState());
-            world.stopPredicting(31);
+            world.stopPredicting(1);
             assertTrue(world.hasPendingBlockPrediction(pos));
             world.handleServerBlockUpdate(pos, grass, 10);
             assertTrue(DataTables.defaults()

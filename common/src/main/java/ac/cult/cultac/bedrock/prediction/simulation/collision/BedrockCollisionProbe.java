@@ -14,8 +14,9 @@ public final class BedrockCollisionProbe {
             PlayerDimensionsState dimensions,
             Vec3d attemptedDelta,
             boolean canStep,
-            double maxUpStep) {
-        Query query = query(previousState, blockWorld, dimensions, attemptedDelta, canStep, maxUpStep);
+            double maxUpStep,
+            boolean flying) {
+        Query query = query(previousState, blockWorld, dimensions, attemptedDelta, canStep, maxUpStep, flying);
         if (query == null) {
             return Result.NONE;
         }
@@ -32,8 +33,9 @@ public final class BedrockCollisionProbe {
             PlayerDimensionsState dimensions,
             Vec3d attemptedDelta,
             boolean canStep,
-            double maxUpStep) {
-        Query query = query(previousState, blockWorld, dimensions, attemptedDelta, canStep, maxUpStep);
+            double maxUpStep,
+            boolean flying) {
+        Query query = query(previousState, blockWorld, dimensions, attemptedDelta, canStep, maxUpStep, flying);
         if (query == null) {
             return attemptedDelta == null ? Vec3d.ZERO : attemptedDelta;
         }
@@ -46,7 +48,8 @@ public final class BedrockCollisionProbe {
             PlayerDimensionsState dimensions,
             Vec3d attemptedDelta,
             boolean canStep,
-            double maxUpStep) {
+            double maxUpStep,
+            boolean flying) {
         if (previousState == null
                 || blockWorld == null
                 || blockWorld.isEmpty()
@@ -54,8 +57,8 @@ public final class BedrockCollisionProbe {
                 || attemptedDelta == null) {
             return null;
         }
-        BedrockEntityMove.CollisionMove move =
-                BedrockEntityMove.collide(previousState, attemptedDelta, blockWorld, dimensions, canStep, maxUpStep);
+        BedrockEntityMove.CollisionMove move = BedrockEntityMove.collide(
+                previousState, attemptedDelta, blockWorld, dimensions, canStep, maxUpStep, flying);
         return new Query(move, canStep ? move.selectedMove() : move.baseMove());
     }
 

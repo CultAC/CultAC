@@ -15,6 +15,7 @@ public final class EntityTypeIds {
     public static final int COW = id("cow");
     public static final int DOLPHIN = id("dolphin");
     public static final int DONKEY = id("donkey");
+    public static final int DROWNED = id("drowned");
     public static final int DRAGON_FIREBALL = id("dragon_fireball");
     public static final int ENDERMITE = id("endermite");
     public static final int ENDER_DRAGON = id("ender_dragon");
@@ -30,6 +31,7 @@ public final class EntityTypeIds {
     public static final int HAPPY_GHAST = id("happy_ghast");
     public static final int HOGLIN = id("hoglin");
     public static final int HORSE = id("horse");
+    public static final int HUSK = id("husk");
     public static final int ILLUSIONER = id("illusioner");
     public static final int INTERACTION = id("interaction");
     public static final int ITEM = id("item");
@@ -60,12 +62,14 @@ public final class EntityTypeIds {
     public static final int TEXT_DISPLAY = id("text_display");
     public static final int TROPICAL_FISH = id("tropical_fish");
     public static final int TURTLE = id("turtle");
+    public static final int VEX = id("vex");
     public static final int VINDICATOR = id("vindicator");
     public static final int WIND_CHARGE = id("wind_charge");
     public static final int WITCH = id("witch");
     public static final int ZOGLIN = id("zoglin");
     public static final int ZOMBIE = id("zombie");
     public static final int ZOMBIE_HORSE = id("zombie_horse");
+    public static final int ZOMBIE_VILLAGER = id("zombie_villager");
     public static final int ZOMBIFIED_PIGLIN = id("zombified_piglin");
 
     private EntityTypeIds() {}

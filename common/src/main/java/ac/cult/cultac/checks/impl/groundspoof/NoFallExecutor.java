@@ -8,6 +8,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 
 @BedrockSupported
 public class NoFallExecutor extends Check implements CheckListener {
@@ -44,5 +45,16 @@ public class NoFallExecutor extends Check implements CheckListener {
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         handleMovePlayer(event, packet);
+    }
+
+    /** ServerGamePacketListenerImpl#handleMoveVehicle applies the reported ground to the root and its fall damage. */
+    @CultPacketHandler
+    public void onMoveVehicle(
+            PacketReceiveEvent<ServerboundMoveVehicle> event, CultPlayer player, ServerboundMoveVehicle packet) {
+        Boolean desiredOnGround = player.packetStateData.consumeDesiredOnGround();
+        if (desiredOnGround != null && packet.hasOnGround() && shouldModifyPackets()) {
+            event.replace(
+                    new ServerboundMoveVehicle(packet.position(), packet.yaw(), packet.pitch(), desiredOnGround, true));
+        }
     }
 }

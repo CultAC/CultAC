@@ -9,8 +9,7 @@ import java.util.List;
  * Where a Bedrock client's attack came from, as Cult models it: an eye on the path from one of its {@code eyes}' {@code
  * before} height above its last tick position to its {@code now} height above its latest, the same fraction along both,
  * and a view between the rotation it last sent and the one it sends with its next tick. It reports where the pick
- * entered the target's box. Blocks within {@code rayLength} along its pick ray may drop a hit in the pick margin; none
- * do when it is 0.
+ * entered the target's box.
  */
 record BedrockAttackPick(
         Vec3 last,
@@ -22,7 +21,6 @@ record BedrockAttackPick(
         float yaw,
         float pitch,
         boolean screenPick,
-        double rayLength,
         List<BedrockEye> eyes) {
 
     // The angle precision of a view direction, with room for the float hit point.
@@ -30,18 +28,6 @@ record BedrockAttackPick(
     // The view to the hit point is followed along the eye path in pieces of at most this many degrees.
     private static final double PIECE_DEGREES = 0.5;
     private static final int MAX_PIECES = 512;
-    // Rays of eyes this far apart along the path are tested for blocks.
-    private static final int BLOCK_SAMPLES = 16;
-    // How far inside the face it enters a block hit must lie to count when rays between the samples are not tested.
-    private static final double BLOCK_EDGE = 0.01;
-    // Room for the float eye height and hit point when a ray through the hit is followed to the box without margin.
-    private static final double RAW_BOX_PRECISION = 1.0E-4;
-
-    /** Whether a pick ray from {@code from} to {@code to} meets a block, at least {@code edge} inside its face. */
-    @FunctionalInterface
-    interface BlockedRay {
-        boolean blocked(Vec3 from, Vec3 to, double edge);
-    }
 
     /** The least distance from an eye on the path to {@code point}. */
     double reach(Vec3 point) {
@@ -68,81 +54,6 @@ record BedrockAttackPick(
         double pitchRoom = Math.max(Math.abs(pitch - pitchBefore), Math.abs(turnPitch)) + ANGLE_PRECISION;
         for (BedrockEye eye : eyes) {
             if (looksAtHit(eye, turnYaw, turnPitch, yawRoom, pitchRoom)) return true;
-        }
-        return false;
-    }
-
-    /**
-     * Whether this hit on the box grown by the pick margin, {@code grown}, counts. A hit only in the margin counts only
-     * when its ray meets no block within {@code rayLength}, or crosses the box without the margin, {@code raw}, before
-     * the block. True when the eye path meets {@code grown}, where the hit is the eye; when a ray from an eye on the
-     * path through the hit crosses {@code raw}; or when such a ray, from eyes sampled along the path, meets no block,
-     * as none does when {@code rayLength} is 0.
-     */
-    boolean keptPastBlocks(SimpleCollisionBox grown, SimpleCollisionBox raw, BlockedRay blocks) {
-        if (rayLength <= 0) return true;
-        for (BedrockEye eye : eyes) {
-            if (pathMeets(eye, grown) || crossesPastHit(eye, raw)) return true;
-        }
-        for (BedrockEye eye : eyes) {
-            Vec3 start = start(eye);
-            Vec3 path = path(eye);
-            double step = path.length() / BLOCK_SAMPLES;
-            for (int i = 0; i <= BLOCK_SAMPLES; i++) {
-                double along = (double) i / BLOCK_SAMPLES;
-                Vec3 from = new Vec3(start.x + path.x * along, start.y + path.y * along, start.z + path.z * along);
-                double x = hit.x - from.x;
-                double y = hit.y - from.y;
-                double z = hit.z - from.z;
-                double length = Math.sqrt(x * x + y * y + z * z);
-                if (length < 1.0E-6) return true;
-                double scale = rayLength / length;
-                Vec3 to = new Vec3(from.x + x * scale, from.y + y * scale, from.z + z * scale);
-                // Neighbouring samples' rays lie at most this far apart within the ray.
-                double edge = BLOCK_EDGE + step * scale;
-                if (!blocks.blocked(from, to, edge)) return true;
-            }
-        }
-        return false;
-    }
-
-    // Whether the ray from an eye on the path through the hit crosses box past the hit: some hit + u (hit - (start +
-    // s path)), u >= 0 and s in [0, 1], lies in it. With v = u s that is linear in u and v, so the region is a convex
-    // polygon; it is not empty iff two of its edge lines meet at a point of it.
-    private boolean crossesPastHit(BedrockEye eye, SimpleCollisionBox box) {
-        Vec3 start = start(eye);
-        Vec3 path = path(eye);
-        double[] h = {hit.x, hit.y, hit.z};
-        double[] a = {hit.x - start.x, hit.y - start.y, hit.z - start.z};
-        double[] d = {path.x, path.y, path.z};
-        double e = RAW_BOX_PRECISION + hitPrecision;
-        double[] min = {box.minX - e, box.minY - e, box.minZ - e};
-        double[] max = {box.maxX + e, box.maxY + e, box.maxZ + e};
-        // Each row cu u + cv v <= c.
-        double[][] rows = new double[10][];
-        rows[0] = new double[] {-1, 0, 0};
-        rows[1] = new double[] {0, -1, 0};
-        rows[2] = new double[] {-1, 1, 0};
-        rows[3] = new double[] {1, 0, 1.0E3};
-        for (int axis = 0; axis < 3; axis++) {
-            rows[4 + axis * 2] = new double[] {a[axis], -d[axis], max[axis] - h[axis]};
-            rows[5 + axis * 2] = new double[] {-a[axis], d[axis], h[axis] - min[axis]};
-        }
-        for (int i = 0; i < rows.length; i++) {
-            for (int j = i + 1; j < rows.length; j++) {
-                double det = rows[i][0] * rows[j][1] - rows[i][1] * rows[j][0];
-                if (Math.abs(det) < 1.0E-12) continue;
-                double u = (rows[i][2] * rows[j][1] - rows[i][1] * rows[j][2]) / det;
-                double v = (rows[i][0] * rows[j][2] - rows[i][2] * rows[j][0]) / det;
-                boolean inside = true;
-                for (double[] row : rows) {
-                    if (row[0] * u + row[1] * v > row[2] + 1.0E-9) {
-                        inside = false;
-                        break;
-                    }
-                }
-                if (inside) return true;
-            }
         }
         return false;
     }

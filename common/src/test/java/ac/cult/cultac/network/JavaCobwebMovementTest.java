@@ -118,7 +118,7 @@ class JavaCobwebMovementTest {
 
     private static void web(JavaTickFixture f, BlockPos pos) {
         f.player.compensatedWorld.updateBlock(pos, BlockIds.COBWEB.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void assertExact(PredictionResult result) {

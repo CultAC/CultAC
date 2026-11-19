@@ -1,6 +1,15 @@
 package ac.cult.cultac.bedrock.prediction.world;
 
-public record BedrockClimbSurface(Type type, boolean descendAllowed, boolean fluidSuppressesFallClamp) {
+/**
+ * The climb surface a tick starts from. {@code climbableAtFeet} is the climbable block at the centre of the feet, which
+ * caps a fall and holds a sneaking climber whatever scaffolding the box reaches.
+ */
+public record BedrockClimbSurface(
+        Type type,
+        boolean climbableAtFeet,
+        boolean overScaffolding,
+        boolean descendAllowed,
+        boolean fluidSuppressesFallClamp) {
     public BedrockClimbSurface {
         java.util.Objects.requireNonNull(type, "type");
     }

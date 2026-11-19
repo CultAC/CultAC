@@ -128,7 +128,7 @@ final class ItemUseTestSupport {
 
     static void use(CultPlayer player, Hand hand, int sequence) {
         player.packetStateData.clientSidePosition = new Vec3(player.x, player.y, player.z);
-        player.compensatedWorld.advanceClientPredictionSequence();
+        player.compensatedWorld.advanceClientPredictionSequence(sequence);
         PlaceHandler.handleQueuedUseItem(player, new ServerboundUseItem(hand, sequence, player.xRot, player.yRot));
     }
 

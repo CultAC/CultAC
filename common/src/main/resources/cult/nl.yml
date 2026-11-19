@@ -1,5 +1,10 @@
 # CultAC-specifieke configuratie.
 cult:
+  # Sla alle controles over voor Bedrock-spelers (Geyser/Floodgate) of voor Java-spelers.
+  # Standaard worden beide edities gecontroleerd.
+  exempt-bedrock-players: false
+  exempt-java-players: false
+
   checks:
     bedrock-movement:
       # Meld een overtreding zodra de Bedrock-validatieafwijking deze waarde bereikt.

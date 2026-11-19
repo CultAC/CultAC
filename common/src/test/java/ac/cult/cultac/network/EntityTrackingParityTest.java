@@ -48,9 +48,10 @@ import org.junit.jupiter.api.Test;
 /**
  * Entity tracking and interpolation match the code they replace: tickClientEntities' root order against the
  * copy-filter-sort, ReachInterpolationData's kept movement bounds against a fresh computation, the target position
- * against the copied target box, step queue copies, and fromProtocol against its stream. Random streams of spawns,
- * relative moves, position syncs, teleports, passengers, removals, partly answered transactions, client ticks, tick
- * order resets and level clears drive two fixtures: the reference always takes the sort.
+ * against the exact feet it was built from or else the copied target box, step queue copies, and fromProtocol against
+ * its stream. Random streams of spawns, relative moves, position syncs, teleports, passengers, removals, partly
+ * answered transactions, client ticks, tick order resets and level clears drive two fixtures: the reference always
+ * takes the sort.
  */
 class EntityTrackingParityTest {
     private static final String[] TYPES = {
@@ -97,7 +98,9 @@ class EntityTrackingParityTest {
                     PacketEntity entity = entities.getEntity(10 + random.nextInt(types.length));
                     SimpleCollisionBox start = box(player, entity, random);
                     Vec3 target = feet(box(player, entity, random));
-                    var data = new ReachInterpolationData(player, start, target.x, target.y, target.z, entity);
+                    float yaw = entity.clientPhysicalYaw, pitch = entity.clientPhysicalPitch;
+                    var data = new ReachInterpolationData(
+                            player, start, target.x, target.y, target.z, yaw, pitch, yaw, pitch, entity);
                     String where = version + " " + entity.type + " run " + run;
                     checkKeptBounds(data, where);
                     for (int op = 0; op < 40; op++) {
@@ -150,7 +153,7 @@ class EntityTrackingParityTest {
             case 5 -> data.setExactRotation(yaw, pitch);
             case 6 -> data.setCurrentAndTargetRotation(yaw, pitch);
             case 7 -> data.updatePossibleStartingLocation(box(player, entity, random));
-            case 8 -> data.tickMovement(random.nextBoolean(), random.nextBoolean());
+            case 8 -> data.tickMovement(random.nextBoolean());
             case 9 -> {
                 if (!data.usesSteppedInterpolation()) return;
                 data.setPhysicalBeforePathAppend(
@@ -162,7 +165,7 @@ class EntityTrackingParityTest {
                         pitch);
             }
             default ->
-                checkKeptBounds(data.copyAdvancedForClientTick(random.nextBoolean(), random.nextBoolean()), "copy");
+                checkKeptBounds(data.copyAdvancedForClientTick(random.nextBoolean()), "copy");
         }
     }
 
@@ -389,7 +392,10 @@ class EntityTrackingParityTest {
                         (target.maxX - target.minX) / 2 + target.minX,
                         target.minY,
                         (target.maxZ - target.minZ) / 2 + target.minZ);
-                assertEquals(bits(old), bits(data.targetPosition()), where);
+                // The exact feet the target box was built from, while known; the box centre need not rebuild them.
+                Vec3 feet = targetFeet(data);
+                assertEquals(bits(feet == null ? old : feet), bits(data.targetPosition()), where);
+                if (feet != null) assertTrue(feet.distanceToSqr(old) < 1.0E-18, where + " feet " + feet + " box " + old);
                 ArrayDeque<?> queue = queue(data);
                 if (queue != null) assertEquals(List.copyOf(queue), List.copyOf(queue(copy)), where);
             }
@@ -705,6 +711,18 @@ class EntityTrackingParityTest {
             throw new AssertionError(e);
         }
         return copy;
+    }
+
+    private static Vec3 targetFeet(ReachInterpolationData data) throws Exception {
+        if (!(boolean) field(data, "targetFeetKnown")) return null;
+        return new Vec3(
+                (double) field(data, "targetFeetX"), (double) field(data, "targetFeetY"), (double) field(data, "targetFeetZ"));
+    }
+
+    private static Object field(ReachInterpolationData data, String name) throws Exception {
+        Field field = ReachInterpolationData.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(data);
     }
 
     private static ArrayDeque<?> queue(ReachInterpolationData data) throws Exception {
