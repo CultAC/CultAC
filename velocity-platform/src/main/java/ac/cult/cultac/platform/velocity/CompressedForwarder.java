@@ -233,29 +233,26 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return frame;
     }
 
-    /** {@code varint(L)} and a copy of the L readable bytes of the backend's {@code frame} in a new buffer, or null. */
+    /**
+     * A new empty buffer for the private frame of a backend frame of {@code length} readable bytes, of the cipher's kind
+     * or direct when {@code direct}, or null.
+     */
     @Nullable
-    ByteBuf frame(ByteBufAllocator alloc, ByteBuf frame) {
-        return frame(alloc, frame, false);
-    }
-
-    /** As {@link #frame(ByteBufAllocator, ByteBuf)}, in a direct buffer whatever the cipher when {@code direct}. */
-    @Nullable
-    ByteBuf frame(ByteBufAllocator alloc, ByteBuf frame, boolean direct) {
-        int length = frame.readableBytes();
+    ByteBuf frameBuffer(ByteBufAllocator alloc, int length, boolean direct) {
         if (length > MAX_FRAME_LENGTH) return null;
         int size = varIntSize(length) + length;
-        ByteBuf out = null;
         try {
-            out = heap && !direct ? alloc.heapBuffer(size) : alloc.directBuffer(size);
-            Wire.writeVarInt(out, length);
-            out.writeBytes(frame, frame.readerIndex(), length);
-            return out;
+            return heap && !direct ? alloc.heapBuffer(size) : alloc.directBuffer(size);
         } catch (Throwable failure) {
             failures++;
-            if (out != null) out.release();
             return null;
         }
+    }
+
+    /** Writes {@code varint(length)} and the {@code length} bytes of the backend's {@code frame} at {@code start}. */
+    static void fillFrame(ByteBuf out, ByteBuf frame, int start, int length) {
+        Wire.writeVarInt(out, length);
+        out.writeBytes(frame, start, length);
     }
 
     private void frameSmall(

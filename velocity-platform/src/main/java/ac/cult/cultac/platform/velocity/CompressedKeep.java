@@ -58,8 +58,6 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     private @Nullable ChannelHandlerContext keepContext, decoderContext;
     private @Nullable MessageToMessageDecoder<?> decoder;
     private @Nullable Codec codec;
-    // Set by a successful inflate and read before any other code runs: the frame bytes the decoder's read consumes.
-    private int consumed;
 
     CompressedKeep(CompressedForwarder forwarder) {
         this(forwarder, NETTY_ALLOCATORS);
@@ -105,13 +103,17 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     }
 
     /**
-     * Whether {@code frame} has one NIO buffer, as Velocity's Java inflater requires, and is compressed with a data
-     * length the forwarder could send.
+     * The data length {@code frame} claims between {@code start} and {@code end} when it has one NIO buffer, as
+     * Velocity's Java inflater requires, a memory address when the compressor reads through one, and a claim the
+     * forwarder could send; else -1.
      */
-    private boolean held(ByteBuf frame) {
-        if (frame.nioBufferCount() != 1) return false;
-        int n = CompressedForwarder.dataLength(frame, frame.readerIndex(), frame.writerIndex());
-        return n > 0 && n >= forwarder.threshold() && n <= CompressedForwarder.MAX_FORWARDED_LENGTH;
+    private int claimed(ByteBuf frame, Codec codec, int start, int end) {
+        if (frame.nioBufferCount() != 1) return -1;
+        // Velocity copies a frame without an address for libdeflate between its own two allocations.
+        if (codec.address() && !frame.hasMemoryAddress()) return -1;
+        int n = CompressedForwarder.dataLength(frame, start, end);
+        // MAX_FORWARDED_LENGTH is below both of Velocity's uncompressed caps.
+        return n > 0 && n >= forwarder.threshold() && n <= CompressedForwarder.MAX_FORWARDED_LENGTH ? n : -1;
     }
 
     /**
@@ -169,22 +171,27 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         ByteBuf client = null;
         ByteBuf inflated = null;
         ByteBuf copy = null;
-        int reader = 0;
-        if (held(frame) && trusted(ctx)) {
-            client = forwarder.frame(ctx.alloc(), frame, codec.address());
-            if (client != null) inflated = inflate(ctx, codec, client, frame.readableBytes());
-            if (inflated != null) {
-                // Velocity's libdeflate path inflates a frame without a memory address from a copy that reads it all.
-                reader = codec.address() && !frame.hasMemoryAddress()
-                        ? frame.writerIndex()
-                        : frame.readerIndex() + consumed;
-                copy = copy(ctx, inflated);
-            }
+        int start = frame.readerIndex();
+        int end = frame.writerIndex();
+        int n = trusted(ctx) ? claimed(frame, codec, start, end) : -1;
+        if (n > 0) {
+            client = forwarder.frameBuffer(ctx.alloc(), end - start, codec.address());
+            if (client != null) inflated = allocate(ctx, n, true);
+            if (inflated != null) copy = allocate(ctx, n, false);
         }
-        // A leak report in these allocations runs log and listener code, which can change the pipeline or the limiter.
+        // A leak report in these allocations runs code that can change the pipeline, the limiter or the frame.
         boolean adjacent = adjacent();
         boolean limited = adjacent && limited(codec.limiter());
-        if (copy == null || !adjacent || limited || !trusted(ctx)) {
+        int consumed = copy != null
+                        && adjacent
+                        && !limited
+                        && trusted(ctx)
+                        && frame.readerIndex() == start
+                        && frame.writerIndex() == end
+                        && claimed(frame, codec, start, end) == n
+                ? inflate(codec, frame, start, end - start, n, client, inflated, copy)
+                : -1;
+        if (consumed < 0) {
             Throwable failure = CompressedForwarder.release(client, null);
             failure = CompressedForwarder.release(inflated, failure);
             failure = CompressedForwarder.release(copy, failure);
@@ -197,7 +204,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             CompressedForwarder.rethrow(failure);
             return;
         }
-        publish(frame, reader, decoder, inflated, copy, client);
+        publish(frame, start + consumed, decoder, inflated, copy, client);
     }
 
     /**
@@ -241,51 +248,46 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     }
 
     /**
-     * The backend frame at the end of {@code client}, {@code length} bytes, inflated by the decoder's compressor into a
-     * direct buffer of its claimed length, as Velocity's decoder inflates it, or null when any step fails or a check
-     * the decoder makes does not pass; on success {@link #consumed} holds the frame bytes the decoder's read consumes.
+     * A new buffer of {@code n} bytes: when {@code direct} a direct one, as Velocity's decoder allocates its output for
+     * either compressor, else one for the comparison copy; null when it cannot be allocated.
      */
-    private @Nullable ByteBuf inflate(ChannelHandlerContext ctx, Codec codec, ByteBuf client, int length) {
-        int end = client.writerIndex();
-        int start = end - length;
-        int n = CompressedForwarder.dataLength(client, start, end);
-        int body = start + CompressedForwarder.dataLengthSize(client, start, end);
+    private static @Nullable ByteBuf allocate(ChannelHandlerContext ctx, int n, boolean direct) {
+        try {
+            return direct ? ctx.alloc().directBuffer(n) : ctx.alloc().buffer(n, n);
+        } catch (Throwable failure) {
+            return null;
+        }
+    }
+
+    /**
+     * Copies the {@code length} bytes of {@code frame} at {@code start} into {@code client}, inflates their body into
+     * {@code inflated} with the decoder's compressor as Velocity's decoder does, checks what it checks and copies the
+     * result into {@code copy}; returns the frame bytes the decoder's read consumes, or -1 when a step fails or a check
+     * does not pass.
+     */
+    private static int inflate(
+            Codec codec, ByteBuf frame, int start, int length, int n, ByteBuf client, ByteBuf inflated, ByteBuf copy) {
         int threshold;
         try {
             threshold = (int) codec.threshold().invokeExact();
         } catch (Throwable failure) {
-            return null;
+            return -1;
         }
-        // MAX_FORWARDED_LENGTH is below both of Velocity's uncompressed caps.
-        if (n <= 0 || n < threshold || n > CompressedForwarder.MAX_FORWARDED_LENGTH) return null;
-        if (codec.address() && !client.hasMemoryAddress()) return null;
-        ByteBuf out = null;
+        if (n < threshold) return -1;
+        // From the frame's first byte read to the publish only netty's buffers and Velocity's own compressor run.
         try {
+            CompressedForwarder.fillFrame(client, frame, start, length);
+            int end = client.writerIndex();
+            int header = CompressedForwarder.dataLengthSize(client, end - length, end);
+            int body = end - length + header;
             ByteBuf source = client.slice(body, end - body);
-            out = ctx.alloc().directBuffer(n);
-            codec.inflate().invokeExact(source, out, n);
-            if (out.writerIndex() == n) {
-                consumed = body - start + source.readerIndex();
-                return out;
-            }
+            codec.inflate().invokeExact(source, inflated, n);
+            if (inflated.writerIndex() != n) return -1;
+            copy.writeBytes(inflated, inflated.readerIndex(), n);
+            return header + source.readerIndex();
         } catch (Throwable failure) {
             // The decoder inflates the frame again and raises its own exception.
-        }
-        CompressedForwarder.release(out, null);
-        return null;
-    }
-
-    /** The readable bytes of {@code inflated} in a new buffer, or null when it cannot be allocated. */
-    private static @Nullable ByteBuf copy(ChannelHandlerContext ctx, ByteBuf inflated) {
-        int n = inflated.readableBytes();
-        ByteBuf copy = null;
-        try {
-            copy = ctx.alloc().buffer(n, n);
-            copy.writeBytes(inflated, inflated.readerIndex(), n);
-            return copy;
-        } catch (Throwable failure) {
-            CompressedForwarder.release(copy, null);
-            return null;
+            return -1;
         }
     }
 }

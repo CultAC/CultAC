@@ -116,12 +116,7 @@ class VelocityCompressedForwardLoopTest {
             pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
             pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
             return VelocityCompressedForward.install(
-                    pipeline,
-                    CompressEncoder.class.getName(),
-                    CompressDecoder.class.getName(),
-                    COMPRESSORS,
-                    true,
-                    false);
+                    pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS, true, false);
         });
         return pair;
     }
@@ -204,7 +199,12 @@ class VelocityCompressedForwardLoopTest {
         Object plugin = new Object();
         Pair client = client();
         var forward = new VelocityCompressedForward(
-                proxy, plugin, player -> client.proxySide(), true, false, CompressDecoder.class.getName(), COMPRESSORS);
+                proxy,
+                plugin,
+                player -> client.proxySide(),
+                true,
+                false,
+                new VelocityCompressedForward.Codecs(CompressEncoder.class, CompressDecoder.class, COMPRESSORS));
         forward.listen();
         @SuppressWarnings("unchecked")
         ArgumentCaptor<EventHandler<ServerConnectedEvent>> connected = ArgumentCaptor.forClass(EventHandler.class);
@@ -256,12 +256,7 @@ class VelocityCompressedForwardLoopTest {
                 pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
                 pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
                 return VelocityCompressedForward.install(
-                        pipeline,
-                        CompressEncoder.class.getName(),
-                        CompressDecoder.class.getName(),
-                        COMPRESSORS,
-                        true,
-                        false);
+                        pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS, true, false);
             });
             assertNull(forwarder);
             assertNull(onLoop(() -> client.proxySide().pipeline().get(CompressedForwarder.NAME)));
@@ -304,11 +299,7 @@ class VelocityCompressedForwardLoopTest {
                         decoders, VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
                 pipeline.addLast("handler", relay(client.proxySide()));
                 VelocityCompressedForward.link(
-                        forwarder,
-                        client.proxySide(),
-                        backend.proxySide(),
-                        CompressDecoder.class.getName(),
-                        COMPRESSORS);
+                        forwarder, client.proxySide(), backend.proxySide(), CompressDecoder.class, COMPRESSORS);
                 return null;
             });
             assertEquals("backend-executor", onLoop(forwarder::linkStatus));
@@ -357,11 +348,7 @@ class VelocityCompressedForwardLoopTest {
                 });
                 if (forward)
                     VelocityCompressedForward.link(
-                            forwarder,
-                            client.proxySide(),
-                            backend.proxySide(),
-                            CompressDecoder.class.getName(),
-                            COMPRESSORS);
+                            forwarder, client.proxySide(), backend.proxySide(), CompressDecoder.class, COMPRESSORS);
                 return null;
             });
             if (forward) assertEquals("linked", onLoop(forwarder::linkStatus));
