@@ -4711,6 +4711,42 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void linkHandOffThatThrowsAfterAnInstallLeavesTheForwarderUnlinked() {
+        for (Throwable thrown : List.of(
+                new RejectedExecutionException("shut down"),
+                new IllegalStateException("loop"),
+                new OutOfMemoryError("queue"))) {
+            String side = thrown.getClass().getSimpleName();
+            var embedded = channel();
+            try {
+                ChannelPipeline pipeline = embedded.pipeline();
+                var compressor = new SharedCompressor();
+                pipeline.addLast(
+                        VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+                pipeline.addLast(
+                        CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+                EventLoop failing = mock(EventLoop.class);
+                doThrow(thrown).when(failing).execute(any(Runnable.class));
+                Channel client = mock(Channel.class);
+                when(client.pipeline()).thenReturn(pipeline);
+                when(client.eventLoop())
+                        .thenAnswer(call ->
+                                pipeline.get(CompressedForwarder.NAME) == null ? embedded.eventLoop() : failing);
+                var connection = new CultConnection(client, new PacketDispatcher(RUNTIME), ignored -> null);
+                VelocityConnectionAdapter adapter = mock(VelocityConnectionAdapter.class);
+                assertDoesNotThrow(() -> forward().installClient(connection, adapter, null), side);
+                verify(failing).execute(any(Runnable.class));
+                var forwarder =
+                        assertInstanceOf(CompressedForwarder.class, pipeline.get(CompressedForwarder.NAME), side);
+                verify(adapter).compressedForwarder(forwarder);
+                assertEquals("none", forwarder.linkStatus(), side);
+            } finally {
+                embedded.finishAndReleaseAll();
+            }
+        }
+    }
+
+    @Test
     void failedReleaseOfAnUnpublishedKeepBufferIsDeliveredFromTheDecoder() {
         byte[] packet = packet(3000, 161);
         byte[] read = frame(body(packet, THRESHOLD));

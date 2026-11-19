@@ -20,7 +20,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -551,7 +550,10 @@ final class VelocityCompressedForward {
         }
     }
 
-    /** Links the client's forwarder, on the client's loop, to the backend {@code server} names when the task runs. */
+    /**
+     * Links the client's forwarder, on the client's loop, to the backend {@code server} names when the task runs; a
+     * task the loop does not take is dropped, and nothing the hand-off throws leaves this method.
+     */
     private static void schedule(
             Channel client,
             Class<?> decoderClass,
@@ -572,8 +574,8 @@ final class VelocityCompressedForward {
                 }
                 if (backend != null) link(forwarder, client, backend, decoderClass, compressors, decode, refused);
             });
-        } catch (RejectedExecutionException closed) {
-            // The client's loop is shut down, and with it the channel.
+        } catch (Throwable failure) {
+            // The forwarder stays unlinked; no throw of the hand-off may reach the caller.
         }
     }
 
