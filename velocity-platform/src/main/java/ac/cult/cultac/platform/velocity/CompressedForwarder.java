@@ -25,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Sits on the client channel directly after Velocity's compression encoder and sends the marked, unchanged inflated
  * buffer as its keep's private frame through the encoder's context. Every other message passes on to the encoder with
- * no call of its own made. Confined to the client's event loop.
+ * no call of its own made. Runs on the client's event loop and takes a mark only on the thread that published it.
  */
 final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final String NAME = "cult-compressed-forward";
@@ -60,6 +60,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private int markReader, markWriter;
     private @Nullable ByteBuf markCopy;
     private @Nullable ByteBuf markFrame;
+    private @Nullable Thread markThread;
 
     boolean disabled;
     private String status = "on";
@@ -195,6 +196,11 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         // Object identity alone decides: a message other than the published buffer gets no call before it passes on.
         if (msg != markBuf || disabled || target == null) {
             if (!disabled && target != null && msg instanceof ByteBuf) notMarked++;
+            ctx.write(msg, promise);
+            return;
+        }
+        // A channel moved to another event loop writes on a thread other than the one that published the mark.
+        if (markThread != Thread.currentThread()) {
             ctx.write(msg, promise);
             return;
         }
@@ -379,13 +385,17 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return at >= 0 && at + 1 < names.size() && NAME.equals(names.get(at + 1));
     }
 
-    /** Publishes the mark; a non-null {@code frame} passes to the first forward of {@code buf} that takes it. */
+    /**
+     * Publishes the mark from the current thread; a non-null {@code frame} passes to the first forward of {@code buf}
+     * on this thread that takes it.
+     */
     void mark(ByteBuf buf, int reader, int writer, @Nullable ByteBuf copy, @Nullable ByteBuf frame) {
         markBuf = buf;
         markReader = reader;
         markWriter = writer;
         markCopy = copy;
         markFrame = frame;
+        markThread = Thread.currentThread();
     }
 
     int markReader() {

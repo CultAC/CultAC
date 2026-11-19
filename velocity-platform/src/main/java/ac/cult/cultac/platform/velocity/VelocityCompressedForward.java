@@ -146,18 +146,17 @@ final class VelocityCompressedForward {
 
     /**
      * Installs the forwarder on a Java client's channel, on that channel's loop, after Cult's encoder; a refusal's
-     * warning runs as a task on that loop, after the read or write that installs.
+     * warning runs as one task on that loop, after the read that installs or the write that refuses.
      */
     void installClient(CultConnection connection, VelocityConnectionAdapter adapter, Player player) {
         Channel channel = connection.channel();
         if (connection.owner() != channel.eventLoop()) return;
         var pipeline = channel.pipeline();
-        var forwarder = install(
-                pipeline,
-                encoderClass,
-                decoderClass,
-                compressors,
-                refusal -> deferred(channel, () -> refused(refusal)).run());
+        var forwarder = install(pipeline, encoderClass, decoderClass, compressors, refusal -> {
+            // The forwarder hands its client-untrusted refusal to this loop already.
+            if (refusal == Refusal.CLIENT_UNTRUSTED) refused(refusal);
+            else deferred(channel, () -> refused(refusal)).run();
+        });
         if (forwarder == null) return;
         adapter.compressedForwarder(forwarder);
         schedule(

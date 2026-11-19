@@ -4048,8 +4048,12 @@ class VelocityCompressedForwardTest {
         ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
         var group = new DefaultEventExecutorGroup(1);
         try {
-            for (boolean elsewhere : new boolean[] {false, true}) {
-                String side = elsewhere ? "with a handler on another executor" : "on the loop";
+            for (int s = 0; s < 3; s++) {
+                boolean elsewhere = s == 1;
+                Class<?> accepted = s == 2 ? OtherEncoder.class : DECODER;
+                String side = elsewhere
+                        ? "with a handler on another executor"
+                        : s == 2 ? "with a decoder of another class" : "on the loop";
                 List<String> seen = new ArrayList<>();
                 for (boolean on : new boolean[] {false, true}) {
                     try (var f = new Fixture(on ? Options.forwarding().unlinked() : Options.today())) {
@@ -4064,7 +4068,7 @@ class VelocityCompressedForwardTest {
                                         f.forwarder,
                                         f.client.pipeline(),
                                         touching.channel,
-                                        DECODER,
+                                        accepted,
                                         COMPRESSORS,
                                         CompressedKeep.NETTY_ALLOCATORS);
                                 assertEquals(CompressedKeep.LEAK_DETECTION, f.forwarder.linkStatus(), side);
@@ -4630,6 +4634,74 @@ class VelocityCompressedForwardTest {
             }
         }
         assertEquals("[" + Arrays.toString(packet) + "], promise ok", seen.get(0));
+        assertEquals(seen.get(0), seen.get(1));
+    }
+
+    @Test
+    void untrustedClientWriteOfAnInstalledClientWarnsThroughOneTaskAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 162);
+        List<String> seen = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            var embedded = channel();
+            try (var log = mockStatic(LogUtil.class)) {
+                ChannelPipeline real = embedded.pipeline();
+                var compressor = new SharedCompressor();
+                real.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+                real.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+                boolean[] counting = {false};
+                EventLoop loop = mock(EventLoop.class);
+                when(loop.inEventLoop()).thenReturn(true);
+                doAnswer(call -> {
+                            embedded.eventLoop().execute(call.getArgument(0));
+                            return null;
+                        })
+                        .when(loop)
+                        .execute(any(Runnable.class));
+                Channel client = mock(Channel.class);
+                when(client.eventLoop()).thenAnswer(call -> counting[0] ? loop : embedded.eventLoop());
+                ChannelPipeline pipeline = delegating(real);
+                doReturn(client).when(pipeline).channel();
+                when(client.pipeline()).thenReturn(pipeline);
+                CompressedForwarder forwarder = null;
+                if (on) {
+                    var forward = new VelocityCompressedForward(
+                            mock(ProxyServer.class),
+                            new Object(),
+                            p -> null,
+                            new VelocityCompressedForward.Codecs(CompressEncoder.class, DECODER, COMPRESSORS));
+                    var connection = new CultConnection(client, new PacketDispatcher(RUNTIME), ignored -> null);
+                    forward.installClient(connection, mock(VelocityConnectionAdapter.class), mock(Player.class));
+                    forwarder = assertInstanceOf(CompressedForwarder.class, real.get(CompressedForwarder.NAME));
+                    embedded.runPendingTasks();
+                }
+                counting[0] = true;
+                ByteBuf input = Unpooled.wrappedBuffer(packet);
+                if (on) forwarder.mark(input, input.readerIndex(), input.writerIndex(), null, null);
+                ChannelFuture write;
+                try {
+                    write = embedded.writeAndFlush(input);
+                } finally {
+                    if (on) forwarder.mark(null, 0, 0, null, null);
+                }
+                embedded.runPendingTasks();
+                StringBuilder sent = new StringBuilder();
+                Object out;
+                while ((out = embedded.readOutbound()) != null) {
+                    sent.append(ByteBufUtil.hexDump((ByteBuf) out));
+                    ((ByteBuf) out).release();
+                }
+                seen.add(sent + ", promise " + describe(write.cause()) + ", count " + input.refCnt());
+                if (on) {
+                    assertEquals(CompressedForwarder.UNTRUSTED, forwarder.status());
+                    verify(loop, times(1)).execute(any(Runnable.class));
+                    log.verify(
+                            () -> LogUtil.warn(VelocityCompressedForward.Refusal.CLIENT_UNTRUSTED.warning), times(1));
+                }
+            } finally {
+                embedded.finishAndReleaseAll();
+            }
+        }
+        assertTrue(seen.get(0).endsWith(", promise ok, count 0"), seen.get(0));
         assertEquals(seen.get(0), seen.get(1));
     }
 
