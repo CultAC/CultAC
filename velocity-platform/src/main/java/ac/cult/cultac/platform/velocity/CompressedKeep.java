@@ -9,22 +9,25 @@ import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.DecoderException;
+import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.util.IllegalReferenceCountException;
 import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.Set;
 import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Sits on a backend channel directly before Velocity's compression decoder and, while the keep, decoder and mark are
- * adjacent, copies each forwardable single-buffer compressed frame of netty's own classes into a private client frame,
- * passes the decoder a slice of it, and arms the mark's one-shot token for that read unless the decoder has a limiter.
+ * Sits on a backend channel directly before Velocity's compression decoder, inflates each forwardable compressed frame
+ * itself with the decoder's compressor, publishes the result with its private client frame to the forwarder, and fires
+ * it from the decoder's context; every other frame goes to the decoder untouched.
  */
 final class CompressedKeep extends ChannelInboundHandlerAdapter {
     static final String NAME = "cult-compressed-keep";
     // A packet limiter runs inside the decoder between its inflate and its publish.
     static final String LIMITED = "backend-limiter";
-    // Netty's own allocators; any other can run code between the keep's checks and the mark.
+    // Netty's own allocators; any other can run code between the keep's checks and its publish.
     private static final Set<Class<?>> ALLOCATORS =
             Set.of(AdaptiveByteBufAllocator.class, PooledByteBufAllocator.class, UnpooledByteBufAllocator.class);
     /** Whether an allocator is exactly of one of netty's own allocator classes. */
@@ -40,22 +43,21 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
                     && !type.getName().equals("io.netty.buffer.FixedCompositeByteBuf");
         }
     };
+    // MessageToMessageDecoder's read flags, which its channelReadComplete reads with auto-read off.
+    private static final @Nullable VarHandle DECODE_CALLED = flag("decodeCalled");
+    private static final @Nullable VarHandle MESSAGE_PRODUCED = flag("messageProduced");
+
+    /**
+     * The backend decoder's threshold and limiter getters and its compressor's {@code inflate(ByteBuf, ByteBuf, int)},
+     * each bound; {@code address} when the compressor reads its source through a memory address.
+     */
+    record Codec(MethodHandle threshold, MethodHandle limiter, MethodHandle inflate, boolean address) {}
 
     private final CompressedForwarder forwarder;
     private final Predicate<ByteBufAllocator> trustedAllocators;
-    // The private client frame: varint(length), then the backend's frame at [keptStart, keptEnd).
-    ByteBuf kept;
-    int keptStart, keptEnd;
-    // The slice of kept's backend frame the decoder receives.
-    @Nullable
-    ByteBuf keptSlice;
-    // Spent by the first message to reach the mark inside the read that arms it.
-    boolean armed;
     private @Nullable ChannelHandlerContext keepContext, decoderContext;
-    private @Nullable MethodHandle limiter;
-
-    @Nullable
-    ChannelHandlerContext markContext;
+    private @Nullable MessageToMessageDecoder<?> decoder;
+    private @Nullable Codec codec;
 
     CompressedKeep(CompressedForwarder forwarder) {
         this(forwarder, NETTY_ALLOCATORS);
@@ -67,16 +69,27 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         this.trustedAllocators = trustedAllocators;
     }
 
-    /** Caches the contexts of this keep, the compression decoder and the mark, and the decoder's limiter getter. */
-    void attach(
-            @Nullable ChannelHandlerContext keep,
-            @Nullable ChannelHandlerContext decoder,
-            @Nullable ChannelHandlerContext mark,
-            @Nullable MethodHandle limiter) {
+    private static @Nullable VarHandle flag(String name) {
+        try {
+            return MethodHandles.privateLookupIn(MessageToMessageDecoder.class, MethodHandles.lookup())
+                    .findVarHandle(MessageToMessageDecoder.class, name, boolean.class);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /** Whether this netty lets the keep set the flags a decoder's read completion reads. */
+    static boolean supported() {
+        return DECODE_CALLED != null && MESSAGE_PRODUCED != null;
+    }
+
+    /** Caches the contexts of this keep and the compression decoder, a {@link MessageToMessageDecoder}, and its codec. */
+    void attach(@Nullable ChannelHandlerContext keep, @Nullable ChannelHandlerContext decoder, @Nullable Codec codec) {
         keepContext = keep;
         decoderContext = decoder;
-        markContext = mark;
-        this.limiter = limiter;
+        this.decoder =
+                decoder != null && decoder.handler() instanceof MessageToMessageDecoder<?> handler ? handler : null;
+        this.codec = codec;
     }
 
     /** Whether {@code limiter} reads a packet limiter set on the decoder, or cannot be read. */
@@ -119,16 +132,14 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         return true;
     }
 
-    /** Whether the cached mark is in the pipeline directly after the decoder, which directly follows this keep. */
+    /** Whether the cached decoder is in the pipeline directly after this keep. */
     boolean adjacent() {
         ChannelHandlerContext keep = keepContext;
         ChannelHandlerContext decoder = decoderContext;
-        ChannelHandlerContext mark = markContext;
         return keep != null
                 && decoder != null
-                && mark != null
-                && !mark.isRemoved()
-                && CompressedForwarder.follows(mark, decoder)
+                && !keep.isRemoved()
+                && !decoder.isRemoved()
                 && CompressedForwarder.follows(decoder, keep);
     }
 
@@ -143,49 +154,68 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             ctx.fireChannelRead(msg);
             return;
         }
-        ByteBuf previous = kept;
-        int previousStart = keptStart;
-        int previousEnd = keptEnd;
-        ByteBuf previousSlice = keptSlice;
-        boolean previousArmed = armed;
-        boolean adjacent = ctx == keepContext && adjacent();
-        ByteBuf copy = adjacent && held(frame) && trusted(ctx) ? forwarder.frame(ctx.alloc(), frame) : null;
-        ByteBuf slice = null;
-        Throwable released = null;
-        int start = 0;
-        if (copy != null) {
-            int length = frame.readableBytes();
-            start = copy.writerIndex() - length;
+        Codec codec = this.codec;
+        MessageToMessageDecoder<?> decoder = this.decoder;
+        if (ctx != keepContext || codec == null || decoder == null || !adjacent()) {
             try {
-                slice = copy.retainedSlice(start, length);
-            } catch (RuntimeException | Error failure) {
-                copy.release();
-                copy = null;
+                forwarder.unlinkDetached(this);
+            } finally {
+                ctx.fireChannelRead(msg);
             }
-            if (slice != null) released = CompressedForwarder.release(frame, null);
+            return;
         }
-        // A leak report in the keep's allocation runs log and listener code, which can move handlers or the allocator.
-        if (copy != null) adjacent = adjacent();
-        boolean limited = adjacent && limited(limiter);
-        kept = copy;
-        keptStart = start;
-        keptEnd = copy == null ? 0 : copy.writerIndex();
-        keptSlice = slice;
-        armed = copy != null && adjacent && trusted(ctx);
-        try {
+        ByteBuf client = null;
+        ByteBuf inflated = null;
+        ByteBuf copy = null;
+        if (held(frame) && trusted(ctx)) {
+            client = forwarder.frame(ctx.alloc(), frame, codec.address());
+            if (client != null) inflated = inflate(ctx, codec, client, frame.readableBytes());
+            if (inflated != null) copy = copy(ctx, inflated);
+        }
+        // A leak report in these allocations runs log and listener code, which can change the pipeline or the limiter.
+        boolean adjacent = adjacent();
+        boolean limited = adjacent && limited(codec.limiter());
+        if (copy == null || !adjacent || limited || !trusted(ctx)) {
+            Throwable failure = CompressedForwarder.release(client, null);
+            failure = CompressedForwarder.release(inflated, failure);
+            failure = CompressedForwarder.release(copy, failure);
             try {
                 if (!adjacent) forwarder.unlinkDetached(this);
                 else if (limited) forwarder.unlinkDetached(this, LIMITED);
             } finally {
-                ctx.fireChannelRead(slice == null ? msg : slice);
+                ctx.fireChannelRead(msg);
             }
+            CompressedForwarder.rethrow(failure);
+            return;
+        }
+        publish(frame, decoder, inflated, copy, client);
+    }
+
+    /**
+     * Publishes {@code inflated}, its indices, {@code copy} and {@code client}, releases the backend's {@code frame} and
+     * fires {@code inflated} from the decoder's context, as the decoder's own read does; restores the previous mark.
+     */
+    private void publish(
+            ByteBuf frame, MessageToMessageDecoder<?> decoder, ByteBuf inflated, ByteBuf copy, ByteBuf client) {
+        CompressedForwarder target = forwarder;
+        ByteBuf previous = target.markBuf;
+        int previousReader = target.markReader();
+        int previousWriter = target.markWriter();
+        ByteBuf previousCopy = target.markCopy();
+        ByteBuf previousFrame = target.markFrame();
+        Throwable released;
+        target.mark(inflated, inflated.readerIndex(), inflated.writerIndex(), copy, client);
+        try {
+            DECODE_CALLED.set(decoder, true);
+            MESSAGE_PRODUCED.set(decoder, true);
+            released = CompressedForwarder.release(frame, null);
+            decoderContext.fireChannelRead(inflated);
         } finally {
-            kept = previous;
-            keptStart = previousStart;
-            keptEnd = previousEnd;
-            keptSlice = previousSlice;
-            armed = previousArmed;
-            if (copy != null) copy.release();
+            boolean untaken = target.markFrame() == client;
+            target.mark(previous, previousReader, previousWriter, previousCopy, previousFrame);
+            Throwable failure = CompressedForwarder.release(copy, null);
+            if (untaken) failure = CompressedForwarder.release(client, failure);
+            CompressedForwarder.rethrow(failure);
         }
         // A failed release of the input surfaces after the fire, wrapped as MessageToMessageDecoder wraps it.
         CompressedForwarder.rethrow(
@@ -194,15 +224,49 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
                         : released);
     }
 
-    /** Whether the decoder's packet limiter is set or cannot be read, by one read of the cached getter. */
-    boolean limited() {
-        return limited(limiter);
+    /**
+     * The backend frame at the end of {@code client}, {@code length} bytes, inflated by the decoder's compressor into a
+     * direct buffer of its claimed length, as Velocity's decoder inflates it, or null when any step fails or a check
+     * the decoder makes does not pass.
+     */
+    private static @Nullable ByteBuf inflate(ChannelHandlerContext ctx, Codec codec, ByteBuf client, int length) {
+        int end = client.writerIndex();
+        int start = end - length;
+        int n = CompressedForwarder.dataLength(client, start, end);
+        int body = start + CompressedForwarder.dataLengthSize(client, start, end);
+        int threshold;
+        try {
+            threshold = (int) codec.threshold().invokeExact();
+        } catch (Throwable failure) {
+            return null;
+        }
+        // MAX_FORWARDED_LENGTH is below both of Velocity's uncompressed caps.
+        if (n <= 0 || n < threshold || n > CompressedForwarder.MAX_FORWARDED_LENGTH) return null;
+        if (codec.address() && !client.hasMemoryAddress()) return null;
+        ByteBuf out = null;
+        try {
+            ByteBuf source = client.slice(body, end - body);
+            out = ctx.alloc().directBuffer(n);
+            codec.inflate().invokeExact(source, out, n);
+            if (out.writerIndex() == n) return out;
+        } catch (Throwable failure) {
+            // The decoder inflates the frame again and raises its own exception.
+        }
+        CompressedForwarder.release(out, null);
+        return null;
     }
 
-    @Override
-    public void handlerRemoved(ChannelHandlerContext ctx) {
-        kept = null;
-        keptSlice = null;
-        armed = false;
+    /** The readable bytes of {@code inflated} in a new buffer, or null when it cannot be allocated. */
+    private static @Nullable ByteBuf copy(ChannelHandlerContext ctx, ByteBuf inflated) {
+        int n = inflated.readableBytes();
+        ByteBuf copy = null;
+        try {
+            copy = ctx.alloc().buffer(n, n);
+            copy.writeBytes(inflated, inflated.readerIndex(), n);
+            return copy;
+        } catch (RuntimeException | OutOfMemoryError failure) {
+            CompressedForwarder.release(copy, null);
+            return null;
+        }
     }
 }

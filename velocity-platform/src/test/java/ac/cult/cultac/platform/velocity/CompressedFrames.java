@@ -7,6 +7,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.MessageToByteEncoder;
 import io.netty.handler.codec.MessageToMessageDecoder;
@@ -162,12 +163,101 @@ final class CompressedFrames {
         }
     }
 
-    /** A compressor the client's two codecs share; removing the decoder closes it, as Velocity's does. */
-    static final class SharedCompressor {
+    /** The stand-in compressor classes, in the roles of Velocity's Java and libdeflate compressors. */
+    static final VelocityCompressedForward.Compressors COMPRESSORS = new VelocityCompressedForward.Compressors(
+            SharedCompressor.class.getName(), AddressCompressor.class.getName());
+
+    /**
+     * A compressor in the role of Velocity's Java one, which a client's two codecs share and a decoder closes when it
+     * is removed: its {@link #inflate} takes a source of one NIO buffer, reads the zlib stream and ignores what follows
+     * it, fails past {@code max} bytes, and consumes what it read.
+     */
+    static class SharedCompressor {
         boolean disposed;
+        /** Every destination an inflate wrote into. */
+        final List<ByteBuf> destinations = new ArrayList<>();
 
         void check() {
-            if (disposed) throw new IllegalStateException("Already closed");
+            if (disposed) throw new IllegalStateException("Object already disposed");
+        }
+
+        void close() {
+            disposed = true;
+        }
+
+        public void inflate(ByteBuf source, ByteBuf destination, int max) throws DataFormatException {
+            check();
+            if (source.nioBufferCount() != 1) throw new IllegalArgumentException("source has multiple backing buffers");
+            if (destination.nioBufferCount() != 1)
+                throw new IllegalArgumentException("destination has multiple backing buffers");
+            destinations.add(destination);
+            byte[] zlib = new byte[source.readableBytes()];
+            source.getBytes(source.readerIndex(), zlib);
+            Inflater inflater = new Inflater();
+            try {
+                inflater.setInput(zlib);
+                byte[] out = new byte[max];
+                int produced = 0;
+                while (!inflater.finished() && inflater.getBytesRead() < zlib.length) {
+                    if (produced >= max) throw new DataFormatException("Got too much data");
+                    int got = inflater.inflate(out, produced, max - produced);
+                    if (got == 0 && !inflater.finished()) throw new DataFormatException("Badly compressed packet");
+                    produced += got;
+                }
+                if (!inflater.finished()) throw new DataFormatException("Badly compressed packet");
+                destination.writeBytes(out, 0, produced);
+                source.skipBytes((int) inflater.getBytesRead());
+            } finally {
+                inflater.end();
+            }
+        }
+
+        /** The input as the decoder passes it to {@link #inflate}: retained when compatible, else a copy. */
+        ByteBuf compatible(ChannelHandlerContext ctx, ByteBuf in) {
+            return in.retain();
+        }
+    }
+
+    /**
+     * A compressor in the role of Velocity's libdeflate one: its {@link #inflate} reads the source and the destination
+     * through their memory addresses, fills exactly {@code max} bytes and leaves the source's index alone.
+     */
+    static final class AddressCompressor extends SharedCompressor {
+        @Override
+        public void inflate(ByteBuf source, ByteBuf destination, int max) throws DataFormatException {
+            check();
+            destination.ensureWritable(max);
+            source.memoryAddress();
+            destination.memoryAddress();
+            destinations.add(destination);
+            byte[] zlib = new byte[source.readableBytes()];
+            source.getBytes(source.readerIndex(), zlib);
+            Inflater inflater = new Inflater();
+            try {
+                inflater.setInput(zlib);
+                byte[] out = new byte[max];
+                if (inflater.inflate(out) != max || !inflater.finished())
+                    throw new DataFormatException("inflate failed");
+                destination.writeBytes(out);
+            } finally {
+                inflater.end();
+            }
+        }
+
+        @Override
+        ByteBuf compatible(ChannelHandlerContext ctx, ByteBuf in) {
+            if (in.hasMemoryAddress()) return in.retain();
+            return ctx.alloc().directBuffer(in.readableBytes()).writeBytes(in);
+        }
+    }
+
+    /** A compressor of another class: it inflates as {@link SharedCompressor} does, then flips the packet's first byte. */
+    static final class TranslatingCompressor extends SharedCompressor {
+        @Override
+        public void inflate(ByteBuf source, ByteBuf destination, int max) throws DataFormatException {
+            super.inflate(source, destination, max);
+            int first = destination.readerIndex();
+            destination.setByte(first, destination.getByte(first) ^ 1);
         }
     }
 
@@ -233,24 +323,20 @@ final class CompressedFrames {
     }
 
     /**
-     * Allocates through the context, then inflates a single-buffer frame body into that direct buffer, of two
-     * components when {@link #composite} is set, or passes an uncompressed body on as itself.
+     * Checks a compressed body's claimed length against its threshold, then inflates it with its compressor into a
+     * direct buffer of that length allocated through the context, or passes an uncompressed body on as itself.
      */
     static final class CompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         final int threshold;
+        /** Every buffer this decoder published. */
         final List<ByteBuf> inflated = new ArrayList<>();
-        boolean composite;
-        /** Inflates by {@link #inflateVanilla}'s rule, as Velocity's decoders accept bytes after the stream. */
-        boolean vanilla;
-        /** Runs between the inflate and the publish, where Velocity's decoder calls its packet limiter. */
-        Runnable afterInflate;
         /** Stands in for Velocity's settable limiter field and runs where Velocity's decoder calls it. */
         Runnable packetLimiter;
 
-        private final SharedCompressor compressor;
+        final SharedCompressor compressor;
 
         CompressDecoder(int threshold) {
-            this(threshold, null);
+            this(threshold, new SharedCompressor());
         }
 
         CompressDecoder(int threshold, SharedCompressor compressor) {
@@ -260,11 +346,11 @@ final class CompressedFrames {
 
         @Override
         public void handlerRemoved(ChannelHandlerContext ctx) {
-            if (compressor != null) compressor.disposed = true;
+            compressor.close();
         }
 
         @Override
-        protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
+        protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
             int dataLength = Wire.readVarInt(in);
             if (dataLength == 0) {
                 if (in.readableBytes() >= threshold) throw new DecoderException("uncompressed above threshold");
@@ -272,29 +358,21 @@ final class CompressedFrames {
                 out.add(in.retain());
                 return;
             }
-            if (dataLength < threshold) throw new DecoderException("compressed below threshold");
-            int half = composite ? dataLength / 2 : dataLength;
-            ByteBuf first = ctx.alloc().directBuffer(half);
-            ByteBuf second = null;
+            if (dataLength < threshold) throw new CorruptedFrameException("compressed below threshold");
+            ByteBuf compatible = compressor.compatible(ctx, in);
+            ByteBuf uncompressed = ctx.alloc().directBuffer(dataLength);
             try {
-                if (composite) second = ctx.alloc().directBuffer(dataLength - half);
-                if (in.nioBufferCount() != 1) throw new IllegalArgumentException("source has multiple backing buffers");
-                byte[] zlib = new byte[in.readableBytes()];
-                in.readBytes(zlib);
-                byte[] packet = vanilla ? inflateVanilla(zlib, dataLength) : inflate(zlib, dataLength);
-                first.writeBytes(packet, 0, half);
-                if (second != null) second.writeBytes(packet, half, dataLength - half);
-                if (afterInflate != null) afterInflate.run();
+                compressor.inflate(compatible, uncompressed, dataLength);
+                if (uncompressed.writerIndex() != dataLength)
+                    throw new CorruptedFrameException("decompressed size does not match the claimed size");
                 if (packetLimiter != null) packetLimiter.run();
-                ByteBuf uncompressed = first;
-                if (second != null)
-                    uncompressed = ctx.alloc().compositeDirectBuffer(2).addComponents(true, first, second);
                 inflated.add(uncompressed);
                 out.add(uncompressed);
-            } catch (RuntimeException | Error failure) {
-                first.release();
-                if (second != null) second.release();
+            } catch (Exception | Error failure) {
+                uncompressed.release();
                 throw failure;
+            } finally {
+                compatible.release();
             }
         }
     }

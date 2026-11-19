@@ -38,6 +38,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private final boolean small;
     private final boolean heap;
     private final boolean consume;
+    private final MethodHandle disposed;
     private @Nullable ChannelHandlerContext compression;
     private final ChannelHandlerContext inbound;
 
@@ -52,14 +53,14 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private String linkStatus = "none";
     private Channel linkChannel;
     private CompressedKeep linkKeep;
-    private CompressedMark linkMark;
 
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
     private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures, forwardFailures;
 
     /**
      * {@code encoderThreshold} reads {@code compression}'s threshold as {@code ()int}; {@code inbound} is the client's
-     * compression decoder, which shares the encoder's compressor.
+     * compression decoder, which shares the encoder's compressor; {@code disposed} reads that compressor's closed flag
+     * as {@code ()boolean}.
      */
     CompressedForwarder(
             MethodHandle encoderThreshold,
@@ -67,7 +68,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ChannelHandlerContext inbound,
             boolean small,
             boolean heap,
-            boolean consume) {
+            boolean consume,
+            MethodHandle disposed) {
         this.encoderThreshold = encoderThreshold;
         this.threshold = encoderThreshold();
         this.compression = compression;
@@ -75,6 +77,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         this.small = small;
         this.heap = heap;
         this.consume = consume;
+        this.disposed = disposed;
     }
 
     /** An upper bound on either compressor's zlib output for {@code n} bytes, a fast level's n/8 expansion included. */
@@ -124,6 +127,15 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
     }
 
+    /** Whether the client's compressor is closed, or its flag cannot be read. */
+    private boolean compressorClosed() {
+        try {
+            return (boolean) disposed.invokeExact();
+        } catch (Throwable failure) {
+            return true;
+        }
+    }
+
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) {
         disabled = true;
@@ -164,6 +176,11 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
         if (!marked) {
             notMarked++;
+            ctx.write(msg, promise);
+            return;
+        }
+        if (compressorClosed()) {
+            disable("compression-closed");
             ctx.write(msg, promise);
             return;
         }
@@ -211,12 +228,18 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     /** {@code varint(L)} and a copy of the L readable bytes of the backend's {@code frame} in a new buffer, or null. */
     @Nullable
     ByteBuf frame(ByteBufAllocator alloc, ByteBuf frame) {
+        return frame(alloc, frame, false);
+    }
+
+    /** As {@link #frame(ByteBufAllocator, ByteBuf)}, in a direct buffer whatever the cipher when {@code direct}. */
+    @Nullable
+    ByteBuf frame(ByteBufAllocator alloc, ByteBuf frame, boolean direct) {
         int length = frame.readableBytes();
         if (length > MAX_FRAME_LENGTH) return null;
         int size = varIntSize(length) + length;
         ByteBuf out = null;
         try {
-            out = heap ? alloc.heapBuffer(size) : alloc.directBuffer(size);
+            out = heap && !direct ? alloc.heapBuffer(size) : alloc.directBuffer(size);
             Wire.writeVarInt(out, length);
             out.writeBytes(frame, frame.readerIndex(), length);
             return out;
@@ -225,15 +248,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             if (out != null) out.release();
             return null;
         }
-    }
-
-    /** Whether {@code kept[start, end)} is a compressed frame of data length {@code n} that Velocity could send. */
-    boolean forwardable(ByteBuf kept, int start, int end, int n) {
-        int length = end - start;
-        return n <= MAX_FORWARDED_LENGTH
-                && length > 0
-                && length <= MAX_FRAME_LENGTH
-                && dataLength(kept, start, end) == n;
     }
 
     private void frameSmall(
@@ -291,6 +305,12 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             value |= (next & 0x7f) << (i * 7);
             if ((next & 0x80) == 0) return value;
         }
+        return -1;
+    }
+
+    /** How many bytes the data length VarInt at the start of a compressed frame takes, or -1 when it is malformed. */
+    static int dataLengthSize(ByteBuf frame, int start, int end) {
+        for (int i = 0; i < 5 && start + i < end; i++) if ((frame.getUnsignedByte(start + i) & 0x80) == 0) return i + 1;
         return -1;
     }
 
@@ -362,10 +382,9 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return linkChannel == backend && backend.pipeline().get(CompressedKeep.NAME) == linkKeep;
     }
 
-    void link(Channel backend, CompressedKeep keep, CompressedMark mark) {
+    void link(Channel backend, CompressedKeep keep) {
         linkChannel = backend;
         linkKeep = keep;
-        linkMark = mark;
         linkStatus = "linked";
     }
 
@@ -384,32 +403,22 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** Removes the current link's handlers from its backend; never waits for another loop. */
+    /** Removes the current link's keep from its backend; never waits for another loop. */
     void unlink() {
         Channel channel = linkChannel;
         CompressedKeep keep = linkKeep;
-        CompressedMark mark = linkMark;
         linkChannel = null;
         linkKeep = null;
-        linkMark = null;
         if (channel == null) return;
         if (!disabled) linkStatus = "none";
         if (channel.eventLoop().inEventLoop()) {
-            removeLink(channel.pipeline(), keep, mark);
+            remove(channel.pipeline(), keep);
             return;
         }
         try {
-            channel.eventLoop().execute(() -> removeLink(channel.pipeline(), keep, mark));
+            channel.eventLoop().execute(() -> remove(channel.pipeline(), keep));
         } catch (RejectedExecutionException closed) {
             // A closed loop's channel is deregistered, its handlers removed.
-        }
-    }
-
-    private static void removeLink(ChannelPipeline pipeline, CompressedKeep keep, CompressedMark mark) {
-        try {
-            remove(pipeline, keep);
-        } finally {
-            remove(pipeline, mark);
         }
     }
 
