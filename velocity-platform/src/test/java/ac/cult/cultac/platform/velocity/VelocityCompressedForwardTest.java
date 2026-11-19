@@ -4645,8 +4645,9 @@ class VelocityCompressedForwardTest {
                         doAnswer(call -> throwing[0] ? failing : f.backend.eventLoop())
                                 .when(backend)
                                 .eventLoop();
+                        CompressedForwarder forwarder = null;
                         if (on) {
-                            CompressedForwarder forwarder = VelocityCompressedForward.install(
+                            forwarder = VelocityCompressedForward.install(
                                     pipeline,
                                     CompressEncoder.class,
                                     DECODER,
@@ -4692,6 +4693,13 @@ class VelocityCompressedForwardTest {
                             ResourceLeakDetector.setLevel(level);
                         }
                         assertEquals(1, writes.size(), side);
+                        if (on) {
+                            verify(failing, atLeastOnce()).execute(any(Runnable.class));
+                            assertEquals(
+                                    client ? CompressedForwarder.UNTRUSTED : CompressedKeep.UNTRUSTED,
+                                    client ? forwarder.status() : forwarder.linkStatus(),
+                                    side);
+                        }
                         seen.add(sent(f.wire()) + ", promise "
                                 + describe(writes.getFirst().cause()) + ", read " + describe(failure));
                     }
