@@ -43,7 +43,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     private final MethodHandle encoderThreshold;
     private final int threshold;
-    private final boolean heap;
     private final boolean consume;
     private final MethodHandle disposed;
     private final Predicate<ByteBufAllocator> trustedAllocators;
@@ -76,7 +75,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             MethodHandle encoderThreshold,
             ChannelHandlerContext compression,
             ChannelHandlerContext inbound,
-            boolean heap,
             boolean consume,
             MethodHandle disposed,
             Predicate<ByteBufAllocator> trustedAllocators,
@@ -87,7 +85,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         this.threshold = encoderThreshold();
         this.compression = compression;
         this.inbound = inbound;
-        this.heap = heap;
         this.consume = consume;
         this.disposed = disposed;
     }
@@ -254,15 +251,15 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     }
 
     /**
-     * A new empty buffer for the private frame of a backend frame of {@code length} readable bytes, of the cipher's kind
-     * or direct when {@code direct}, or null.
+     * A new empty direct buffer, the kind Velocity's encoder gives a compressed frame, for the private frame of a
+     * backend frame of {@code length} readable bytes, or null.
      */
     @Nullable
-    ByteBuf frameBuffer(ByteBufAllocator alloc, int length, boolean direct) {
+    ByteBuf frameBuffer(ByteBufAllocator alloc, int length) {
         if (length > MAX_FRAME_LENGTH) return null;
         int size = varIntSize(length) + length;
         try {
-            return heap && !direct ? alloc.heapBuffer(size) : alloc.directBuffer(size);
+            return alloc.directBuffer(size);
         } catch (Throwable failure) {
             failures++;
             return null;
@@ -433,8 +430,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     /**
      * The status, link and counters; a link whose backend channel is inactive reads {@code backend-closed}. The hit
-     * rate is over writes of the marked buffer that pass every gate below the maximum reference count; {@code not
-     * marked} counts every other buffer written while enabled.
+     * rate is over writes of the marked buffer that pass every gate below the maximum reference count and whose input
+     * release succeeds; {@code not marked} counts every other buffer written while enabled.
      */
     String stats() {
         long recompressed = indicesChanged + guardMismatch + forwardFailures;
@@ -444,8 +441,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         String link = backend != null && !backend.isActive() ? "backend-closed" : linkStatus;
         return "status=" + status + ", link=" + link + ", threshold=" + threshold + ", hit=" + hit
                 + ", forwarded=" + forwarded + " (" + forwardedWireBytes
-                + " B sent, " + forwardedInflatedBytes + " B inflated), not marked=" + notMarked
-                + "; recompressed: indices changed=" + indicesChanged + ", guard mismatch=" + guardMismatch
+                + " B sent, " + forwardedInflatedBytes + " B inflated), recompressed: not marked=" + notMarked
+                + ", indices changed=" + indicesChanged + ", guard mismatch=" + guardMismatch
                 + "; failures=" + failures;
     }
 

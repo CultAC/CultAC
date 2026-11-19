@@ -47,7 +47,6 @@ final class VelocityCompressedForward {
     private final ProxyServer proxy;
     private final Object plugin;
     private final Function<Player, Channel> channels;
-    private final boolean heap;
     private final Class<?> encoderClass;
     private final Class<?> decoderClass;
     private final Compressors compressors;
@@ -66,12 +65,10 @@ final class VelocityCompressedForward {
     private final EventHandler<ServerPostConnectEvent> postConnected = this::postConnected;
     private boolean listening;
 
-    VelocityCompressedForward(
-            ProxyServer proxy, Object plugin, Function<Player, Channel> channels, boolean heap, Codecs codecs) {
+    VelocityCompressedForward(ProxyServer proxy, Object plugin, Function<Player, Channel> channels, Codecs codecs) {
         this.proxy = proxy;
         this.plugin = plugin;
         this.channels = channels;
-        this.heap = heap;
         this.encoderClass = codecs.encoder();
         this.decoderClass = codecs.decoder();
         this.compressors = codecs.compressors();
@@ -93,17 +90,13 @@ final class VelocityCompressedForward {
             LogUtil.warn("Cannot find Velocity's compression classes; compressed frames are not forwarded");
             return null;
         }
-        return create(proxy, plugin, channels, javaCipher(loader), codecs);
+        return create(proxy, plugin, channels, codecs);
     }
 
-    /** {@code javaCipher} is the cipher probe's result; {@code codecs} the classes the handlers accept. */
+    /** {@code codecs} are the classes the handlers accept. */
     static VelocityCompressedForward create(
-            ProxyServer proxy,
-            Object plugin,
-            Function<Player, Channel> channels,
-            @Nullable Boolean javaCipher,
-            Codecs codecs) {
-        return new VelocityCompressedForward(proxy, plugin, channels, Boolean.TRUE.equals(javaCipher), codecs);
+            ProxyServer proxy, Object plugin, Function<Player, Channel> channels, Codecs codecs) {
+        return new VelocityCompressedForward(proxy, plugin, channels, codecs);
     }
 
     /** The compression encoder, decoder and compressor classes the forwarding handlers accept, by identity. */
@@ -123,11 +116,6 @@ final class VelocityCompressedForward {
         }
     }
 
-    /** Whether Velocity encrypts with its Java cipher, which needs heap buffers; null when it cannot be read. */
-    static @Nullable Boolean javaCipher(ClassLoader loader) {
-        return javaFactory(loader, "cipher", "com.velocitypowered.natives.encryption.JavaVelocityCipher");
-    }
-
     /**
      * Velocity's two compressor classes: {@code java} consumes the input it inflates and deflates, {@code libdeflate}
      * reads and writes through memory addresses.
@@ -141,21 +129,6 @@ final class VelocityCompressedForward {
         /** Whether {@code compressor}'s class is exactly {@code type}. */
         static boolean is(@Nullable Object compressor, Class<?> type) {
             return compressor != null && compressor.getClass() == type;
-        }
-    }
-
-    /** Whether the factory in Velocity's {@code Natives.<field>} is {@code javaClass.FACTORY}, or null. */
-    private static @Nullable Boolean javaFactory(ClassLoader loader, String field, String javaClass) {
-        try {
-            Object loaded = Class.forName("com.velocitypowered.natives.util.Natives", false, loader)
-                    .getField(field)
-                    .get(null);
-            Object javaFactory =
-                    Class.forName(javaClass, false, loader).getField("FACTORY").get(null);
-            if (!(loaded instanceof Supplier<?> factory)) return null;
-            return factory.get() == javaFactory;
-        } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
-            return null;
         }
     }
 
@@ -182,7 +155,7 @@ final class VelocityCompressedForward {
         Channel channel = connection.channel();
         if (connection.owner() != channel.eventLoop()) return;
         var pipeline = channel.pipeline();
-        var forwarder = install(pipeline, encoderClass, decoderClass, compressors, heap, this::refused);
+        var forwarder = install(pipeline, encoderClass, decoderClass, compressors, this::refused);
         if (forwarder == null) return;
         adapter.compressedForwarder(forwarder);
         schedule(
@@ -323,12 +296,8 @@ final class VelocityCompressedForward {
      * null.
      */
     static @Nullable CompressedForwarder install(
-            ChannelPipeline pipeline,
-            Class<?> encoderClass,
-            Class<?> decoderClass,
-            Compressors compressors,
-            boolean heap) {
-        return install(pipeline, encoderClass, decoderClass, compressors, heap, refusal -> {});
+            ChannelPipeline pipeline, Class<?> encoderClass, Class<?> decoderClass, Compressors compressors) {
+        return install(pipeline, encoderClass, decoderClass, compressors, refusal -> {});
     }
 
     /** As {@link #install}; {@code refused} hears why a present encoder receives no forwarder. */
@@ -337,10 +306,8 @@ final class VelocityCompressedForward {
             Class<?> encoderClass,
             Class<?> decoderClass,
             Compressors compressors,
-            boolean heap,
             Consumer<Refusal> refused) {
-        return install(
-                pipeline, encoderClass, decoderClass, compressors, heap, CompressedKeep.NETTY_ALLOCATORS, refused);
+        return install(pipeline, encoderClass, decoderClass, compressors, CompressedKeep.NETTY_ALLOCATORS, refused);
     }
 
     /**
@@ -352,7 +319,6 @@ final class VelocityCompressedForward {
             Class<?> encoderClass,
             Class<?> decoderClass,
             Compressors compressors,
-            boolean heap,
             Predicate<ByteBufAllocator> trustedAllocators,
             Consumer<Refusal> refused) {
         if (!CompressedForwarder.supported() || pipeline.get(CompressedForwarder.NAME) != null) return null;
@@ -384,7 +350,6 @@ final class VelocityCompressedForward {
                 threshold,
                 encoder,
                 decoder,
-                heap,
                 consume,
                 disposed,
                 trustedAllocators,

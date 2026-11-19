@@ -125,7 +125,7 @@ class VelocityCompressedForwardLoopTest {
             pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
             pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
             return VelocityCompressedForward.install(
-                    pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS, false);
+                    pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS);
         });
         return pair;
     }
@@ -211,7 +211,6 @@ class VelocityCompressedForwardLoopTest {
                 proxy,
                 plugin,
                 player -> client.proxySide(),
-                false,
                 new VelocityCompressedForward.Codecs(CompressEncoder.class, CompressDecoder.class, COMPRESSORS));
         forward.listen();
         @SuppressWarnings("unchecked")
@@ -264,7 +263,7 @@ class VelocityCompressedForwardLoopTest {
                 pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
                 pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
                 return VelocityCompressedForward.install(
-                        pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS, false);
+                        pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS);
             });
             assertNull(forwarder);
             assertNull(onLoop(() -> client.proxySide().pipeline().get(CompressedForwarder.NAME)));

@@ -351,8 +351,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             try {
                 ByteBuf uncompressed = destination(alloc, frame, n);
                 try {
-                    client = forwarder.frameBuffer(
-                            alloc, CompressedForwarder.varIntSize(n) + end - body, codec.address());
+                    client = forwarder.frameBuffer(alloc, CompressedForwarder.varIntSize(n) + end - body);
                     if (client != null) copy = allocate(alloc, n);
                     boolean forwardable = forwardable(alloc, frame, codec, body, end);
                     held = forwardable
