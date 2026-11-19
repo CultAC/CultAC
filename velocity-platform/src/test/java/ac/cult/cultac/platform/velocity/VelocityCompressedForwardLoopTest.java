@@ -122,6 +122,11 @@ class VelocityCompressedForwardLoopTest {
     }
 
     private Pair client() throws Exception {
+        return client(true);
+    }
+
+    /** A client with Velocity's handlers, and the forwarder installed when {@code forward}. */
+    private Pair client(boolean forward) throws Exception {
         Pair pair = connect(true);
         receive(pair);
         onLoop(() -> {
@@ -132,10 +137,202 @@ class VelocityCompressedForwardLoopTest {
             pipeline.addLast(CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
             pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
             pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
-            return VelocityCompressedForward.install(
-                    pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS);
+            return forward
+                    ? VelocityCompressedForward.install(
+                            pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS)
+                    : null;
         });
         return pair;
+    }
+
+    /** As {@link #backend(Channel)} on {@code loop}'s next loop, with {@code handler} in place of the relay. */
+    private Pair backend(EventLoopGroup loop, ChannelInboundHandlerAdapter handler) throws Exception {
+        Channel proxySide = new Bootstrap()
+                .group(loop)
+                .channel(LocalChannel.class)
+                .option(ChannelOption.AUTO_READ, false)
+                .option(ChannelOption.ALLOCATOR, ByteBufAllocator.DEFAULT)
+                .handler(new ChannelInboundHandlerAdapter())
+                .connect(serverChannel.localAddress())
+                .sync()
+                .channel();
+        Pair pair = new Pair(proxySide, accepted.poll(5, TimeUnit.SECONDS));
+        proxySide
+                .eventLoop()
+                .submit(() -> {
+                    var pipeline = proxySide.pipeline();
+                    pipeline.addLast("frame-decoder", new FrameDecoder());
+                    pipeline.addLast("read-timeout", new ChannelInboundHandlerAdapter());
+                    pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+                    pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
+                    pipeline.addLast("handler", handler);
+                })
+                .get(5, TimeUnit.SECONDS);
+        return pair;
+    }
+
+    /** Sends {@code packet} compressed from {@code backend}'s server end and starts the proxy side's reads. */
+    private static void serve(Pair backend, byte[] packet) throws Exception {
+        backend.remote()
+                .writeAndFlush(Unpooled.wrappedBuffer(frame(body(packet, THRESHOLD))))
+                .sync();
+        backend.proxySide().eventLoop().execute(() -> {
+            backend.proxySide().config().setAutoRead(true);
+            backend.proxySide().read();
+        });
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("latch timed out");
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
+        }
+    }
+
+    private static <T> T within(Channel channel, Callable<T> task) throws Exception {
+        return channel.eventLoop().submit(task).get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void oldBackendMovedToAnotherLoopPublishesNothingWhileTheNextBackendPublishesAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        byte[] old = packet(4000, 97);
+        byte[] next = packet(3000, 98);
+        List<byte[]> sent = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                synchronized (received) {
+                    received.reset();
+                }
+                Pair client = client(on);
+                Channel toClient = client.proxySide();
+                var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                if (on) assertNotNull(forwarder);
+                var oldRead = new CountDownLatch(1);
+                var nextPublished = new CountDownLatch(1);
+                var oldDone = new CountDownLatch(1);
+                Pair oldBackend = backend(group, new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        ByteBuf buf = (ByteBuf) msg;
+                        try {
+                            toClient.writeAndFlush(buf.retain());
+                            oldRead.countDown();
+                            // The old backend's read stays inside its fire until the next backend's has published.
+                            await(nextPublished);
+                        } finally {
+                            buf.release();
+                        }
+                    }
+
+                    @Override
+                    public void channelReadComplete(ChannelHandlerContext ctx) {
+                        oldDone.countDown();
+                    }
+                });
+                Pair nextBackend = backend(group, new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        ByteBuf buf = (ByteBuf) msg;
+                        try {
+                            toClient.writeAndFlush(buf.retain());
+                            nextPublished.countDown();
+                            // The next backend's read restores its mark only after the old backend's read ends.
+                            await(oldDone);
+                        } finally {
+                            buf.release();
+                        }
+                    }
+                });
+                if (on) {
+                    within(toClient, () -> {
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, oldBackend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                        return null;
+                    });
+                    assertEquals("linked", within(toClient, forwarder::linkStatus));
+                }
+                oldBackend.proxySide().deregister().sync();
+                second.register(oldBackend.proxySide()).sync();
+                assertNotSame(toClient.eventLoop(), oldBackend.proxySide().eventLoop());
+                serve(oldBackend, old);
+                await(oldRead);
+                if (on) {
+                    within(toClient, () -> {
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, nextBackend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                        return null;
+                    });
+                    assertEquals("linked", within(toClient, forwarder::linkStatus));
+                }
+                serve(nextBackend, next);
+                var frames = awaitFrames(2);
+                assertPackets(List.of(old, next), frames);
+                sent.add(frames.getFirst().body());
+                if (on) {
+                    assertArrayEquals(body(next, THRESHOLD), frames.get(1).body(), "the next backend's frame as sent");
+                    assertEquals(1L, within(toClient, forwarder::forwarded));
+                    assertNull(within(toClient, () -> forwarder.markBuf), "no mark outlives the reads");
+                    assertNull(within(toClient, forwarder::markFrame), "every private frame is taken or released");
+                    assertNull(
+                            within(
+                                    oldBackend.proxySide(),
+                                    () -> oldBackend.proxySide().pipeline().get(CompressedKeep.NAME)),
+                            "the old keep is removed on its own loop");
+                }
+                oldBackend.proxySide().close().sync();
+                nextBackend.proxySide().close().sync();
+                toClient.close().sync();
+            }
+            assertArrayEquals(sent.get(0), sent.get(1), "the old frame the encoder compresses with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void clientMovedToAnotherLoopForwardsAgainFromABackendLinkedOnThatLoop() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        byte[] first = packet(4000, 99);
+        byte[] after = packet(3000, 100);
+        try {
+            Pair client = client();
+            Channel toClient = client.proxySide();
+            var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+            assertNotNull(forwarder);
+            Pair firstBackend = backend(group, relay(toClient));
+            within(toClient, () -> {
+                VelocityCompressedForward.link(
+                        forwarder, toClient, firstBackend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                return null;
+            });
+            serve(firstBackend, first);
+            assertPackets(List.of(first), awaitFrames(1));
+            assertEquals(1L, within(toClient, forwarder::forwarded));
+
+            toClient.deregister().sync();
+            second.register(toClient).sync();
+            Pair nextBackend = backend(second, relay(toClient));
+            assertSame(toClient.eventLoop(), nextBackend.proxySide().eventLoop());
+            within(toClient, () -> {
+                VelocityCompressedForward.link(
+                        forwarder, toClient, nextBackend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                return null;
+            });
+            assertEquals("linked", within(toClient, forwarder::linkStatus));
+            serve(nextBackend, after);
+            var frames = awaitFrames(2);
+            assertPackets(List.of(first, after), frames);
+            assertArrayEquals(body(after, THRESHOLD), frames.get(1).body());
+            assertEquals(2L, within(toClient, forwarder::forwarded), "a mark published on the new loop is taken there");
+            firstBackend.proxySide().close().sync();
+            nextBackend.proxySide().close().sync();
+            toClient.close().sync();
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
     }
 
     /** Collects what the client end of {@code pair} receives into {@link #received}. */

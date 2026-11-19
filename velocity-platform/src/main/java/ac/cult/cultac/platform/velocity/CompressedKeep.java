@@ -264,6 +264,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         // The class check runs before any method of the frame; a released frame passes on for the decoder to refuse.
         if (forwarder.disabled
+                // The mark's fields are written only on the client's loop, so one keep publishes at a time.
+                || !forwarder.onClientLoop()
                 || !(msg instanceof ByteBuf frame)
                 || !nettyFrame(frame)
                 || frame.refCnt() == 0

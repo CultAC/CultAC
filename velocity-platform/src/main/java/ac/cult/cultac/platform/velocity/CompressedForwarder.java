@@ -398,6 +398,11 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         markThread = Thread.currentThread();
     }
 
+    /** Whether the current thread is the client channel's event loop, the only thread a keep publishes from. */
+    boolean onClientLoop() {
+        return inbound.channel().eventLoop().inEventLoop();
+    }
+
     int markReader() {
         return markReader;
     }
