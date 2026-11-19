@@ -160,6 +160,14 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
                 && NEXT.getVolatile(before) == ctx;
     }
 
+    /** Whether {@code ctx} is in its pipeline's handler list: both of its neighbours link to it. */
+    static boolean linked(ChannelHandlerContext ctx) {
+        if (PREVIOUS == null || NEXT == null) return false;
+        Object before = PREVIOUS.getVolatile(ctx);
+        Object after = NEXT.getVolatile(ctx);
+        return before != null && after != null && NEXT.getVolatile(before) == ctx && PREVIOUS.getVolatile(after) == ctx;
+    }
+
     /** The encoder's threshold read at install. */
     int threshold() {
         return threshold;
@@ -204,8 +212,14 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
+        // An encoder added with its own executor keeps it when the channel is registered on another loop.
+        if (!target.executor().inEventLoop()) {
+            ctx.write(msg, promise);
+            return;
+        }
         ByteBuf b = markBuf;
-        if (target.isRemoved() || inbound.isRemoved()) {
+        // A context removed or replaced from another thread leaves the list before its removal callback runs.
+        if (target.isRemoved() || inbound.isRemoved() || !linked(inbound)) {
             disable("compression-removed");
             ctx.write(msg, promise);
             return;
