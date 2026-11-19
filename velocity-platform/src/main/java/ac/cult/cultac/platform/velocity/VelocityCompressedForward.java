@@ -380,7 +380,7 @@ final class VelocityCompressedForward {
             return null;
         }
         Refusal refusal = null;
-        // The touch check admits only netty's pipeline class, whose final mutators hold this monitor.
+        // The touch check admits only netty's pipeline class or a subclass, whose final mutators hold this monitor.
         synchronized (pipeline) {
             if (!CompressedForwarder.onLoop(pipeline)) {
                 refusal = Refusal.EXECUTOR;
@@ -585,7 +585,7 @@ final class VelocityCompressedForward {
                 if (backend != null) link(forwarder, client, backend, decoderClass, compressors, decode, refused);
             });
         } catch (Throwable failure) {
-            // The forwarder stays unlinked; no throw of the hand-off may reach the caller.
+            // No throw of the hand-off may reach the caller.
         }
     }
 
@@ -736,7 +736,7 @@ final class VelocityCompressedForward {
         var keep = new CompressedKeep(
                 forwarder, trustedAllocators, deferred(backend, () -> refused.accept(Refusal.UNTRUSTED)));
         ChannelHandlerContext keepContext;
-        // The touch check admits only netty's pipeline class, whose final mutators hold this monitor.
+        // The touch check admits only netty's pipeline class or a subclass, whose final mutators hold this monitor.
         synchronized (pipeline) {
             if (!CompressedForwarder.onLoop(pipeline)) {
                 forwarder.linkStatus("backend-executor");
