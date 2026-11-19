@@ -1809,32 +1809,41 @@ class VelocityCompressedForwardTest {
         assertThrows(IllegalReferenceCountException.class, probe::retain);
         probe.release(probe.refCnt());
         byte[] read = frame(body(packet(3000, 156), THRESHOLD));
-        List<String> seen = new ArrayList<>();
-        for (boolean forward : new boolean[] {false, true}) {
-            var writes = new ArrayList<ChannelFuture>();
-            var held = new ArrayList<ByteBuf>();
-            var options = (forward ? Options.forwarding() : Options.today()).onFrame((fixture, buf) -> {
-                buf.retain(CompressedForwarder.MAX_REFERENCES - buf.refCnt());
-                held.add(buf);
-                writes.add(fixture.client.write(buf));
-            });
-            try (var f = new Fixture(options)) {
-                var allocator = new RecordingAllocator();
-                f.backend.config().setAllocator(allocator);
-                f.read(read.clone());
-                ByteBuf buf = held.getFirst();
-                seen.add(sent(f.wire()) + ", promise "
-                        + describe(writes.getFirst().cause()) + ", reader " + buf.readerIndex() + ", count "
-                        + buf.refCnt());
-                buf.release(buf.refCnt());
-                if (forward) assertEquals(0, f.forwarder.forwarded());
-                for (ByteBuf allocated : allocator.allocated)
-                    assertEquals(0, allocated.refCnt(), "an allocation, forward " + forward);
+        for (int count : new int[] {CompressedForwarder.MAX_REFERENCES - 1, CompressedForwarder.MAX_REFERENCES}) {
+            List<String> seen = new ArrayList<>();
+            for (boolean forward : new boolean[] {false, true}) {
+                String label = "count " + count + ", forward " + forward;
+                var writes = new ArrayList<ChannelFuture>();
+                var held = new ArrayList<ByteBuf>();
+                var options = (forward ? Options.forwarding() : Options.today()).onFrame((fixture, buf) -> {
+                    buf.retain(count - buf.refCnt());
+                    held.add(buf);
+                    writes.add(fixture.client.write(buf));
+                });
+                try (var f = new Fixture(options)) {
+                    var allocator = new RecordingAllocator();
+                    f.backend.config().setAllocator(allocator);
+                    f.read(read.clone());
+                    ByteBuf buf = held.getFirst();
+                    seen.add(sent(f.wire()) + ", promise "
+                            + describe(writes.getFirst().cause()) + ", reader " + buf.readerIndex() + ", count "
+                            + buf.refCnt());
+                    buf.release(buf.refCnt());
+                    if (forward) {
+                        int forwarded = count < CompressedForwarder.MAX_REFERENCES ? 1 : 0;
+                        assertEquals(forwarded, f.forwarder.forwarded(), label);
+                    }
+                    for (ByteBuf allocated : allocator.allocated)
+                        assertEquals(0, allocated.refCnt(), "an allocation, " + label);
+                }
             }
+            boolean fails = count == CompressedForwarder.MAX_REFERENCES;
+            assertEquals(
+                    fails,
+                    seen.get(0).contains("EncoderException / io.netty.util.IllegalReferenceCountException"),
+                    seen.get(0));
+            assertEquals(seen.get(0), seen.get(1), "count " + count);
         }
-        assertTrue(
-                seen.get(0).contains("EncoderException / io.netty.util.IllegalReferenceCountException"), seen.get(0));
-        assertEquals(seen.get(0), seen.get(1));
     }
 
     @Test
@@ -1891,21 +1900,26 @@ class VelocityCompressedForwardTest {
             accounted = List.copyOf(f.accounted);
         }
         assertEquals(List.of(3000), accounted);
-        try (var f = new Fixture(Options.forwarding())) {
-            var allocator = new RecordingAllocator();
-            // Direct allocation 2 is the keep's private frame.
-            allocator.beforeDirect = atDirectAllocation(2, () -> {
-                f.decoder.packetLimiter = recording(f, true);
-                throw new OutOfMemoryError("direct memory");
-            });
-            f.backend.config().setAllocator(allocator);
-            f.read(read.clone());
-            assertSameBytes(today, f.wire());
-            assertEquals(accounted, f.accounted);
-            assertEquals(0, f.forwarder.forwarded());
-            assertEquals(CompressedKeep.LIMITED, f.forwarder.linkStatus());
-            assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
-            for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation");
+        // Direct allocation 2 is the keep's private frame, the heap allocation its comparison copy.
+        for (boolean copy : new boolean[] {false, true}) {
+            String label = copy ? "comparison copy" : "private frame";
+            try (var f = new Fixture(Options.forwarding())) {
+                var allocator = new RecordingAllocator();
+                Runnable fail = () -> {
+                    f.decoder.packetLimiter = recording(f, true);
+                    throw new OutOfMemoryError("memory");
+                };
+                if (copy) allocator.beforeHeap = once(fail);
+                else allocator.beforeDirect = atDirectAllocation(2, fail);
+                f.backend.config().setAllocator(allocator);
+                f.read(read.clone());
+                assertSameBytes(today, f.wire());
+                assertEquals(accounted, f.accounted, label);
+                assertEquals(0, f.forwarder.forwarded(), label);
+                assertEquals(CompressedKeep.LIMITED, f.forwarder.linkStatus(), label);
+                assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+            }
         }
     }
 
@@ -4446,7 +4460,7 @@ class VelocityCompressedForwardTest {
             this(options, TRUSTED);
         }
 
-        /** As the one-argument fixture; the forwarder's fast paths run under a client allocator {@code clientTrust} accepts. */
+        /** As the one-argument fixture; the forwarder forwards only under a client allocator {@code clientTrust} accepts. */
         Fixture(Options options, Predicate<ByteBufAllocator> clientTrust) {
             this.options = options;
             compressor = options.consume() ? new SharedCompressor() : new AddressCompressor();

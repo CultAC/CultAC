@@ -433,7 +433,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     /**
      * The status, link and counters; a link whose backend channel is inactive reads {@code backend-closed}. The hit
-     * rate is over writes of a marked buffer; {@code not marked} counts every other buffer written while enabled.
+     * rate is over writes of the marked buffer that pass every gate below the maximum reference count; {@code not
+     * marked} counts every other buffer written while enabled.
      */
     String stats() {
         long recompressed = indicesChanged + guardMismatch + forwardFailures;

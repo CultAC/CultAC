@@ -424,10 +424,9 @@ final class CompressedFrames {
     }
 
     /**
-     * In Velocity's encode order: allocates from the client's allocator for the readable length (heap below the
-     * threshold under a heap cipher, else direct), then frames the packet uncompressed, which consumes it, or writes a
-     * 3-byte length and the claim, takes the compressor's compatible input (a retain or a copy), deflates it (consuming
-     * it when {@code consume} is set), releases it, and fails at 2 MiB compressed.
+     * In Velocity's encode order: allocates as {@code allocateBuffer} does, then frames the packet uncompressed, or
+     * writes a 3-byte length and the claim, reads the compressor's compatible input (a retain or a copy) and releases
+     * it, deflates, and fails at 2 MiB compressed.
      */
     static final class CompressEncoder extends MessageToByteEncoder<ByteBuf> {
         private int threshold;
