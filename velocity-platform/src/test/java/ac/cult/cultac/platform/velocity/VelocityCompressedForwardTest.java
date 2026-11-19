@@ -80,11 +80,11 @@ class VelocityCompressedForwardTest {
     private static ResourceLeakDetector.Level previousLevel;
     private static final List<String> LEAKS = new ArrayList<>();
     /**
-     * Netty's allocators and {@link RecordingAllocator}, whose hooks stand for the log and leak-listener code netty's
-     * allocators run when they report a leak.
+     * Netty's allocators at any leak detection level and {@link RecordingAllocator}, whose hooks stand for the log and
+     * leak-listener code netty's allocators run when they report a leak.
      */
     private static final Predicate<ByteBufAllocator> TRUSTED =
-            CompressedKeep.NETTY_ALLOCATORS.or(alloc -> alloc instanceof RecordingAllocator);
+            CompressedKeep.NETTY_CLASSES.or(alloc -> alloc instanceof RecordingAllocator);
 
     @BeforeAll
     static void paranoid() throws Exception {
@@ -424,7 +424,7 @@ class VelocityCompressedForwardTest {
                     .addBefore(
                             VelocityCompressedForward.COMPRESSION_DECODER,
                             CompressedKeep.NAME,
-                            new CompressedKeep(f.forwarder));
+                            new CompressedKeep(f.forwarder, TRUSTED));
             var keep = (CompressedKeep) second.channel.pipeline().get(CompressedKeep.NAME);
             var p = second.channel.pipeline();
             keep.attach(
@@ -506,7 +506,8 @@ class VelocityCompressedForwardTest {
     void secondBackendReplacesTheLink() {
         try (var f = new Fixture(Options.forwarding())) {
             var second = f.backend(Options.forwarding());
-            VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), second.channel, DECODER, COMPRESSORS);
+            VelocityCompressedForward.place(
+                    f.forwarder, f.client.pipeline(), second.channel, DECODER, COMPRESSORS, TRUSTED);
             assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
             assertNotNull(second.channel.pipeline().get(CompressedKeep.NAME));
             byte[] packet = packet(5000, 25);
@@ -1169,7 +1170,7 @@ class VelocityCompressedForwardTest {
             for (String name : real.names()) assertFalse(name.startsWith("cult-compressed"), name);
             assertFalse(f.forwarder.linkedTo(f.backend));
 
-            VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), f.backend, DECODER, COMPRESSORS);
+            VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), f.backend, DECODER, COMPRESSORS, TRUSTED);
             assertEquals("linked", f.forwarder.linkStatus());
             byte[] packet = packet(5000, 44);
             f.read(frame(body(packet, THRESHOLD)));
@@ -2249,7 +2250,7 @@ class VelocityCompressedForwardTest {
                 wires[forward ? 1 : 0] = f.wire();
                 if (forward) {
                     assertEquals(0, f.forwarder.forwarded());
-                    assertEquals("linked", f.forwarder.linkStatus());
+                    assertEquals(CompressedKeep.UNTRUSTED, f.forwarder.linkStatus());
                 }
             }
         }
@@ -2603,7 +2604,8 @@ class VelocityCompressedForwardTest {
             f.read(frame(body));
             assertSameBytes(today, f.wire());
             assertEquals(0, f.forwarder.forwarded());
-            assertEquals("linked", f.forwarder.linkStatus());
+            assertEquals(CompressedKeep.UNTRUSTED, f.forwarder.linkStatus());
+            assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
             for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation");
         }
     }
@@ -3267,7 +3269,7 @@ class VelocityCompressedForwardTest {
     @Test
     void onlyNettysOwnLeakDetectorIsTrusted() throws Exception {
         assertTrue(CompressedKeep.nettyLeakDetector(leakDetector()));
-        assertTrue(CompressedKeep.NETTY_ALLOCATORS.test(PooledByteBufAllocator.DEFAULT));
+        assertTrue(CompressedKeep.NETTY_CLASSES.test(PooledByteBufAllocator.DEFAULT));
         assertFalse(CompressedKeep.nettyLeakDetector(new ResourceLeakDetector<ByteBuf>(ByteBuf.class, 1) {}));
         assertFalse(CompressedKeep.nettyLeakDetector(null));
     }
@@ -3367,6 +3369,120 @@ class VelocityCompressedForwardTest {
                 assertSameBytes(today, wire);
                 assertEquals(1, f.forwarder.notMarked(), label);
                 assertEquals(1, f.decoder.inflated.size(), "the decoder decodes the backend's frame");
+            }
+        }
+    }
+
+    @Test
+    void enabledLeakDetectionPassesFramesOnUnheldAndUnlinksWithOneWarning() {
+        byte[] packet = packet(3000, 136);
+        byte[] body = body(packet, THRESHOLD);
+        byte[] read = frame(body);
+        byte[] today = today(Options.forwarding(), read);
+        ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
+        try (var log = mockStatic(LogUtil.class)) {
+            var forward = VelocityCompressedForward.create(
+                    mock(ProxyServer.class),
+                    new Object(),
+                    p -> null,
+                    true,
+                    new VelocityCompressedForward.Codecs(CompressEncoder.class, DECODER, COMPRESSORS));
+            for (var enabled : List.of(ResourceLeakDetector.Level.SIMPLE, ResourceLeakDetector.Level.PARANOID)) {
+                String label = "level " + enabled;
+                ResourceLeakDetector.setLevel(enabled);
+                try (var f = new Fixture(Options.forwarding().unlinked())) {
+                    VelocityCompressedForward.place(
+                            f.forwarder,
+                            f.client.pipeline(),
+                            f.backend,
+                            DECODER,
+                            COMPRESSORS,
+                            CompressedKeep.NETTY_ALLOCATORS,
+                            forward::refused);
+                    assertEquals("linked", f.forwarder.linkStatus(), label);
+                    f.read(read.clone());
+                    assertSameBytes(today, f.wire());
+                    assertEquals(0, f.forwarder.forwarded(), label);
+                    assertEquals(1, f.forwarder.notMarked(), label);
+                    assertEquals(CompressedKeep.UNTRUSTED, f.forwarder.linkStatus(), label);
+                    assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                }
+            }
+            ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+            try (var f = new Fixture(Options.forwarding().unlinked())) {
+                VelocityCompressedForward.place(
+                        f.forwarder,
+                        f.client.pipeline(),
+                        f.backend,
+                        DECODER,
+                        COMPRESSORS,
+                        CompressedKeep.NETTY_ALLOCATORS,
+                        forward::refused);
+                f.read(read.clone());
+                var frames = read(f.wire(), THRESHOLD);
+                assertPackets(List.of(packet), frames);
+                assertArrayEquals(body, frames.getFirst().body(), "the backend's frame body, unchanged");
+                assertEquals(1, f.forwarder.forwarded());
+                assertEquals("linked", f.forwarder.linkStatus());
+            }
+            log.verify(() -> LogUtil.warn(VelocityCompressedForward.Refusal.UNTRUSTED.warning), times(1));
+            log.verify(() -> LogUtil.warn(anyString()), times(1));
+        } finally {
+            ResourceLeakDetector.setLevel(level);
+        }
+    }
+
+    @Test
+    void claimBelowTheBackendThresholdMakesNoKeepAllocationAndFailsAsWithTheSwitchOff() {
+        byte[] small = body(packet(300, 137), THRESHOLD);
+        byte[] large = body(packet(600, 138), THRESHOLD);
+        assertTrue(small.length < large.length);
+        byte[] read = frame(Arrays.copyOf(small, large.length));
+        Options options = Options.forwarding().backendThreshold(512);
+        List<String> seen = new ArrayList<>();
+        for (int k = 0; k <= 3; k++) {
+            String label = k == 0 ? "switch off" : "keep allocation " + k;
+            try (var f = new Fixture(k == 0 ? options.withoutForwarding() : options)) {
+                var held = new ArrayList<ByteBuf>();
+                hold(f, held);
+                var allocator = new RecordingAllocator();
+                boolean[] ran = {false};
+                atAllocation(allocator, k, once(() -> {
+                    ran[0] = true;
+                    ByteBuf frame = held.getFirst();
+                    frame.setBytes(frame.writerIndex() - large.length, large);
+                }));
+                f.backend.config().setAllocator(allocator);
+                var failure = assertThrows(DecoderException.class, () -> f.read(read.clone()), label);
+                seen.add(failure.getClass().getName() + " / "
+                        + (failure.getCause() == null
+                                ? null
+                                : failure.getCause().getClass().getName()));
+                assertEquals(0, f.wire().length, label);
+                assertEquals(List.of(), allocator.allocated, label);
+                assertFalse(ran[0], label);
+                if (k > 0) assertEquals(0, f.forwarder.forwarded(), label);
+                assertTrue(held.getFirst().release(), label);
+            }
+        }
+        for (int k = 1; k <= 3; k++) assertEquals(seen.get(0), seen.get(k), "keep allocation " + k);
+    }
+
+    @Test
+    void decoderThresholdRaisedAtAKeepAllocationDecodesAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 139);
+        byte[] read = frame(body(packet, THRESHOLD));
+        for (int k = 0; k <= 3; k++) {
+            String label = k == 0 ? "switch off" : "keep allocation " + k;
+            try (var f = new Fixture(k == 0 ? Options.today() : Options.forwarding())) {
+                var allocator = new RecordingAllocator();
+                atAllocation(allocator, k, once(() -> f.decoder.threshold = 3001));
+                f.backend.config().setAllocator(allocator);
+                f.read(read.clone());
+                assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
+                assertEquals(3001, f.decoder.threshold, label);
+                if (k > 0) assertEquals(1, f.forwarder.forwarded(), label);
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
             }
         }
     }

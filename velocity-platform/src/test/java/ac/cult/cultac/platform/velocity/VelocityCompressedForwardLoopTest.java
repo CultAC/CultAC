@@ -32,6 +32,7 @@ import io.netty.channel.local.LocalAddress;
 import io.netty.channel.local.LocalChannel;
 import io.netty.channel.local.LocalIoHandler;
 import io.netty.channel.local.LocalServerChannel;
+import io.netty.util.ResourceLeakDetector;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
@@ -58,9 +59,13 @@ class VelocityCompressedForwardLoopTest {
     private Channel serverChannel;
     private final BlockingQueue<Channel> accepted = new ArrayBlockingQueue<>(8);
     private final ByteArrayOutputStream received = new ByteArrayOutputStream();
+    private ResourceLeakDetector.Level level;
 
     @BeforeEach
     void start() throws Exception {
+        // Velocity starts with netty's leak detection disabled, the only level at which the keep holds frames.
+        level = ResourceLeakDetector.getLevel();
+        ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
         group = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
         var address = new LocalAddress("compressed-forward-" + UUID.randomUUID());
         serverChannel = new ServerBootstrap()
@@ -79,8 +84,12 @@ class VelocityCompressedForwardLoopTest {
 
     @AfterEach
     void stop() throws Exception {
-        serverChannel.close().sync();
-        group.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        try {
+            serverChannel.close().sync();
+            group.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        } finally {
+            ResourceLeakDetector.setLevel(level);
+        }
     }
 
     /** A proxy-side channel and the remote end it is connected to. */

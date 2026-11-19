@@ -194,7 +194,8 @@ final class VelocityCompressedForward {
                 channel,
                 decoderClass,
                 compressors,
-                () -> player.getCurrentServer().orElse(null));
+                () -> player.getCurrentServer().orElse(null),
+                this::refused);
     }
 
     /** Logs the first refusal of each kind, once across every loop. */
@@ -406,7 +407,10 @@ final class VelocityCompressedForward {
         }
     }
 
-    /** Why {@link #install} gives no forwarder to a client with a compression encoder. */
+    /**
+     * Why {@link #install} gives no forwarder to a client with a compression encoder, or why a backend's keep holds no
+     * frames.
+     */
     enum Refusal {
         /** The encoder is not of the accepted class, or its threshold cannot be read. */
         THRESHOLD("Cannot read a client's compression threshold; its frames are compressed by Velocity"),
@@ -423,7 +427,13 @@ final class VelocityCompressedForward {
                 + " are compressed by Velocity"),
         /** After the insert, the encoder is not the validated one or the forwarder does not directly follow it. */
         CHANGED("A client's compression encoder is not where the forwarder expects it after the insert; its frames are"
-                + " compressed by Velocity");
+                + " compressed by Velocity"),
+        /**
+         * Netty's leak detection is enabled, or the backend's allocator or netty's leak detector is not of netty's own
+         * classes; the keep unlinks.
+         */
+        UNTRUSTED("Netty's leak detection is enabled, or a backend's allocator or leak detector is not netty's own; its"
+                + " frames are compressed by Velocity");
 
         final String warning;
 
@@ -449,12 +459,17 @@ final class VelocityCompressedForward {
         Channel client = client(player);
         if (client == null) return;
         // Velocity resumes the backend's reads with a task it queues on this loop after every handler returns.
-        schedule(client, decoderClass, compressors, () -> {
-            Object inFlight = inFlight(player);
-            return inFlight instanceof ServerConnection connection && connection.getServer() == server
-                    ? inFlight
-                    : null;
-        });
+        schedule(
+                client,
+                decoderClass,
+                compressors,
+                () -> {
+                    Object inFlight = inFlight(player);
+                    return inFlight instanceof ServerConnection connection && connection.getServer() == server
+                            ? inFlight
+                            : null;
+                },
+                this::refused);
     }
 
     private void postConnected(ServerPostConnectEvent event) {
@@ -465,7 +480,8 @@ final class VelocityCompressedForward {
                     client,
                     decoderClass,
                     compressors,
-                    () -> player.getCurrentServer().orElse(null));
+                    () -> player.getCurrentServer().orElse(null),
+                    this::refused);
     }
 
     private @Nullable Channel client(Player player) {
@@ -478,7 +494,11 @@ final class VelocityCompressedForward {
 
     /** Links the client's forwarder, on the client's loop, to the backend {@code server} names when the task runs. */
     private static void schedule(
-            Channel client, Class<?> decoderClass, Compressors compressors, Supplier<Object> server) {
+            Channel client,
+            Class<?> decoderClass,
+            Compressors compressors,
+            Supplier<Object> server,
+            Consumer<Refusal> refused) {
         try {
             client.eventLoop().execute(() -> {
                 if (!(client.pipeline().get(CompressedForwarder.NAME) instanceof CompressedForwarder forwarder)) return;
@@ -490,7 +510,7 @@ final class VelocityCompressedForward {
                     forwarder.linkStatus("lookup-failed");
                     return;
                 }
-                if (backend != null) link(forwarder, client, backend, decoderClass, compressors);
+                if (backend != null) link(forwarder, client, backend, decoderClass, compressors, refused);
             });
         } catch (RejectedExecutionException closed) {
             // The client's loop is shut down, and with it the channel.
@@ -514,6 +534,17 @@ final class VelocityCompressedForward {
             Channel backend,
             Class<?> decoderClass,
             Compressors compressors) {
+        link(forwarder, client, backend, decoderClass, compressors, refusal -> {});
+    }
+
+    /** As {@link #link}; {@code refused} hears why the backend's keep holds no frames. */
+    static void link(
+            CompressedForwarder forwarder,
+            Channel client,
+            Channel backend,
+            Class<?> decoderClass,
+            Compressors compressors,
+            Consumer<Refusal> refused) {
         if (forwarder.disabled || !client.isActive()) return;
         if (backend.eventLoop() != client.eventLoop()) {
             forwarder.unlink();
@@ -524,7 +555,14 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-inactive");
             return;
         }
-        place(forwarder, client.pipeline(), backend, decoderClass, compressors);
+        place(
+                forwarder,
+                client.pipeline(),
+                backend,
+                decoderClass,
+                compressors,
+                CompressedKeep.NETTY_ALLOCATORS,
+                refused);
     }
 
     /**
@@ -548,6 +586,18 @@ final class VelocityCompressedForward {
             Class<?> decoderClass,
             Compressors compressors,
             Predicate<ByteBufAllocator> trustedAllocators) {
+        place(forwarder, client, backend, decoderClass, compressors, trustedAllocators, refusal -> {});
+    }
+
+    /** As {@link #place}; {@code refused} hears each read whose trust check refuses, which unlinks the keep. */
+    static void place(
+            CompressedForwarder forwarder,
+            ChannelPipeline client,
+            Channel backend,
+            Class<?> decoderClass,
+            Compressors compressors,
+            Predicate<ByteBufAllocator> trustedAllocators,
+            Consumer<Refusal> refused) {
         if (forwarder.disabled || forwarder.linkedTo(backend)) return;
         forwarder.unlink();
         var pipeline = backend.pipeline();
@@ -585,7 +635,7 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-occupied");
             return;
         }
-        var keep = new CompressedKeep(forwarder, trustedAllocators);
+        var keep = new CompressedKeep(forwarder, trustedAllocators, () -> refused.accept(Refusal.UNTRUSTED));
         try {
             pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);
         } catch (RuntimeException failure) {

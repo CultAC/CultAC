@@ -327,7 +327,7 @@ final class CompressedFrames {
      * direct buffer of that length allocated through the context, or passes an uncompressed body on as itself.
      */
     static final class CompressDecoder extends MessageToMessageDecoder<ByteBuf> {
-        final int threshold;
+        int threshold;
         /** Every buffer this decoder published. */
         final List<ByteBuf> inflated = new ArrayList<>();
         /** Stands in for Velocity's settable limiter field and runs where Velocity's decoder calls it. */
