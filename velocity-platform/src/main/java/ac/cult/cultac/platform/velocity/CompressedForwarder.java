@@ -189,18 +189,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return before != null && after != null && NEXT.getVolatile(before) == ctx && PREVIOUS.getVolatile(after) == ctx;
     }
 
-    /**
-     * Whether the client decoder is in its pipeline's handler list; a mismatch is read again under the pipeline's
-     * monitor, which netty holds while an insert from another thread writes the two links it changes one after the
-     * other.
-     */
-    private boolean inboundLinked() {
-        if (linked(inbound)) return true;
-        synchronized (inbound.pipeline()) {
-            return linked(inbound);
-        }
-    }
-
     /** The encoder's threshold read at install. */
     int threshold() {
         return threshold;
@@ -246,9 +234,13 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             return;
         }
         ByteBuf b = markBuf;
-        // A context removed or replaced from another thread leaves the list before its removal callback runs.
-        if (target.isRemoved() || inbound.isRemoved() || !inboundLinked()) {
+        if (target.isRemoved() || inbound.isRemoved()) {
             disable("compression-removed");
+            ctx.write(msg, promise);
+            return;
+        }
+        // Netty unlinks a context before its removal callback runs, and an insert beside it writes one link at a time.
+        if (!linked(inbound)) {
             ctx.write(msg, promise);
             return;
         }

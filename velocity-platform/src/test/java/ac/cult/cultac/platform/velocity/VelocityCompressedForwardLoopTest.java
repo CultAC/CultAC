@@ -1309,9 +1309,10 @@ class VelocityCompressedForwardLoopTest {
     @Test
     void clientDecoderRemovedOrReplacedFromAnotherThreadBeforeAWriteIsSentAsWithTheSwitchOff() throws Exception {
         byte[] packet = packet(4000, 104);
+        byte[] after = packet(3000, 105);
         for (boolean replace : new boolean[] {false, true}) {
             List<byte[]> sent = new ArrayList<>();
-            List<Boolean> succeeded = new ArrayList<>();
+            List<String> outcomes = new ArrayList<>();
             for (boolean on : new boolean[] {false, true}) {
                 synchronized (received) {
                     received.reset();
@@ -1369,13 +1370,28 @@ class VelocityCompressedForwardLoopTest {
                 if (on) assertEquals("linked", onLoop(forwarder::linkStatus));
                 serve(backend, packet);
                 assertPackets(List.of(packet), awaitFrames(1));
+                assertEquals(List.of(true), pending, "the read runs with the removal callback queued");
+                if (on) {
+                    assertEquals(0L, onLoop(forwarder::forwarded));
+                    assertEquals("on", onLoop(forwarder::status), "the frame written before the callback");
+                }
+                assertTrue(onLoop(old::isRemoved), "the removal callback has run");
+                serve(backend, after);
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (writes.size() < 2) {
+                    if (System.nanoTime() > deadline) fail("writes: " + writes.size());
+                    Thread.onSpinWait();
+                }
+                for (ChannelFuture write : writes) {
+                    assertTrue(write.await(5, TimeUnit.SECONDS));
+                    Throwable cause = write.cause();
+                    outcomes.add(cause == null ? "sent" : cause.getClass().getName() + ": " + cause.getMessage());
+                }
+                // The removed decoder closes the compressor it shares with the encoder.
+                assertPackets(List.of(packet), awaitFrames(1));
                 synchronized (received) {
                     sent.add(received.toByteArray());
                 }
-                assertEquals(List.of(true), pending, "the read runs with the removal callback queued");
-                assertEquals(1, writes.size());
-                assertTrue(writes.getFirst().await(5, TimeUnit.SECONDS));
-                succeeded.add(writes.getFirst().isSuccess());
                 if (on) {
                     assertEquals(0L, onLoop(forwarder::forwarded));
                     assertEquals("compression-removed", onLoop(forwarder::status));
@@ -1384,7 +1400,9 @@ class VelocityCompressedForwardLoopTest {
                 toClient.close().sync();
             }
             String variant = replace ? "replaced" : "removed";
-            assertEquals(List.of(true, true), succeeded, variant);
+            assertEquals("sent", outcomes.get(0), variant);
+            assertEquals(
+                    outcomes.subList(0, 2), outcomes.subList(2, 4), variant + ": the outcomes with the switch off");
             assertArrayEquals(sent.get(0), sent.get(1), variant + ": the bytes the encoder sends with the switch off");
         }
     }
@@ -1392,14 +1410,16 @@ class VelocityCompressedForwardLoopTest {
     /**
      * A handler inserted before the client decoder from another thread, held after the store that links the
      * decoder's head-side neighbour to the new context and before the decoder's own link, as netty's {@code addBefore}
-     * writes them under the pipeline's monitor, while the published buffer is written.
+     * writes them under the pipeline's monitor, until the read that writes the published buffer has returned.
      */
     @Test
     void handlerHalfInsertedBeforeTheClientDecoderDuringAWriteLeavesTheForwarderOn() throws Exception {
         byte[] packet = packet(4000, 106);
+        byte[] next = packet(3000, 107);
         Class<?> context = Class.forName("io.netty.channel.AbstractChannelHandlerContext");
         VarHandle previous =
                 MethodHandles.privateLookupIn(context, MethodHandles.lookup()).findVarHandle(context, "prev", context);
+        List<byte[]> sent = new ArrayList<>();
         for (boolean on : new boolean[] {false, true}) {
             synchronized (received) {
                 received.reset();
@@ -1422,8 +1442,8 @@ class VelocityCompressedForwardLoopTest {
                     @Override
                     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
                         ctx.pipeline().remove(this);
-                        Thread loop = Thread.currentThread();
                         var halfDone = new CountDownLatch(1);
+                        var readDone = new CountDownLatch(1);
                         var other = new Thread(() -> {
                             synchronized (clientPipeline) {
                                 clientPipeline.addBefore(
@@ -1435,7 +1455,8 @@ class VelocityCompressedForwardLoopTest {
                                 previous.setVolatile(decoder, head);
                                 halfDone.countDown();
                                 try {
-                                    if (on) awaitBlockedOn(loop, clientPipeline);
+                                    if (!readDone.await(5, TimeUnit.SECONDS))
+                                        errors.add(new AssertionError("the write waited at the pipeline's monitor"));
                                 } catch (Throwable failure) {
                                     errors.add(failure);
                                 } finally {
@@ -1446,7 +1467,11 @@ class VelocityCompressedForwardLoopTest {
                         inserter.set(other);
                         other.start();
                         assertTrue(halfDone.await(5, TimeUnit.SECONDS), "the insert is half done");
-                        ctx.fireChannelRead(msg);
+                        try {
+                            ctx.fireChannelRead(msg);
+                        } finally {
+                            readDone.countDown();
+                        }
                     }
                 });
                 pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
@@ -1473,14 +1498,25 @@ class VelocityCompressedForwardLoopTest {
             assertNotNull(other);
             other.join(10_000);
             assertFalse(other.isAlive(), "the inserting thread finished");
+            assertEquals(List.of(), errors, "the write did not wait at the pipeline's monitor");
+            synchronized (received) {
+                sent.add(received.toByteArray());
+            }
             if (on) {
                 assertEquals("on", onLoop(forwarder::status));
-                assertEquals(1L, onLoop(forwarder::forwarded), "the frame forwarded");
+                assertEquals(0L, onLoop(forwarder::forwarded), "the half-linked frame takes the encoder");
             }
-            assertEquals(List.of(), errors, "the write waited at the pipeline's monitor");
-            assertEquals(1, writes.size());
-            assertTrue(writes.getFirst().await(5, TimeUnit.SECONDS));
-            assertTrue(writes.getFirst().isSuccess());
+            serve(backend, next);
+            assertPackets(List.of(packet, next), awaitFrames(2));
+            if (on) {
+                assertEquals("on", onLoop(forwarder::status));
+                assertEquals(1L, onLoop(forwarder::forwarded), "the frame after the insert forwarded");
+            }
+            assertEquals(2, writes.size());
+            for (ChannelFuture write : writes) {
+                assertTrue(write.await(5, TimeUnit.SECONDS));
+                assertTrue(write.isSuccess());
+            }
             assertEquals(List.of("inserted", VelocityCompressedForward.COMPRESSION_DECODER), onLoop(() -> {
                 List<String> names = clientPipeline.names();
                 int at = names.indexOf("inserted");
@@ -1489,6 +1525,92 @@ class VelocityCompressedForwardLoopTest {
             backend.proxySide().close().sync();
             toClient.close().sync();
         }
+        assertArrayEquals(sent.get(0), sent.get(1), "the half-linked frame's bytes as the encoder sends them");
+    }
+
+    /**
+     * A thread that removes the client decoder and then, holding the client pipeline's monitor, waits for a task on
+     * the client's loop while a backend read on that loop writes the published buffer.
+     */
+    @Test
+    void monitorHolderWaitingForTheLoopDuringAWriteGetsItsAnswerAsWithTheSwitchOff() throws Exception {
+        byte[] packet = packet(4000, 108);
+        List<byte[]> sent = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            synchronized (received) {
+                received.reset();
+            }
+            Pair client = client(on);
+            Channel toClient = client.proxySide();
+            ChannelPipeline clientPipeline = toClient.pipeline();
+            var forwarder = (CompressedForwarder) clientPipeline.get(CompressedForwarder.NAME);
+            if (on) assertNotNull(forwarder);
+            var answers = new CopyOnWriteArrayList<Boolean>();
+            var writes = new CopyOnWriteArrayList<ChannelFuture>();
+            var holder = new AtomicReference<Thread>();
+            Pair backend = connect(false);
+            onLoop(() -> {
+                var pipeline = backend.proxySide().pipeline();
+                pipeline.addLast("frame-decoder", new FrameDecoder());
+                pipeline.addLast("holder", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                        ctx.pipeline().remove(this);
+                        var holding = new CountDownLatch(1);
+                        var other = new Thread(() -> {
+                            synchronized (clientPipeline) {
+                                clientPipeline.remove(VelocityCompressedForward.COMPRESSION_DECODER);
+                                Future<Boolean> task = toClient.eventLoop().submit(() -> true);
+                                holding.countDown();
+                                try {
+                                    answers.add(task.get(5, TimeUnit.SECONDS));
+                                } catch (Exception timedOut) {
+                                    answers.add(false);
+                                }
+                            }
+                        });
+                        holder.set(other);
+                        other.start();
+                        assertTrue(holding.await(5, TimeUnit.SECONDS), "the holder waits for the loop");
+                        ctx.fireChannelRead(msg);
+                    }
+                });
+                pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+                pipeline.addLast("handler", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                        ByteBuf buf = (ByteBuf) msg;
+                        try {
+                            writes.add(toClient.writeAndFlush(buf.retain()));
+                        } finally {
+                            buf.release();
+                        }
+                    }
+                });
+                if (on)
+                    VelocityCompressedForward.link(
+                            forwarder, toClient, backend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                return null;
+            });
+            if (on) assertEquals("linked", onLoop(forwarder::linkStatus));
+            serve(backend, packet);
+            assertPackets(List.of(packet), awaitFrames(1));
+            Thread other = holder.get();
+            assertNotNull(other);
+            other.join(10_000);
+            assertFalse(other.isAlive(), "the holder finished");
+            assertEquals(List.of(true), answers, "the holder's task ran on the loop");
+            synchronized (received) {
+                sent.add(received.toByteArray());
+            }
+            assertEquals(1, writes.size());
+            assertTrue(writes.getFirst().await(5, TimeUnit.SECONDS));
+            assertTrue(writes.getFirst().isSuccess());
+            if (on) assertEquals(0L, onLoop(forwarder::forwarded));
+            backend.proxySide().close().sync();
+            toClient.close().sync();
+        }
+        assertArrayEquals(sent.get(0), sent.get(1), "the bytes the encoder sends with the switch off");
     }
 
     /** Waits until {@code thread} is blocked entering {@code monitor}'s monitor. */
