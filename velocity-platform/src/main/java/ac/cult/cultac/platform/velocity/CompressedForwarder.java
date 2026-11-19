@@ -185,7 +185,9 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
-        if (!trustedAllocators.test(ctx.alloc())) {
+        // The trust check and the small frame's allocation use this one allocator.
+        ByteBufAllocator alloc = ctx.alloc();
+        if (!trustedAllocators.test(alloc)) {
             try {
                 disable(UNTRUSTED);
                 untrusted.run();
@@ -198,7 +200,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         boolean marked = b == markBuf;
         if (n < threshold) {
             if (marked) belowThreshold++;
-            if (small) frameSmall(ctx, target, b, n, promise);
+            if (small) frameSmall(alloc, ctx, target, b, n, promise);
             else ctx.write(msg, promise);
             return;
         }
@@ -229,9 +231,14 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             b.release();
         } catch (Throwable failure) {
             out.release();
-            throw failure;
+            throw encoderFailure(failure);
         }
         target.write(out, promise);
+    }
+
+    /** As Velocity's encoder fails a write: an {@link EncoderException} as is, any other throwable wrapped in one. */
+    private static EncoderException encoderFailure(Throwable failure) {
+        return failure instanceof EncoderException encoder ? encoder : new EncoderException(failure);
     }
 
     /** Takes the frame the mark publishes for {@code b}, or returns null (counted) when the encoder must compress. */
@@ -281,17 +288,23 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     /**
      * Frames {@code b} uncompressed as Velocity's encoder does: allocates for the {@code n} bytes read before, then
-     * reads the length and bytes; a failed allocation fails the write as the encoder's does.
+     * reads the length and bytes from {@code alloc}'s buffer; a failed allocation or release fails the write as the
+     * encoder's does.
      */
     private void frameSmall(
-            ChannelHandlerContext ctx, ChannelHandlerContext target, ByteBuf b, int n, ChannelPromise promise) {
+            ByteBufAllocator alloc,
+            ChannelHandlerContext ctx,
+            ChannelHandlerContext target,
+            ByteBuf b,
+            int n,
+            ChannelPromise promise) {
         int size = varIntSize(n + 1) + n + 1;
         ByteBuf out;
         try {
-            out = heap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
+            out = heap ? alloc.heapBuffer(size) : alloc.directBuffer(size);
         } catch (Throwable failure) {
             failures++;
-            throw failure instanceof EncoderException encoder ? encoder : new EncoderException(failure);
+            throw encoderFailure(failure);
         }
         int length;
         try {
@@ -315,7 +328,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             b.release();
         } catch (Throwable failure) {
             out.release();
-            throw failure;
+            throw encoderFailure(failure);
         }
         framedSmall++;
         target.write(out, promise);
@@ -473,11 +486,14 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
     }
 
+    /** The status, link and counters; a link whose backend channel is inactive reads {@code backend-closed}. */
     String stats() {
         long recompressed = notMarked + indicesChanged + guardMismatch + forwardFailures;
         long eligible = forwarded + recompressed;
         String hit = eligible == 0 ? "n/a" : String.format(Locale.ROOT, "%.2f%%", 100.0 * forwarded / eligible);
-        return "status=" + status + ", link=" + linkStatus + ", threshold=" + threshold + ", hit=" + hit
+        Channel backend = linkChannel;
+        String link = backend != null && !backend.isActive() ? "backend-closed" : linkStatus;
+        return "status=" + status + ", link=" + link + ", threshold=" + threshold + ", hit=" + hit
                 + ", forwarded=" + forwarded + " (" + forwardedWireBytes
                 + " B sent, " + forwardedInflatedBytes + " B inflated), recompressed: not marked=" + notMarked
                 + ", indices changed=" + indicesChanged + ", guard mismatch=" + guardMismatch

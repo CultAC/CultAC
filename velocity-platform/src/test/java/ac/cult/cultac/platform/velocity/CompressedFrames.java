@@ -344,6 +344,11 @@ final class CompressedFrames {
         final List<ByteBuf> inflated = new ArrayList<>();
         /** Stands in for Velocity's settable limiter field and is accounted where Velocity's decoder accounts it. */
         PacketLimiter packetLimiter;
+        /**
+         * When set, receives each exception this decoder's {@code exceptionCaught} gets, and a removal leaves the
+         * compressor open for the read in progress.
+         */
+        List<String> caught;
 
         final SharedCompressor compressor;
 
@@ -358,7 +363,17 @@ final class CompressedFrames {
 
         @Override
         public void handlerRemoved(ChannelHandlerContext ctx) {
-            compressor.close();
+            if (caught == null) compressor.close();
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+            if (caught != null)
+                caught.add("decoder: " + cause.getClass().getName() + " / "
+                        + (cause.getCause() == null
+                                ? null
+                                : cause.getCause().getClass().getName()));
+            super.exceptionCaught(ctx, cause);
         }
 
         @Override

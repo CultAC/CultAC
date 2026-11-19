@@ -226,11 +226,11 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     }
 
     /**
-     * Whether the channel's allocator passes {@link #trustedAllocators}. Netty's own, with leak detection disabled, run
-     * no code outside netty and the JDK in their calls.
+     * Whether {@code alloc}, the channel's allocator read once for this read, passes {@link #trustedAllocators}.
+     * Netty's own, with leak detection disabled, run no code outside netty and the JDK in their calls.
      */
-    private boolean trusted(ChannelHandlerContext ctx) {
-        return trustedAllocators.test(ctx.alloc());
+    private boolean trusted(ByteBufAllocator alloc) {
+        return trustedAllocators.test(alloc);
     }
 
     /** Whether {@code frame} and each buffer it unwraps to are of netty's own buffer classes other than its composites. */
@@ -283,7 +283,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             refuse(ctx, msg, LIMITED);
             return;
         }
-        if (!trusted(ctx)) {
+        // The trust checks and the keep's three allocations of this read use this one allocator.
+        ByteBufAllocator alloc = ctx.alloc();
+        if (!trusted(alloc)) {
             refuse(ctx, msg, UNTRUSTED);
             return;
         }
@@ -304,7 +306,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             ctx.fireChannelRead(msg);
             return;
         }
-        decode(ctx, output, frame, codec, decoder, n, body, end);
+        decode(ctx, output, frame, codec, decoder, alloc, n, body, end);
     }
 
     /** Unlinks with {@code status}, or {@code backend-adjacency} when null, and passes {@code msg} on untouched. */
@@ -323,7 +325,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
      * as {@code MinecraftCompressDecoder.decode} and {@code MessageToMessageDecoder.channelRead} complete it: inflates
      * into the decoder's allocation, checks the length, accounts the limiter, releases the keep's reference and the
      * input, and fires the result from {@code output}, the decoder's context, with the mark when it can be forwarded, or
-     * delivers the failure from that context.
+     * delivers the failure from that context. Every buffer the keep allocates comes from {@code alloc}.
      */
     private void decode(
             ChannelHandlerContext ctx,
@@ -331,6 +333,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             ByteBuf frame,
             Codec codec,
             MessageToMessageDecoder<?> decoder,
+            ByteBufAllocator alloc,
             int n,
             int body,
             int end)
@@ -344,13 +347,13 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         Throwable failure = null;
         try {
             try {
-                ByteBuf uncompressed = destination(ctx, frame, n);
+                ByteBuf uncompressed = destination(alloc, frame, n);
                 try {
                     client = forwarder.frameBuffer(
-                            ctx.alloc(), CompressedForwarder.varIntSize(n) + end - body, codec.address());
-                    if (client != null) copy = allocate(ctx, n);
+                            alloc, CompressedForwarder.varIntSize(n) + end - body, codec.address());
+                    if (client != null) copy = allocate(alloc, n);
                     held = copy != null
-                            && forwardable(ctx, frame, codec, body, end)
+                            && forwardable(alloc, frame, codec, body, end)
                             && heldInflate(codec, frame, body, end - body, n, client, uncompressed, copy);
                     refusedTrust = distrusted;
                     distrusted = false;
@@ -429,9 +432,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     }
 
     /** The decoder's output buffer of {@code n} bytes; when the allocation throws, the keep's reference is released. */
-    private static ByteBuf destination(ChannelHandlerContext ctx, ByteBuf frame, int n) {
+    private static ByteBuf destination(ByteBufAllocator alloc, ByteBuf frame, int n) {
         try {
-            return ctx.alloc().directBuffer(n);
+            return alloc.directBuffer(n);
         } catch (RuntimeException | Error failure) {
             Throwable kept = CompressedForwarder.release(frame, null);
             if (kept != null) failure.addSuppressed(kept);
@@ -443,7 +446,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
      * Whether the frame can be forwarded after the keep's allocations: the decoder directly after the keep, no limiter,
      * a trusted allocator, and {@code frame} as the keep left it; a refusal of the first three unlinks.
      */
-    private boolean forwardable(ChannelHandlerContext ctx, ByteBuf frame, Codec codec, int body, int end) {
+    private boolean forwardable(ByteBufAllocator alloc, ByteBuf frame, Codec codec, int body, int end) {
         if (!adjacent()) {
             forwarder.unlinkDetached(this);
             return false;
@@ -452,7 +455,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             forwarder.unlinkDetached(this, LIMITED);
             return false;
         }
-        if (!trusted(ctx)) {
+        if (!trusted(alloc)) {
             forwarder.unlinkDetached(this, UNTRUSTED);
             distrusted = true;
             return false;
@@ -497,9 +500,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     }
 
     /** A new buffer of {@code n} bytes for the comparison copy, or null when it cannot be allocated. */
-    private static @Nullable ByteBuf allocate(ChannelHandlerContext ctx, int n) {
+    private static @Nullable ByteBuf allocate(ByteBufAllocator alloc, int n) {
         try {
-            return ctx.alloc().buffer(n, n);
+            return alloc.buffer(n, n);
         } catch (Throwable failure) {
             return null;
         }

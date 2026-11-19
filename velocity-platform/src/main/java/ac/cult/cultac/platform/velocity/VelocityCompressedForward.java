@@ -20,7 +20,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
-import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -53,6 +52,8 @@ final class VelocityCompressedForward {
     private final Class<?> encoderClass;
     private final Class<?> decoderClass;
     private final Compressors compressors;
+    // Every decoder a keep links to is exactly decoderClass, so its handles are this one set.
+    private final @Nullable CompressedKeep.Decode decode;
     private final AtomicBoolean[] warned = new AtomicBoolean[Refusal.values().length];
     private volatile Method inFlightMethod;
     private static volatile @Nullable MethodHandle thresholdGetter;
@@ -81,6 +82,7 @@ final class VelocityCompressedForward {
         this.encoderClass = codecs.encoder();
         this.decoderClass = codecs.decoder();
         this.compressors = codecs.compressors();
+        this.decode = decode(decoderClass);
         for (int i = 0; i < warned.length; i++) warned[i] = new AtomicBoolean();
     }
 
@@ -198,13 +200,19 @@ final class VelocityCompressedForward {
                 channel,
                 decoderClass,
                 compressors,
+                decode,
                 () -> player.getCurrentServer().orElse(null),
                 this::refused);
     }
 
-    /** Logs the first refusal of each kind, once across every loop. */
+    /** Logs the first refusal of each kind, once across every loop; nothing the logger throws leaves this method. */
     void refused(Refusal refusal) {
-        if (warned[refusal.ordinal()].compareAndSet(false, true)) LogUtil.warn(refusal.warning);
+        if (!warned[refusal.ordinal()].compareAndSet(false, true)) return;
+        try {
+            LogUtil.warn(refusal.warning);
+        } catch (Throwable failure) {
+            // The switch-off path runs no logger; the read or write this refusal reports completes without its throw.
+        }
     }
 
     /** A getter bound to {@code encoder}'s {@code int threshold} when it is exactly of {@code encoderClass}, or null. */
@@ -259,51 +267,46 @@ final class VelocityCompressedForward {
     }
 
     /**
-     * Velocity's handles a decode of {@code decoder}'s class completes with: {@code account(int)} of its
+     * Velocity's handles a decode of the decoder class {@code type} completes with: {@code account(int)} of its
      * {@code packetLimiter} field's type, and {@value #VELOCITY_PRECONDITIONS}'s {@code checkFrame} and
      * {@value #VELOCITY_QUIET_EXCEPTION}'s constructor as the decoder's loader resolves them; null when one cannot be
      * bound.
      */
-    static @Nullable CompressedKeep.Decode decode(Object decoder) {
-        return DECODE.get(decoder.getClass()).orElse(null);
+    static @Nullable CompressedKeep.Decode decode(Class<?> type) {
+        try {
+            ClassLoader loader = type.getClassLoader();
+            Class<?> limiter = type.getDeclaredField("packetLimiter").getType();
+            Class<?> preconditions = Class.forName(VELOCITY_PRECONDITIONS, false, loader);
+            Class<?> quiet = Class.forName(VELOCITY_QUIET_EXCEPTION, false, loader);
+            if (!DecoderException.class.isAssignableFrom(quiet)) return null;
+            MethodHandle account = MethodHandles.privateLookupIn(limiter, MethodHandles.lookup())
+                    .findVirtual(limiter, "account", MethodType.methodType(boolean.class, int.class))
+                    .asType(MethodType.methodType(boolean.class, Object.class, int.class));
+            MethodHandle check = MethodHandles.privateLookupIn(preconditions, MethodHandles.lookup())
+                    .findStatic(
+                            preconditions,
+                            "checkFrame",
+                            MethodType.methodType(void.class, boolean.class, String.class, Object.class, Object.class));
+            MethodHandle constructor = MethodHandles.privateLookupIn(quiet, MethodHandles.lookup())
+                    .findConstructor(quiet, MethodType.methodType(void.class, String.class))
+                    .asType(MethodType.methodType(DecoderException.class, String.class));
+            return new CompressedKeep.Decode(account, check, constructor);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
+            return null;
+        }
     }
 
-    private static final ClassValue<Optional<CompressedKeep.Decode>> DECODE = new ClassValue<>() {
-        @Override
-        protected Optional<CompressedKeep.Decode> computeValue(Class<?> type) {
-            try {
-                ClassLoader loader = type.getClassLoader();
-                Class<?> limiter = type.getDeclaredField("packetLimiter").getType();
-                Class<?> preconditions = Class.forName(VELOCITY_PRECONDITIONS, false, loader);
-                Class<?> quiet = Class.forName(VELOCITY_QUIET_EXCEPTION, false, loader);
-                if (!DecoderException.class.isAssignableFrom(quiet)) return Optional.empty();
-                MethodHandle account = MethodHandles.privateLookupIn(limiter, MethodHandles.lookup())
-                        .findVirtual(limiter, "account", MethodType.methodType(boolean.class, int.class))
-                        .asType(MethodType.methodType(boolean.class, Object.class, int.class));
-                MethodHandle check = MethodHandles.privateLookupIn(preconditions, MethodHandles.lookup())
-                        .findStatic(
-                                preconditions,
-                                "checkFrame",
-                                MethodType.methodType(
-                                        void.class, boolean.class, String.class, Object.class, Object.class));
-                MethodHandle constructor = MethodHandles.privateLookupIn(quiet, MethodHandles.lookup())
-                        .findConstructor(quiet, MethodType.methodType(void.class, String.class))
-                        .asType(MethodType.methodType(DecoderException.class, String.class));
-                return Optional.of(new CompressedKeep.Decode(account, check, constructor));
-            } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
-                return Optional.empty();
-            }
-        }
-    };
-
     /**
-     * The keep's handles for {@code decoder}, whose limiter {@code limiter} reads, when its compressor is exactly one of
-     * {@code compressors}' classes and its {@link #decode} handles bind, or null.
+     * The keep's handles for {@code decoder}, whose limiter {@code limiter} reads, with its class's {@link #decode}
+     * handles {@code decode}, when its compressor is exactly one of {@code compressors}' classes, or null.
      */
-    static CompressedKeep.Codec codec(Object decoder, @Nullable MethodHandle limiter, Compressors compressors) {
+    static CompressedKeep.Codec codec(
+            Object decoder,
+            @Nullable MethodHandle limiter,
+            Compressors compressors,
+            @Nullable CompressedKeep.Decode decode) {
         MethodHandle compressorReader = compressorReader(decoder, false);
         MethodHandle threshold = decoderThresholdReader(decoder);
-        CompressedKeep.Decode decode = decode(decoder);
         if (limiter == null || compressorReader == null || threshold == null || decode == null) return null;
         try {
             Object compressor = (Object) compressorReader.invokeExact();
@@ -546,6 +549,7 @@ final class VelocityCompressedForward {
                 client,
                 decoderClass,
                 compressors,
+                decode,
                 () -> {
                     Object inFlight = inFlight(player);
                     return inFlight instanceof ServerConnection connection && connection.getServer() == server
@@ -563,6 +567,7 @@ final class VelocityCompressedForward {
                     client,
                     decoderClass,
                     compressors,
+                    decode,
                     () -> player.getCurrentServer().orElse(null),
                     this::refused);
     }
@@ -580,6 +585,7 @@ final class VelocityCompressedForward {
             Channel client,
             Class<?> decoderClass,
             Compressors compressors,
+            @Nullable CompressedKeep.Decode decode,
             Supplier<Object> server,
             Consumer<Refusal> refused) {
         try {
@@ -593,7 +599,7 @@ final class VelocityCompressedForward {
                     forwarder.linkStatus("lookup-failed");
                     return;
                 }
-                if (backend != null) link(forwarder, client, backend, decoderClass, compressors, refused);
+                if (backend != null) link(forwarder, client, backend, decoderClass, compressors, decode, refused);
             });
         } catch (RejectedExecutionException closed) {
             // The client's loop is shut down, and with it the channel.
@@ -617,16 +623,20 @@ final class VelocityCompressedForward {
             Channel backend,
             Class<?> decoderClass,
             Compressors compressors) {
-        link(forwarder, client, backend, decoderClass, compressors, refusal -> {});
+        link(forwarder, client, backend, decoderClass, compressors, decode(decoderClass), refusal -> {});
     }
 
-    /** As {@link #link}; {@code refused} hears why the backend's keep holds no frames. */
+    /**
+     * As {@link #link}; {@code decode} holds the {@link #decode} handles of {@code decoderClass}, and {@code refused}
+     * hears why the backend's keep holds no frames.
+     */
     static void link(
             CompressedForwarder forwarder,
             Channel client,
             Channel backend,
             Class<?> decoderClass,
             Compressors compressors,
+            @Nullable CompressedKeep.Decode decode,
             Consumer<Refusal> refused) {
         if (forwarder.disabled || !client.isActive()) return;
         if (backend.eventLoop() != client.eventLoop()) {
@@ -644,6 +654,7 @@ final class VelocityCompressedForward {
                 backend,
                 decoderClass,
                 compressors,
+                decode,
                 CompressedKeep.NETTY_ALLOCATORS,
                 refused);
     }
@@ -681,6 +692,19 @@ final class VelocityCompressedForward {
             Compressors compressors,
             Predicate<ByteBufAllocator> trustedAllocators,
             Consumer<Refusal> refused) {
+        place(forwarder, client, backend, decoderClass, compressors, decode(decoderClass), trustedAllocators, refused);
+    }
+
+    /** As {@link #place}; {@code decode} holds the {@link #decode} handles of {@code decoderClass}, or is null. */
+    static void place(
+            CompressedForwarder forwarder,
+            ChannelPipeline client,
+            Channel backend,
+            Class<?> decoderClass,
+            Compressors compressors,
+            @Nullable CompressedKeep.Decode decode,
+            Predicate<ByteBufAllocator> trustedAllocators,
+            Consumer<Refusal> refused) {
         if (forwarder.disabled || forwarder.linkedTo(backend)) return;
         forwarder.unlink();
         var pipeline = backend.pipeline();
@@ -705,11 +729,11 @@ final class VelocityCompressedForward {
             forwarder.linkStatus(CompressedKeep.LIMITED);
             return;
         }
-        if (decode(handler) == null) {
+        if (decode == null) {
             forwarder.linkStatus("backend-decoder");
             return;
         }
-        CompressedKeep.Codec codec = codec(handler, limiter, compressors);
+        CompressedKeep.Codec codec = codec(handler, limiter, compressors, decode);
         if (codec == null) {
             forwarder.linkStatus("backend-compressor");
             return;
