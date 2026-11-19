@@ -59,6 +59,31 @@ final class ClientChunkCacheState {
         return inRange(x, z) && slots.containsKey(index) && slots.get(index) == key(x, z);
     }
 
+    /**
+     * Whether {@link #contains} rejects every chunk coordinate a block coordinate maps to outside the square of
+     * {@link #radius} around the center. Past these limits {@link #inRange} wraps.
+     */
+    private boolean bounded() {
+        return enabled && radius >= 0 && radius <= 1 << 20 && Math.abs((long) centerX) <= 1 << 30
+                && Math.abs((long) centerZ) <= 1 << 30;
+    }
+
+    int minX() {
+        return bounded() ? centerX - radius : Integer.MIN_VALUE;
+    }
+
+    int maxX() {
+        return bounded() ? centerX + radius : Integer.MAX_VALUE;
+    }
+
+    int minZ() {
+        return bounded() ? centerZ - radius : Integer.MIN_VALUE;
+    }
+
+    int maxZ() {
+        return bounded() ? centerZ + radius : Integer.MAX_VALUE;
+    }
+
     boolean ticks(int x, int z) {
         return !enabled ? world.isChunkLoaded(x, z) : ticking.contains(key(x, z));
     }
