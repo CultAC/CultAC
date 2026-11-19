@@ -51,7 +51,6 @@ import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
-import io.netty.util.concurrent.EventExecutorGroup;
 import io.netty.util.concurrent.UnorderedThreadPoolEventExecutor;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -1166,16 +1165,12 @@ class VelocityCompressedForwardTest {
             ChannelPipeline real = f.backend.pipeline();
             ChannelPipeline failing = delegating(real);
             doAnswer(call -> {
-                        real.addBefore(
-                                (EventExecutorGroup) call.getArgument(0),
-                                (String) call.getArgument(1),
-                                (String) call.getArgument(2),
-                                (ChannelHandler) call.getArgument(3));
+                        real.addBefore((String) call.getArgument(0), (String) call.getArgument(1), (ChannelHandler)
+                                call.getArgument(2));
                         throw new IllegalStateException("insert");
                     })
                     .when(failing)
                     .addBefore(
-                            any(),
                             eq(VelocityCompressedForward.COMPRESSION_DECODER),
                             eq(CompressedKeep.NAME),
                             any(ChannelHandler.class));
@@ -2092,13 +2087,11 @@ class VelocityCompressedForwardTest {
                             if (replace) real.replace(name, name, new CompressEncoder(THRESHOLD));
                             else real.remove(name);
                             return real.addAfter(
-                                    (EventExecutorGroup) call.getArgument(0),
-                                    (String) call.getArgument(1),
-                                    (String) call.getArgument(2),
-                                    (ChannelHandler) call.getArgument(3));
+                                    (String) call.getArgument(0), (String) call.getArgument(1), (ChannelHandler)
+                                            call.getArgument(2));
                         })
                         .when(racing)
-                        .addAfter(any(), eq(name), eq(CompressedForwarder.NAME), any(ChannelHandler.class));
+                        .addAfter(eq(name), eq(CompressedForwarder.NAME), any(ChannelHandler.class));
                 var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
                 assertNull(
                         VelocityCompressedForward.install(
@@ -2121,13 +2114,11 @@ class VelocityCompressedForwardTest {
             doAnswer(call -> {
                         real.replace(name, name, new CompressDecoder(THRESHOLD));
                         return real.addBefore(
-                                (EventExecutorGroup) call.getArgument(0),
-                                (String) call.getArgument(1),
-                                (String) call.getArgument(2),
-                                (ChannelHandler) call.getArgument(3));
+                                (String) call.getArgument(0), (String) call.getArgument(1), (ChannelHandler)
+                                        call.getArgument(2));
                     })
                     .when(racing)
-                    .addBefore(any(), eq(name), eq(CompressedKeep.NAME), any(ChannelHandler.class));
+                    .addBefore(eq(name), eq(CompressedKeep.NAME), any(ChannelHandler.class));
             Channel backend = mock(Channel.class);
             when(backend.pipeline()).thenReturn(racing);
             VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), backend, DECODER, COMPRESSORS);
@@ -2147,11 +2138,11 @@ class VelocityCompressedForwardTest {
             real.addLast(name, new CompressEncoder(THRESHOLD, true, compressor));
             ChannelPipeline racing = delegating(real);
             doAnswer(call -> {
-                        real.addAfter(name, CompressedForwarder.NAME, (ChannelHandler) call.getArgument(3));
+                        real.addAfter(name, CompressedForwarder.NAME, (ChannelHandler) call.getArgument(2));
                         return real.addAfter(name, "foreign", new ChannelOutboundHandlerAdapter());
                     })
                     .when(racing)
-                    .addAfter(any(), eq(name), eq(CompressedForwarder.NAME), any(ChannelHandler.class));
+                    .addAfter(eq(name), eq(CompressedForwarder.NAME), any(ChannelHandler.class));
             var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
             assertNull(VelocityCompressedForward.install(
                     racing, CompressEncoder.class, DECODER, COMPRESSORS, refusals::add));
@@ -2170,11 +2161,11 @@ class VelocityCompressedForwardTest {
             ChannelPipeline real = f.backend.pipeline();
             ChannelPipeline racing = delegating(real);
             doAnswer(call -> {
-                        real.addBefore(name, CompressedKeep.NAME, (ChannelHandler) call.getArgument(3));
+                        real.addBefore(name, CompressedKeep.NAME, (ChannelHandler) call.getArgument(2));
                         return real.addBefore(name, "foreign", new ChannelInboundHandlerAdapter());
                     })
                     .when(racing)
-                    .addBefore(any(), eq(name), eq(CompressedKeep.NAME), any(ChannelHandler.class));
+                    .addBefore(eq(name), eq(CompressedKeep.NAME), any(ChannelHandler.class));
             Channel backend = mock(Channel.class);
             when(backend.pipeline()).thenReturn(racing);
             VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), backend, DECODER, COMPRESSORS);
@@ -2227,10 +2218,10 @@ class VelocityCompressedForwardTest {
             ChannelPipeline racing = delegating(real);
             doAnswer(call -> {
                         real.replace(name, name, new CompressEncoder(THRESHOLD));
-                        return real.addAfter(name, CompressedForwarder.NAME, (ChannelHandler) call.getArgument(3));
+                        return real.addAfter(name, CompressedForwarder.NAME, (ChannelHandler) call.getArgument(2));
                     })
                     .when(racing)
-                    .addAfter(any(), eq(name), eq(CompressedForwarder.NAME), any(ChannelHandler.class));
+                    .addAfter(eq(name), eq(CompressedForwarder.NAME), any(ChannelHandler.class));
             for (int i = 0; i < 2; i++)
                 assertNull(VelocityCompressedForward.install(
                         racing, CompressEncoder.class, DECODER, COMPRESSORS, forward::refused));

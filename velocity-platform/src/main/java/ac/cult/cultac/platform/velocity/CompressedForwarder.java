@@ -26,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Sits on the client channel directly after Velocity's compression encoder and sends the marked, unchanged inflated
  * buffer as its keep's private frame through the encoder's context. Every other message passes on to the encoder with
- * no call of its own made. Runs on the encoder's executor and takes a mark only on the thread that published it.
+ * no call of its own made. Runs on the client's event loop and takes a mark only on the thread that published it.
  */
 final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final String NAME = "cult-compressed-forward";
@@ -228,7 +228,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
-        // A keep publishes on the client's loop; this handler runs on the encoder's executor, which can be another.
+        // Defence only: a keep publishes on the client's loop, where every write of this channel runs.
         if (markThread != Thread.currentThread()) {
             ctx.write(msg, promise);
             return;

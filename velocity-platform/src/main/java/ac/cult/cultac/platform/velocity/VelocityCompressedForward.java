@@ -353,7 +353,9 @@ final class VelocityCompressedForward {
             refused.accept(Refusal.DECODER);
             return null;
         }
-        if (encoder.executor() != pipeline.channel().eventLoop()
+        // An encoder added with an executor of its own keeps it on any loop the channel is registered on later.
+        if (CompressedForwarder.ownExecutor(encoder) != null
+                || encoder.executor() != pipeline.channel().eventLoop()
                 || decoder.executor() != pipeline.channel().eventLoop()
                 || !CompressedForwarder.onLoop(pipeline)) {
             refused.accept(Refusal.EXECUTOR);
@@ -385,12 +387,7 @@ final class VelocityCompressedForward {
                 refusal = Refusal.EXECUTOR;
             } else {
                 try {
-                    // The forwarder shares the encoder's executor, which a codec added with one keeps on any loop.
-                    pipeline.addAfter(
-                            CompressedForwarder.ownExecutor(encoder),
-                            CompressedForwarder.COMPRESSION_ENCODER,
-                            CompressedForwarder.NAME,
-                            forwarder);
+                    pipeline.addAfter(CompressedForwarder.COMPRESSION_ENCODER, CompressedForwarder.NAME, forwarder);
                     ChannelHandlerContext added = pipeline.context(forwarder);
                     if (added == null
                             || added.isRemoved()
@@ -473,9 +470,12 @@ final class VelocityCompressedForward {
         THRESHOLD("Cannot read a client's compression threshold; its frames are compressed by Velocity"),
         /** The client has no compression decoder of the accepted class. */
         DECODER("A client's compression decoder is not Velocity's; its frames are compressed by Velocity"),
-        /** The encoder, the decoder or another handler runs on an executor other than the client channel's event loop. */
-        EXECUTOR("A client's compression encoder, decoder or another handler runs off its channel's event loop; its"
-                + " frames are compressed by Velocity"),
+        /**
+         * The encoder was added with an executor of its own, or the encoder, the decoder or another handler runs on an
+         * executor other than the client channel's event loop.
+         */
+        EXECUTOR("A client's compression encoder was added with an executor of its own, or it, its decoder or another"
+                + " handler runs off its channel's event loop; its frames are compressed by Velocity"),
         /**
          * The encoder and the decoder do not hold one open compressor of Velocity's classes, or either compressor
          * cannot be read.
@@ -711,7 +711,9 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-decoder");
             return;
         }
-        if (decoder.executor() != pipeline.channel().eventLoop() || !CompressedForwarder.onLoop(pipeline)) {
+        if (CompressedForwarder.ownExecutor(decoder) != null
+                || decoder.executor() != pipeline.channel().eventLoop()
+                || !CompressedForwarder.onLoop(pipeline)) {
             forwarder.linkStatus("backend-executor");
             return;
         }
@@ -747,9 +749,7 @@ final class VelocityCompressedForward {
                 return;
             }
             try {
-                // The keep shares the decoder's executor, which a codec added with one keeps on any loop.
-                pipeline.addBefore(
-                        CompressedForwarder.ownExecutor(decoder), COMPRESSION_DECODER, CompressedKeep.NAME, keep);
+                pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);
             } catch (RuntimeException failure) {
                 forwarder.linkStatus("backend-install-failed");
                 CompressedForwarder.remove(pipeline, keep);
