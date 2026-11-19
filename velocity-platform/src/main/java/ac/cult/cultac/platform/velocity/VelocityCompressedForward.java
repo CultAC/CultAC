@@ -80,8 +80,8 @@ final class VelocityCompressedForward {
             ProxyServer proxy, Object plugin, Function<Player, Channel> channels) {
         if (!Boolean.getBoolean(ENABLED_PROPERTY)) return null;
         if (!CompressedForwarder.supported()) {
-            LogUtil.warn("Cannot read the handler order or the pipelines' leak detection of this netty; compressed"
-                    + " frames are not forwarded");
+            LogUtil.warn("Cannot read the handler order, the pipelines' leak detection or the executor a handler was"
+                    + " added with of this netty; compressed frames are not forwarded");
             return null;
         }
         ClassLoader loader = proxy.getClass().getClassLoader();

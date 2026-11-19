@@ -659,7 +659,8 @@ class VelocityCompressedForwardLoopTest {
                         ctx.pipeline().remove(this);
                         var remover = new Thread(() -> pipeline.remove(VelocityCompressedForward.COMPRESSION_DECODER));
                         remover.start();
-                        remover.join();
+                        remover.join(5000);
+                        assertFalse(remover.isAlive(), "the remover thread finished");
                         ctx.fireChannelRead(msg);
                     }
                 });

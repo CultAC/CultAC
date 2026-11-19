@@ -152,7 +152,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         return PREVIOUS != null && NEXT != null && TOUCH != null && OWN_EXECUTOR != null;
     }
 
-    /** The executor {@code ctx}'s handler was added with, or null when it runs on its channel's event loop. */
+    /** The executor {@code ctx}'s handler was added with, or null when it was added with none. */
     static @Nullable EventExecutor ownExecutor(ChannelHandlerContext ctx) {
         return (EventExecutor) OWN_EXECUTOR.get(ctx);
     }
