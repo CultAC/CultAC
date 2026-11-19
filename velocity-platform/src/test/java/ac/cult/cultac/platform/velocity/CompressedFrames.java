@@ -424,14 +424,17 @@ final class CompressedFrames {
     }
 
     /**
-     * Compresses at or above the threshold with a 3-byte length, failing at 2 MiB compressed, else frames the packet
-     * uncompressed, which consumes it; compressing consumes the packet when {@code consume} is set.
+     * In Velocity's encode order: allocates from the client's allocator for the readable length (heap below the
+     * threshold under a heap cipher, else direct), then frames the packet uncompressed, which consumes it, or writes a
+     * 3-byte length and the claim, takes the compressor's compatible input (a retain or a copy), deflates it (consuming
+     * it when {@code consume} is set), releases it, and fails at 2 MiB compressed.
      */
     static final class CompressEncoder extends MessageToByteEncoder<ByteBuf> {
         private int threshold;
         private final boolean consume;
         private final SharedCompressor compressor;
         private int level = CLIENT_LEVEL;
+        private boolean heap;
 
         CompressEncoder(int threshold) {
             this(threshold, true);
@@ -455,6 +458,22 @@ final class CompressedFrames {
             this.level = level;
         }
 
+        /** Frames below the threshold go into heap buffers, as under Velocity's Java cipher. */
+        void setHeap(boolean heap) {
+            this.heap = heap;
+        }
+
+        @Override
+        protected ByteBuf allocateBuffer(ChannelHandlerContext ctx, ByteBuf msg, boolean preferDirect) {
+            int uncompressed = msg.readableBytes();
+            if (uncompressed < threshold) {
+                int size = uncompressed + 1;
+                size += CompressedForwarder.varIntSize(size);
+                return heap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
+            }
+            return ctx.alloc().directBuffer(uncompressed - 1 + 3 + CompressedForwarder.varIntSize(uncompressed));
+        }
+
         @Override
         protected void encode(ChannelHandlerContext ctx, ByteBuf msg, ByteBuf out) throws DataFormatException {
             int uncompressed = msg.readableBytes();
@@ -464,12 +483,17 @@ final class CompressedFrames {
                 out.writeBytes(msg);
                 return;
             }
-            if (compressor != null) compressor.check();
-            byte[] packet = new byte[uncompressed];
-            if (consume) msg.readBytes(packet);
-            else msg.getBytes(msg.readerIndex(), packet);
             out.writeMedium(0);
             Wire.writeVarInt(out, uncompressed);
+            ByteBuf compatible = compressor == null ? msg.retain() : compressor.compatible(ctx, msg);
+            byte[] packet = new byte[uncompressed];
+            try {
+                if (compressor != null) compressor.check();
+                if (consume) compatible.readBytes(packet);
+                else compatible.getBytes(compatible.readerIndex(), packet);
+            } finally {
+                compatible.release();
+            }
             byte[] compressed = zlib(packet, level);
             if (compressed.length >= 1 << 21) throw new DataFormatException("over 2 MiB compressed");
             out.writeBytes(compressed);

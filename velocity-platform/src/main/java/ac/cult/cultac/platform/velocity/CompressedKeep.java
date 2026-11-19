@@ -202,8 +202,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
 
     /**
      * The data length {@code frame} claims between {@code start} and {@code end} when it has one NIO buffer, as
-     * Velocity's Java inflater requires, a memory address when the compressor reads through one, and a claim the
-     * forwarder could send at or above the backend decoder's threshold; else -1.
+     * Velocity's Java inflater requires, a memory address when the compressor reads through one, and a minimally
+     * encoded claim the forwarder could send at or above the backend decoder's threshold; else -1.
      */
     private int claimed(ByteBuf frame, Codec codec, int start, int end) {
         if (frame.nioBufferCount() != 1) return -1;
@@ -212,6 +212,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         int n = CompressedForwarder.dataLength(frame, start, end);
         // MAX_FORWARDED_LENGTH is below both of Velocity's uncompressed caps.
         if (n <= 0 || n < forwarder.threshold() || n > CompressedForwarder.MAX_FORWARDED_LENGTH) return -1;
+        // The private frame writes the claim minimally, so only a minimal claim keeps the backend's bytes.
+        if (CompressedForwarder.dataLengthSize(frame, start, end) != CompressedForwarder.varIntSize(n)) return -1;
         // Velocity's decoder checks its threshold once, before its allocation.
         return atThreshold(codec, n) ? n : -1;
     }
@@ -352,8 +354,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
                     client = forwarder.frameBuffer(
                             alloc, CompressedForwarder.varIntSize(n) + end - body, codec.address());
                     if (client != null) copy = allocate(alloc, n);
-                    held = copy != null
-                            && forwardable(alloc, frame, codec, body, end)
+                    boolean forwardable = forwardable(alloc, frame, codec, body, end);
+                    held = forwardable
+                            && copy != null
                             && heldInflate(codec, frame, body, end - body, n, client, uncompressed, copy);
                     refusedTrust = distrusted;
                     distrusted = false;
@@ -384,11 +387,14 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         boolean published = held && inflated != null;
         try {
             try {
+                Throwable released = null;
                 if (inflated != null) {
                     MESSAGE_PRODUCED.set(decoder, true);
-                    if (published) publish(output, inflated, copy, client);
+                    if (published) released = publish(output, inflated, copy, client);
                     else output.fireChannelRead(inflated);
                 }
+                if (failure == null) failure = released;
+                else if (released != null) failure.addSuppressed(released);
             } finally {
                 if (!published) {
                     Throwable released = CompressedForwarder.release(client, null);
@@ -479,8 +485,11 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         }
     }
 
-    /** Publishes {@code inflated}, its indices, {@code copy} and {@code client}, fires it and restores the mark. */
-    private void publish(ChannelHandlerContext output, ByteBuf inflated, ByteBuf copy, ByteBuf client) {
+    /**
+     * Publishes {@code inflated}, its indices, {@code copy} and {@code client}, fires it and restores the mark; returns
+     * what releasing the copy or an untaken frame threw after a fire that returned, which a throwing fire rethrows.
+     */
+    private @Nullable Throwable publish(ChannelHandlerContext output, ByteBuf inflated, ByteBuf copy, ByteBuf client) {
         CompressedForwarder target = forwarder;
         ByteBuf previous = target.markBuf;
         int previousReader = target.markReader();
@@ -488,15 +497,19 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         ByteBuf previousCopy = target.markCopy();
         ByteBuf previousFrame = target.markFrame();
         target.mark(inflated, inflated.readerIndex(), inflated.writerIndex(), copy, client);
+        boolean fired = false;
+        Throwable failure;
         try {
             output.fireChannelRead(inflated);
+            fired = true;
         } finally {
             boolean untaken = target.markFrame() == client;
             target.mark(previous, previousReader, previousWriter, previousCopy, previousFrame);
-            Throwable failure = CompressedForwarder.release(copy, null);
+            failure = CompressedForwarder.release(copy, null);
             if (untaken) failure = CompressedForwarder.release(client, failure);
-            CompressedForwarder.rethrow(failure);
+            if (!fired) CompressedForwarder.rethrow(failure);
         }
+        return failure;
     }
 
     /** A new buffer of {@code n} bytes for the comparison copy, or null when it cannot be allocated. */

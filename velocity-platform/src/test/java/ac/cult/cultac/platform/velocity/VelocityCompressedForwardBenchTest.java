@@ -22,7 +22,7 @@ class VelocityCompressedForwardBenchTest {
     private static final ThreadMXBean THREADS = (ThreadMXBean) ManagementFactory.getThreadMXBean();
     private static final int REPS = 7;
     private static final int READS = 500;
-    private static final int[] SIZES = {40, 90, 180, 300, 700, 2_000, 9_000, 28_000};
+    private static final int[] SIZES = {300, 700, 2_000, 9_000, 28_000};
 
     @Test
     void forwardingAgainstToday() {

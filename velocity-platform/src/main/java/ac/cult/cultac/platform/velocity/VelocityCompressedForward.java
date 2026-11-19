@@ -47,7 +47,6 @@ final class VelocityCompressedForward {
     private final ProxyServer proxy;
     private final Object plugin;
     private final Function<Player, Channel> channels;
-    private final boolean small;
     private final boolean heap;
     private final Class<?> encoderClass;
     private final Class<?> decoderClass;
@@ -68,16 +67,10 @@ final class VelocityCompressedForward {
     private boolean listening;
 
     VelocityCompressedForward(
-            ProxyServer proxy,
-            Object plugin,
-            Function<Player, Channel> channels,
-            boolean small,
-            boolean heap,
-            Codecs codecs) {
+            ProxyServer proxy, Object plugin, Function<Player, Channel> channels, boolean heap, Codecs codecs) {
         this.proxy = proxy;
         this.plugin = plugin;
         this.channels = channels;
-        this.small = small;
         this.heap = heap;
         this.encoderClass = codecs.encoder();
         this.decoderClass = codecs.decoder();
@@ -110,11 +103,7 @@ final class VelocityCompressedForward {
             Function<Player, Channel> channels,
             @Nullable Boolean javaCipher,
             Codecs codecs) {
-        if (javaCipher == null)
-            LogUtil.warn("Cannot tell which cipher Velocity uses; frames below the compression threshold are framed"
-                    + " by Velocity");
-        return new VelocityCompressedForward(
-                proxy, plugin, channels, javaCipher != null, Boolean.TRUE.equals(javaCipher), codecs);
+        return new VelocityCompressedForward(proxy, plugin, channels, Boolean.TRUE.equals(javaCipher), codecs);
     }
 
     /** The compression encoder, decoder and compressor classes the forwarding handlers accept, by identity. */
@@ -193,7 +182,7 @@ final class VelocityCompressedForward {
         Channel channel = connection.channel();
         if (connection.owner() != channel.eventLoop()) return;
         var pipeline = channel.pipeline();
-        var forwarder = install(pipeline, encoderClass, decoderClass, compressors, small, heap, this::refused);
+        var forwarder = install(pipeline, encoderClass, decoderClass, compressors, heap, this::refused);
         if (forwarder == null) return;
         adapter.compressedForwarder(forwarder);
         schedule(
@@ -338,9 +327,8 @@ final class VelocityCompressedForward {
             Class<?> encoderClass,
             Class<?> decoderClass,
             Compressors compressors,
-            boolean small,
             boolean heap) {
-        return install(pipeline, encoderClass, decoderClass, compressors, small, heap, refusal -> {});
+        return install(pipeline, encoderClass, decoderClass, compressors, heap, refusal -> {});
     }
 
     /** As {@link #install}; {@code refused} hears why a present encoder receives no forwarder. */
@@ -349,30 +337,21 @@ final class VelocityCompressedForward {
             Class<?> encoderClass,
             Class<?> decoderClass,
             Compressors compressors,
-            boolean small,
             boolean heap,
             Consumer<Refusal> refused) {
         return install(
-                pipeline,
-                encoderClass,
-                decoderClass,
-                compressors,
-                small,
-                heap,
-                CompressedKeep.NETTY_ALLOCATORS,
-                refused);
+                pipeline, encoderClass, decoderClass, compressors, heap, CompressedKeep.NETTY_ALLOCATORS, refused);
     }
 
     /**
-     * As {@link #install}; the forwarder's fast paths run only under a client allocator {@code trustedAllocators}
-     * accepts, and {@code refused} also hears the first write it refuses.
+     * As {@link #install}; the forwarder forwards only under a client allocator {@code trustedAllocators} accepts, and
+     * {@code refused} also hears the first write it refuses.
      */
     static @Nullable CompressedForwarder install(
             ChannelPipeline pipeline,
             Class<?> encoderClass,
             Class<?> decoderClass,
             Compressors compressors,
-            boolean small,
             boolean heap,
             Predicate<ByteBufAllocator> trustedAllocators,
             Consumer<Refusal> refused) {
@@ -405,7 +384,6 @@ final class VelocityCompressedForward {
                 threshold,
                 encoder,
                 decoder,
-                small,
                 heap,
                 consume,
                 disposed,

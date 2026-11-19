@@ -20,9 +20,9 @@ import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Sits on the client channel directly after Velocity's compression encoder and sends a marked, unchanged inflated
- * buffer as its keep's private frame, or frames a small one uncompressed, through the encoder's context.
- * Every other frame passes on to the encoder. Confined to the client's event loop.
+ * Sits on the client channel directly after Velocity's compression encoder and sends the marked, unchanged inflated
+ * buffer as its keep's private frame through the encoder's context. Every other message passes on to the encoder with
+ * no call of its own made. Confined to the client's event loop.
  */
 final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final String NAME = "cult-compressed-forward";
@@ -32,6 +32,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private static final int MAX_FRAME_LENGTH = (1 << 21) - 1;
     // Velocity's encoder fails a write whose deflate output is this long or longer.
     private static final int MAX_COMPRESSED_LENGTH = 1 << 21;
+    // Netty's largest live reference count; Velocity's encoder retains a compatible input once before it deflates.
+    static final int MAX_REFERENCES = Integer.MAX_VALUE >>> 1;
     /** 1,838,585: the longest inflated frame whose {@link #deflateBound} is below Velocity's compressed limit. */
     static final int MAX_FORWARDED_LENGTH = maxForwardedLength();
     // Netty follows this link from a context to the next outbound handler toward the head.
@@ -41,7 +43,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     private final MethodHandle encoderThreshold;
     private final int threshold;
-    private final boolean small;
     private final boolean heap;
     private final boolean consume;
     private final MethodHandle disposed;
@@ -63,19 +64,18 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private CompressedKeep linkKeep;
 
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
-    private long notMarked, indicesChanged, guardMismatch, belowThreshold, framedSmall, failures, forwardFailures;
+    private long notMarked, indicesChanged, guardMismatch, failures, forwardFailures;
 
     /**
      * {@code encoderThreshold} reads {@code compression}'s threshold as {@code ()int}; {@code inbound} is the client's
      * compression decoder, which shares the encoder's compressor; {@code disposed} reads that compressor's closed flag
-     * as {@code ()boolean}; both fast paths run only while {@code trustedAllocators} accepts the client channel's
-     * allocator, and {@code untrusted} runs when it refuses.
+     * as {@code ()boolean}; a marked buffer is forwarded only while {@code trustedAllocators} accepts the client
+     * channel's allocator, and {@code untrusted} runs when it refuses.
      */
     CompressedForwarder(
             MethodHandle encoderThreshold,
             ChannelHandlerContext compression,
             ChannelHandlerContext inbound,
-            boolean small,
             boolean heap,
             boolean consume,
             MethodHandle disposed,
@@ -87,7 +87,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         this.threshold = encoderThreshold();
         this.compression = compression;
         this.inbound = inbound;
-        this.small = small;
         this.heap = heap;
         this.consume = consume;
         this.disposed = disposed;
@@ -166,10 +165,13 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     @Override
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
         ChannelHandlerContext target = compression;
-        if (disabled || target == null || !(msg instanceof ByteBuf b)) {
+        // Object identity alone decides: a message other than the published buffer gets no call before it passes on.
+        if (msg != markBuf || disabled || target == null) {
+            if (!disabled && target != null && msg instanceof ByteBuf) notMarked++;
             ctx.write(msg, promise);
             return;
         }
+        ByteBuf b = markBuf;
         if (target.isRemoved() || inbound.isRemoved()) {
             disable("compression-removed");
             ctx.write(msg, promise);
@@ -185,9 +187,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
-        // The trust check and the small frame's allocation use this one allocator.
-        ByteBufAllocator alloc = ctx.alloc();
-        if (!trustedAllocators.test(alloc)) {
+        if (!trustedAllocators.test(ctx.alloc())) {
             try {
                 disable(UNTRUSTED);
                 untrusted.run();
@@ -197,20 +197,12 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             return;
         }
         int n = b.readableBytes();
-        boolean marked = b == markBuf;
-        if (n < threshold) {
-            if (marked) belowThreshold++;
-            if (small) frameSmall(alloc, ctx, target, b, n, promise);
-            else ctx.write(msg, promise);
-            return;
-        }
-        if (!marked) {
-            notMarked++;
+        if (compressorClosed()) {
+            disable("compression-closed");
             ctx.write(msg, promise);
             return;
         }
-        if (compressorClosed()) {
-            disable("compression-closed");
+        if (b.refCnt() >= MAX_REFERENCES) {
             ctx.write(msg, promise);
             return;
         }
@@ -233,7 +225,11 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             out.release();
             throw encoderFailure(failure);
         }
+        int sent = out.readableBytes();
         target.write(out, promise);
+        forwarded++;
+        forwardedWireBytes += sent;
+        forwardedInflatedBytes += n;
     }
 
     /** As Velocity's encoder fails a write: an {@link EncoderException} as is, any other throwable wrapped in one. */
@@ -254,9 +250,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
         markFrame = null;
         markBuf = null;
-        forwarded++;
-        forwardedWireBytes += frame.readableBytes();
-        forwardedInflatedBytes += n;
         return frame;
     }
 
@@ -284,54 +277,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         Wire.writeVarInt(out, varIntSize(n) + length);
         Wire.writeVarInt(out, n);
         out.writeBytes(frame, body, length);
-    }
-
-    /**
-     * Frames {@code b} uncompressed as Velocity's encoder does: allocates for the {@code n} bytes read before, then
-     * reads the length and bytes from {@code alloc}'s buffer; a failed allocation or release fails the write as the
-     * encoder's does.
-     */
-    private void frameSmall(
-            ByteBufAllocator alloc,
-            ChannelHandlerContext ctx,
-            ChannelHandlerContext target,
-            ByteBuf b,
-            int n,
-            ChannelPromise promise) {
-        int size = varIntSize(n + 1) + n + 1;
-        ByteBuf out;
-        try {
-            out = heap ? alloc.heapBuffer(size) : alloc.directBuffer(size);
-        } catch (Throwable failure) {
-            failures++;
-            throw encoderFailure(failure);
-        }
-        int length;
-        try {
-            length = b.readableBytes();
-            if (length >= threshold) {
-                out.release();
-                ctx.write(b, promise);
-                return;
-            }
-            Wire.writeVarInt(out, length + 1);
-            out.writeByte(0);
-            out.writeBytes(b, b.readerIndex(), length);
-        } catch (Throwable failure) {
-            failures++;
-            out.release();
-            ctx.write(b, promise);
-            return;
-        }
-        try {
-            b.skipBytes(length);
-            b.release();
-        } catch (Throwable failure) {
-            out.release();
-            throw encoderFailure(failure);
-        }
-        framedSmall++;
-        target.write(out, promise);
     }
 
     /** Releases a non-null {@code buf}; returns {@code failure}, or what the release threw when that is null. */
@@ -486,24 +431,26 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** The status, link and counters; a link whose backend channel is inactive reads {@code backend-closed}. */
+    /**
+     * The status, link and counters; a link whose backend channel is inactive reads {@code backend-closed}. The hit
+     * rate is over writes of a marked buffer; {@code not marked} counts every other buffer written while enabled.
+     */
     String stats() {
-        long recompressed = notMarked + indicesChanged + guardMismatch + forwardFailures;
+        long recompressed = indicesChanged + guardMismatch + forwardFailures;
         long eligible = forwarded + recompressed;
         String hit = eligible == 0 ? "n/a" : String.format(Locale.ROOT, "%.2f%%", 100.0 * forwarded / eligible);
         Channel backend = linkChannel;
         String link = backend != null && !backend.isActive() ? "backend-closed" : linkStatus;
         return "status=" + status + ", link=" + link + ", threshold=" + threshold + ", hit=" + hit
                 + ", forwarded=" + forwarded + " (" + forwardedWireBytes
-                + " B sent, " + forwardedInflatedBytes + " B inflated), recompressed: not marked=" + notMarked
-                + ", indices changed=" + indicesChanged + ", guard mismatch=" + guardMismatch
-                + "; below threshold=" + belowThreshold + ", framed small=" + framedSmall + ", failures="
-                + failures;
+                + " B sent, " + forwardedInflatedBytes + " B inflated), not marked=" + notMarked
+                + "; recompressed: indices changed=" + indicesChanged + ", guard mismatch=" + guardMismatch
+                + "; failures=" + failures;
     }
 
     void resetStats() {
         forwarded = forwardedWireBytes = forwardedInflatedBytes = 0;
-        notMarked = indicesChanged = guardMismatch = belowThreshold = framedSmall = failures = forwardFailures = 0;
+        notMarked = indicesChanged = guardMismatch = failures = forwardFailures = 0;
     }
 
     long forwarded() {
@@ -520,14 +467,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     long guardMismatch() {
         return guardMismatch;
-    }
-
-    long belowThreshold() {
-        return belowThreshold;
-    }
-
-    long framedSmall() {
-        return framedSmall;
     }
 
     String status() {
