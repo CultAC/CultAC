@@ -182,14 +182,14 @@ final class VelocityCompressedForward {
 
     /**
      * Hands {@code warning} to {@code channel}'s loop as a task, which runs after the read or write that raises it; a
-     * task the loop rejects is dropped.
+     * task the loop does not take is dropped, and nothing the hand-off throws leaves this method.
      */
     static Runnable deferred(Channel channel, Runnable warning) {
         return () -> {
             try {
                 channel.eventLoop().execute(warning);
-            } catch (RejectedExecutionException closed) {
-                // A shut-down loop runs no task, and its channel has nothing left to report.
+            } catch (Throwable failure) {
+                // The switch-off path hands nothing off; no throw of the hand-off may reach the read or write.
             }
         };
     }

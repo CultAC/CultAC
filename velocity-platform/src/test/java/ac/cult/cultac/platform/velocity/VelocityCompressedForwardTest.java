@@ -4613,6 +4613,134 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void refusalHandOffThatThrowsLeavesTheOperationAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 160);
+        byte[] read = frame(body(packet, THRESHOLD));
+        for (Throwable thrown : List.of(new IllegalStateException("loop"), new OutOfMemoryError("queue"))) {
+            for (int s = 0; s < 3; s++) {
+                boolean client = s == 0;
+                boolean afterAllocations = s == 2;
+                String side = (client
+                                ? "untrusted client write"
+                                : afterAllocations
+                                        ? "backend refused after the keep's allocations"
+                                        : "backend refused before the claim")
+                        + ", " + thrown.getClass().getSimpleName();
+                List<String> seen = new ArrayList<>();
+                for (boolean on : new boolean[] {false, true}) {
+                    var writes = new ArrayList<ChannelFuture>();
+                    ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
+                    try (var f = new Fixture(
+                            Options.today().onFrame((fixture, buf) -> writes.add(fixture.client.write(buf))))) {
+                        boolean[] throwing = {false};
+                        EventLoop failing = mock(EventLoop.class);
+                        when(failing.inEventLoop()).thenReturn(true);
+                        doThrow(thrown).when(failing).execute(any(Runnable.class));
+                        Channel clientChannel = mock(Channel.class);
+                        when(clientChannel.eventLoop())
+                                .thenAnswer(call -> throwing[0] ? failing : f.client.eventLoop());
+                        ChannelPipeline pipeline = delegating(f.client.pipeline());
+                        doReturn(clientChannel).when(pipeline).channel();
+                        Channel backend = mock(Channel.class, AdditionalAnswers.delegatesTo(f.backend));
+                        doAnswer(call -> throwing[0] ? failing : f.backend.eventLoop())
+                                .when(backend)
+                                .eventLoop();
+                        if (on) {
+                            CompressedForwarder forwarder = VelocityCompressedForward.install(
+                                    pipeline,
+                                    CompressEncoder.class,
+                                    DECODER,
+                                    COMPRESSORS,
+                                    CompressedKeep.NETTY_ALLOCATORS,
+                                    refusal -> {});
+                            assertNotNull(forwarder, side);
+                            VelocityCompressedForward.place(
+                                    forwarder,
+                                    f.client.pipeline(),
+                                    backend,
+                                    DECODER,
+                                    COMPRESSORS,
+                                    client
+                                            ? TRUSTED
+                                            : afterAllocations
+                                                    ? TRUSTED.and(alloc -> !ResourceLeakDetector.isEnabled())
+                                                    : CompressedKeep.NETTY_ALLOCATORS,
+                                    refusal -> {});
+                            assertEquals("linked", forwarder.linkStatus(), side);
+                        }
+                        if (client) {
+                            f.client.config().setAllocator(new RecordingAllocator());
+                        } else if (afterAllocations) {
+                            var allocator = new RecordingAllocator();
+                            atAllocation(
+                                    allocator,
+                                    1,
+                                    once(() -> ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID)));
+                            f.backend.config().setAllocator(allocator);
+                            ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+                        } else {
+                            f.backend.config().setAllocator(new ForeignAllocator());
+                        }
+                        throwing[0] = true;
+                        Throwable failure = null;
+                        try {
+                            f.read(read.clone());
+                        } catch (Throwable caught) {
+                            failure = caught;
+                        } finally {
+                            throwing[0] = false;
+                            ResourceLeakDetector.setLevel(level);
+                        }
+                        assertEquals(1, writes.size(), side);
+                        seen.add(sent(f.wire()) + ", promise "
+                                + describe(writes.getFirst().cause()) + ", read " + describe(failure));
+                    }
+                }
+                assertEquals("[" + Arrays.toString(packet) + "], promise ok, read ok", seen.get(0), side);
+                assertEquals(seen.get(0), seen.get(1), side);
+            }
+        }
+    }
+
+    @Test
+    void failedReleaseOfAnUnpublishedKeepBufferIsDeliveredFromTheDecoder() {
+        byte[] packet = packet(3000, 161);
+        byte[] read = frame(body(packet, THRESHOLD));
+        List<String> caught = new ArrayList<>();
+        ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
+        try (var f = new Fixture(Options.forwarding().unlinked())) {
+            VelocityCompressedForward.place(
+                    f.forwarder,
+                    f.client.pipeline(),
+                    f.backend,
+                    DECODER,
+                    COMPRESSORS,
+                    TRUSTED.and(alloc -> !ResourceLeakDetector.isEnabled()));
+            assertEquals("linked", f.forwarder.linkStatus());
+            f.backend.pipeline().addLast("last", catching("last", caught));
+            var allocator = new RecordingAllocator();
+            // The heap allocation is the comparison copy; the private frame is the allocation before it.
+            allocator.beforeHeap = once(() -> {
+                allocator.allocated.getLast().release();
+                ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
+            });
+            f.backend.config().setAllocator(allocator);
+            ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+            Throwable thrown;
+            try {
+                thrown = assertThrows(IllegalReferenceCountException.class, () -> f.read(read.clone()));
+            } finally {
+                ResourceLeakDetector.setLevel(level);
+            }
+            assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
+            assertEquals(0, f.forwarder.forwarded());
+            assertEquals(CompressedKeep.UNTRUSTED, f.forwarder.linkStatus());
+            assertEquals(List.of("last: " + describe(thrown)), caught);
+            for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation");
+        }
+    }
+
+    @Test
     void clientInstallRefusalOnALoopThatRejectsLeavesThePipelineAsWithTheSwitchOff() {
         var embedded = channel();
         try (var log = mockStatic(LogUtil.class)) {
