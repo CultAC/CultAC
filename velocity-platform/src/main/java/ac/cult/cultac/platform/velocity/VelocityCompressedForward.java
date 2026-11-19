@@ -90,12 +90,6 @@ final class VelocityCompressedForward {
             LogUtil.warn("Cannot find Velocity's compression classes; compressed frames are not forwarded");
             return null;
         }
-        return create(proxy, plugin, channels, codecs);
-    }
-
-    /** {@code codecs} are the classes the handlers accept. */
-    static VelocityCompressedForward create(
-            ProxyServer proxy, Object plugin, Function<Player, Channel> channels, Codecs codecs) {
         return new VelocityCompressedForward(proxy, plugin, channels, codecs);
     }
 

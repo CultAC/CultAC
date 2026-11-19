@@ -1827,6 +1827,10 @@ class VelocityCompressedForwardTest {
                 var writes = new ArrayList<ChannelFuture>();
                 var held = new ArrayList<ByteBuf>();
                 var options = (forward ? Options.forwarding() : Options.today()).onFrame((fixture, buf) -> {
+                    if (!held.isEmpty()) {
+                        fixture.delayedWrite(buf);
+                        return;
+                    }
                     buf.retain(count - buf.refCnt());
                     held.add(buf);
                     writes.add(fixture.client.write(buf));
@@ -1843,6 +1847,12 @@ class VelocityCompressedForwardTest {
                     if (forward) {
                         int forwarded = count < CompressedForwarder.MAX_REFERENCES ? 1 : 0;
                         assertEquals(forwarded, f.forwarder.forwarded(), label);
+                        assertEquals("on", f.forwarder.status(), label);
+                        byte[] next = packet(3000, 160);
+                        f.read(frame(body(next, THRESHOLD)));
+                        var frames = read(f.wire(), THRESHOLD);
+                        assertPackets(List.of(next), frames.subList(forwarded, frames.size()));
+                        assertEquals(forwarded + 1, f.forwarder.forwarded(), "the next frame, " + label);
                     }
                     for (ByteBuf allocated : allocator.allocated)
                         assertEquals(0, allocated.refCnt(), "an allocation, " + label);
@@ -1855,6 +1865,41 @@ class VelocityCompressedForwardTest {
                     seen.get(0));
             assertEquals(seen.get(0), seen.get(1), "count " + count);
         }
+    }
+
+    @Test
+    void publishedBufferOfAForwarderDisabledDuringItsPublishIsSentAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 161);
+        byte[] read = frame(body(packet, THRESHOLD));
+        List<byte[]> wires = new ArrayList<>();
+        List<String> promises = new ArrayList<>();
+        for (boolean forward : new boolean[] {false, true}) {
+            var writes = new ArrayList<ChannelFuture>();
+            var options = (forward ? Options.forwarding() : Options.today()).onFrame((fixture, buf) -> {
+                if (fixture.forwarder != null) {
+                    var client = fixture.client.pipeline();
+                    client.addAfter(
+                            CompressedForwarder.COMPRESSION_ENCODER, "tap", new ChannelOutboundHandlerAdapter());
+                    var other = fixture.backend(Options.forwarding()).channel;
+                    VelocityCompressedForward.place(fixture.forwarder, client, other, DECODER, COMPRESSORS, TRUSTED);
+                    client.remove("tap");
+                }
+                writes.add(fixture.client.write(buf));
+            });
+            try (var f = new Fixture(options)) {
+                f.read(read);
+                byte[] wire = f.wire();
+                assertPackets(List.of(packet), read(wire, THRESHOLD));
+                wires.add(wire);
+                promises.add(describe(writes.getFirst().cause()));
+                if (forward) {
+                    assertEquals("adjacency", f.forwarder.status());
+                    assertEquals(0, f.forwarder.forwarded());
+                }
+            }
+        }
+        assertSameBytes(wires.get(0), wires.get(1));
+        assertEquals(List.of("ok", "ok"), promises);
     }
 
     @Test
@@ -2126,7 +2171,7 @@ class VelocityCompressedForwardTest {
         var other = new EmbeddedChannel();
         var group = new DefaultEventExecutorGroup(1);
         try (var log = mockStatic(LogUtil.class)) {
-            var forward = VelocityCompressedForward.create(
+            var forward = new VelocityCompressedForward(
                     mock(ProxyServer.class),
                     new Object(),
                     p -> null,
@@ -3719,7 +3764,7 @@ class VelocityCompressedForwardTest {
         byte[] today = today(Options.forwarding(), read);
         ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
         try (var log = mockStatic(LogUtil.class)) {
-            var forward = VelocityCompressedForward.create(
+            var forward = new VelocityCompressedForward(
                     mock(ProxyServer.class),
                     new Object(),
                     p -> null,
@@ -4197,7 +4242,7 @@ class VelocityCompressedForwardTest {
 
     /** A forward over the stand-in codecs whose {@link VelocityCompressedForward#refused} logs through LogUtil. */
     private static VelocityCompressedForward forward() {
-        return VelocityCompressedForward.create(
+        return new VelocityCompressedForward(
                 mock(ProxyServer.class),
                 new Object(),
                 p -> null,
