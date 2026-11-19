@@ -1016,6 +1016,211 @@ class VelocityCompressedForwardLoopTest {
         }
     }
 
+    /** A client pipeline whose compression encoder is added with {@code pinned} as its own executor. */
+    private static CompressedForwarder pinnedEncoderClient(
+            ChannelPipeline pipeline, EventLoop pinned, ChannelOutboundHandlerAdapter tailSide, boolean forward) {
+        pipeline.addLast("cipher-encoder", new CipherEncoder());
+        var compressor = new SharedCompressor();
+        pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+        pipeline.addLast(
+                pinned, CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+        pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
+        pipeline.addLast(pinned, "minecraft-encoder", tailSide);
+        return forward
+                ? VelocityCompressedForward.install(pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS)
+                : null;
+    }
+
+    private static void moveTo(EventLoopGroup loop, Channel... channels) throws Exception {
+        for (Channel channel : channels) {
+            channel.deregister().sync();
+            loop.register(channel).sync();
+        }
+    }
+
+    @Test
+    void writesFromThePinnedEncodersLoopKeepTheirOrderAfterAMoveAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        EventLoop first = group.next();
+        byte[] direct = packet(600, 105);
+        byte[] queued = packet(400, 106);
+        List<byte[]> sent = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                synchronized (received) {
+                    received.reset();
+                }
+                Pair client = connect(true);
+                receive(client);
+                Channel toClient = client.proxySide();
+                CompressedForwarder forwarder = onLoop(
+                        () -> pinnedEncoderClient(toClient.pipeline(), first, new ChannelOutboundHandlerAdapter(), on));
+                if (on) assertNotNull(forwarder);
+                moveTo(second, toClient);
+                assertNotSame(first, toClient.eventLoop());
+                first.submit(() -> {
+                            // The second packet's write is queued on the client's loop before the first is written.
+                            toClient.eventLoop().execute(() -> toClient.writeAndFlush(Unpooled.wrappedBuffer(queued)));
+                            toClient.writeAndFlush(Unpooled.wrappedBuffer(direct));
+                            return null;
+                        })
+                        .get(5, TimeUnit.SECONDS);
+                assertPackets(List.of(direct, queued), awaitFrames(2));
+                synchronized (received) {
+                    sent.add(received.toByteArray());
+                }
+                if (on) assertEquals("on", within(toClient, forwarder::status));
+                toClient.close().sync();
+            }
+            assertArrayEquals(sent.get(0), sent.get(1), "the frames the encoder compresses with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void publishedBufferWrittenOnThePinnedEncodersLoopDuringItsPublishIsSentAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        EventLoop first = group.next();
+        byte[] packet = packet(4000, 107);
+        List<byte[]> sent = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                synchronized (received) {
+                    received.reset();
+                }
+                Pair client = connect(true);
+                receive(client);
+                Channel toClient = client.proxySide();
+                var written = new CountDownLatch(1);
+                CompressedForwarder forwarder = onLoop(() -> pinnedEncoderClient(
+                        toClient.pipeline(),
+                        first,
+                        new ChannelOutboundHandlerAdapter() {
+                            @Override
+                            public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
+                                ctx.write(msg, promise);
+                                written.countDown();
+                            }
+                        },
+                        on));
+                if (on) assertNotNull(forwarder);
+                Pair backend = connect(false);
+                onLoop(() -> {
+                    var pipeline = backend.proxySide().pipeline();
+                    pipeline.addLast("frame-decoder", new FrameDecoder());
+                    pipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+                    pipeline.addLast("handler", new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                            ByteBuf buf = (ByteBuf) msg;
+                            try {
+                                toClient.writeAndFlush(buf.retain());
+                                // The publish lasts until the encoder's executor has run the write.
+                                await(written);
+                            } finally {
+                                buf.release();
+                            }
+                        }
+                    });
+                    if (on)
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, backend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                    return null;
+                });
+                if (on) assertEquals("linked", onLoop(forwarder::linkStatus));
+                moveTo(second, toClient, backend.proxySide());
+                assertSame(toClient.eventLoop(), backend.proxySide().eventLoop());
+                serve(backend, packet);
+                assertPackets(List.of(packet), awaitFrames(1));
+                synchronized (received) {
+                    sent.add(received.toByteArray());
+                }
+                if (on) {
+                    assertEquals(0L, within(toClient, forwarder::forwarded));
+                    assertEquals("on", within(toClient, forwarder::status));
+                    assertNull(within(toClient, forwarder::markFrame), "every private frame is taken or released");
+                }
+                backend.proxySide().close().sync();
+                toClient.close().sync();
+            }
+            assertArrayEquals(sent.get(0), sent.get(1), "the frame the encoder compresses with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void readThroughHandlersPinnedWithTheBackendDecoderKeepsItsOrderAfterAMoveAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        EventLoop first = group.next();
+        byte[] packet = packet(4000, 108);
+        List<List<String>> orders = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                Pair client = client(on);
+                Channel toClient = client.proxySide();
+                var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                if (on) assertNotNull(forwarder);
+                var events = new CopyOnWriteArrayList<String>();
+                Pair backend = connect(false);
+                onLoop(() -> {
+                    var pipeline = backend.proxySide().pipeline();
+                    pipeline.addLast(first, "frame-decoder", new FrameDecoder());
+                    pipeline.addLast(
+                            first, VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+                    pipeline.addLast(first, "handler", new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                            ((ByteBuf) msg).release();
+                            events.add("decoded");
+                        }
+                    });
+                    if (on)
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, backend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                    return null;
+                });
+                if (on) assertEquals("linked", onLoop(forwarder::linkStatus));
+                moveTo(second, toClient, backend.proxySide());
+                assertSame(toClient.eventLoop(), backend.proxySide().eventLoop());
+                backend.remote()
+                        .writeAndFlush(Unpooled.wrappedBuffer(frame(body(packet, THRESHOLD))))
+                        .sync();
+                var holding = new CountDownLatch(1);
+                var resume = new CountDownLatch(1);
+                first.execute(() -> {
+                    holding.countDown();
+                    await(resume);
+                });
+                try {
+                    await(holding);
+                    within(backend.proxySide(), () -> {
+                        backend.proxySide().config().setAutoRead(true);
+                        backend.proxySide().read();
+                        return null;
+                    });
+                    first.execute(() -> events.add("queued"));
+                } finally {
+                    resume.countDown();
+                }
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (events.size() < 2) {
+                    if (System.nanoTime() > deadline) fail("events: " + events);
+                    Thread.onSpinWait();
+                }
+                orders.add(List.copyOf(events));
+                if (on) assertEquals(0L, within(toClient, forwarder::forwarded));
+                backend.proxySide().close().sync();
+                toClient.close().sync();
+            }
+            assertEquals(List.of("decoded", "queued"), orders.get(0), "the switched-off order on the first loop");
+            assertEquals(orders.get(0), orders.get(1));
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
     @Test
     void clientDecoderRemovedOrReplacedFromAnotherThreadBeforeAWriteIsSentAsWithTheSwitchOff() throws Exception {
         byte[] packet = packet(4000, 104);

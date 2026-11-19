@@ -385,7 +385,12 @@ final class VelocityCompressedForward {
                 refusal = Refusal.EXECUTOR;
             } else {
                 try {
-                    pipeline.addAfter(CompressedForwarder.COMPRESSION_ENCODER, CompressedForwarder.NAME, forwarder);
+                    // The forwarder shares the encoder's executor, which a codec added with one keeps on any loop.
+                    pipeline.addAfter(
+                            CompressedForwarder.ownExecutor(encoder),
+                            CompressedForwarder.COMPRESSION_ENCODER,
+                            CompressedForwarder.NAME,
+                            forwarder);
                     ChannelHandlerContext added = pipeline.context(forwarder);
                     if (added == null
                             || added.isRemoved()
@@ -742,7 +747,9 @@ final class VelocityCompressedForward {
                 return;
             }
             try {
-                pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);
+                // The keep shares the decoder's executor, which a codec added with one keeps on any loop.
+                pipeline.addBefore(
+                        CompressedForwarder.ownExecutor(decoder), COMPRESSION_DECODER, CompressedKeep.NAME, keep);
             } catch (RuntimeException failure) {
                 forwarder.linkStatus("backend-install-failed");
                 CompressedForwarder.remove(pipeline, keep);

@@ -260,22 +260,12 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
                 && CompressedForwarder.follows(decoder, keep);
     }
 
-    /**
-     * Whether the cached decoder's context runs on the current thread, or no decoder is cached; a decoder added with its
-     * own executor keeps it when the channel is registered on another loop.
-     */
-    private boolean onDecoderExecutor() {
-        ChannelHandlerContext decoder = decoderContext;
-        return decoder == null || decoder.executor().inEventLoop();
-    }
-
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         // The class check runs before any method of the frame; a released frame passes on for the decoder to refuse.
         if (forwarder.disabled
                 // The mark's fields are written only on the client's loop, so one keep publishes at a time.
                 || !forwarder.onClientLoop()
-                || !onDecoderExecutor()
                 || !(msg instanceof ByteBuf frame)
                 || !nettyFrame(frame)
                 || frame.refCnt() == 0

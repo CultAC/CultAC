@@ -12,6 +12,7 @@ import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPipeline;
 import io.netty.channel.EventLoop;
 import io.netty.handler.codec.EncoderException;
+import io.netty.util.concurrent.EventExecutor;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -25,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Sits on the client channel directly after Velocity's compression encoder and sends the marked, unchanged inflated
  * buffer as its keep's private frame through the encoder's context. Every other message passes on to the encoder with
- * no call of its own made. Runs on the client's event loop and takes a mark only on the thread that published it.
+ * no call of its own made. Runs on the encoder's executor and takes a mark only on the thread that published it.
  */
 final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final String NAME = "cult-compressed-forward";
@@ -45,6 +46,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private static final @Nullable VarHandle NEXT = link("next");
     // Netty touches every message it dispatches to a context of a pipeline built with leak detection enabled.
     private static final @Nullable VarHandle TOUCH = touch();
+    // A context added with an executor of its own keeps it when its channel is registered on another loop.
+    private static final @Nullable VarHandle OWN_EXECUTOR = ownExecutorField();
 
     private final MethodHandle encoderThreshold;
     private final int threshold;
@@ -128,12 +131,30 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
     }
 
+    private static @Nullable VarHandle ownExecutorField() {
+        try {
+            Class<?> context = Class.forName(
+                    "io.netty.channel.AbstractChannelHandlerContext",
+                    false,
+                    ChannelHandlerContext.class.getClassLoader());
+            return MethodHandles.privateLookupIn(context, MethodHandles.lookup())
+                    .findVarHandle(context, "childExecutor", EventExecutor.class);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
+            return null;
+        }
+    }
+
     /**
-     * Whether this netty lets a handler read which context its writes reach next and whether a pipeline touches the
-     * messages it dispatches.
+     * Whether this netty lets a handler read which context its writes reach next, whether a pipeline touches the
+     * messages it dispatches, and which executor a context was added with.
      */
     static boolean supported() {
-        return PREVIOUS != null && NEXT != null && TOUCH != null;
+        return PREVIOUS != null && NEXT != null && TOUCH != null && OWN_EXECUTOR != null;
+    }
+
+    /** The executor {@code ctx}'s handler was added with, or null when it runs on its channel's event loop. */
+    static @Nullable EventExecutor ownExecutor(ChannelHandlerContext ctx) {
+        return (EventExecutor) OWN_EXECUTOR.get(ctx);
     }
 
     /**
@@ -207,13 +228,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
             ctx.write(msg, promise);
             return;
         }
-        // Defence only: a keep publishes on the client's loop, where every write of this channel runs.
+        // A keep publishes on the client's loop; this handler runs on the encoder's executor, which can be another.
         if (markThread != Thread.currentThread()) {
-            ctx.write(msg, promise);
-            return;
-        }
-        // An encoder added with its own executor keeps it when the channel is registered on another loop.
-        if (!target.executor().inEventLoop()) {
             ctx.write(msg, promise);
             return;
         }
