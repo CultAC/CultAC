@@ -37,6 +37,7 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderException;
+import io.netty.handler.codec.EncoderException;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ResourceLeakDetector;
@@ -48,10 +49,11 @@ import java.io.InputStream;
 import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -67,14 +69,19 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 import java.util.zip.Adler32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.description.field.FieldDescription;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.pool.TypePool;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.AdditionalAnswers;
 
 /**
@@ -1758,17 +1765,19 @@ class VelocityCompressedForwardTest {
         }
     }
 
-    @Test
-    void smallFrameIsReleasedWhenTheInputsReleaseThrows() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void smallFrameIsReleasedWhenTheInputsReleaseThrows(boolean encoderFailure) {
         byte[] packet = packet(100, 84);
         var allocator = new RecordingAllocator();
         var allocated = allocator.allocated;
         try (var f = new Fixture(Options.forwarding().unlinked())) {
             f.client.config().setAllocator(allocator);
-            var input = new FailingRelease(packet.length);
+            var input = FailingRelease.of(packet.length, encoderFailure);
             input.writeBytes(packet);
             ChannelFuture write = f.client.write(input);
-            assertEquals(releaseFailureSwitchedOff(packet), describe(write.cause()));
+            assertEquals(releaseFailureSwitchedOff(packet, encoderFailure), describe(write.cause()));
+            if (encoderFailure) assertSame(input.failure, write.cause());
             assertFalse(allocated.isEmpty(), "the small path framed a copy");
             for (ByteBuf buf : allocated) assertEquals(0, buf.refCnt(), "the framed copy is released");
             assertEquals(0, f.wire().length);
@@ -1778,14 +1787,15 @@ class VelocityCompressedForwardTest {
     }
 
     /** How the switched-off client fails the write of {@code packet} in a buffer whose first release throws. */
-    private static String releaseFailureSwitchedOff(byte[] packet) {
+    private static String releaseFailureSwitchedOff(byte[] packet, boolean encoderFailure) {
         try (var f = new Fixture(Options.today())) {
-            var input = new FailingRelease(packet.length);
+            var input = FailingRelease.of(packet.length, encoderFailure);
             input.writeBytes(packet);
             ChannelFuture write = f.client.write(input);
             String failure = describe(write.cause());
             assertEquals(
                     "io.netty.handler.codec.EncoderException / io.netty.util.IllegalReferenceCountException", failure);
+            if (encoderFailure) assertSame(input.failure, write.cause());
             assertEquals(0, f.wire().length);
             assertTrue(input.release());
             return failure;
@@ -1997,12 +2007,13 @@ class VelocityCompressedForwardTest {
         }
     }
 
-    @Test
-    void forwardedFrameIsReleasedWhenTheInputsReleaseThrows() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void forwardedFrameIsReleasedWhenTheInputsReleaseThrows(boolean encoderFailure) {
         byte[] packet = packet(3000, 71);
         byte[] body = body(packet, THRESHOLD);
         try (var f = new Fixture(Options.forwarding().unlinked())) {
-            var input = new FailingRelease(packet.length);
+            var input = FailingRelease.of(packet.length, encoderFailure);
             input.writeBytes(packet);
             ByteBuf copy = f.track(Unpooled.copiedBuffer(packet));
             ByteBuf kept = f.track(Unpooled.wrappedBuffer(body));
@@ -2018,7 +2029,8 @@ class VelocityCompressedForwardTest {
             } finally {
                 f.forwarder.mark(null, 0, 0, null, null);
             }
-            assertEquals(releaseFailureSwitchedOff(packet), describe(write.cause()));
+            assertEquals(releaseFailureSwitchedOff(packet, encoderFailure), describe(write.cause()));
+            if (encoderFailure) assertSame(input.failure, write.cause());
             assertEquals(0, frame.refCnt(), "the frame no write took is released");
             assertEquals(0, f.wire().length);
             assertTrue(input.release());
@@ -2075,17 +2087,29 @@ class VelocityCompressedForwardTest {
 
     /** A heap buffer whose first release throws, as releasing a reference the writer does not hold does. */
     static final class FailingRelease extends UnpooledHeapByteBuf {
+        final RuntimeException failure;
         private boolean failed;
 
         FailingRelease(int capacity) {
+            this(capacity, new IllegalReferenceCountException(0, -1));
+        }
+
+        FailingRelease(int capacity, RuntimeException failure) {
             super(UnpooledByteBufAllocator.DEFAULT, capacity, capacity);
+            this.failure = failure;
+        }
+
+        /** With {@code encoderFailure}, the release throws an encoder exception caused by the count failure. */
+        static FailingRelease of(int capacity, boolean encoderFailure) {
+            var failure = new IllegalReferenceCountException(0, -1);
+            return new FailingRelease(capacity, encoderFailure ? new EncoderException(failure) : failure);
         }
 
         @Override
         public boolean release() {
             if (!failed) {
                 failed = true;
-                throw new IllegalReferenceCountException(0, -1);
+                throw failure;
             }
             return super.release();
         }
@@ -4092,12 +4116,35 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
-    void noStaticClassValueHoldsAPluginType() {
-        for (Class<?> type : List.of(VelocityCompressedForward.class, CompressedKeep.class, CompressedForwarder.class))
-            for (Field field : type.getDeclaredFields()) {
-                if (!Modifier.isStatic(field.getModifiers()) || field.getType() != ClassValue.class) continue;
-                for (Class<?> held : classes(field.getGenericType()))
-                    assertNull(held.getClassLoader(), type.getSimpleName() + "." + field.getName() + " holds " + held);
+    void noStaticClassValueHoldsAPluginType() throws Exception {
+        Set<Map.Entry<String, String>> allowed = Set.of(Map.entry(CompressedKeep.class.getName(), "NETTY_BUFFERS"));
+        ClassLoader loader = VelocityCompressedForward.class.getClassLoader();
+        String pkg = VelocityCompressedForward.class.getPackageName();
+        Path dir = Path.of(VelocityCompressedForward.class
+                        .getProtectionDomain()
+                        .getCodeSource()
+                        .getLocation()
+                        .toURI())
+                .resolve(pkg.replace('.', '/'));
+        List<String> types = new ArrayList<>();
+        try (Stream<Path> files = Files.list(dir)) {
+            for (Path file : files.toList()) {
+                String name = file.getFileName().toString();
+                if (name.endsWith(".class")) types.add(pkg + "." + name.substring(0, name.length() - 6));
+            }
+        }
+        assertTrue(types.contains(CompressedKeep.class.getName()), dir.toString());
+        // Read from the class files: some field types in the package are absent from the test classpath.
+        TypePool pool = TypePool.Default.of(loader);
+        for (String type : types)
+            for (FieldDescription field : pool.describe(type).resolve().getDeclaredFields()) {
+                if (!field.isStatic() || !field.getType().asErasure().represents(ClassValue.class)) continue;
+                assertTrue(
+                        allowed.contains(Map.entry(type, field.getName())),
+                        type + "." + field.getName() + " is a static ClassValue off the allow-list");
+                Field reflected = Class.forName(type, false, loader).getDeclaredField(field.getName());
+                for (Class<?> held : classes(reflected.getGenericType()))
+                    assertNull(held.getClassLoader(), type + "." + field.getName() + " holds " + held);
             }
     }
 
