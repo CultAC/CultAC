@@ -3985,8 +3985,10 @@ class VelocityCompressedForwardTest {
     void clientPipelineBuiltWithLeakDetectionGetsNoForwarderAsWithTheSwitchOff() {
         byte[] packet = packet(100, 153);
         List<String> seen = new ArrayList<>();
+        ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
         for (boolean on : new boolean[] {false, true}) {
             var channel = new EmbeddedChannel();
+            ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
             try {
                 ChannelPipeline pipeline = channel.pipeline();
                 assertTrue(CompressedForwarder.touches(pipeline), "built under the suite's paranoid level");
@@ -4019,6 +4021,7 @@ class VelocityCompressedForwardTest {
                         + ", count " + msg.refCnt());
                 if (msg.refCnt() > 0) msg.release(msg.refCnt());
             } finally {
+                ResourceLeakDetector.setLevel(level);
                 channel.finishAndReleaseAll();
             }
         }
@@ -4031,34 +4034,40 @@ class VelocityCompressedForwardTest {
         byte[] packet = packet(3000, 154);
         byte[] body = body(packet, THRESHOLD);
         List<String> seen = new ArrayList<>();
+        ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
         for (boolean on : new boolean[] {false, true}) {
             try (var f = new Fixture(on ? Options.forwarding().unlinked() : Options.today())) {
                 var touching = f.backend(Options.forwarding(), new EmbeddedChannel());
                 ChannelPipeline pipeline = touching.channel.pipeline();
-                assertTrue(CompressedForwarder.touches(pipeline), "built under the suite's paranoid level");
-                if (on) {
-                    VelocityCompressedForward.place(
-                            f.forwarder,
-                            f.client.pipeline(),
-                            touching.channel,
-                            DECODER,
-                            COMPRESSORS,
-                            CompressedKeep.NETTY_ALLOCATORS);
-                    assertEquals(CompressedKeep.LEAK_DETECTION, f.forwarder.linkStatus());
-                    assertNull(pipeline.get(CompressedKeep.NAME));
-                }
-                var frame = new TouchedOnce(body);
-                Throwable thrown = null;
+                ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
                 try {
-                    pipeline.context("read-timeout").fireChannelRead(frame);
-                    pipeline.context("read-timeout").fireChannelReadComplete();
-                    touching.channel.checkException();
-                } catch (Throwable failure) {
-                    thrown = failure;
+                    assertTrue(CompressedForwarder.touches(pipeline), "built under the suite's paranoid level");
+                    if (on) {
+                        VelocityCompressedForward.place(
+                                f.forwarder,
+                                f.client.pipeline(),
+                                touching.channel,
+                                DECODER,
+                                COMPRESSORS,
+                                CompressedKeep.NETTY_ALLOCATORS);
+                        assertEquals(CompressedKeep.LEAK_DETECTION, f.forwarder.linkStatus());
+                        assertNull(pipeline.get(CompressedKeep.NAME));
+                    }
+                    var frame = new TouchedOnce(body);
+                    Throwable thrown = null;
+                    try {
+                        pipeline.context("read-timeout").fireChannelRead(frame);
+                        pipeline.context("read-timeout").fireChannelReadComplete();
+                        touching.channel.checkException();
+                    } catch (Throwable failure) {
+                        thrown = failure;
+                    }
+                    seen.add("touches " + frame.touches.size() + ", " + sent(f.wire()) + ", " + describe(thrown)
+                            + ", count " + frame.refCnt());
+                    if (frame.refCnt() > 0) frame.release(frame.refCnt());
+                } finally {
+                    ResourceLeakDetector.setLevel(level);
                 }
-                seen.add("touches " + frame.touches.size() + ", " + sent(f.wire()) + ", " + describe(thrown)
-                        + ", count " + frame.refCnt());
-                if (frame.refCnt() > 0) frame.release(frame.refCnt());
             }
         }
         assertTrue(seen.get(0).startsWith("touches 1, [" + Arrays.toString(packet) + "], ok"), seen.get(0));
