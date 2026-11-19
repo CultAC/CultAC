@@ -81,7 +81,8 @@ final class VelocityCompressedForward {
             ProxyServer proxy, Object plugin, Function<Player, Channel> channels) {
         if (!Boolean.getBoolean(ENABLED_PROPERTY)) return null;
         if (!CompressedForwarder.supported()) {
-            LogUtil.warn("Cannot read the handler order of this netty; compressed frames are not forwarded");
+            LogUtil.warn("Cannot read the handler order or the pipelines' leak detection of this netty; compressed"
+                    + " frames are not forwarded");
             return null;
         }
         ClassLoader loader = proxy.getClass().getClassLoader();
@@ -167,8 +168,22 @@ final class VelocityCompressedForward {
         try {
             LogUtil.warn(refusal.warning);
         } catch (Throwable failure) {
-            // The switch-off path runs no logger; the read or write this refusal reports completes without its throw.
+            // The switch-off path runs no logger; its throw reaches neither the caller nor the loop.
         }
+    }
+
+    /**
+     * Hands {@code warning} to {@code channel}'s loop as a task, which runs after the read or write that raises it; a
+     * task the loop rejects is dropped.
+     */
+    static Runnable deferred(Channel channel, Runnable warning) {
+        return () -> {
+            try {
+                channel.eventLoop().execute(warning);
+            } catch (RejectedExecutionException closed) {
+                // A shut-down loop runs no task, and its channel has nothing left to report.
+            }
+        };
     }
 
     /** A getter bound to {@code encoder}'s {@code int threshold} when it is exactly of {@code encoderClass}, or null. */
@@ -285,9 +300,9 @@ final class VelocityCompressedForward {
     }
 
     /**
-     * The forwarder installed directly after an encoder exactly of {@code encoderClass} on the channel's loop, with a
-     * decoder exactly of {@code decoderClass} sharing an open compressor of one of {@code compressors}' classes, or
-     * null.
+     * The forwarder installed, in a pipeline that touches no message, directly after an encoder exactly of
+     * {@code encoderClass} on the channel's loop, with a decoder exactly of {@code decoderClass} sharing an open
+     * compressor of one of {@code compressors}' classes, or null.
      */
     static @Nullable CompressedForwarder install(
             ChannelPipeline pipeline, Class<?> encoderClass, Class<?> decoderClass, Compressors compressors) {
@@ -318,6 +333,10 @@ final class VelocityCompressedForward {
         if (!CompressedForwarder.supported() || pipeline.get(CompressedForwarder.NAME) != null) return null;
         ChannelHandlerContext encoder = pipeline.context(CompressedForwarder.COMPRESSION_ENCODER);
         if (encoder == null) return null;
+        if (CompressedForwarder.touches(pipeline)) {
+            refused.accept(Refusal.LEAK_DETECTION);
+            return null;
+        }
         MethodHandle threshold = thresholdReader(encoder.handler(), encoderClass);
         if (threshold == null) {
             refused.accept(Refusal.THRESHOLD);
@@ -347,7 +366,7 @@ final class VelocityCompressedForward {
                 consume,
                 disposed,
                 trustedAllocators,
-                () -> refused.accept(Refusal.CLIENT_UNTRUSTED));
+                deferred(pipeline.channel(), () -> refused.accept(Refusal.CLIENT_UNTRUSTED)));
         if (forwarder.threshold() < 0) {
             refused.accept(Refusal.THRESHOLD);
             return null;
@@ -444,6 +463,9 @@ final class VelocityCompressedForward {
         /** After the insert, the encoder is not the validated one or the forwarder does not directly follow it. */
         CHANGED("A client's compression encoder is not where the forwarder expects it after the insert; its frames are"
                 + " compressed by Velocity"),
+        /** The client's pipeline was built with netty's leak detection enabled, or how it was built cannot be read. */
+        LEAK_DETECTION("A client's pipeline was built with Netty's leak detection enabled; its frames are compressed by"
+                + " Velocity"),
         /**
          * Netty's leak detection is enabled, or the backend's allocator or netty's leak detector is not of netty's own
          * classes; the keep unlinks.
@@ -597,8 +619,8 @@ final class VelocityCompressedForward {
     }
 
     /**
-     * Places the keep before the backend's decoder exactly of {@code decoderClass} holding a compressor of one of
-     * {@code compressors}' classes; one loop for both.
+     * Places the keep, in a backend pipeline that touches no message, before the backend's decoder exactly of
+     * {@code decoderClass} holding a compressor of one of {@code compressors}' classes; one loop for both.
      */
     static void place(
             CompressedForwarder forwarder,
@@ -683,7 +705,12 @@ final class VelocityCompressedForward {
             forwarder.linkStatus("backend-occupied");
             return;
         }
-        var keep = new CompressedKeep(forwarder, trustedAllocators, () -> refused.accept(Refusal.UNTRUSTED));
+        if (CompressedForwarder.touches(pipeline)) {
+            forwarder.linkStatus(CompressedKeep.LEAK_DETECTION);
+            return;
+        }
+        var keep = new CompressedKeep(
+                forwarder, trustedAllocators, deferred(backend, () -> refused.accept(Refusal.UNTRUSTED)));
         try {
             pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);
         } catch (RuntimeException failure) {

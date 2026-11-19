@@ -35,6 +35,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelPipeline;
 import io.netty.channel.DefaultEventLoop;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderException;
@@ -584,7 +585,7 @@ class VelocityCompressedForwardTest {
     @Test
     void onlyTheNamedEncoderClassGetsAForwarder() {
         Class<?> standIn = CompressEncoder.class;
-        var channel = new EmbeddedChannel();
+        var channel = channel();
         try {
             var pipeline = channel.pipeline();
             var compressor = new SharedCompressor();
@@ -616,7 +617,7 @@ class VelocityCompressedForwardTest {
 
     @Test
     void installRefusesWithoutCompression() {
-        var channel = new EmbeddedChannel();
+        var channel = channel();
         try {
             assertNull(
                     VelocityCompressedForward.install(channel.pipeline(), CompressEncoder.class, DECODER, COMPRESSORS));
@@ -627,7 +628,7 @@ class VelocityCompressedForwardTest {
 
     @Test
     void negativeInstallThresholdInstallsNothing() {
-        var channel = new EmbeddedChannel();
+        var channel = channel();
         try {
             var pipeline = channel.pipeline();
             var compressor = new SharedCompressor();
@@ -1154,7 +1155,7 @@ class VelocityCompressedForwardTest {
     void partialLinkInstallLeavesNothingBehind() {
         try (var f = new Fixture(Options.forwarding().unlinked())) {
             ChannelPipeline real = f.backend.pipeline();
-            ChannelPipeline failing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            ChannelPipeline failing = delegating(real);
             doAnswer(call -> {
                         real.addBefore((String) call.getArgument(0), (String) call.getArgument(1), (ChannelHandler)
                                 call.getArgument(2));
@@ -1731,7 +1732,7 @@ class VelocityCompressedForwardTest {
 
     @Test
     void clientDecoderOnItsOwnExecutorInstallsNothing() throws Exception {
-        var channel = new EmbeddedChannel();
+        var channel = channel();
         var group = new DefaultEventExecutorGroup(1);
         try {
             ChannelPipeline pipeline = channel.pipeline();
@@ -2067,13 +2068,13 @@ class VelocityCompressedForwardTest {
     void encoderReplacedOrRemovedDuringInstallInstallsNothing() {
         String name = CompressedForwarder.COMPRESSION_ENCODER;
         for (boolean replace : new boolean[] {true, false}) {
-            var channel = new EmbeddedChannel();
+            var channel = channel();
             try {
                 ChannelPipeline real = channel.pipeline();
                 var compressor = new SharedCompressor();
                 real.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
                 real.addLast(name, new CompressEncoder(THRESHOLD, true, compressor));
-                ChannelPipeline racing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+                ChannelPipeline racing = delegating(real);
                 doAnswer(call -> {
                             if (replace) real.replace(name, name, new CompressEncoder(THRESHOLD));
                             else real.remove(name);
@@ -2101,7 +2102,7 @@ class VelocityCompressedForwardTest {
         try (var f = new Fixture(Options.forwarding().unlinked())) {
             String name = VelocityCompressedForward.COMPRESSION_DECODER;
             ChannelPipeline real = f.backend.pipeline();
-            ChannelPipeline racing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            ChannelPipeline racing = delegating(real);
             doAnswer(call -> {
                         real.replace(name, name, new CompressDecoder(THRESHOLD));
                         return real.addBefore(
@@ -2121,13 +2122,13 @@ class VelocityCompressedForwardTest {
     @Test
     void handlerInsertedBeforeTheForwarderDuringInstallInstallsNothing() {
         String name = CompressedForwarder.COMPRESSION_ENCODER;
-        var channel = new EmbeddedChannel();
+        var channel = channel();
         try {
             ChannelPipeline real = channel.pipeline();
             var compressor = new SharedCompressor();
             real.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
             real.addLast(name, new CompressEncoder(THRESHOLD, true, compressor));
-            ChannelPipeline racing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            ChannelPipeline racing = delegating(real);
             doAnswer(call -> {
                         real.addAfter(name, CompressedForwarder.NAME, (ChannelHandler) call.getArgument(2));
                         return real.addAfter(name, "foreign", new ChannelOutboundHandlerAdapter());
@@ -2150,7 +2151,7 @@ class VelocityCompressedForwardTest {
         String name = VelocityCompressedForward.COMPRESSION_DECODER;
         try (var f = new Fixture(Options.forwarding().unlinked())) {
             ChannelPipeline real = f.backend.pipeline();
-            ChannelPipeline racing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            ChannelPipeline racing = delegating(real);
             doAnswer(call -> {
                         real.addBefore(name, CompressedKeep.NAME, (ChannelHandler) call.getArgument(2));
                         return real.addBefore(name, "foreign", new ChannelInboundHandlerAdapter());
@@ -2169,8 +2170,8 @@ class VelocityCompressedForwardTest {
     @Test
     void installRefusalsLogTheirOwnWarningOnce() throws Exception {
         String name = CompressedForwarder.COMPRESSION_ENCODER;
-        var client = new EmbeddedChannel();
-        var other = new EmbeddedChannel();
+        var client = channel();
+        var other = channel();
         var group = new DefaultEventExecutorGroup(1);
         try (var log = mockStatic(LogUtil.class)) {
             var forward = new VelocityCompressedForward(
@@ -2205,7 +2206,7 @@ class VelocityCompressedForwardTest {
                     VelocityCompressedForward.COMPRESSION_DECODER,
                     VelocityCompressedForward.COMPRESSION_DECODER,
                     new CompressDecoder(THRESHOLD, compressor));
-            ChannelPipeline racing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            ChannelPipeline racing = delegating(real);
             doAnswer(call -> {
                         real.replace(name, name, new CompressEncoder(THRESHOLD));
                         return real.addAfter(name, CompressedForwarder.NAME, (ChannelHandler) call.getArgument(2));
@@ -2810,7 +2811,7 @@ class VelocityCompressedForwardTest {
         byte[] packet = packet(3000, 68);
         try (var f = new Fixture(Options.forwarding().unlinked())) {
             ChannelPipeline real = f.backend.pipeline();
-            ChannelPipeline racing = mock(ChannelPipeline.class, AdditionalAnswers.delegatesTo(real));
+            ChannelPipeline racing = delegating(real);
             doAnswer(call -> {
                         real.remove((ChannelHandler) call.getArgument(0));
                         throw new NoSuchElementException(CompressedKeep.NAME);
@@ -3936,6 +3937,215 @@ class VelocityCompressedForwardTest {
         }
     }
 
+    /**
+     * An embedded channel whose pipeline is built with netty's leak detection disabled, as Velocity's default builds
+     * it; the level is restored after.
+     */
+    static EmbeddedChannel channel() {
+        ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
+        ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+        try {
+            return new EmbeddedChannel();
+        } finally {
+            ResourceLeakDetector.setLevel(level);
+        }
+    }
+
+    /** A netty pipeline, built with leak detection disabled, that hands every call to {@code real}. */
+    private static ChannelPipeline delegating(ChannelPipeline real) {
+        ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
+        ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
+        try {
+            return mock(
+                    DefaultChannelPipeline.class,
+                    withSettings().useConstructor(real.channel()).defaultAnswer(AdditionalAnswers.delegatesTo(real)));
+        } finally {
+            ResourceLeakDetector.setLevel(level);
+        }
+    }
+
+    /** A heap buffer that records each touch netty gives it with a hint, and fails the second. */
+    static final class TouchedOnce extends UnpooledHeapByteBuf {
+        final List<Object> touches = new ArrayList<>();
+
+        TouchedOnce(byte[] bytes) {
+            super(UnpooledByteBufAllocator.DEFAULT, bytes.length, bytes.length);
+            writeBytes(bytes);
+        }
+
+        @Override
+        public ByteBuf touch(Object hint) {
+            touches.add(hint);
+            if (touches.size() > 1) throw new IllegalStateException("second touch");
+            return this;
+        }
+    }
+
+    @Test
+    void clientPipelineBuiltWithLeakDetectionGetsNoForwarderAsWithTheSwitchOff() {
+        byte[] packet = packet(100, 153);
+        List<String> seen = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            var channel = new EmbeddedChannel();
+            try {
+                ChannelPipeline pipeline = channel.pipeline();
+                assertTrue(CompressedForwarder.touches(pipeline), "built under the suite's paranoid level");
+                var compressor = new SharedCompressor();
+                pipeline.addLast(
+                        VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+                pipeline.addLast(
+                        CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+                if (on) {
+                    var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
+                    assertNull(VelocityCompressedForward.install(
+                            pipeline,
+                            CompressEncoder.class,
+                            DECODER,
+                            COMPRESSORS,
+                            CompressedKeep.NETTY_ALLOCATORS,
+                            refusals::add));
+                    assertEquals(List.of(VelocityCompressedForward.Refusal.LEAK_DETECTION), refusals);
+                    assertNull(pipeline.get(CompressedForwarder.NAME));
+                }
+                var msg = new TouchedOnce(packet);
+                ChannelFuture write = channel.writeAndFlush(msg);
+                StringBuilder sent = new StringBuilder();
+                Object out;
+                while ((out = channel.readOutbound()) != null) {
+                    sent.append(ByteBufUtil.hexDump((ByteBuf) out));
+                    ((ByteBuf) out).release();
+                }
+                seen.add("touches " + msg.touches.size() + ", promise " + describe(write.cause()) + ", sent " + sent
+                        + ", count " + msg.refCnt());
+                if (msg.refCnt() > 0) msg.release(msg.refCnt());
+            } finally {
+                channel.finishAndReleaseAll();
+            }
+        }
+        assertTrue(seen.get(0).startsWith("touches 1, promise ok, sent 6500"), seen.get(0));
+        assertEquals(seen.get(0), seen.get(1));
+    }
+
+    @Test
+    void backendPipelineBuiltWithLeakDetectionGetsNoKeepAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 154);
+        byte[] body = body(packet, THRESHOLD);
+        List<String> seen = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            try (var f = new Fixture(on ? Options.forwarding().unlinked() : Options.today())) {
+                var touching = f.backend(Options.forwarding(), new EmbeddedChannel());
+                ChannelPipeline pipeline = touching.channel.pipeline();
+                assertTrue(CompressedForwarder.touches(pipeline), "built under the suite's paranoid level");
+                if (on) {
+                    VelocityCompressedForward.place(
+                            f.forwarder,
+                            f.client.pipeline(),
+                            touching.channel,
+                            DECODER,
+                            COMPRESSORS,
+                            CompressedKeep.NETTY_ALLOCATORS);
+                    assertEquals(CompressedKeep.LEAK_DETECTION, f.forwarder.linkStatus());
+                    assertNull(pipeline.get(CompressedKeep.NAME));
+                }
+                var frame = new TouchedOnce(body);
+                Throwable thrown = null;
+                try {
+                    pipeline.context("read-timeout").fireChannelRead(frame);
+                    pipeline.context("read-timeout").fireChannelReadComplete();
+                    touching.channel.checkException();
+                } catch (Throwable failure) {
+                    thrown = failure;
+                }
+                seen.add("touches " + frame.touches.size() + ", " + sent(f.wire()) + ", " + describe(thrown)
+                        + ", count " + frame.refCnt());
+                if (frame.refCnt() > 0) frame.release(frame.refCnt());
+            }
+        }
+        assertTrue(seen.get(0).startsWith("touches 1, [" + Arrays.toString(packet) + "], ok"), seen.get(0));
+        assertEquals(seen.get(0), seen.get(1));
+    }
+
+    @Test
+    void refusalWarningRunsAfterThePacketItReportsAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 155);
+        byte[] read = frame(body(packet, THRESHOLD));
+        byte[] own = packet(50, 156);
+        for (boolean client : new boolean[] {true, false}) {
+            String side = client ? "untrusted client write" : "backend refused before the claim";
+            List<String> offPackets = null;
+            String offPromise = null;
+            for (boolean on : new boolean[] {false, true}) {
+                List<String> order = new ArrayList<>();
+                var writes = new ArrayList<ChannelFuture>();
+                Options options = Options.today().onFrame((fixture, buf) -> {
+                    order.add("packet");
+                    writes.add(fixture.client.write(buf));
+                });
+                try (var log = mockStatic(LogUtil.class);
+                        var f = new Fixture(options)) {
+                    int[] encoded = {0};
+                    f.client.pipeline().addFirst("encoded", new ChannelOutboundHandlerAdapter() {
+                        @Override
+                        public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
+                            encoded[0]++;
+                            ctx.write(msg, promise);
+                        }
+                    });
+                    log.when(() -> LogUtil.warn(anyString())).thenAnswer(call -> {
+                        order.add("warning with " + encoded[0] + " sent");
+                        f.client.writeAndFlush(Unpooled.wrappedBuffer(own));
+                        return null;
+                    });
+                    if (on) {
+                        var forward = forward();
+                        CompressedForwarder forwarder = VelocityCompressedForward.install(
+                                f.client.pipeline(),
+                                CompressEncoder.class,
+                                DECODER,
+                                COMPRESSORS,
+                                CompressedKeep.NETTY_ALLOCATORS,
+                                forward::refused);
+                        assertNotNull(forwarder, side);
+                        VelocityCompressedForward.place(
+                                forwarder,
+                                f.client.pipeline(),
+                                f.backend,
+                                DECODER,
+                                COMPRESSORS,
+                                client ? TRUSTED : CompressedKeep.NETTY_ALLOCATORS,
+                                forward::refused);
+                        assertEquals("linked", forwarder.linkStatus(), side);
+                    }
+                    if (client) f.client.config().setAllocator(new RecordingAllocator());
+                    else f.backend.config().setAllocator(new ForeignAllocator());
+                    f.read(read.clone());
+                    f.client.runPendingTasks();
+                    List<String> packets = read(f.wire(), THRESHOLD, true).stream()
+                            .map(frame -> Arrays.toString(frame.packet()))
+                            .toList();
+                    assertEquals(1, writes.size(), side);
+                    String promise = describe(writes.getFirst().cause());
+                    if (!on) {
+                        assertEquals(List.of("packet"), order, side);
+                        assertEquals(List.of(Arrays.toString(packet)), packets, side);
+                        offPackets = packets;
+                        offPromise = promise;
+                        continue;
+                    }
+                    var refusal = client
+                            ? VelocityCompressedForward.Refusal.CLIENT_UNTRUSTED
+                            : VelocityCompressedForward.Refusal.UNTRUSTED;
+                    log.verify(() -> LogUtil.warn(refusal.warning), times(1));
+                    assertEquals(List.of("packet", "warning with 1 sent"), order, side);
+                    var expected = new ArrayList<>(offPackets);
+                    expected.add(Arrays.toString(own));
+                    assertEquals(expected, packets, side);
+                    assertEquals(offPromise, promise, side);
+                }
+            }
+        }
+    }
+
     /** Runs {@code body} with netty's leak detection disabled, as Velocity sets it, and restores the level after. */
     private static void leakDetectionDisabled(Runnable body) {
         ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
@@ -4591,7 +4801,7 @@ class VelocityCompressedForwardTest {
     }
 
     static final class Fixture implements AutoCloseable {
-        final EmbeddedChannel client = new EmbeddedChannel();
+        final EmbeddedChannel client = channel();
         final SharedCompressor compressor;
         final CompressEncoder encoder;
         final EmbeddedChannel backend;
@@ -4645,7 +4855,11 @@ class VelocityCompressedForwardTest {
 
         /** A backend channel with the stand-in handlers, writing to this client. */
         Backend backend(Options options) {
-            var channel = new EmbeddedChannel();
+            return backend(options, channel());
+        }
+
+        /** As {@link #backend(Options)}, on {@code channel}. */
+        Backend backend(Options options, EmbeddedChannel channel) {
             var frames = new FrameDecoder();
             var pipeline = channel.pipeline();
             pipeline.addLast("frame-decoder", frames);

@@ -34,6 +34,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     static final String LIMITED = "backend-limiter";
     // Leak detection is enabled, or the backend's allocator or netty's leak detector is not of netty's own classes.
     static final String UNTRUSTED = "backend-untrusted";
+    // The backend's pipeline was built with leak detection enabled, or how it was built cannot be read.
+    static final String LEAK_DETECTION = "backend-leak-detection";
     // Netty's own allocators; any other can run code between the keep's checks and its publish.
     private static final Set<Class<?>> ALLOCATORS =
             Set.of(AdaptiveByteBufAllocator.class, PooledByteBufAllocator.class, UnpooledByteBufAllocator.class);

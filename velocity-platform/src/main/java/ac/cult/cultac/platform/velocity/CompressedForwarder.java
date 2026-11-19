@@ -9,6 +9,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelPipeline;
 import io.netty.handler.codec.EncoderException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -40,6 +41,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private static final @Nullable VarHandle PREVIOUS = link("prev");
     // A context removed from another thread keeps its own links until its removal runs on the loop.
     private static final @Nullable VarHandle NEXT = link("next");
+    // Netty touches every message it dispatches to a context of a pipeline built with leak detection enabled.
+    private static final @Nullable VarHandle TOUCH = touch();
 
     private final MethodHandle encoderThreshold;
     private final int threshold;
@@ -113,9 +116,34 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** Whether this netty lets a handler read which context its writes reach next. */
+    private static @Nullable VarHandle touch() {
+        try {
+            return MethodHandles.privateLookupIn(DefaultChannelPipeline.class, MethodHandles.lookup())
+                    .findVarHandle(DefaultChannelPipeline.class, "touch", boolean.class);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether this netty lets a handler read which context its writes reach next and whether a pipeline touches the
+     * messages it dispatches.
+     */
     static boolean supported() {
-        return PREVIOUS != null && NEXT != null;
+        return PREVIOUS != null && NEXT != null && TOUCH != null;
+    }
+
+    /**
+     * Whether {@code pipeline} touches every message it dispatches to a context, as netty set it when the pipeline was
+     * built; true when it is not netty's pipeline class or that cannot be read.
+     */
+    static boolean touches(ChannelPipeline pipeline) {
+        if (TOUCH == null || !(pipeline instanceof DefaultChannelPipeline built)) return true;
+        try {
+            return (boolean) TOUCH.get(built);
+        } catch (RuntimeException unreadable) {
+            return true;
+        }
     }
 
     /**
