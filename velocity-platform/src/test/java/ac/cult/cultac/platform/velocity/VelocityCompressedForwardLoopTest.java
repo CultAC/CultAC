@@ -905,7 +905,6 @@ class VelocityCompressedForwardLoopTest {
         EventLoop first = group.next();
         byte[] packet = packet(4000, 103);
         List<byte[]> sent = new ArrayList<>();
-        List<List<Integer>> beforeResume = new ArrayList<>();
         try {
             for (boolean on : new boolean[] {false, true}) {
                 synchronized (received) {
@@ -991,7 +990,10 @@ class VelocityCompressedForwardLoopTest {
                         backend.proxySide().read();
                         return null;
                     });
-                    beforeResume.add(within(toClient, () -> List.of(relayed.get(), headSide.get())));
+                    assertEquals(
+                            List.of(pinDecoder ? 0 : 1, 0),
+                            within(toClient, () -> List.of(relayed.get(), headSide.get())),
+                            "delivered before the first loop resumes, switch " + (on ? "on" : "off"));
                 } finally {
                     resume.countDown();
                 }
@@ -1008,11 +1010,6 @@ class VelocityCompressedForwardLoopTest {
                 backend.proxySide().close().sync();
                 toClient.close().sync();
             }
-            assertEquals(
-                    List.of(pinDecoder ? 0 : 1, 0),
-                    beforeResume.getFirst(),
-                    "delivered before the first loop resumes, with the switch off");
-            assertEquals(beforeResume.get(0), beforeResume.get(1), "delivered before the first loop resumes");
             assertArrayEquals(sent.get(0), sent.get(1), "the frame the encoder compresses with the switch off");
         } finally {
             second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
