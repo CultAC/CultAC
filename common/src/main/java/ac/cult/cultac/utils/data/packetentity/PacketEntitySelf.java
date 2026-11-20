@@ -377,4 +377,16 @@ public class PacketEntitySelf extends PacketEntity {
     public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidates() {
         return Collections.singletonList(player.boundingBox.copy());
     }
+
+    // The local player has no packet interpolation: on foot its position is its one simulated box. While it rides,
+    // that box follows its vehicle, and the seat its vehicle gave it is its position like any rider's.
+    @Override
+    public int possibleMovementCollisionBoxCandidateCount() {
+        return getRiding() == null ? 1 : super.possibleMovementCollisionBoxCandidateCount();
+    }
+
+    @Override
+    public SimpleCollisionBox positionCollisionBoxCandidate(int index, SimpleCollisionBox out) {
+        return getRiding() == null ? out.set(player.boundingBox) : super.positionCollisionBoxCandidate(index, out);
+    }
 }
