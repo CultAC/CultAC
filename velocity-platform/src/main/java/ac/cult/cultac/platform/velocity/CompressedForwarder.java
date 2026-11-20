@@ -533,12 +533,6 @@ final class CompressedForwarder extends ChannelDuplexHandler {
         }
     }
 
-    /** Whether the client channel is registered on the loop the forwarder was installed on. */
-    boolean registeredOnLoop() {
-        Channel client = inbound.channel();
-        return client.isRegistered() && client.eventLoop() == loop;
-    }
-
     /**
      * Ends the current link and leaves its keep, which passes every frame on untouched, for the next {@link #unlink};
      * makes no pipeline change and never waits.
@@ -571,6 +565,7 @@ final class CompressedForwarder extends ChannelDuplexHandler {
     }
 
     private static void removeKeep(@Nullable Channel channel, CompressedKeep keep) {
+        keep.markEnded();
         if (channel == null) return;
         if (channel.eventLoop().inEventLoop()) {
             remove(channel.pipeline(), keep);

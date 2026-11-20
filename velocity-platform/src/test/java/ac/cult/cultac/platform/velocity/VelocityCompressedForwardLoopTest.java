@@ -41,6 +41,7 @@ import io.netty.channel.local.LocalServerChannel;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
+import io.netty.util.concurrent.SingleThreadEventExecutor;
 import java.io.ByteArrayOutputStream;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -2212,7 +2213,7 @@ class VelocityCompressedForwardLoopTest {
             return null;
         });
         assertSame(keep, onLoop(() -> fromBackend.pipeline().get(CompressedKeep.NAME)), "an ended link's keep stays");
-        fromBackend.close().sync();
+        closeFully(fromBackend);
         assertNull(onLoop(() -> fromBackend.pipeline().get(CompressedKeep.NAME)));
         onLoop(() -> {
             assertHoldsNeither(forwarder, fromBackend, keep);
@@ -2382,9 +2383,8 @@ class VelocityCompressedForwardLoopTest {
                     return null;
                 });
                 for (Channel channel : List.of(fromBackend, toClient)) {
-                    if (close) channel.close().sync();
+                    if (close) closeFully(channel);
                     else channel.deregister().sync();
-                    within(channel, () -> null);
                 }
                 seen.add(List.copyOf(events));
                 if (!close)
@@ -2643,6 +2643,223 @@ class VelocityCompressedForwardLoopTest {
             return null;
         });
         toClient.close().sync();
+    }
+
+    @Test
+    void keepOnTheClientsLoopEndsItsLinkBeforeItsEventMovesOn() throws Exception {
+        for (boolean close : new boolean[] {false, true}) {
+            Channel toClient = client().proxySide();
+            var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+            var status = new AtomicReference<String>();
+            Channel fromBackend = backend(group, new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelUnregistered(ChannelHandlerContext ctx) {
+                            status.compareAndSet(null, forwarder.linkStatus());
+                            ctx.fireChannelUnregistered();
+                        }
+                    })
+                    .proxySide();
+            onLoop(() -> {
+                VelocityCompressedForward.link(forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                assertEquals("linked", forwarder.linkStatus());
+                return null;
+            });
+            if (close) closeFully(fromBackend);
+            else fromBackend.deregister().sync();
+            assertEquals(close ? CompressedKeep.CLOSED : CompressedKeep.UNREGISTERED, status.get());
+            if (!close) {
+                group.next().register(fromBackend).sync();
+                fromBackend.close().sync();
+            }
+            toClient.close().sync();
+        }
+    }
+
+    @Test
+    void keepLeftByAHandlerThatKeptTheUnregistrationReadsClosedAtTheBackendsClose() throws Exception {
+        Channel toClient = client().proxySide();
+        var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+        Channel fromBackend = backend(toClient).proxySide();
+        onLoop(() -> {
+            VelocityCompressedForward.link(forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+            fromBackend.pipeline().addFirst("keeper", new ChannelInboundHandlerAdapter() {
+                @Override
+                public void channelUnregistered(ChannelHandlerContext ctx) {}
+            });
+            return null;
+        });
+        closeFully(fromBackend);
+        assertEquals(CompressedKeep.CLOSED, onLoop(forwarder::linkStatus));
+        toClient.close().sync();
+    }
+
+    @Test
+    void clientLeavingWithALiveLinkQueuesNoTaskBeyondTheSwitchedOffPipeline() throws Exception {
+        for (boolean close : new boolean[] {false, true}) {
+            List<Integer> seen = new ArrayList<>();
+            for (boolean on : new boolean[] {false, true}) {
+                Channel toClient = client(on).proxySide();
+                var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                Channel fromBackend = backend(toClient).proxySide();
+                var pending = new AtomicInteger(-1);
+                onLoop(() -> {
+                    if (on)
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                    toClient.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelUnregistered(ChannelHandlerContext ctx) {
+                            pending.compareAndSet(-1, ((SingleThreadEventExecutor) ctx.executor()).pendingTasks());
+                            ctx.fireChannelUnregistered();
+                        }
+                    });
+                    return null;
+                });
+                if (close) closeFully(toClient);
+                else toClient.deregister().sync();
+                seen.add(pending.get());
+                if (!close) {
+                    group.next().register(toClient).sync();
+                    toClient.close().sync();
+                }
+                fromBackend.close().sync();
+            }
+            assertEquals(seen.get(0), seen.get(1), close ? "at a close" : "at a deregistration");
+        }
+    }
+
+    @Test
+    void keepsUnlinkRefusedByAShutDownInstallLoopStillLeavesTheBackendAsWithTheSwitchOff() throws Exception {
+        List<List<String>> seen = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            var first = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+            var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+            try {
+                Channel toClient = client(false).proxySide();
+                moveTo(first, toClient);
+                var events = new CopyOnWriteArrayList<String>();
+                Channel fromBackend = backend(first, new ChannelInboundHandlerAdapter() {
+                            @Override
+                            public void channelUnregistered(ChannelHandlerContext ctx) {
+                                events.add("unregistered");
+                                ctx.fireChannelUnregistered();
+                            }
+
+                            @Override
+                            public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                                events.add(cause.getClass().getSimpleName());
+                            }
+                        })
+                        .proxySide();
+                var kept = new AtomicInteger();
+                within(toClient, () -> {
+                    if (on) {
+                        var forwarder = VelocityCompressedForward.install(
+                                toClient.pipeline(), CompressEncoder.class, CompressDecoder.class, COMPRESSORS);
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                        assertEquals("linked", forwarder.linkStatus());
+                    }
+                    toClient.pipeline().addFirst("keeper", new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelUnregistered(ChannelHandlerContext ctx) {}
+                    });
+                    fromBackend.pipeline().addFirst("keeper", new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelUnregistered(ChannelHandlerContext ctx) {
+                            if (kept.getAndIncrement() > 0) ctx.fireChannelUnregistered();
+                        }
+                    });
+                    return null;
+                });
+                moveTo(second, toClient, fromBackend);
+                first.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+                // The keep's event runs on the second loop and hands its unlink to the shut-down install loop.
+                fromBackend.deregister().sync();
+                seen.add(List.copyOf(events));
+                seen.add(fromBackend.pipeline().names());
+                second.register(fromBackend).sync();
+                fromBackend.close().sync();
+                toClient.close().sync();
+            } finally {
+                first.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+                second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+            }
+        }
+        assertEquals(List.of("unregistered"), seen.get(0));
+        assertEquals(seen.subList(0, 2), seen.subList(2, 4), "the backend's events and handlers with the switch off");
+    }
+
+    @Test
+    void installWhileTheClientIsRegisteredElsewhereAfterTheEntryCheckGetsNoForwarderAsWithTheSwitchOff()
+            throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        List<List<String>> seen = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                var toClient = new HookedChannel();
+                group.register(toClient).sync();
+                toClient.connect(serverChannel.localAddress()).sync();
+                Channel remote = accepted.poll(5, TimeUnit.SECONDS);
+                onLoop(() -> {
+                    var pipeline = toClient.pipeline();
+                    var compressor = new SharedCompressor();
+                    pipeline.addLast(
+                            VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+                    pipeline.addLast(
+                            CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+                    return null;
+                });
+                toClient.deregister().sync();
+                if (on) {
+                    // The register completes inside install's first read of the client's loop, after that read.
+                    assertNull(onLoop(() -> {
+                        toClient.arm(() -> second.register(toClient).syncUninterruptibly());
+                        return VelocityCompressedForward.install(
+                                toClient.pipeline(), CompressEncoder.class, CompressDecoder.class, COMPRESSORS);
+                    }));
+                } else {
+                    second.register(toClient).sync();
+                }
+                seen.add(within(toClient, () -> toClient.pipeline().names()));
+                toClient.close().sync();
+                remote.close().sync();
+            }
+            assertFalse(seen.get(1).contains(CompressedForwarder.NAME));
+            assertEquals(seen.get(0), seen.get(1), "the client's handlers on the second loop with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    /** A local channel that runs a hook once, inside the next read of its event loop on the thread that armed it. */
+    private static final class HookedChannel extends LocalChannel {
+        private volatile Thread armed;
+        private Runnable hook;
+
+        void arm(Runnable hook) {
+            this.hook = hook;
+            armed = Thread.currentThread();
+        }
+
+        @Override
+        public EventLoop eventLoop() {
+            EventLoop loop = super.eventLoop();
+            Runnable run = hook;
+            if (armed == Thread.currentThread() && run != null) {
+                armed = null;
+                hook = null;
+                run.run();
+            }
+            return loop;
+        }
+    }
+
+    /** Closes {@code channel} and returns once its loop has run the unregistration a close queues after its future. */
+    private static void closeFully(Channel channel) throws Exception {
+        channel.close().sync();
+        within(channel, () -> null);
+        within(channel, () -> null);
     }
 
     /** Waits until {@code thread} is blocked entering {@code monitor}'s monitor. */

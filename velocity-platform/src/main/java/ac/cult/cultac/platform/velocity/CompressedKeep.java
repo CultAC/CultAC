@@ -97,6 +97,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     private @Nullable Codec codec;
     // A trust refusal of the read in decode, reported after its fire.
     private boolean distrusted;
+    // Set once the keep's link has ended or been asked to end; a keep is linked at most once.
+    private volatile boolean ended;
 
     CompressedKeep(CompressedForwarder forwarder) {
         this(forwarder, NETTY_ALLOCATORS);
@@ -277,10 +279,17 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     /** Ends the link from this side when it is the current one, as a keep that leaves its decoder does. */
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) {
-        endLink("backend-adjacency");
+        endLink(ctx.channel().isOpen() ? "backend-adjacency" : CLOSED);
+    }
+
+    /** Marks the keep as one the forwarder holds no link to, before the forwarder removes it. */
+    void markEnded() {
+        ended = true;
     }
 
     private void endLink(String status) {
+        if (ended) return;
+        ended = true;
         if (forwarder.onClientLoop()) forwarder.unlinkDetached(this, status);
         else forwarder.unlinkLater(this, status);
     }

@@ -401,7 +401,7 @@ final class VelocityCompressedForward {
                     refusal = Refusal.CHANGED;
                 }
                 // A handler in the pipeline when its channel reads registered sees that registration's unregistration.
-                if (refusal == null && !forwarder.registeredOnLoop()) unregistered = true;
+                if (refusal == null && !forwarder.onClientLoop()) unregistered = true;
                 if (refusal != null || unregistered) CompressedForwarder.remove(pipeline, forwarder);
             }
         }
