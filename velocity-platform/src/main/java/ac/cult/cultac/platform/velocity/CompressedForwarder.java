@@ -42,8 +42,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final int MAX_FORWARDED_LENGTH = maxForwardedLength();
     // Netty follows this link from a context to the next outbound handler toward the head.
     private static final @Nullable VarHandle PREVIOUS = link("prev");
-    // Netty 4.2.19 checks membership under the monitor at a removal or replacement, so it never writes a context that
-    // has left the list into another context's link.
+    // Netty 4.2.19 never links a context back into the list after it leaves.
     private static final @Nullable VarHandle NEXT = link("next");
     // Netty touches every message it dispatches to a context of a pipeline built with leak detection enabled.
     private static final @Nullable VarHandle TOUCH = touch();
