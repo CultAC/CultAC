@@ -2330,6 +2330,37 @@ class VelocityCompressedForwardLoopTest {
     }
 
     @Test
+    void keepsQueuedUnlinkChangesNothingOnceTheClientHasLeftTheForwardersLoop() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        try {
+            Channel toClient = client().proxySide();
+            var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+            Channel fromBackend = backend(toClient).proxySide();
+            onLoop(() -> {
+                VelocityCompressedForward.link(forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                toClient.pipeline().addFirst("keeper", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelUnregistered(ChannelHandlerContext ctx) {}
+                });
+                return null;
+            });
+            moveTo(second, toClient);
+            assertSame(forwarder, within(toClient, () -> toClient.pipeline().get(CompressedForwarder.NAME)));
+            // The keep's event runs on the forwarder's loop, which the client has left, and queues its unlink there.
+            fromBackend.deregister().sync();
+            onLoop(() -> null);
+            assertNull(onLoop(() -> fromBackend.pipeline().get(CompressedKeep.NAME)));
+            assertEquals(
+                    "linked", within(toClient, forwarder::linkStatus), "no link field written on a loop the client left");
+            group.next().register(fromBackend).sync();
+            fromBackend.close().sync();
+            toClient.close().sync();
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
     void unregistrationAndCloseReachTheHandlersAfterTheAddedOnesAsWithTheSwitchOff() throws Exception {
         for (boolean close : new boolean[] {false, true}) {
             List<List<String>> seen = new ArrayList<>();
