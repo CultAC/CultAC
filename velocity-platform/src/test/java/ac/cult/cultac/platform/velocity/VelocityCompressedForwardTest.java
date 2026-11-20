@@ -2354,6 +2354,11 @@ class VelocityCompressedForwardTest {
                         throw new AssertionError("size");
                     },
                     EncoderException.class.getName() + " / " + AssertionError.class.getName());
+            expected.put(
+                    () -> {
+                        throw new EncoderException("size");
+                    },
+                    EncoderException.class.getName() + " / null");
             // Wrapping reads the failure's toString, which throws here.
             expected.put(
                     () -> {
