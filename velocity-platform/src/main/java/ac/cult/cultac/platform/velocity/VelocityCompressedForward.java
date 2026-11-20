@@ -306,9 +306,9 @@ final class VelocityCompressedForward {
     }
 
     /**
-     * The forwarder installed on a registered channel, in a pipeline that touches no message, directly after an encoder
-     * exactly of {@code encoderClass} on the channel's loop, with a decoder exactly of {@code decoderClass} sharing an
-     * open compressor of one of {@code compressors}' classes, or null.
+     * The forwarder installed from its loop on a registered channel, in a pipeline that touches no message, directly
+     * after an encoder exactly of {@code encoderClass} on the channel's loop, with a decoder exactly of {@code
+     * decoderClass} sharing an open compressor of one of {@code compressors}' classes, or null.
      */
     static @Nullable CompressedForwarder install(
             ChannelPipeline pipeline, Class<?> encoderClass, Class<?> decoderClass, Compressors compressors) {
@@ -336,7 +336,10 @@ final class VelocityCompressedForward {
             Compressors compressors,
             Predicate<ByteBufAllocator> trustedAllocators,
             Consumer<Refusal> refused) {
-        if (!CompressedForwarder.supported() || pipeline.get(CompressedForwarder.NAME) != null) return null;
+        // Netty leaves a context added off its loop pending, and passes over its handler until the loop runs the add.
+        if (!CompressedForwarder.supported()
+                || !pipeline.channel().eventLoop().inEventLoop()
+                || pipeline.get(CompressedForwarder.NAME) != null) return null;
         ChannelHandlerContext encoder = pipeline.context(CompressedForwarder.COMPRESSION_ENCODER);
         if (encoder == null) return null;
         if (CompressedForwarder.touches(pipeline)) {
@@ -772,8 +775,9 @@ final class VelocityCompressedForward {
                 return;
             }
             // A handler in the pipeline when its channel reads registered sees that registration's unregistration.
-            if (!backend.isRegistered()) {
-                forwarder.linkStatus(CompressedKeep.UNREGISTERED);
+            boolean registered = backend.isRegistered();
+            if (!registered || !backend.eventLoop().inEventLoop()) {
+                forwarder.linkStatus(registered ? "loop" : CompressedKeep.UNREGISTERED);
                 CompressedForwarder.remove(pipeline, keep);
                 return;
             }

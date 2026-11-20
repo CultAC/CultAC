@@ -2242,10 +2242,10 @@ class VelocityCompressedForwardLoopTest {
             for (boolean on : new boolean[] {false, true}) {
                 Channel toClient = client(false).proxySide();
                 toClient.deregister().sync();
-                // The connection's attach runs on a thread of its own, here while the client is unregistered.
+                // An install queued on the client's loop can run after its deregistration.
                 if (on)
-                    assertNull(VelocityCompressedForward.install(
-                            toClient.pipeline(), CompressEncoder.class, CompressDecoder.class, COMPRESSORS));
+                    assertNull(onLoop(() -> VelocityCompressedForward.install(
+                            toClient.pipeline(), CompressEncoder.class, CompressDecoder.class, COMPRESSORS)));
                 second.register(toClient).sync();
                 seen.add(within(toClient, () -> toClient.pipeline().names()));
                 toClient.close().sync();
@@ -2468,6 +2468,181 @@ class VelocityCompressedForwardLoopTest {
         } finally {
             second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
         }
+    }
+
+    @Test
+    void installOffTheClientsLoopBehindAQueuedDeregistrationAddsNothingAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        EventLoop first = group.next();
+        List<List<Integer>> seen = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                Channel toClient = connect(true).proxySide();
+                var reached = new AtomicInteger();
+                onLoop(() -> {
+                    var pipeline = toClient.pipeline();
+                    pipeline.addLast(first, "head-side", new ChannelOutboundHandlerAdapter() {
+                        @Override
+                        public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
+                            reached.incrementAndGet();
+                            ReferenceCountUtil.release(msg);
+                            promise.setSuccess();
+                        }
+                    });
+                    var compressor = new SharedCompressor();
+                    pipeline.addLast(
+                            VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD, compressor));
+                    pipeline.addLast(
+                            CompressedForwarder.COMPRESSION_ENCODER, new CompressEncoder(THRESHOLD, true, compressor));
+                    pipeline.addLast(first, "tail-side", new ChannelOutboundHandlerAdapter());
+                    pipeline.addLast("minecraft-decoder", new ChannelInboundHandlerAdapter());
+                    pipeline.addLast("minecraft-encoder", new ChannelOutboundHandlerAdapter());
+                    return null;
+                });
+                var queued = new CountDownLatch(1);
+                var go = new CountDownLatch(1);
+                var deregistered = new AtomicReference<ChannelFuture>();
+                first.execute(() -> {
+                    deregistered.set(toClient.deregister());
+                    queued.countDown();
+                    await(go);
+                });
+                try {
+                    await(queued);
+                    if (on)
+                        assertNull(VelocityCompressedForward.install(
+                                toClient.pipeline(), CompressEncoder.class, CompressDecoder.class, COMPRESSORS));
+                } finally {
+                    go.countDown();
+                }
+                deregistered.get().sync();
+                second.register(toClient).sync();
+                within(toClient, () -> toClient.pipeline().remove(CompressedForwarder.COMPRESSION_ENCODER));
+                var holding = new CountDownLatch(1);
+                var resume = new CountDownLatch(1);
+                second.next().execute(() -> {
+                    holding.countDown();
+                    await(resume);
+                });
+                int held;
+                try {
+                    await(holding);
+                    held = first.submit(() -> {
+                                toClient.pipeline()
+                                        .context("tail-side")
+                                        .write(Unpooled.buffer().writeByte(7));
+                                return reached.get();
+                            })
+                            .get(5, TimeUnit.SECONDS);
+                } finally {
+                    resume.countDown();
+                }
+                within(toClient, () -> null);
+                seen.add(List.of(held, first.submit(reached::get).get(5, TimeUnit.SECONDS)));
+                toClient.close().sync();
+            }
+            assertEquals(List.of(1, 1), seen.get(0));
+            assertEquals(seen.get(0), seen.get(1), "the head-side handler's writes while the second loop is held");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void installHeldAtTheMonitorWhileTheClientIsRegisteredElsewhereGetsNoForwarderAsWithTheSwitchOff()
+            throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        List<List<String>> seen = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                Channel toClient = client(false).proxySide();
+                ChannelPipeline pipeline = toClient.pipeline();
+                Thread loop = onLoop(Thread::currentThread);
+                toClient.deregister().sync();
+                Future<CompressedForwarder> install = null;
+                synchronized (pipeline) {
+                    if (on) {
+                        install = group.next()
+                                .submit(() -> VelocityCompressedForward.install(
+                                        pipeline, CompressEncoder.class, CompressDecoder.class, COMPRESSORS));
+                        awaitBlockedOn(loop, pipeline);
+                    }
+                    second.register(toClient).sync();
+                }
+                if (on) assertNull(install.get(5, TimeUnit.SECONDS));
+                seen.add(within(toClient, pipeline::names));
+                toClient.close().sync();
+            }
+            assertFalse(seen.get(1).contains(CompressedForwarder.NAME));
+            assertEquals(seen.get(0), seen.get(1), "the client's handlers on the second loop with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void linkHeldWhileItsBackendIsRegisteredElsewhereGetsNoKeepAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        List<List<String>> seen = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                Channel toClient = client(on).proxySide();
+                var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                Channel oldBackend = backend(toClient).proxySide();
+                Channel newBackend = backend(toClient).proxySide();
+                Thread loop = onLoop(() -> {
+                    if (on) {
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, oldBackend, CompressDecoder.class, COMPRESSORS);
+                        assertEquals("linked", forwarder.linkStatus());
+                    }
+                    return Thread.currentThread();
+                });
+                newBackend.deregister().sync();
+                Future<?> link = null;
+                // The link task waits inside its unlink of the old backend while the new one is registered elsewhere.
+                synchronized (oldBackend.pipeline()) {
+                    if (on) {
+                        link = group.next()
+                                .submit(() -> VelocityCompressedForward.link(
+                                        forwarder, toClient, newBackend, CompressDecoder.class, COMPRESSORS));
+                        awaitBlockedOn(loop, oldBackend.pipeline());
+                    }
+                    second.register(newBackend).sync();
+                }
+                if (on) {
+                    link.get(5, TimeUnit.SECONDS);
+                    assertEquals("loop", onLoop(forwarder::linkStatus));
+                }
+                seen.add(within(newBackend, () -> newBackend.pipeline().names()));
+                newBackend.close().sync();
+                oldBackend.close().sync();
+                toClient.close().sync();
+            }
+            assertFalse(seen.get(1).contains(CompressedKeep.NAME));
+            assertEquals(seen.get(0), seen.get(1), "the new backend's handlers on the second loop with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void keepRemovedByOtherCodeEndsItsLinkAndHoldsNoReferenceToItsClosedBackend() throws Exception {
+        Channel toClient = client().proxySide();
+        var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+        Channel fromBackend = backend(toClient).proxySide();
+        Object keep = onLoop(() -> {
+            VelocityCompressedForward.link(forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+            return fromBackend.pipeline().remove(CompressedKeep.NAME);
+        });
+        assertNotNull(keep);
+        fromBackend.close().sync();
+        onLoop(() -> {
+            assertEquals("backend-adjacency", forwarder.linkStatus());
+            assertHoldsNeither(forwarder, fromBackend, keep);
+            return null;
+        });
+        toClient.close().sync();
     }
 
     /** Waits until {@code thread} is blocked entering {@code monitor}'s monitor. */

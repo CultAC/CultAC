@@ -267,13 +267,22 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     @Override
     public void channelUnregistered(ChannelHandlerContext ctx) {
         try {
-            String status = ctx.channel().isOpen() ? UNREGISTERED : CLOSED;
-            if (forwarder.onClientLoop()) forwarder.unlinkDetached(this, status);
-            else forwarder.unlinkLater(this, status);
+            endLink(ctx.channel().isOpen() ? UNREGISTERED : CLOSED);
             CompressedForwarder.remove(ctx.pipeline(), this);
         } finally {
             ctx.fireChannelUnregistered();
         }
+    }
+
+    /** Ends the link from this side when it is the current one, as a keep that leaves its decoder does. */
+    @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) {
+        endLink("backend-adjacency");
+    }
+
+    private void endLink(String status) {
+        if (forwarder.onClientLoop()) forwarder.unlinkDetached(this, status);
+        else forwarder.unlinkLater(this, status);
     }
 
     /** Whether the cached decoder is in the pipeline directly after this keep. */
