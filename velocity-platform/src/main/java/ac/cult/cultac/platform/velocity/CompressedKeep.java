@@ -594,7 +594,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     /**
      * Frames the claim {@code n} and the {@code length} body bytes of {@code frame} at {@code body} into {@code client},
      * inflates that copy of the body into {@code inflated} with the decoder's compressor, copies the result into
-     * {@code copy} and moves {@code frame}'s reader as the compressor moves its source; false when a step fails.
+     * {@code copy} and moves {@code frame}'s reader as the compressor moves its source; false when a step fails or the
+     * compressor reports part of the body unread.
      */
     private static boolean heldInflate(
             Codec codec, ByteBuf frame, int body, int length, int n, ByteBuf client, ByteBuf inflated, ByteBuf copy) {
@@ -604,6 +605,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             ByteBuf source = client.slice(client.writerIndex() - length, length);
             codec.inflate().invokeExact(source, inflated, n);
             if (inflated.writerIndex() != n) return false;
+            // Velocity's Java compressor advances its source past the stream it read; libdeflate never moves it.
+            if (!codec.address() && source.isReadable()) return false;
             copy.writeBytes(inflated, inflated.readerIndex(), n);
             frame.readerIndex(Math.min(body + source.readerIndex(), frame.writerIndex()));
             return true;

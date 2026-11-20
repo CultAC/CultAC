@@ -38,12 +38,16 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelOutboundHandler;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPipeline;
+import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.DefaultEventLoop;
+import io.netty.channel.DefaultMessageSizeEstimator;
 import io.netty.channel.EventLoop;
+import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.EncoderException;
@@ -1397,17 +1401,27 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
-    void bytesAfterTheZlibStreamAreForwardedAndReadByTheVanillaRule() {
+    void bytesAfterTheZlibStreamAreRecompressedUnderTheJavaCompressorAsWithTheSwitchOff() {
         byte[] packet = packet(3000, 83);
         byte[] body = concat(body(packet, THRESHOLD), new byte[] {0x33});
         byte[] read = frame(body);
-        byte[] today;
-        try (var f = new Fixture(Options.today())) {
-            f.read(read);
-            today = f.wire();
-        }
-        assertPackets(List.of(packet), read(today, THRESHOLD, true));
+        byte[] today = today(Options.today(), read);
+        assertPackets(List.of(packet), read(today, THRESHOLD));
         try (var f = new Fixture(Options.forwarding())) {
+            f.read(read);
+            assertSameBytes(today, f.wire());
+            assertEquals(0, f.forwarder.forwarded());
+            assertEquals(1, f.forwarder.notMarked(), "the decoded packet reaches the encoder unpublished");
+            assertEquals("linked", f.forwarder.linkStatus());
+        }
+        // libdeflate reports no consumed length, so its frame keeps the backend's bytes, the unread one included.
+        Options libdeflate = Options.forwarding().consume(false);
+        try (var f = new Fixture(libdeflate)) {
+            replaceFrames(
+                    f,
+                    frame -> PooledByteBufAllocator.DEFAULT
+                            .directBuffer(frame.readableBytes())
+                            .writeBytes(frame, frame.readerIndex(), frame.readableBytes()));
             f.read(read);
             byte[] wire = f.wire();
             var frames = read(wire, THRESHOLD, true);
@@ -2321,6 +2335,133 @@ class VelocityCompressedForwardTest {
             assertTrue(input.release());
             copy.release();
             kept.release();
+        }
+    }
+
+    @Test
+    void forwardedWriteThrowingBeforeNettyTakesTheFrameFailsAsWithTheSwitchOff() throws Exception {
+        byte[] read = frame(body(packet(3000, 140), THRESHOLD));
+        var group = new DefaultEventExecutorGroup(1);
+        try {
+            String today = handOffSizeThrows(read, Options.today(), group);
+            assertEquals(
+                    "promise " + EncoderException.class.getName() + " / " + IllegalStateException.class.getName()
+                            + ", frame 0, sent 0",
+                    today);
+            assertEquals(today, handOffSizeThrows(read, Options.forwarding(), group));
+        } finally {
+            group.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
+        }
+    }
+
+    /**
+     * One write of {@code read}'s packet whose frame meets a head-side handler on {@code group}, added after
+     * installation, while the client's size estimator throws: the promise, the frame's count and the bytes sent.
+     */
+    private static String handOffSizeThrows(byte[] read, Options base, DefaultEventExecutorGroup group) {
+        var sized = new ArrayList<ByteBuf>();
+        var writes = new ArrayList<ChannelFuture>();
+        boolean[] armed = {false};
+        MessageSizeEstimator.Handle sizes = DefaultMessageSizeEstimator.DEFAULT.newHandle();
+        MessageSizeEstimator estimator = () -> msg -> {
+            if (!armed[0]) return sizes.size(msg);
+            sized.add((ByteBuf) msg);
+            throw new IllegalStateException("size");
+        };
+        Options options = base.onFrame((fixture, buf) -> {
+            armed[0] = true;
+            try {
+                writes.add(fixture.client.write(buf));
+            } finally {
+                armed[0] = false;
+            }
+        });
+        try (var f = new Fixture(options)) {
+            f.client.config().setMessageSizeEstimator(estimator);
+            f.client
+                    .pipeline()
+                    .addBefore(
+                            group,
+                            CompressedForwarder.COMPRESSION_ENCODER,
+                            "head-side",
+                            new ChannelOutboundHandlerAdapter() {
+                                @Override
+                                public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
+                                    ctx.write(msg, promise);
+                                }
+                            });
+            f.read(read.clone());
+            assertEquals(1, writes.size());
+            assertEquals(1, sized.size(), "the write task's construction sizes the frame");
+            if (f.forwarder != null) {
+                assertEquals(0, f.forwarder.forwarded(), "a forward that throws is not counted");
+                assertNull(f.forwarder.markFrame(), "the forward took the frame");
+            }
+            return "promise " + describe(writes.getFirst().cause()) + ", frame "
+                    + sized.getFirst().refCnt() + ", sent " + f.wire().length;
+        }
+    }
+
+    @Test
+    void forwardedWriteWhosePromiseCompletesAtTheFinalCheckEndsAsWithTheSwitchOff() {
+        byte[] read = frame(body(packet(3000, 141), THRESHOLD));
+        String today = promiseCompletedAtTheFinalCheck(read, Options.today());
+        assertEquals(
+                "thrown " + IllegalReferenceCountException.class.getName() + " / null, promise ok, frame 0, sent 0",
+                today);
+        assertEquals(today, promiseCompletedAtTheFinalCheck(read, Options.forwarding()));
+    }
+
+    /**
+     * What the handler Netty calls for {@code read}'s packet (the forwarder, or the encoder with the switch off) throws
+     * when another party completes the write's promise right after the handler releases its input, the promise's
+     * outcome, the frame's count and the bytes sent.
+     */
+    private static String promiseCompletedAtTheFinalCheck(byte[] read, Options base) {
+        var outcomes = new ArrayList<String>();
+        Options options = base.onFrame((fixture, buf) -> {
+            var promise = new CompletingPromise(fixture.client, buf);
+            ChannelOutboundHandler handler = fixture.forwarder != null ? fixture.forwarder : fixture.encoder;
+            ChannelHandlerContext ctx = fixture.client.pipeline().context(handler);
+            ByteBuf frame = fixture.forwarder != null ? fixture.forwarder.markFrame() : null;
+            int outputs = fixture.encoder.outputs.size();
+            Throwable thrown = null;
+            try {
+                handler.write(ctx, buf, promise);
+            } catch (Throwable failure) {
+                thrown = failure;
+            }
+            if (frame == null) frame = fixture.encoder.outputs.get(outputs);
+            outcomes.add("thrown " + describe(thrown) + ", promise "
+                    + (promise.isSuccess() ? "ok" : describe(promise.cause())) + ", frame " + frame.refCnt());
+        });
+        try (var f = new Fixture(options)) {
+            f.read(read.clone());
+            assertEquals(1, outcomes.size());
+            if (f.forwarder != null) assertEquals(0, f.forwarder.forwarded(), "a forward that throws is not counted");
+            return outcomes.getFirst() + ", sent " + f.wire().length;
+        }
+    }
+
+    /** A promise that completes successfully at its first {@code isDone} after {@code input} lost a reference. */
+    static final class CompletingPromise extends DefaultChannelPromise {
+        private ByteBuf input;
+        private final int references;
+
+        CompletingPromise(Channel channel, ByteBuf input) {
+            super(channel);
+            this.input = input;
+            this.references = input.refCnt();
+        }
+
+        @Override
+        public boolean isDone() {
+            ByteBuf watched = input;
+            if (watched != null && watched.refCnt() < references) {
+                input = null;
+                setSuccess();
+            }
+            return super.isDone();
         }
     }
 
@@ -3499,7 +3640,8 @@ class VelocityCompressedForwardTest {
                                         });
                         f.read(read.clone());
                         assertPackets(List.of(packet), read(f.wire(), THRESHOLD, true));
-                        if (forward) assertEquals(consume || direct ? 1 : 0, f.forwarder.forwarded(), label);
+                        // The Java compressor reports the trailing bytes unread, so only libdeflate forwards.
+                        if (forward) assertEquals(!consume && direct ? 1 : 0, f.forwarder.forwarded(), label);
                         ByteBuf frame = held.getFirst();
                         assertEquals(direct, frame.hasMemoryAddress(), label);
                         seen.add("reader " + frame.readerIndex() + ", writer " + frame.writerIndex() + ", count "
@@ -3653,7 +3795,8 @@ class VelocityCompressedForwardTest {
                 f.backend.config().setAllocator(allocator);
                 f.read(read.clone());
                 assertPackets(List.of(inner, outer), read(f.wire(), THRESHOLD, true));
-                if (forward) assertEquals(2, f.forwarder.forwarded(), label);
+                // The outer frame's trailing bytes stay unread, so only the inner frame is forwarded.
+                if (forward) assertEquals(1, f.forwarder.forwarded(), label);
                 ByteBuf frame = held.getFirst();
                 seen.add("reader " + frame.readerIndex() + ", writer " + frame.writerIndex() + ", count "
                         + frame.refCnt());

@@ -434,6 +434,8 @@ final class CompressedFrames {
         private final SharedCompressor compressor;
         private int level = CLIENT_LEVEL;
         private boolean heap;
+        /** Every buffer {@link #allocateBuffer} returned. */
+        final List<ByteBuf> outputs = new ArrayList<>();
 
         CompressEncoder(int threshold) {
             this(threshold, true);
@@ -465,12 +467,16 @@ final class CompressedFrames {
         @Override
         protected ByteBuf allocateBuffer(ChannelHandlerContext ctx, ByteBuf msg, boolean preferDirect) {
             int uncompressed = msg.readableBytes();
+            ByteBuf out;
             if (uncompressed < threshold) {
                 int size = uncompressed + 1;
                 size += CompressedForwarder.varIntSize(size);
-                return heap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
+                out = heap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
+            } else {
+                out = ctx.alloc().directBuffer(uncompressed - 1 + 3 + CompressedForwarder.varIntSize(uncompressed));
             }
-            return ctx.alloc().directBuffer(uncompressed - 1 + 3 + CompressedForwarder.varIntSize(uncompressed));
+            outputs.add(out);
+            return out;
         }
 
         @Override

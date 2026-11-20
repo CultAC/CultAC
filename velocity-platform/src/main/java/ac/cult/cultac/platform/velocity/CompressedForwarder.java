@@ -309,7 +309,14 @@ final class CompressedForwarder extends ChannelDuplexHandler {
             throw encoderFailure(failure);
         }
         int sent = out.readableBytes();
-        target.write(out, promise);
+        try {
+            target.write(out, promise);
+        } catch (Throwable failure) {
+            EncoderException thrown = encoderFailure(failure);
+            // As MessageToByteEncoder.write's finally: one release, whose own throw replaces the failure.
+            out.release();
+            throw thrown;
+        }
         forwarded++;
         forwardedWireBytes += sent;
         forwardedInflatedBytes += n;
