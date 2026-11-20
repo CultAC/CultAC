@@ -2853,6 +2853,49 @@ class VelocityCompressedForwardLoopTest {
     }
 
     @Test
+    void frameFiredInsideTheBackendsUnregistrationAheadOfTheKeepIsSentAsWithTheSwitchOff() throws Exception {
+        byte[] packet = packet(4000, 112);
+        List<byte[]> sent = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            synchronized (received) {
+                received.reset();
+            }
+            Channel toClient = client(on).proxySide();
+            var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+            Channel fromBackend = backend(toClient).proxySide();
+            var states = new CopyOnWriteArrayList<Boolean>();
+            onLoop(() -> {
+                fromBackend.pipeline().addAfter("frame-decoder", "buffering", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelUnregistered(ChannelHandlerContext ctx) {
+                        states.add(fromBackend.isRegistered());
+                        states.add(toClient.isRegistered());
+                        ctx.fireChannelRead(ctx.alloc().directBuffer().writeBytes(body(packet, THRESHOLD)));
+                        ctx.fireChannelReadComplete();
+                        ctx.fireChannelUnregistered();
+                    }
+                });
+                if (on)
+                    VelocityCompressedForward.link(
+                            forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                return null;
+            });
+            if (on) assertEquals("linked", onLoop(forwarder::linkStatus));
+            fromBackend.deregister().sync();
+            assertEquals(List.of(false, true), states);
+            assertPackets(List.of(packet), awaitFrames(1));
+            synchronized (received) {
+                sent.add(received.toByteArray());
+            }
+            if (on) assertEquals(0L, onLoop(forwarder::forwarded));
+            group.next().register(fromBackend).sync();
+            fromBackend.close().sync();
+            toClient.close().sync();
+        }
+        assertArrayEquals(sent.get(0), sent.get(1), "the frame the encoder compresses with the switch off");
+    }
+
+    @Test
     void keepLeftByAHandlerThatKeptTheUnregistrationReadsClosedAtTheBackendsClose() throws Exception {
         Channel toClient = client().proxySide();
         var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);

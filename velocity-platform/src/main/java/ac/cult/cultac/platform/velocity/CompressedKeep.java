@@ -317,6 +317,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         if (forwarder.disabled
                 // The mark's fields are written only on the client's loop, so one keep publishes at a time.
                 || !forwarder.onClientLoop()
+                // A handler ahead can fire a read on a backend that reads unregistered or registered elsewhere.
+                || !onLinkLoop(ctx.channel())
                 // A keep whose link has ended stays in the pipeline until the forwarder's next unlink.
                 || !forwarder.linksTo(this)
                 || !(msg instanceof ByteBuf frame)
@@ -366,6 +368,14 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             return;
         }
         decode(ctx, output, frame, codec, decoder, alloc, n, body, end);
+    }
+
+    /**
+     * Whether {@code backend} is registered on the current thread's loop, which for a read that passed
+     * {@link CompressedForwarder#onClientLoop} is the loop the forwarder was installed on.
+     */
+    private static boolean onLinkLoop(Channel backend) {
+        return backend.isRegistered() && backend.eventLoop().inEventLoop();
     }
 
     /** Unlinks with {@code status}, or {@code backend-adjacency} when null, and passes {@code msg} on untouched. */
