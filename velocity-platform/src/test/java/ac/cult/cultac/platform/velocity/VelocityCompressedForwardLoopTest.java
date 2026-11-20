@@ -2351,7 +2351,9 @@ class VelocityCompressedForwardLoopTest {
             onLoop(() -> null);
             assertNull(onLoop(() -> fromBackend.pipeline().get(CompressedKeep.NAME)));
             assertEquals(
-                    "linked", within(toClient, forwarder::linkStatus), "no link field written on a loop the client left");
+                    "linked",
+                    within(toClient, forwarder::linkStatus),
+                    "no link field written on a loop the client left");
             group.next().register(fromBackend).sync();
             fromBackend.close().sync();
             toClient.close().sync();
