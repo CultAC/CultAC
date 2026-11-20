@@ -2074,11 +2074,23 @@ public class PacketEntity {
     }
 
     /**
-     * Snaps a rider whose seat was not simulated onto {@code seat}, its seat right now, dropping every location its
-     * frozen interpolation still holds; the next server position interpolates from there. Keeps the 26.3 codec base,
-     * which riding does not move.
+     * Leaves a rider whose seat was not simulated where Entity#stopRiding leaves it: on {@code seat}, its seat right
+     * now. A finished interpolation drops every location it still holds, and the next server position interpolates
+     * from the seat. Keeps the 26.3 codec base, which riding does not move.
      */
     public void settleAtSeat(CultPlayer player, SimpleCollisionBox seat) {
+        // Entity#stopRiding does not touch a running InterpolationHandler: the rider's own ticks take its remaining
+        // steps from this seat, as they took the earlier ones before each Entity#positionRider.
+        if (riderInterpolation != null && !riderInterpolation.running() && riderInterpolation.active()) {
+            passengerPhysicalBox = null;
+            riderPushBoxes = null;
+            riderInterpolation.resumeTracked(this);
+            if (tracker != null) tracker.stopRiderInterpolation(this);
+            riderInterpolation = null;
+            markPositionInexact();
+            clientPositionChanged();
+            return;
+        }
         Vec3 codecBase = desyncClientPos;
         passengerPhysicalBox = null;
         riderPushBoxes = null;
