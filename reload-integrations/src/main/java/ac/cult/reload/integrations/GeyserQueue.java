@@ -4,6 +4,9 @@ package ac.cult.reload.integrations;
  * Geyser can register callbacks off the tick loop. Registration also precedes Cloudburst's
  * queued write, so a shared executor alone does not establish the callback's wire order. */
 public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
+    /** Completed receipts are swept once the set doubles, keeping each write amortized O(1). */
+    private static final int PRUNE_FLOOR = 64;
+
     private static final class Entry {
         Runnable callback;
         Entry next;
@@ -32,11 +35,15 @@ public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
     public final class Scope implements AutoCloseable {
         private final java.util.Set<Receipt> receipts =
                 java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        private int pruneAt = PRUNE_FLOOR;
         private boolean closed;
 
         private Receipt receipt(Runnable callback) {
             if (closed) throw new IllegalStateException("Latency scope is closed");
-            receipts.removeIf(value -> value.callback == null);
+            if (receipts.size() >= pruneAt) {
+                receipts.removeIf(value -> value.callback == null);
+                pruneAt = Math.max(PRUNE_FLOOR, receipts.size() * 2);
+            }
             var receipt = new Receipt(java.util.Objects.requireNonNull(callback));
             receipts.add(receipt);
             return receipt;
