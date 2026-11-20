@@ -35,19 +35,32 @@ class InterpolationTraceTest {
 
     @Test
     void legacyTrace() throws Exception {
-        assertEquals(8933593389528216956L, trace(ClientVersion.V_1_21_4, 11L));
+        assertEquals(-8501209483949441089L, trace(ClientVersion.V_1_21_4, 11L));
     }
 
     @Test
     void oldClientTrace() throws Exception {
-        assertEquals(-2118946168567975621L, trace(ClientVersion.V_1_8, 12L));
+        assertEquals(-4720208069051859407L, trace(ClientVersion.V_1_8, 12L));
     }
 
     @Test
     void steppedTrace() throws Exception {
-        // Entity#recreateFromPacket leaves no active spawn lerp, including types using the legacy storage.
-        // Shulker#setPos puts a shulker's box on its block's bottom centre.
-        assertEquals(-942802524823228207L, trace(ClientVersion.V_26_3, 13L));
+        assertEquals(-1665524363524392373L, trace(ClientVersion.V_26_3, 13L));
+    }
+
+    @Test
+    void riddenLegacyTrace() throws Exception {
+        assertEquals(8811208074619702405L, riddenTrace(ClientVersion.V_1_21_4, 21L));
+    }
+
+    @Test
+    void riddenOldClientTrace() throws Exception {
+        assertEquals(6935798295405509554L, riddenTrace(ClientVersion.V_1_8, 22L));
+    }
+
+    @Test
+    void riddenSteppedTrace() throws Exception {
+        assertEquals(-8599620155218446878L, riddenTrace(ClientVersion.V_26_3, 23L));
     }
 
     private static long trace(ClientVersion version, long seed) throws Exception {
@@ -109,15 +122,15 @@ class InterpolationTraceTest {
             }
         }
 
-        void tick() {
-            tracker.tickClientEntities(entity -> entity.onMovement(player));
+        void tick(boolean reliably) {
+            tracker.tickClientEntities(entity -> entity.onMovement(player, reliably));
         }
 
         void riddenStep() {
             if (random.nextInt(12) >= 9) {
                 boolean reliably = random.nextInt(3) != 0;
-                if (version.isNewerThanOrEquals(ClientVersion.V_26_3)) tick();
-                else tracker.forEachTrackedEntity(entity -> entity.onMovement(player));
+                if (version.isNewerThanOrEquals(ClientVersion.V_26_3)) tick(reliably);
+                else tracker.forEachTrackedEntity(entity -> entity.onMovement(player, reliably));
                 tracker.updatePassengerPositions();
                 return;
             }
@@ -153,7 +166,8 @@ class InterpolationTraceTest {
                     entity.isBaby = !entity.isBaby;
                     entity.refreshDimensions(player);
                 }
-                default -> tick();
+                case 9 -> tick(false);
+                default -> tick(true);
             }
         }
 

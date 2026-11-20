@@ -31,7 +31,6 @@ public final class ScopedResources implements ResourceScope {
      * is lock-free: a shared monitor here serializes all of them.
      */
     private final AtomicInteger leases = new AtomicInteger();
-
     private Throwable failure;
     private volatile ClassLoader owner;
 

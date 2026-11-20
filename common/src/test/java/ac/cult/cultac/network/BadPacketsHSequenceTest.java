@@ -59,7 +59,6 @@ class BadPacketsHSequenceTest {
     void aLoginStartsANewClientLevelAtSequenceOne() {
         useThrough(41);
         login(player, GameMode.SURVIVAL);
-        playerLoaded();
         assertFalse(use(Hand.MAIN_HAND, 1));
         assertEquals(0, check().violations);
         assertTrue(use(Hand.MAIN_HAND, 3), "a skipped id still cancels");
@@ -95,7 +94,6 @@ class BadPacketsHSequenceTest {
         useThrough(4);
         assertFalse(useOn(Hand.MAIN_HAND, 5));
         login(player, GameMode.SURVIVAL);
-        playerLoaded();
         useThrough(4);
         assertFalse(useOn(Hand.OFF_HAND, 5));
         assertFalse(use(Hand.MAIN_HAND, 6));
@@ -103,7 +101,7 @@ class BadPacketsHSequenceTest {
     }
 
     @Test
-    void aDimensionRespawnRestartsIdsAtItsTrailingProof() {
+    void aDimensionRespawnRestartsIdsAtItsBundledProof() {
         useThrough(5);
         int nether = ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:the_nether");
         var respawn = new ClientboundRespawn(
@@ -111,9 +109,7 @@ class BadPacketsHSequenceTest {
         var event = sendEvent(player, ClientboundPackets.RESPAWN, respawn);
         int proof = player.lastTransactionSent.get() + 1;
         new PacketPlayerRespawn().onRespawn(event, player, respawn);
-        // ClientPacketListener#handleRespawn replaces the level and may render a loading frame, so the respawn stays
-        // outside a bundle and its ping follows it.
-        assertFalse(event.isBundleRequested());
+        assertTrue(event.isBundleRequested());
         assertInstanceOf(ClientboundPing.class, event.writesAfter().getLast().packet());
 
         assertFalse(use(Hand.MAIN_HAND, 6), "handled in the old level");
@@ -151,14 +147,6 @@ class BadPacketsHSequenceTest {
 
     private BadPacketsH check() {
         return player.checkManager.getCheck(BadPacketsH.class);
-    }
-
-    /** ClientPacketListener#notifyPlayerLoaded's ServerboundPlayerLoadedPacket, sent before any use in the level. */
-    private void playerLoaded() {
-        var packet = ServerboundPackets.PLAYER_LOADED.opaqueValue();
-        var event =
-                new PacketReceiveEvent<>(fixture.user, ConnectionPhase.PLAY, ServerboundPackets.PLAYER_LOADED, packet);
-        new CheckManagerListener().onPlayerLoaded(event, player, packet);
     }
 
     /** Main-hand uses 1 to {@code last}, none of them cancelled. */

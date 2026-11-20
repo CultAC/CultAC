@@ -12,6 +12,7 @@ public record FluidState(
         boolean bubbleColumnDown,
         FluidCurrentState currentState,
         BubbleColumnState bubbleColumnState,
+        boolean waterWalkOnGroundComponentPresent,
         double swimSpeedMultiplier,
         boolean actorSwimming) {
     public FluidState(
@@ -24,6 +25,7 @@ public record FluidState(
             boolean bubbleColumnDown,
             FluidCurrentState currentState,
             BubbleColumnState bubbleColumnState,
+            boolean waterWalkOnGroundComponentPresent,
             double swimSpeedMultiplier) {
         this(
                 current,
@@ -35,6 +37,7 @@ public record FluidState(
                 bubbleColumnDown,
                 currentState,
                 bubbleColumnState,
+                waterWalkOnGroundComponentPresent,
                 swimSpeedMultiplier,
                 false);
     }
@@ -49,6 +52,7 @@ public record FluidState(
             false,
             FluidCurrentState.NONE,
             BubbleColumnState.NONE,
+            false,
             1.0D);
 
     public FluidState withSwimSpeedMultiplier(double value) {
@@ -65,6 +69,7 @@ public record FluidState(
                 bubbleColumnDown,
                 currentState,
                 bubbleColumnState,
+                waterWalkOnGroundComponentPresent,
                 value,
                 actorSwimming);
     }

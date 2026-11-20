@@ -23,9 +23,7 @@ public class ElytraF extends Check implements PostPredictionListener {
     public void onPlayerCommand(
             PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
         if (packet.action() == PlayerCommandAction.START_FLYING_WITH_ELYTRA
-                // LivingEntity#canGlide reads current ground state; a later piston move can clear
-                // the ground bit that a pre-26.3 client's preceding position packet reported.
-                && player.checkManager.getSimulationProcessor().glideStartOnGround()
+                && player.packetStateData.packetPlayerOnGround
                 // TridentItem#releaseUsing's grounded lift in Minecraft#handleKeybinds leaves onGround false.
                 && !RiptideUtil.releasedOnTheGround(player)
                 && flag()) {

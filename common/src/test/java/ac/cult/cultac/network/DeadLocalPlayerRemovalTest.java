@@ -55,8 +55,7 @@ class DeadLocalPlayerRemovalTest {
             assertNoSetback(f);
 
             respawnAt(f, SPAWN);
-            // The new LocalPlayer has no deltaMovement: its first Entity#move attempts no Y and reports it airborne.
-            assertExact(f.tick(SPAWN, false));
+            assertExact(f.tick(SPAWN, true));
             assertEquals(1, idleTicks(f, 1).size(), "the respawned player's idle tick travels");
         }
     }
@@ -75,8 +74,7 @@ class DeadLocalPlayerRemovalTest {
             assertNoSetback(f);
 
             respawnAt(f, SPAWN);
-            // The new LocalPlayer has no deltaMovement: its first Entity#move attempts no Y and reports it airborne.
-            assertExact(f.tick(SPAWN, false));
+            assertExact(f.tick(SPAWN, true));
         }
     }
 
@@ -167,7 +165,7 @@ class DeadLocalPlayerRemovalTest {
     }
 
     @Test
-    void movementAfterTheRemovalIsDroppedUntilARespawn() throws Exception {
+    void movementAfterTheRemovalIsStillJudged() throws Exception {
         try (var f = standingPlayer()) {
             die(f);
             idleTicks(f, 20);
@@ -175,15 +173,9 @@ class DeadLocalPlayerRemovalTest {
             assertTrue(f.move(STANDING.add(0, 0.5, 0), false).isCancelled());
             f.tickEnd();
 
-            // Health back without a respawn creates no new LocalPlayer: the removed one still ticks nothing that
-            // could send movement, so a move is dropped as before.
+            // Health back without a respawn: nothing a vanilla client sends, so a move is predicted from rest.
             f.pongThrough(setHealth(f, 20.0F));
-            PredictionResult before = f.player.checkManager.getSimulationProcessor().getLastPrediction();
-            assertTrue(f.move(STANDING.add(0, 0.5, 0), false).isCancelled());
-            f.tickEnd();
-            assertTrue(
-                    f.player.checkManager.getSimulationProcessor().getLastPrediction() == before,
-                    "the removed player travelled");
+            JavaTickFixture.assertRejected(f.tick(STANDING.add(0, 0.5, 0), false), "VerticalOffset");
         }
     }
 

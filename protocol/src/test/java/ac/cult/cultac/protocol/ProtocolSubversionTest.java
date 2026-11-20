@@ -118,10 +118,10 @@ class ProtocolSubversionTest {
                         };
                 for (int ordinal = 0; ordinal < expected.length; ordinal++) {
                     bytes.clear().writeByte(7).writeByte(ordinal).writeByte(90);
-                    var command = read(version, ServerboundPackets.PLAYER_COMMAND, bytes);
-                    assertEquals(expected[ordinal], command.action());
-                    bytes.readerIndex(0);
-                    assertWrittenBytes(version, ServerboundPackets.PLAYER_COMMAND, command, bytes);
+                    assertEquals(
+                            expected[ordinal],
+                            read(version, ServerboundPackets.PLAYER_COMMAND, bytes)
+                                    .action());
                 }
                 bytes.clear().writeByte(7).writeByte(expected.length).writeByte(0);
                 assertThrows(

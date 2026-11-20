@@ -3,12 +3,8 @@ package ac.cult.cultac.bedrock.replay.offline;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.spy;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.DeadCheck;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
@@ -33,7 +29,6 @@ import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.checks.type.LegacyPacketEventSemantics;
 import ac.cult.cultac.checks.type.PostPredictionListener;
-import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
@@ -45,6 +40,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundKeepAlive;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
@@ -53,11 +49,12 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.data.ClientItemUseState;
+import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.math.Vec3;
 import com.google.common.collect.ClassToInstanceMap;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
@@ -264,38 +261,29 @@ public final class OrderedLegacyCheckDispatchTest {
         }
     }
 
-    /**
-     * ClientPacketListener#handleMovePlayer's answer writes neither LocalPlayer#xLast nor positionReminder, so
-     * LocalPlayer#sendPosition judges the tick after a teleport against the cache from before it, with no tick of
-     * grace.
-     */
     @Test
-    public void badPacketsVJudgesTheTickAfterATeleportAnswer() throws Exception {
+    public void badPacketsVTeleportGraceExpiresAfterOneCompletedTick() throws Exception {
         CultPlayer player = offlineJavaPlayer();
-        // A flag stores its verbose through the data store.
-        Field dataStore = CultAPI.class.getDeclaredField("dataStoreLifecycle");
-        dataStore.setAccessible(true);
-        Object previousDataStore = dataStore.get(CultAPI.INSTANCE);
-        dataStore.set(
-                CultAPI.INSTANCE,
-                new DataStoreLifecycle(CultAPI.INSTANCE.getGrimPlugin(), CultAPI.INSTANCE.getBackendRegistry()));
+        player.setDisabled(true);
         try {
-            BadPacketsV check = spy(new BadPacketsV(player));
-            doReturn(true).when(check).alert(any(java.util.function.Supplier.class));
-            ServerboundMovePlayer movement = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, true, false);
-            var sent = player.packetStateData.sentPositionCache;
-            sent.onTickMovement(true, new Vec3(0, 0, 0));
+            BadPacketsV check = player.checkManager.getListener(BadPacketsV.class);
+            ServerboundMovePlayer movement = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, false, false);
 
             var teleportAnswer = receiveEvent(player, movement);
             teleportAnswer.setAnswersTeleport(true);
             check.onMovePlayer(teleportAnswer, player, movement);
-            assertEquals(0, check.getViolations(), 0.0);
 
-            sent.onTickMovement(true, new Vec3(0, 0, 0));
-            check.onMovePlayer(receiveEvent(player, movement), player, movement);
-            assertEquals(1, check.getViolations(), 0.0);
+            Field field = BadPacketsV.class.getDeclaredField("lastTeleportTicks");
+            field.setAccessible(true);
+            LastInstance grace = (LastInstance) field.get(check);
+            assertTrue(grace.hasOccurredSince(1));
+
+            player.lastInstanceManager.onPredictionComplete(null);
+            assertTrue(grace.hasOccurredSince(1));
+
+            player.lastInstanceManager.onPredictionComplete(null);
+            assertFalse(grace.hasOccurredSince(1));
         } finally {
-            dataStore.set(CultAPI.INSTANCE, previousDataStore);
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
     }
@@ -329,12 +317,18 @@ public final class OrderedLegacyCheckDispatchTest {
     }
 
     @Test
-    public void deletedSprintChecksAreRegistered() throws Exception {
+    public void deletedSprintChecksAreRegisteredAndSprintEReceivesCommands() throws Exception {
         CultPlayer player = offlineJavaPlayer();
         player.setDisabled(true);
         try {
             assertTrue(player.checkManager.getListener(SprintB.class) != null);
-            assertTrue(player.checkManager.getListener(SprintE.class) != null);
+            SprintE sprintE = player.checkManager.getListener(SprintE.class);
+            assertTrue(sprintE != null);
+
+            ServerboundPlayerCommand startSprint =
+                    new ServerboundPlayerCommand(0, PlayerCommandAction.START_SPRINTING, 0);
+            player.checkManager.dispatchReceiveHandlers(receiveEvent(player, startSprint));
+            assertTrue(booleanField(sprintE, "startedSprintingThisTick"));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -353,17 +347,16 @@ public final class OrderedLegacyCheckDispatchTest {
 
             ServerboundMovePlayer move = new ServerboundMovePlayer(0, 0, 0, 0, 0, false, false, false, false);
             player.packetStateData.receivedMovementThisClientTick = true;
-            // LocalPlayer#tick sends a tick's movement before Minecraft#tick sends its tick end: the first movement
-            // charges the tick, and the tick end charges only a tick that sent none.
             player.checkManager.dispatchPrePredictionReceive(receiveEvent(player, move));
-            assertTrue(longField(timer, "timerBalanceRealTime") - initial == 50_000_000L);
+            long afterMove = longField(timer, "timerBalanceRealTime");
+            assertTrue(afterMove == initial);
 
             player.checkManager.dispatchPrePredictionReceive(RecordReceiveTestEvents.tickEnd(player));
-            assertTrue(longField(timer, "timerBalanceRealTime") - initial == 50_000_000L);
+            assertTrue(longField(timer, "timerBalanceRealTime") - afterMove == 50_000_000L);
 
             player.packetStateData.receivedMovementThisClientTick = false;
             player.checkManager.dispatchPrePredictionReceive(RecordReceiveTestEvents.tickEnd(player));
-            assertTrue(longField(timer, "timerBalanceRealTime") - initial == 100_000_000L);
+            assertTrue(longField(timer, "timerBalanceRealTime") - afterMove == 100_000_000L);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -535,6 +528,11 @@ public final class OrderedLegacyCheckDispatchTest {
     private static PacketReceiveEvent<ServerboundMoveVehicle> receiveEvent(
             CultPlayer player, ServerboundMoveVehicle packet) {
         return RecordReceiveTestEvents.vehicle(player, packet);
+    }
+
+    private static PacketReceiveEvent<ServerboundPlayerCommand> receiveEvent(
+            CultPlayer player, ServerboundPlayerCommand packet) {
+        return RecordReceiveTestEvents.playerCommand(player, packet);
     }
 
     private static PacketReceiveEvent<ServerboundPlayerAction> receiveEvent(

@@ -97,11 +97,6 @@ public final class BlockGrid implements DebugText.Part {
         }
     }
 
-    @Override
-    public long retainedBytes() {
-        return 64 + 16 + 4L * states.length;
-    }
-
     /** The number of chars {@link #appendTo} appends. */
     public int textLength() {
         return textLength(maxPosLength(), maxLength());

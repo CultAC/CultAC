@@ -8,8 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 
 record BedrockBubbleColumnFluidContact(BubbleColumnLayer layer, boolean dragDown) {
-    /** The client tests bubble column contact with the actor's box shrunk by this on every side. */
-    private static final double CONTACT_BOX_INSET = 0.001D;
+    private static final long CURRENT_STATE_ACTIVE_FROM_TICK = 0L;
 
     static Optional<BedrockBubbleColumnFluidContact> from(
             PlacedBlockCollision block,
@@ -18,7 +17,7 @@ record BedrockBubbleColumnFluidContact(BubbleColumnLayer layer, boolean dragDown
         if (!isBubbleColumn(block)) {
             return Optional.empty();
         }
-        if (!BedrockLiquidGeometry.fullBlockBox(block.position()).intersects(contactBox(actorBox))) {
+        if (!BedrockLiquidGeometry.fullBlockBox(block.position()).intersects(actorBox)) {
             return Optional.empty();
         }
         boolean dragDown = dragDown(block);
@@ -31,18 +30,8 @@ record BedrockBubbleColumnFluidContact(BubbleColumnLayer layer, boolean dragDown
         BlockPosition above = new BlockPosition(position.x(), position.y() + 1, position.z());
         PlacedBlockCollision aboveBlock = byPosition.get(above);
         return aboveBlock == null || isAirBlock(aboveBlock)
-                ? BubbleColumnLayer.above(position.y(), dragDown)
-                : BubbleColumnLayer.inside(position.y(), dragDown);
-    }
-
-    private static WorldCollisionBox contactBox(WorldCollisionBox actorBox) {
-        return new WorldCollisionBox(
-                actorBox.minX() + CONTACT_BOX_INSET,
-                actorBox.minY() + CONTACT_BOX_INSET,
-                actorBox.minZ() + CONTACT_BOX_INSET,
-                actorBox.maxX() - CONTACT_BOX_INSET,
-                actorBox.maxY() - CONTACT_BOX_INSET,
-                actorBox.maxZ() - CONTACT_BOX_INSET);
+                ? BubbleColumnLayer.above(position.y(), dragDown, CURRENT_STATE_ACTIVE_FROM_TICK, Long.MAX_VALUE)
+                : BubbleColumnLayer.inside(position.y(), dragDown, CURRENT_STATE_ACTIVE_FROM_TICK, Long.MAX_VALUE);
     }
 
     private static boolean isAirBlock(PlacedBlockCollision block) {

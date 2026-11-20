@@ -9,7 +9,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.List;
 
-/** ArmorStand's DATA_CLIENT_FLAGS: the marker and small flags size the stand's interactions and its seat. */
+/** Marker/small flags affect action geometry, without changing movement prediction. */
 public final class PacketEntityArmorStand extends PacketEntity {
     private byte actionFlags;
 
@@ -17,14 +17,8 @@ public final class PacketEntityArmorStand extends PacketEntity {
         super(player, id, type, pos.x, pos.y, pos.z);
     }
 
-    /** ArmorStand#isMarker. */
     public boolean actionMarker() {
         return (actionFlags & 16) != 0;
-    }
-
-    /** ArmorStand#isSmall, which ArmorStand#isBaby returns. */
-    public boolean isSmall() {
-        return (actionFlags & 1) != 0;
     }
 
     /** Whether the stand is neither small nor a marker, at the size BoundingBoxSize gives it. */

@@ -68,7 +68,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.BeforeAll;
@@ -323,7 +322,6 @@ class ObserveOnlyTest {
                 CultPlayer player = mock(CultPlayer.class);
                 User user = user(new EmbeddedChannel());
                 set(player, "user", user);
-                set(player, "hasDisconnected", new AtomicBoolean());
                 doCallRealMethod().when(player).timedOut();
                 doCallRealMethod().when(player).withheld(any());
                 try (var ignored = installConfig(observeOnly, failOpen)) {

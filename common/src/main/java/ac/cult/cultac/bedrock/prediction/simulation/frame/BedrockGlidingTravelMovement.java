@@ -60,9 +60,7 @@ final class BedrockGlidingTravelMovement {
         return context.worldState()
                 .blockCollisionWorld()
                 .blockAt(position)
-                // Scaffolding carries the climbable tag, but a glide carries on through it.
-                .map(block -> (block.hasContactBehavior(BlockContactBehavior.CLIMBABLE)
-                                && !block.hasContactBehavior(BlockContactBehavior.SCAFFOLDING))
+                .map(block -> block.hasContactBehavior(BlockContactBehavior.CLIMBABLE)
                         || (context.equipmentState().leatherBoots()
                                 && block.hasContactBehavior(BlockContactBehavior.POWDER_SNOW)))
                 .orElse(false);

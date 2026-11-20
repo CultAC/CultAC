@@ -178,7 +178,7 @@ public final class BedrockActorHistoryTest {
                 0,
                 ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.Paddle.INITIAL,
                 ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.Paddle.INITIAL,
-                ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.PaddleInput.ANALOG));
+                true));
         for (var initial : List.of(horseState, boatState)) {
             var history = new BedrockActorHistory();
             var entry = new Entry(initial, BedrockMobJumpComponentState.DEFAULT);
@@ -233,8 +233,9 @@ public final class BedrockActorHistoryTest {
                 controls);
         var movement = BedrockForwardTick.simulate(request).getFirst();
         var state = movement.movementResult().predictedState();
-        var entries = List.of(new Entry(
-                BedrockForwardTick.finish(movement.movementResult(), state), movement.mobJumpComponent()));
+        var entries = BedrockForwardTick.finish(movement.movementResult(), state).stream()
+                .map(next -> new Entry(next, movement.mobJumpComponent()))
+                .toList();
         return new BedrockActorHistory.Frame(
                 tick,
                 request,

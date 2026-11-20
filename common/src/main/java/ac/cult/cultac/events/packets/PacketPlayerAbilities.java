@@ -20,11 +20,6 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
 
     boolean lastSentPlayerCanFly = false;
 
-    /** The mayfly of the last abilities packet sent, which the client may not have applied yet. */
-    public boolean lastSentCanFly() {
-        return lastSentPlayerCanFly;
-    }
-
     @CultPacketHandler
     public void onPlayerAbilities(
             PacketReceiveEvent<ServerboundPlayerAbilities> event,
@@ -45,7 +40,19 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
             PacketSendEvent<ClientboundPlayerAbilities> event, CultPlayer player, ClientboundPlayerAbilities packet) {
         boolean pingPrecedes = player.sendTransactionAndGetId() != -1;
 
-        if (lastSentPlayerCanFly && !packet.canFly()) limitRevocation(player, player.lastTransactionSent.get());
+        if (lastSentPlayerCanFly && !packet.canFly()) {
+            int noFlying = player.lastTransactionSent.get();
+            int maxFlyingPing =
+                    CultAPI.INSTANCE.getConfigManager().getConfig().getIntElse("max-ping-out-of-flying", 600);
+
+            player.nettyScheduler.runTaskInMs(
+                    () -> {
+                        if (player.lastTransactionReceived.get() < noFlying) {
+                            player.getSetbackTeleportUtil().executeTooHighLatencySetback("flying");
+                        }
+                    },
+                    maxFlyingPing);
+        }
 
         lastSentPlayerCanFly = packet.canFly();
 
@@ -55,35 +62,15 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
             player.isFlying = packet.flying();
             player.flySpeed = packet.flyingSpeed();
         };
+        // Without a ping ahead of it, the flight follows every earlier packet's state, such as LOGIN's game mode.
+        if (pingPrecedes) player.latencyUtils.addRealTimeTask(preceding, flight);
+        else player.latencyUtils.addRealTimeTaskNext(flight);
+
         // Player#canEat and the projectile ammo check read these at the client's USE_ITEM.
-        Runnable handled = () -> player.abilitiesHandled(packet.instabuild(), packet.invulnerable());
-        // ClientPacketListener#handlePlayerAbilities writes the flight and the build flags together, and
-        // LocalPlayer#aiStep reads mayfly and flying from the next tick: a proof in the packet's bundle applies both.
         if (!player.runAtTrailingProof(
-                event,
-                () -> {
-                    flight.run();
-                    handled.run();
-                },
-                handled)) {
-            // Unbundled, the flight follows the ping ahead of the packet, or without one every earlier packet's state,
-            // such as LOGIN's game mode.
-            player.latencyUtils.addRealTimeTask(pingPrecedes ? preceding : preceding + 1, flight);
+                event, () -> player.abilitiesHandled(packet.instabuild(), packet.invulnerable()))) {
             player.latencyUtils.addRealTimeTask(
                     preceding, () -> player.abilitiesSent(packet.instabuild(), packet.invulnerable()));
         }
-    }
-
-    /**
-     * Movement the server no longer allows stays possible until the client answers {@code transaction}, the ping it
-     * applies at. Left unanswered past max-ping-out-of-flying, the player is set back, without a flag, to where it was
-     * when the change was sent; a value of 0 or less turns this off.
-     */
-    public static void limitRevocation(CultPlayer player, int transaction) {
-        int maxFlyingPing = CultAPI.INSTANCE.getConfigManager().getConfig().getIntElse("max-ping-out-of-flying", 1000);
-        if (maxFlyingPing <= 0) return;
-        player.getSetbackTeleportUtil().holdSafePositionsUntil(transaction);
-        player.nettyScheduler.runTaskInMs(
-                () -> player.getSetbackTeleportUtil().revocationExpired(transaction, "flying"), maxFlyingPing);
     }
 }

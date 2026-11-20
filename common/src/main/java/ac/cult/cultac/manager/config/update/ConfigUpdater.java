@@ -315,8 +315,8 @@ public final class ConfigUpdater {
         // Auto-lift trivially-matching user values into outputView. The diff
         // walk records each lift in ownLog so it goes through the same
         // patcher pass as migration writes.
-        autoLift(List.of(), oldData, newData, outputView);
-        if (spec.keepsOperatorKeys) keepOperatorKeys(List.of(), oldData, newData, outputView);
+        autoLift("", oldData, newData, outputView);
+        if (spec.keepsOperatorKeys) keepOperatorKeys("", oldData, newData, outputView);
 
         // Run each version-gated migration in order.
         for (int v = oldVersion + 1; v <= spec.latestVersion; v++) {
@@ -366,10 +366,9 @@ public final class ConfigUpdater {
 
     @SuppressWarnings("unchecked")
     private static void keepOperatorKeys(
-            List<String> pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
+            String pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
         for (Map.Entry<String, Object> entry : oldData.entrySet()) {
-            List<String> currentPath = new ArrayList<>(pathPrefix);
-            currentPath.add(entry.getKey());
+            String currentPath = pathPrefix.isEmpty() ? entry.getKey() : pathPrefix + "." + entry.getKey();
             Object newValue = newData.get(entry.getKey());
             if (!newData.containsKey(entry.getKey())) {
                 output.put(currentPath, entry.getValue());
@@ -382,12 +381,11 @@ public final class ConfigUpdater {
 
     @SuppressWarnings("unchecked")
     private static void autoLift(
-            List<String> pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
+            String pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
         for (Map.Entry<String, Object> entry : oldData.entrySet()) {
             String key = entry.getKey();
             if (!newData.containsKey(key)) continue;
-            List<String> currentPath = new ArrayList<>(pathPrefix);
-            currentPath.add(key);
+            String currentPath = pathPrefix.isEmpty() ? key : pathPrefix + "." + key;
             Object oldValue = entry.getValue();
             Object newValue = newData.get(key);
             if (oldValue instanceof Map && newValue instanceof Map) {
@@ -408,13 +406,11 @@ public final class ConfigUpdater {
                 logger.log(
                         Level.FINE,
                         "[cult-config-updater] REMOVE op for '"
-                                + String.join(".", e.path()) + "' on " + configFile.getName()
+                                + e.path() + "' on " + configFile.getName()
                                 + " is not yet supported; expected the bundled default to drop the key");
                 continue;
             }
-            // A flow collection ({checks: [a]}) has no block lines to replace or insert below.
-            ConfigPatcher.NodePosition pos =
-                    patcher.inFlowCollection(e.path()) ? null : patcher.getNodePosition(e.path());
+            ConfigPatcher.NodePosition pos = patcher.getNodePosition(e.path());
             if (pos == null) {
                 additions.add(e);
                 continue;
@@ -425,19 +421,13 @@ public final class ConfigUpdater {
         for (ConfigPatcher.PendingChange c : pending) {
             patcher.applyChange(c);
         }
+        patcher.save();
         // List replacements can shift parents; rebuild positions before inserting new paths.
         if (!additions.isEmpty()) {
-            patcher.remap();
-            for (WriteLog.Entry addition : additions) {
-                if (patcher.inFlowCollection(addition.path())) {
-                    patcher.replaceInFlowCollection(addition.path(), addition.value());
-                } else {
-                    patcher.addMissingValue(addition.path(), addition.value());
-                }
-            }
+            patcher = new ConfigPatcher(configFile);
+            for (WriteLog.Entry addition : additions) patcher.addMissingValue(addition.path(), addition.value());
+            patcher.save();
         }
-        // One write once every change applied: a failed one leaves the old file, version included, to retry.
-        patcher.save();
     }
 
     @SuppressWarnings("unchecked")

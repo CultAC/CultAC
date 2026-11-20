@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
@@ -16,8 +15,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * CompensatedEntities#isTicking answers as a direct chunk lookup at the entity's physical position would, through
- * chunk loads, replacements, unloads, dimension and full clears, validation loads, test puts, position changes,
- * world swaps and client view changes, each queried repeatedly so remembered answers are reused between changes.
+ * chunk loads, replacements, unloads, dimension and full clears, validation loads, test puts, position changes and
+ * world swaps, each queried repeatedly so remembered answers are reused between changes.
  */
 class EntityTickingChunkTest {
     private static final int[] TYPES = {
@@ -30,31 +29,17 @@ class EntityTickingChunkTest {
     void tickingFollowsTheLoadedChunks() throws Exception {
         for (long seed = 0; seed < 12; seed++) {
             try (var f = new JavaTickFixture()) {
-                run(f, seed, false);
+                run(f, seed);
             }
         }
     }
 
-    @Test
-    void tickingFollowsTheClientChunkView() throws Exception {
-        for (long seed = 0; seed < 12; seed++) {
-            try (var f = new JavaTickFixture()) {
-                JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_4);
-                run(f, seed, true);
-            }
-        }
-    }
-
-    private static void run(JavaTickFixture f, long seed, boolean view) {
+    private static void run(JavaTickFixture f, long seed) {
         CultPlayer player = f.player;
         f.place(new Vec3(0.5, JavaTickFixture.FLOOR_Y, 0.5), Vec3.ZERO);
         CompensatedEntities entities = player.compensatedEntities;
         CompensatedWorld first = player.compensatedWorld;
         CompensatedWorld second = new CompensatedWorld(player);
-        if (view) {
-            first.initializeClientChunkCache(2);
-            second.initializeClientChunkCache(2);
-        }
         for (int t = 0; t < TYPES.length; t++) {
             entities.addEntity(10 + t, TYPES[t], new Vec3(t * 2 + 0.5, 64, 2.5), 0, 0, 0);
         }
@@ -63,10 +48,8 @@ class EntityTickingChunkTest {
         int idle = 0;
         for (int step = 0; step < 3_000; step++) {
             CompensatedWorld world = player.compensatedWorld;
-            // Chunks past the view's width share its slots with nearer ones.
-            boolean wide = view && random.nextInt(4) == 0;
-            int chunkX = wide ? random.nextInt(25) - 12 : random.nextInt(7) - 3;
-            int chunkZ = wide ? random.nextInt(25) - 12 : random.nextInt(7) - 3;
+            int chunkX = random.nextInt(7) - 3;
+            int chunkZ = random.nextInt(7) - 3;
             int kind = random.nextInt(100);
             if (kind < 18) {
                 world.addToCache(column(), random.nextInt(4) == 0 ? NETHER : OVERWORLD, chunkX, chunkZ);
@@ -93,14 +76,6 @@ class EntityTickingChunkTest {
                 };
             } else if (kind < 73) {
                 player.compensatedWorld = world == first ? second : first;
-            } else if (view && kind < 76) {
-                int reach = random.nextInt(4) == 0 ? 8 : 2;
-                world.clientChunkCacheCenter(
-                        random.nextInt(reach * 2 + 1) - reach, random.nextInt(reach * 2 + 1) - reach);
-            } else if (view && kind < 78) {
-                world.clientChunkCacheRadius(2 + random.nextInt(3));
-            } else if (view && kind < 79) {
-                world.initializeClientChunkCache(2);
             }
             int queries = 1 + random.nextInt(3);
             for (int q = 0; q < queries; q++) {
@@ -120,7 +95,7 @@ class EntityTickingChunkTest {
     private static boolean direct(CompensatedWorld world, PacketEntity entity) {
         Vec3 position = entity.clientPhysicalPosition;
         return position != null
-                && world.isClientEntityTickingChunk(CultMath.floor(position.x) >> 4, CultMath.floor(position.z) >> 4);
+                && world.isChunkLoaded(CultMath.floor(position.x) >> 4, CultMath.floor(position.z) >> 4);
     }
 
     private static CompensatedWorld.CachedChunk column() {

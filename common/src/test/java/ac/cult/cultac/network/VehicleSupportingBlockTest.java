@@ -105,20 +105,14 @@ class VehicleSupportingBlockTest {
         }
     }
 
-    /**
-     * AbstractBoat#tick calls Entity#move before LocalPlayer sends its root's ground bit: the move is the boat's own
-     * and only its ground claim is rejected.
-     */
+    /** AbstractBoat#tick calls Entity#move before LocalPlayer sends its root's ground bit. */
     @Test
     void aBoatLandingOnStoneCannotClaimAirborne() throws Exception {
         try (var f = new JavaTickFixture()) {
             PacketEntity boat = mount(
                     f, EntityTypeIds.OAK_BOAT, new Vec3(0.5, FLOOR_Y + 0.1, 0.5), new Vec3(0, -0.16, 0), false);
 
-            PredictionResult landing = ride(f, new Vec3(0.5, FLOOR_Y, 0.5), false);
-            assertEquals(List.of("GroundSpoof"), flagNames(landing), describe(landing));
-            assertTrue(landing.getOffset() < 1.0E-5, describe(landing));
-            assertEquals(ON_FLOOR, landing.getSimulationContext().getWorldData().getMainSupportingBlockPos());
+            assertSupport(ON_FLOOR, ride(f, new Vec3(0.5, FLOOR_Y, 0.5), false));
             assertTrue(f.player.checkManager.getCheck(VehicleGround.class).violations > 0);
             assertTrue(boat.onGround, "the false claim became the next boat tick's ground state");
         }
@@ -158,7 +152,7 @@ class VehicleSupportingBlockTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.AIR.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     /** Stone at y 66 over x -3..3, z -3..3. */
@@ -168,7 +162,7 @@ class VehicleSupportingBlockTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, 66, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     /** The vehicle at {@code start} carrying {@code velocity}, ridden with no keys held. */
@@ -201,12 +195,6 @@ class VehicleSupportingBlockTest {
         PredictionResult result = f.player.checkManager.getSimulationProcessor().getLastPrediction();
         assertTrue(result != null && result != before, "the vehicle move was not predicted");
         return result;
-    }
-
-    private static List<String> flagNames(PredictionResult result) {
-        return result.getFlags().stream()
-                .map(flag -> flag.getCheck().getCheckName())
-                .toList();
     }
 
     private static void assertSupport(MainSupportingBlockData expected, PredictionResult result) {

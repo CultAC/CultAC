@@ -4,13 +4,10 @@ import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import java.util.LinkedHashMap;
-import java.util.EnumMap;
-import java.util.ArrayList;
-import java.util.Map;
 import java.util.List;
 import java.util.Set;
 
-/** A client AttributeInstance: the packet base, id index and any locally written operation entries. */
+/** A local player AttributeInstance: a base value and the modifiers last sent by the server. */
 public final class ClientAttributeInstance {
     private final double defaultBase;
     private final double minValue;
@@ -19,9 +16,7 @@ public final class ClientAttributeInstance {
     private final Set<String> excludedModifierIds;
     private double base;
     private final LinkedHashMap<String, AttributeModifier> modifiers = new LinkedHashMap<>();
-    // Created only for addOrUpdateTransientModifier: vanilla retains an old operation entry when its id changes operations.
-    private EnumMap<AttributeModifier.Operation, LinkedHashMap<String, AttributeModifier>> operationModifiers;
-    // Operation entries as of the last calculateValue, which every write runs.
+    // modifiers.values() as of the last calculateValue, which every write to modifiers runs.
     private List<AttributeModifier> ordered;
     private double value;
 
@@ -39,17 +34,16 @@ public final class ClientAttributeInstance {
         this.value = calculateValue();
     }
 
-    /** ClientPacketListener#handleUpdateAttributes replaces the base and each indexed modifier. */
+    /** ClientPacketListener#handleUpdateAttributes replaces the base and every modifier. */
     public void onServerSnapshot(AttributeSnapshot snapshot) {
         replace(snapshot.base(), snapshot.modifiers());
     }
 
     public void replace(double base, List<AttributeModifier> modifiers) {
         this.base = base;
-        removeIndexedModifiers();
+        this.modifiers.clear();
         for (AttributeModifier modifier : modifiers) {
             this.modifiers.put(modifier.id(), modifier);
-            if (operationModifiers != null) operation(modifier.operation()).put(modifier.id(), modifier);
         }
         this.value = calculateValue();
     }
@@ -61,48 +55,13 @@ public final class ClientAttributeInstance {
 
     /** ClientPacketListener#handleRespawn without KEEP_ATTRIBUTE_MODIFIERS: AttributeMap#assignBaseValues. */
     public void clearModifiers() {
-        removeIndexedModifiers();
-        value = calculateValue();
-    }
-
-    /** A client's removeModifier followed by addTransientModifier; null leaves the modifier removed. */
-    public void replaceModifier(String id, AttributeModifier modifier) {
-        AttributeModifier removed = modifiers.remove(id);
-        if (operationModifiers != null && removed != null) operation(removed.operation()).remove(id);
-        if (modifier != null) {
-            modifiers.put(id, modifier);
-            if (operationModifiers != null) operation(modifier.operation()).put(id, modifier);
-        }
-        if (removed != null || modifier != null) value = calculateValue();
-    }
-
-    /** AttributeInstance#addOrUpdateTransientModifier changes the id index and its new operation only. */
-    public void updateModifier(String id, AttributeModifier modifier) {
-        if (operationModifiers == null) {
-            operationModifiers = new EnumMap<>(AttributeModifier.Operation.class);
-            for (AttributeModifier entry : modifiers.values()) operation(entry.operation()).put(entry.id(), entry);
-        }
-        AttributeModifier previous = modifier == null ? modifiers.remove(id) : modifiers.put(id, modifier);
-        if (modifier != null) operation(modifier.operation()).put(id, modifier);
-        else if (previous != null) operation(previous.operation()).remove(id);
-        if (previous != null || modifier != null) value = calculateValue();
-    }
-
-    private Map<String, AttributeModifier> operation(AttributeModifier.Operation operation) {
-        return operationModifiers.computeIfAbsent(operation, ignored -> new LinkedHashMap<>());
-    }
-
-    /** AttributeInstance#removeModifiers removes only the entries still reachable through its id index. */
-    private void removeIndexedModifiers() {
-        if (operationModifiers != null)
-            for (AttributeModifier entry : modifiers.values()) operation(entry.operation()).remove(entry.id());
         modifiers.clear();
+        value = calculateValue();
     }
 
     public void reset() {
         base = defaultBase;
         modifiers.clear();
-        operationModifiers = null;
         value = calculateValue();
     }
 
@@ -150,12 +109,7 @@ public final class ClientAttributeInstance {
 
     // AttributeInstance#calculateValue, then RangedAttribute#sanitizeValue
     private double calculateValue() {
-        if (operationModifiers == null) ordered = List.copyOf(modifiers.values());
-        else {
-            var entries = new ArrayList<AttributeModifier>();
-            for (var bucket : operationModifiers.values()) entries.addAll(bucket.values());
-            ordered = List.copyOf(entries);
-        }
+        ordered = List.copyOf(modifiers.values());
         double value = CompensatedEntities.calculateAttributeValue(
                 new AttributeSnapshot("", base, ordered), excludedModifierIds);
         return Double.isNaN(value) ? minValue : Math.min(Math.max(value, minValue), maxValue);

@@ -71,19 +71,16 @@ public record BedrockMobJump(Branch branch, double swimUpImpulse, BedrockMobJump
             case WATER_NON_SWIMMER_SWIM_UP -> new Vec3d(velocity.x(), velocity.y() + swimUpImpulse, velocity.z());
             case LAVA_SWIM_UP ->
                 new Vec3d(velocity.x(), BedrockLiquidVerticalMovement.lavaSwimUpVelocityY(velocity.y()), velocity.z());
-            case NONE, WATER_AUTO_SURFACE_SWIM, WATER_SWIM_TRANSITION, SWIM_JUMP_WITHHELD, GROUND_JUMP_REQUEST ->
-                velocity;
+            case NONE, WATER_AUTO_SURFACE_SWIM, WATER_SWIM_TRANSITION, GROUND_JUMP_REQUEST -> velocity;
         };
     }
 
     private static Branch firstMatchingBranch(BedrockMobJumpInput input, BedrockMobJumpComponentState component) {
-        // A withheld jump runs no later branch. Only in water does it also stop
-        // the vertical velocity.
         if (input.autoSurfaceSwim()) {
-            return input.nonSwimmerSwimUp() ? Branch.WATER_AUTO_SURFACE_SWIM : Branch.SWIM_JUMP_WITHHELD;
+            return Branch.WATER_AUTO_SURFACE_SWIM;
         }
         if (input.swimTransition()) {
-            return input.nonSwimmerSwimUp() ? Branch.WATER_SWIM_TRANSITION : Branch.SWIM_JUMP_WITHHELD;
+            return Branch.WATER_SWIM_TRANSITION;
         }
         if (input.scaffoldingOrAscendableBlock()) {
             return Branch.SCAFFOLDING_OR_ASCENDABLE_BLOCK;
@@ -107,7 +104,6 @@ public record BedrockMobJump(Branch branch, double swimUpImpulse, BedrockMobJump
         NONE,
         WATER_AUTO_SURFACE_SWIM,
         WATER_SWIM_TRANSITION,
-        SWIM_JUMP_WITHHELD,
         SCAFFOLDING_OR_ASCENDABLE_BLOCK,
         LADDER_OR_POWDER_SNOW_AT_FEET,
         WATER_NON_SWIMMER_SWIM_UP,

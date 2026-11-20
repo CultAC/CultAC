@@ -358,9 +358,8 @@ class ClientEntityQueryCandidateTest {
     }
 
     private static boolean present(CultPlayer player, PacketEntity entity) {
-        // Level#getEntities returns a passenger where its vehicle seats it; only a Bedrock rider has no seat here.
         return (!(entity instanceof PacketEntityPlayer remote) || remote.actionPresent)
-                && (!player.isBedrockMovement() || !player.compensatedEntities.isUntrackedRider(entity));
+                && !player.compensatedEntities.isUntrackedRider(entity);
     }
 
     private static boolean spectator(CultPlayer player, PacketEntity entity) {

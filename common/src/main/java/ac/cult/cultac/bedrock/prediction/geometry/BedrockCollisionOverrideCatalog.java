@@ -131,11 +131,6 @@ public final class BedrockCollisionOverrideCatalog {
         }
     }
 
-    /** The Java protocol whose block state registry this catalog's Java state IDs index. */
-    public int javaProtocol() {
-        return integer(source.get("javaProtocol"), "source.javaProtocol");
-    }
-
     public int javaStateCount() {
         int count = integer(summary.get("javaStateCount"), "summary.javaStateCount");
         if (count <= 0) {

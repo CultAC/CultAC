@@ -76,7 +76,7 @@ class ReachInterpolationInPlaceTest {
     @Test
     void exactLocationAfterClientTickIntoBox() throws Exception {
         ReachInterpolationData data = data(3, 1, 1);
-        SimpleCollisionBox expected = data.copyAdvancedForClientTick(true)
+        SimpleCollisionBox expected = data.copyAdvancedForClientTick(true, true)
                 .getPossibleMovementLocations()
                 .get(0);
         SimpleCollisionBox out = new SimpleCollisionBox(9, 9, 9, 10, 10, 10, true);
@@ -91,19 +91,18 @@ class ReachInterpolationInPlaceTest {
         player.packetStateData = new PacketStateData();
         PacketEntity entity = new PacketEntity(EntityTypeIds.ZOMBIE, 1);
         SimpleCollisionBox start = new SimpleCollisionBox(-0.3, 0, -0.3, 0.3, 1.95, 0.3);
-        ReachInterpolationData data =
-                new ReachInterpolationData(player, start, 4, 1, -2, 0, 0, 90, 10, entity);
+        ReachInterpolationData data = new ReachInterpolationData(player, start, 4, 1, -2, 0, 0, 90, 10, entity);
         assertTrue(data.usesSteppedInterpolation());
         data.appendPath(EntityPositionPath.linear(new Vec3(6, 1, -2)), 180, 0);
         SimpleCollisionBox out = new SimpleCollisionBox(9, 9, 9, 10, 10, 10, true);
         double firstMinX = Double.NaN;
         for (int tick = 0; tick < 6; tick++) {
             SimpleCollisionBox expected =
-                    data.copyAdvancedForClientTick(true).getPossibleMovementLocationCombined();
+                    data.copyAdvancedForClientTick(true, true).getPossibleMovementLocationCombined();
             if (tick == 0) firstMinX = expected.minX;
             assertSame(out, data.exactMovementLocationAfterClientTick(out));
             assertBoxEquals(expected, out);
-            data.tickMovement(true);
+            data.tickMovement(true, true);
         }
         assertNotEquals(firstMinX, out.minX);
     }

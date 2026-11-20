@@ -2,8 +2,6 @@ package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBoxPool;
@@ -28,8 +26,6 @@ public final class PacketEntityFallingBlock extends PacketEntity {
     // Entity#verticalCollision and onGround, which Entity#move refreshes only on a move with vertical delta.
     private boolean verticalCollision;
     private boolean onGround;
-    // Entity#stuckSpeedMultiplier, which applyEffectsFromBlocks sets and the next Entity#move consumes.
-    private Vec3 stuckSpeed;
 
     public PacketEntityFallingBlock(CultPlayer player, int id, Vec3 position) {
         super(player, id, EntityTypeIds.FALLING_BLOCK, position.x, position.y, position.z);
@@ -38,8 +34,7 @@ public final class PacketEntityFallingBlock extends PacketEntity {
     /**
      * {@code FallingBlockEntity#tick} on the client: {@code applyGravity}, {@code move(MoverType.SELF)}, then
      * {@code getAirDrag}. Each possible location moves from its own position; the client-physical one decides the delta
-     * movement and, from 1.21.11, the stuck speed of {@code applyEffectsFromBlocks}. Entity colliders, block step-on and
-     * the other inside effects are not modelled.
+     * movement. Entity colliders, block step-on and inside effects are not modelled.
      */
     @Override
     public void onMovement(CultPlayer player, boolean tickingReliably) {
@@ -48,12 +43,7 @@ public final class PacketEntityFallingBlock extends PacketEntity {
         if (getRiding() != null || player.isBedrockMovement()) return;
         // Entity#getGravity: FallingBlockEntity#getDefaultGravity, or none with the no_gravity flag.
         if (hasGravity) deltaMovement = deltaMovement.add(0.0D, -0.04D, 0.0D);
-        Vec3 delta = stuckSpeed == null ? deltaMovement : deltaMovement.multiply(stuckSpeed);
-        if (stuckSpeed != null) {
-            // Entity#move: a stuck move scales its delta and zeroes deltaMovement.
-            stuckSpeed = null;
-            deltaMovement = Vec3.ZERO;
-        }
+        Vec3 delta = deltaMovement;
         if (delta.lengthSqr() != 0.0D) {
             UnaryOperator<Vec3> step = from -> applied(delta, collide(player, from, delta));
             newPacketLocation.offset(step);
@@ -62,9 +52,8 @@ public final class PacketEntityFallingBlock extends PacketEntity {
             }
         }
         if (clientPhysicalPosition != null) {
-            Vec3 from = clientPhysicalPosition;
-            Vec3 movement = delta.lengthSqr() == 0.0D ? delta : collide(player, from, delta);
-            clientPhysicalPosition = from.add(applied(delta, movement));
+            Vec3 movement = delta.lengthSqr() == 0.0D ? delta : collide(player, clientPhysicalPosition, delta);
+            clientPhysicalPosition = clientPhysicalPosition.add(applied(delta, movement));
             boolean xCollision = !CultMath.equal(delta.x, movement.x);
             boolean zCollision = !CultMath.equal(delta.z, movement.z);
             if (delta.y != 0.0D) {
@@ -86,8 +75,6 @@ public final class PacketEntityFallingBlock extends PacketEntity {
                     new MainSupportingBlockData(null, onGround),
                     clientPhysicalPosition);
             deltaMovement = deltaMovement.multiply(speedFactor, 1.0D, speedFactor);
-            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11))
-                stuckSpeed = insideStuckSpeed(player, from, delta);
         }
         deltaMovement = deltaMovement.scale((double) 0.98F);
     }
@@ -118,27 +105,10 @@ public final class PacketEntityFallingBlock extends PacketEntity {
         deltaMovement = new Vec3(x, y, z);
     }
 
-    /**
-     * {@code Entity#applyEffectsFromBlocks}' stuck speed: {@code checkInsideBlocks} over this tick's move from
-     * {@code from}, in the axis order of {@code delta}. A move {@code Entity#move} did not record stays at
-     * {@code Entity#oldPosition}, so its unordered sweep covers the same blocks.
-     */
-    private Vec3 insideStuckSpeed(CultPlayer player, Vec3 from, Vec3 delta) {
-        Vec3 to = clientPhysicalPosition;
-        JavaInsideBlockEffects.Scan scan = JavaInsideBlockEffects.scan(
-                player, this, to, box(player, from), box(player, to), delta);
-        return JavaInsideBlockEffects.resolve(player, (SimulationContext) null, scan, 0.0D, deltaMovement, onGround)
-                .stuckSpeed();
-    }
-
-    private SimpleCollisionBox box(CultPlayer player, Vec3 position) {
-        return toBoundingBox(
-                player, GetBoundingBox.getPacketEntityBoundingBox(player, position.x, position.y, position.z, this));
-    }
-
     /** {@code Entity#collide} without a step height: {@code collideBoundingBox} against blocks. */
     private Vec3 collide(CultPlayer player, Vec3 from, Vec3 delta) {
-        SimpleCollisionBox box = box(player, from);
+        SimpleCollisionBox box = toBoundingBox(
+                player, GetBoundingBox.getPacketEntityBoundingBox(player, from.x, from.y, from.z, this));
         CollisionBoxPool pool = CollisionBoxPool.current();
         int mark = pool.mark();
         try {

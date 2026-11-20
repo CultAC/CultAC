@@ -60,7 +60,7 @@ public final class BedrockMovementProfile implements MovementProfile {
         }
         boolean swimmingInWater = context.getBedrockInput().isSwimming()
                 && context.getWorldData() != null
-                && context.getWorldData().isInWater();
+                && context.getWorldData().getInWater().determinePessimistically();
         return startsFlyingExemptionThisFrame(
                 hasTrustedMayFlyAbility(player), swimmingInWater, context.getBedrockInput());
     }

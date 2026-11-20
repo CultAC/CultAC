@@ -5,7 +5,6 @@ import static org.mockito.Mockito.*;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
-import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
@@ -40,10 +39,10 @@ class NoSlowClearTest {
         run(rig -> {
             rig.useShield();
             rig.noSlow.violations = ABOVE_SETBACK;
-            doReturn(true).when(rig.setbacks).executeViolationSetback(any(Check.class));
+            doReturn(true).when(rig.setbacks).executeViolationSetback();
             rig.move(WALK);
             assertEquals(ABOVE_SETBACK + 1, rig.noSlow.violations);
-            verify(rig.setbacks).executeViolationSetback(any(Check.class));
+            verify(rig.setbacks).executeViolationSetback();
             verify(rig.platform, times(1)).clearActiveItem(Hand.OFF_HAND, "minecraft:shield");
             verify(rig.platform, times(1)).clearActiveItem(any(), any());
         });
@@ -55,7 +54,7 @@ class NoSlowClearTest {
             rig.useShield();
             rig.move(WALK);
             assertEquals(1, rig.noSlow.violations);
-            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
+            verify(rig.setbacks, never()).executeViolationSetback();
             verify(rig.platform, never()).clearActiveItem(any(), any());
         });
     }
@@ -65,10 +64,10 @@ class NoSlowClearTest {
         run(rig -> {
             rig.useShield();
             rig.noSlow.violations = ABOVE_SETBACK;
-            doReturn(false).when(rig.setbacks).executeViolationSetback(any(Check.class));
+            doReturn(false).when(rig.setbacks).executeViolationSetback();
             rig.move(WALK);
             assertEquals(ABOVE_SETBACK + 1, rig.noSlow.violations);
-            verify(rig.setbacks).executeViolationSetback(any(Check.class));
+            verify(rig.setbacks).executeViolationSetback();
             verify(rig.platform, never()).clearActiveItem(any(), any());
         });
     }
@@ -78,10 +77,10 @@ class NoSlowClearTest {
         run(rig -> {
             rig.useShield();
             rig.noSlow.violations = ABOVE_SETBACK;
-            doReturn(true).when(rig.setbacks).executeViolationSetback(any(Check.class));
+            doReturn(true).when(rig.setbacks).executeViolationSetback();
             for (int i = 0; i < 20; i++) rig.move(SLOWED);
             assertTrue(rig.noSlow.violations <= ABOVE_SETBACK);
-            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
+            verify(rig.setbacks, never()).executeViolationSetback();
             verify(rig.platform, never()).clearActiveItem(any(), any());
         });
     }
@@ -90,10 +89,10 @@ class NoSlowClearTest {
     void unflaggedMovementWithoutUseNeverClears() {
         run(rig -> {
             rig.noSlow.violations = ABOVE_SETBACK;
-            doReturn(true).when(rig.setbacks).executeViolationSetback(any(Check.class));
+            doReturn(true).when(rig.setbacks).executeViolationSetback();
             for (int i = 0; i < 20; i++) rig.move(WALK);
             assertEquals(ABOVE_SETBACK, rig.noSlow.violations);
-            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
+            verify(rig.setbacks, never()).executeViolationSetback();
             verify(rig.platform, never()).clearActiveItem(any(), any());
         });
     }

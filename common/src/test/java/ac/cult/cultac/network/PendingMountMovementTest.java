@@ -101,10 +101,8 @@ class PendingMountMovementTest {
     @Test
     void idleTickBeforeTheMountPongIsPredicted() throws Exception {
         try (var f = pendingMountOnFloor()) {
-            // A previously loaded LocalPlayer can send no movement at all in an idle client tick. Its ground bit
-            // stays the one LocalPlayer#sendPosition last sent, from the floor it stands on.
+            // A previously loaded LocalPlayer can send no movement at all in an idle client tick.
             f.player.packetStateData.playerLoadedIntoLevel = true;
-            f.player.packetStateData.packetPlayerOnGround = true;
             PredictionResult before =
                     f.player.checkManager.getSimulationProcessor().getLastPrediction();
             f.tickEnd();

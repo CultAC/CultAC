@@ -33,7 +33,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import org.jetbrains.annotations.Nullable;
 
 /** Compensated action boundary. The bundled simulator owns all client action behavior. */
 public final class ClientBlockActions {
@@ -51,11 +50,10 @@ public final class ClientBlockActions {
         }
     }
 
-    public static Prediction useOn(CultPlayer player, BlockPlace place) {
+    public static void useOn(CultPlayer player, BlockPlace place) {
         var prediction = predictUseOn(player, place);
         apply(player, prediction, place);
         debugPlacement(player, prediction, place.getItemStack(), place);
-        return prediction;
     }
 
     /** Identify client-side writes without installing an action rejected by packet checks. */
@@ -77,13 +75,12 @@ public final class ClientBlockActions {
         return predict(player, action, yaw, pitch);
     }
 
-    /** The applied prediction, or {@code null} for a trident, whose use only starts charging. */
-    public static @Nullable Prediction use(CultPlayer player, Hand hand) {
+    public static void use(CultPlayer player, Hand hand) {
         if (player.getInventory().getHandItem(hand).is("minecraft:trident")) {
             // TridentItem.use only starts charging. Its fixed 72000-tick duration
             // also excludes ItemStack's instant-use inventory/cooldown effects.
             // The existing ActionManager packet handler owns use-state inference.
-            return null;
+            return;
         }
         var item = player.getInventory().getHandItem(hand);
         boolean wasUsingItem = player.isClientUsingItem();
@@ -96,7 +93,6 @@ public final class ClientBlockActions {
             player.checkManager.getCheck(MultiActionsE.class).onPredictedUseSwing(hand);
         }
         debugPlacement(player, prediction, item, null);
-        return prediction;
     }
 
     /**

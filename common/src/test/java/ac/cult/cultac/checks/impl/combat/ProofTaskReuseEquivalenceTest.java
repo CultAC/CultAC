@@ -415,14 +415,9 @@ class ProofTaskReuseEquivalenceTest {
                 set(movement, "onGround", Boolean.TRUE);
                 Class<?> change = field(type, "deltaMovement").getType();
                 Constructor<?> constructor = change.getDeclaredConstructor(
-                        boolean.class,
-                        double.class,
-                        double.class,
-                        double.class,
-                        int.class,
-                        field(change, "riderRelative").getType());
+                        boolean.class, double.class, double.class, double.class, int.class);
                 constructor.setAccessible(true);
-                set(movement, "deltaMovement", constructor.newInstance(true, 0.5, 0.5, 0.5, 0, null));
+                set(movement, "deltaMovement", constructor.newInstance(true, 0.5, 0.5, 0.5, 0));
                 set(movement, "relativeToClientPosition", false);
                 set(movement, "proofTransaction", player.lastTransactionSent.get());
             }

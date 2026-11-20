@@ -87,18 +87,11 @@ class PredictionDiagnosticsTest {
         HOOK.watch(player, diagnostics, 1, 60, seq::get);
         assertSame(watch, debug.watch(), "a renewal keeps the running watch");
 
-        player.canFly = true;
-        player.isFlying = true;
-        player.compensatedEntities.getSelf().hasGravity = false;
         HOOK.cut(player, diagnostics, new Cut(BUNDLE, 3, 7, 5, 5));
         List<DiagPart> parts = parts();
         DiagPart last = parts.get(parts.size() - 1);
         assertEquals(DiagCoverage.DIAG_COVERAGE_FULL, last.getCoverage());
-        String header = parts.get(0).getHeader();
-        assertTrue(header.split("\n")[0].contains("client "), header);
-        assertTrue(header.contains("\nstate abilities mayfly true sent-mayfly false flying true "), header);
-        assertTrue(header.contains("\nstate self no-gravity true "), header);
-        assertTrue(header.contains("\nstate border center 0.0 0.0 "), header);
+        assertTrue(parts.get(0).getHeader().contains("client "), parts.get(0).getHeader());
         List<DiagTick> ticks = new ArrayList<>();
         for (DiagPart part : parts) ticks.addAll(part.getTicksList());
         assertEquals(5, ticks.size());

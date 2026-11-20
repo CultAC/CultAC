@@ -1,7 +1,5 @@
 package ac.cult.cultac.bedrock.prediction.simulation.postmove;
 
-import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
-import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionOutput;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockEntityMove;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockMoveRequest;
@@ -16,25 +14,17 @@ public final class BedrockPostMoveSystems {
 
         BedrockPostMoveFrame frame = context.startEffectFrame(blockMove.velocity(), blockMove.collisionFlags(), false);
         if (plan.frame().boat() != null) {
+            frame = context.applyBlockMovementSlowdownClear(frame);
             frame = context.resolvePostMoveFluidContext(frame, blockMove.position());
-            // Lily pads slow the boat before its gravity and buoyancy.
-            var velocity = BedrockBoatLilyPads.slow(
-                    frame.velocity(),
-                    BedrockBoatLilyPads.reached(
-                                    plan.frame().frameFacts().blockCollisionWorld(),
-                                    plan.frame().frameFacts().movementDimensions(),
-                                    blockMove.position())
-                            .size());
-            velocity = ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBoatMovement.afterMove(
+            var velocity = ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBoatMovement.afterMove(
                     plan.frame().input().previousState(),
                             plan.frame().frameFacts().blockCollisionWorld(),
-                    blockMove.position(), velocity);
-            velocity = new Vec3d(
-                    velocity.x(),
-                    BedrockBubbleColumnMovement.boatVelocityY(
-                            frame.postMoveContext().worldState().fluidState().bubbleColumnState(),
-                            (float) velocity.y()),
-                    velocity.z());
+                    blockMove.position(), frame.velocity());
+            velocity = BedrockBoatInsideMovement.apply(
+                    frame.postMoveContext(),
+                    velocity,
+                    blockMove.position(),
+                    plan.frame().input().previousState().simulationTick());
             velocity = ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMovement
                     .applyInsideBlockAfterPostMoveEffects(
                             velocity,
@@ -45,12 +35,14 @@ public final class BedrockPostMoveSystems {
             return new BedrockPostMoveResult(
                     new BedrockPostMoveResult.VelocityEffects(velocity, velocity, velocity, false, true, true, 1.0D),
                     result.collisionEffects(),
-                    result.stateModes());
+                    result.stateModes(),
+                    null);
         }
         boolean travel = plan.frame().input().options().travelActive();
         if (travel) {
-            frame = context.applyFlyingGroundContact(frame);
+            frame = context.applyWaterJumpGroundReset(frame);
             frame = context.applyStandingBounce(frame, blockMove.position(), collision.collisionFetchBox());
+            frame = context.applyBlockMovementSlowdownClear(frame);
         }
         frame = context.resolvePostMoveFluidContext(frame, blockMove.position());
         if (travel) {
@@ -68,14 +60,8 @@ public final class BedrockPostMoveSystems {
                 ? context.applyLiquidClimbOut(frame, blockMove.position())
                 : BedrockPostMoveResult.afterLiquidClimbOut(frame, frame.velocity(), frame.flags(), 1.0D);
         result = BedrockEntityInsideMovement.apply(context, result, blockMove.position());
-        // The blocks around the actor only add a slowdown; only a move consumes it. A tick that runs no move adds
-        // the blocks at its position to the slowdown pending from before it, and the next move takes both.
-        BlockMovementSlowdownState slowdown = context.resolvePendingBlockMovementSlowdown(blockMove.position());
         result = result.withPendingBlockMovementSlowdownState(
-                travel
-                        ? slowdown
-                        : BlockMovementSlowdownState.combine(
-                                plan.frame().input().previousState().pendingBlockMovementSlowdownState(), slowdown));
+                context.resolvePendingBlockMovementSlowdown(blockMove.position()));
         result = context.withPostMoveStateModes(result, blockMove.position());
         return result;
     }

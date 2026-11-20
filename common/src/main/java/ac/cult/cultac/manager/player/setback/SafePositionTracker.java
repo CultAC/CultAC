@@ -78,11 +78,6 @@ public final class SafePositionTracker {
         return current;
     }
 
-    /** Whether {@code safe} is the safe position, or the one staged to become it. */
-    public boolean holds(SetbackPosWithVector safe) {
-        return safe != null && (safe == current || safe == staged);
-    }
-
     /** Writes {@code candidate} as the safe position if {@link #accepts} takes it. */
     public void offer(SetbackPosWithVector candidate, Write kind) {
         if (accepts(candidate, kind == Write.MOVEMENT)) write(candidate, kind);

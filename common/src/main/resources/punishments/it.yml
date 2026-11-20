@@ -15,7 +15,6 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
-      - "Phase"
     commands:
       - "100:40 [alert]"
       - "1:1 [log]"
@@ -119,4 +118,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 6
+cult-config-version: 5

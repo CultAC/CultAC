@@ -31,9 +31,7 @@ class ModelEntityMetadataBenchTest {
 
     @Test
     void decodeWithReaderPerPacket() {
-        measure(
-                "METADATA-FRESH",
-                packet -> values().readOnce(packet, null).packedItems().size());
+        measure("METADATA-FRESH", packet -> values().readOnce(packet, null).packedItems().size());
     }
 
     private static ModelEntityMetadataValues values() {

@@ -213,7 +213,7 @@ class JavaSneakEdgeWaterTest {
     /**
      * A crouched player walking on the pool floor straight at its edge holds its position while deltaMovement builds
      * toward the drop. LivingEntity#travelInWater's drag follows the sprint flag, so each hidden tick leaves a single
-     * deltaMovement for each sine table, and releasing shift moves on it.
+     * deltaMovement, and releasing shift moves on it.
      */
     @Test
     void aHeldEdgeCarriesOneDeltaMovement() throws Exception {
@@ -234,12 +234,7 @@ class JavaSneakEdgeWaterTest {
                 assertTrue(exact(result), "tick " + tick + " " + describe(result));
                 Set<Vec3> carried =
                         f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
-                // One deltaMovement for each sine table a client may run: Mth's sin(180 degrees) is 1.2246469E-16
-                // and OptiFine's fast table rounds it to 0, so the two differ only by that on x.
-                Vec3 first = carried.iterator().next();
-                for (Vec3 other : carried) {
-                    assertTrue(first.distanceTo(other) < 1.0E-15, "tick " + tick + " " + carried);
-                }
+                assertEquals(1, carried.size(), "tick " + tick + " " + carried);
                 velocityZ = (velocityZ + input.z) * 0.8F;
             }
 
@@ -267,7 +262,7 @@ class JavaSneakEdgeWaterTest {
                     }
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
             float yaw = -90.0F;
             rotate(f, yaw, 20.0F);
             double x = 8.8;
@@ -417,7 +412,7 @@ class JavaSneakEdgeWaterTest {
         }
         f.player.compensatedWorld.updateBlock(new BlockPos(-1, FLOOR_Y, 0), BlockIds.STONE.defaultState());
         f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), BlockIds.STONE.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     private static void assertLedgeExact(JavaTickFixture f, float yaw, float pitch, double x, double y, double z) {
@@ -443,7 +438,7 @@ class JavaSneakEdgeWaterTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     private static void assertTrenchExact(
@@ -469,7 +464,7 @@ class JavaSneakEdgeWaterTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     /** Water sources over the floor, which ends at x = 9, and level-1 water over the drop beyond it. */
@@ -479,7 +474,7 @@ class JavaSneakEdgeWaterTest {
             for (int x = -8; x <= 8; x++) water(f, x, FLOOR_Y, z);
             f.player.compensatedWorld.updateBlock(new BlockPos(9, FLOOR_Y, z), flowing);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     private static void water(JavaTickFixture f, int x, int y, int z) {

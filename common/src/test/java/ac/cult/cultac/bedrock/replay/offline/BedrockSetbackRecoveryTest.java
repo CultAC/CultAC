@@ -124,7 +124,7 @@ public class BedrockSetbackRecoveryTest {
         try {
             var teleports = player.getSetbackTeleportUtil();
             own(player, new Vec3(1, 64, 2), 10, 1);
-            Runnable received = teleports.bedrockTeleports().captureBedrockVehicleMount(71L);
+            Runnable received = teleports.bedrockTeleports().captureBedrockVehicleMount();
             Vec3 newer = new Vec3(4, 64, 2);
             own(player, newer, 12, 2);
             var required = teleports.getRequiredSetBack();
@@ -152,7 +152,7 @@ public class BedrockSetbackRecoveryTest {
             var teleports = player.getSetbackTeleportUtil();
             Vec3 target = new Vec3(1, 64, 2);
             var operation = own(player, target, 10, 1);
-            Runnable received = teleports.bedrockTeleports().captureBedrockVehicleMount(71L);
+            Runnable received = teleports.bedrockTeleports().captureBedrockVehicleMount();
             teleports
                     .bedrockTeleports()
                     .addImmediateBedrockTransportTeleport(
@@ -291,7 +291,7 @@ public class BedrockSetbackRecoveryTest {
             SetbackFixtures.setLoaded(teleports, true);
             teleports.executeNonSimulatingSetback();
             var original = teleports.getRequiredSetBack();
-            Runnable mountReceipt = teleports.bedrockTeleports().captureBedrockVehicleMount(71L);
+            Runnable mountReceipt = teleports.bedrockTeleports().captureBedrockVehicleMount();
             var forged = BedrockAuthInputFrame.builder(player.playerUUID)
                     .protocolVersion(944)
                     .clientTick(42)
@@ -380,7 +380,7 @@ public class BedrockSetbackRecoveryTest {
             SetbackFixtures.setLoaded(teleports, true);
             teleports.executeNonSimulatingSetback();
             var original = teleports.getRequiredSetBack();
-            Runnable mountReceipt = teleports.bedrockTeleports().captureBedrockVehicleMount(71L);
+            Runnable mountReceipt = teleports.bedrockTeleports().captureBedrockVehicleMount();
             mount(player, 72);
             assertSame(original, teleports.getRequiredSetBack());
             assertTrue(teleports.isPendingSetback());

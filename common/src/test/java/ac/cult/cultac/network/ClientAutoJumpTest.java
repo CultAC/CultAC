@@ -87,7 +87,8 @@ class ClientAutoJumpTest {
                         null,
                         null,
                         new ac.cult.cultac.utils.data.CollideAxisData.CollideResult(true, 0),
-                        null));
+                        null,
+                        java.util.List.of()));
         return new PredictionComplete(result);
     }
 }

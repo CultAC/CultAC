@@ -43,23 +43,18 @@ public class DumbTimer extends CultProcessor implements PositionListener {
 
     @Override
     public void onPositionUpdate(final PositionUpdate positionUpdate) {
-        if (!player.isBedrockMovement()) return;
         final TeleportAcceptData teleportData = positionUpdate.getTeleportData();
         if (teleportData.isTeleport()) {
-            onTeleportAccepted(
-                    teleportData.isInitialSpawnTeleport(),
-                    positionUpdate.getFrom().distanceTo(positionUpdate.getTo()));
-        }
-    }
+            final double teleportDistance = positionUpdate.getFrom().distanceTo(positionUpdate.getTo());
+            final boolean spawnTeleport = teleportData.isInitialSpawnTeleport();
 
-    /** The client accepted a teleport over this distance. A Bedrock client accepts one in its auth input. */
-    public void onTeleportAccepted(final boolean spawnTeleport, final double teleportDistance) {
-        // Preserve the existing two-second spawn/long-teleport allowance.
-        if (spawnTeleport || teleportDistance > 32) {
-            this.lastLongTeleport = System.nanoTime();
-            this.balance = System.nanoTime() - 2000e6;
-            final String teleportNote = "long teleport";
-            debug(() -> teleportNote);
+            // Preserve the existing two-second spawn/long-teleport allowance.
+            if (spawnTeleport || teleportDistance > 32) {
+                this.lastLongTeleport = System.nanoTime();
+                this.balance = System.nanoTime() - 2000e6;
+                final String teleportNote = "long teleport";
+                debug(() -> teleportNote);
+            }
         }
     }
 
@@ -113,7 +108,11 @@ public class DumbTimer extends CultProcessor implements PositionListener {
         final long curTime = System.nanoTime();
 
         // Don't let the player fall behind real time by more than the configured limit.
-        if (limitAbuseOverPing != -1 && (!player.isBedrockMovement() || curTime - this.lastLongTeleport > 2000e6)) {
+        // However, if the player long teleported within the last two seconds, allow it
+        //
+        // Be strict if the player used an item recently
+        // TODO: the above comment was never implemented? this really is a dumb timer check.
+        if (limitAbuseOverPing != -1 && curTime - this.lastLongTeleport > 2000e6) {
             this.balance = Math.max(this.balance, curTime - limitAbuseOverPing);
         }
 

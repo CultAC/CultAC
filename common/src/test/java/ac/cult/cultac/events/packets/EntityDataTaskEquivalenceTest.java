@@ -25,6 +25,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -237,20 +238,26 @@ class EntityDataTaskEquivalenceTest {
 
     /** PacketEntityReplication#onSetEntityData with the capturing lambda, its proof calls reached by reflection. */
     private static final class Lambda {
-        private static final Method PROOF;
+        private static final Method PROVE_HANDLED;
         private static final Method ENTITY_PROOF;
         private static final Method RETIRE_POSE_AT;
+        private static final Object BEFORE_NEXT_TICK;
 
         static {
             try {
                 Class<?> proof = Class.forName(PacketEntityReplication.class.getName() + "$Proof");
-                PROOF = PacketEntityReplication.class.getDeclaredMethod("proof", PacketSendEvent.class, proof);
+                PROVE_HANDLED =
+                        PacketEntityReplication.class.getDeclaredMethod("proveHandled", PacketSendEvent.class, proof);
                 ENTITY_PROOF = PacketEntityReplication.class.getDeclaredMethod("entityProof");
                 RETIRE_POSE_AT = PacketEntityReplication.class.getDeclaredMethod(
                         "retirePoseAt", int.class, List.class, int.class);
-                PROOF.setAccessible(true);
+                PROVE_HANDLED.setAccessible(true);
                 ENTITY_PROOF.setAccessible(true);
                 RETIRE_POSE_AT.setAccessible(true);
+                BEFORE_NEXT_TICK = Arrays.stream(proof.getEnumConstants())
+                        .filter(kind -> ((Enum<?>) kind).name().equals("BEFORE_NEXT_TICK"))
+                        .findFirst()
+                        .orElseThrow();
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
             }
@@ -263,13 +270,13 @@ class EntityDataTaskEquivalenceTest {
                 EntityMetadata packet)
                 throws ReflectiveOperationException {
             List<EntityMetadata.Entry> metadata = packet.packedItems();
-            // The flush bundle's ping proves the data, self health included; with no ping to send, the data reaches
-            // the model at the last ping sent and is proven by the next.
-            int flushProof = (int) PROOF.invoke(replication, event, ENTITY_PROOF.invoke(replication));
-            int proven = flushProof > 0 ? flushProof : player.lastTransactionSent.get() + 1;
-            Runnable apply = () -> player.compensatedEntities.updateEntityMetadata(packet.id(), metadata, proven);
-            if (flushProof > 0) player.latencyUtils.addRealTimeTask(flushProof, apply);
-            else player.latencyUtils.addRealTimeTaskNow(apply);
+            boolean selfHealth = !player.isBedrockMovement()
+                    && packet.id() == player.entityID
+                    && WatchableIndexUtil.has(metadata, WatchableIndexUtil.LIVING_HEALTH);
+            int proven = (int) PROVE_HANDLED.invoke(
+                    replication, event, selfHealth ? BEFORE_NEXT_TICK : ENTITY_PROOF.invoke(replication));
+            player.latencyUtils.addRealTimeTask(
+                    proven, () -> player.compensatedEntities.updateEntityMetadata(packet.id(), metadata, proven));
             RETIRE_POSE_AT.invoke(replication, packet.id(), metadata, proven);
         }
     }

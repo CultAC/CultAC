@@ -1,9 +1,7 @@
 package ac.cult.cultac.utils.anticheat;
 
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.checks.impl.prediction.runner.PacketModHandler;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import io.netty.channel.Channel;
 import io.netty.util.concurrent.ScheduledFuture;
@@ -20,7 +18,6 @@ public class NettyScheduler {
 
     final CultPlayer player;
     final ScheduledFuture<?> watchdogTask;
-    private final PendingPingBound pendingPingBound = new PendingPingBound();
 
     public NettyScheduler(CultPlayer player) {
         this.player = player;
@@ -46,8 +43,6 @@ public class NettyScheduler {
     private boolean idle(long now) {
         try {
             return !knockbackLatencyExceeded(now)
-                    && !pendingPingAdvances(now)
-                    && pendingPingOverdueMs(now) < 0
                     && !player.getSetbackTeleportUtil().policy().mustMoveDue(now)
                     && !player.clientTickEndTimeout.needsPoll(now);
         } catch (Throwable failure) {
@@ -58,7 +53,6 @@ public class NettyScheduler {
     private void tick() {
         player.clientTickEndTimeout.poll(System.nanoTime());
         watchdogKnockbackLatency(System.nanoTime());
-        watchdogPendingPing(System.nanoTime());
         player.getSetbackTeleportUtil().policy().checkIfMustMove();
     }
 
@@ -72,47 +66,15 @@ public class NettyScheduler {
 
     private void watchdogKnockbackLatency(long now) {
         if (knockbackLatencyExceeded(now)) {
-            int latencyMs = knockbackLatencyMs(now);
-            player.checkManager.getKnockbackHandler().forgetUnproven();
-            player.checkManager.getExplosionHandler().forgetUnproven();
-            player.getSetbackTeleportUtil().executeTooHighLatencySetback(String.format("kb %dms", latencyMs));
+            player.getSetbackTeleportUtil()
+                    .executeTooHighLatencySetback(String.format("kb %dms", knockbackLatencyMs(now)));
         }
     }
 
-    private void watchdogPendingPing(long now) {
-        int boundMs = CultAPI.INSTANCE.getConfigManager().getMaxPendingPingMs();
-        if (boundMs <= 0) return;
-        pendingPingBound.advance(now, player.oldestPendingPingSince(), player.lastTransactionReceived.get(), boundMs);
-        long overdueMs = pendingPingOverdueMs(now);
-        if (overdueMs < 0) return;
-        // Pending state may be what holds the player in place, so an unchanged position is set back too.
-        player.getSetbackTeleportUtil().executeTooHighLatencySetback("pending ping " + overdueMs + "ms", false);
-        pendingPingBound.fired(now, player.lastTransactionSent.get());
-    }
-
-    private boolean pendingPingAdvances(long now) {
-        int boundMs = CultAPI.INSTANCE.getConfigManager().getMaxPendingPingMs();
-        if (boundMs <= 0) return false;
-        return pendingPingBound.advances(
-                now, player.oldestPendingPingSince(), player.lastTransactionReceived.get(), boundMs);
-    }
-
-    private long pendingPingOverdueMs(long now) {
-        int boundMs = CultAPI.INSTANCE.getConfigManager().getMaxPendingPingMs();
-        if (boundMs <= 0 || player.getSetbackTeleportUtil().isPendingSetback()) return -1;
-        return pendingPingBound.overdueMs(now, player.oldestPendingPingSince(), lastClientTickArrivedAt(), boundMs);
-    }
-
-    private long lastClientTickArrivedAt() {
-        EvictingQueue<Long> movementTimes = player.checkManager.getSimulationProcessor().getLastMovementTime();
-        long arrivedAt = player.lastClientTickArrivedAt;
-        return movementTimes.isEmpty() ? arrivedAt : Math.max(arrivedAt, Collections.max(movementTimes));
-    }
-
     private boolean knockbackLatencyExceeded(long now) {
-        if (player.isBedrockMovement()) {
-            if (player.checkManager.getKnockbackHandler().lastSent == null || player.inVehicle()) return false;
-        } else if (player.inVehicle() || player.getSetbackTeleportUtil().isPendingSetback()) return false;
+        // Nothing to watchdog until a knockback has actually been sent to the player.
+        if (player.checkManager.getKnockbackHandler().lastSent == null) return false;
+        if (player.inVehicle()) return false;
         if (player.checkManager.getSimulationProcessor().getLastMovementTime().isEmpty()) return false;
 
         // TODO: Configurable max ping
@@ -120,29 +82,14 @@ public class NettyScheduler {
         return knockbackLatencyMs(now) > allowedLatencyMs;
     }
 
-    /**
-     * The longer of the movement stall since a sent knockback and the age of an impulse the client has not proven; for
-     * Bedrock, of the movement stall and the last answered ping's round trip.
-     */
     private int knockbackLatencyMs(long now) {
-        if (player.isBedrockMovement()) {
-            long mostRecentMovement = Collections.max(player.checkManager.getSimulationProcessor().getLastMovementTime());
-            return Math.max((int) ((now - mostRecentMovement) / 1e6), player.getTransactionPing());
-        }
-        int latencyMs = -1;
-        if (player.checkManager.getKnockbackHandler().lastSent != null) {
-            EvictingQueue<Long> movementTimes =
-                    player.checkManager.getSimulationProcessor().getLastMovementTime();
-            latencyMs = (int) ((now - Collections.max(movementTimes)) / 1e6);
-        }
-        latencyMs = Math.max(latencyMs, unprovenAgeMs(player.checkManager.getKnockbackHandler(), now));
-        return Math.max(latencyMs, unprovenAgeMs(player.checkManager.getExplosionHandler(), now));
-    }
+        EvictingQueue<Long> movementTimes =
+                player.checkManager.getSimulationProcessor().getLastMovementTime();
+        long mostRecentMovement = Collections.max(movementTimes);
+        int elapsedMs = (int) ((now - mostRecentMovement) / 1e6);
 
-    /** How long the oldest impulse of {@code handler} not yet set back for has waited on its proof; -1 for none. */
-    private static int unprovenAgeMs(PacketModHandler handler, long now) {
-        TransactionVel oldest = handler.oldestUnproven();
-        return oldest == null ? -1 : (int) ((now - oldest.getSentAt()) / 1e6);
+        // Stalled transactions stall movement just the same; watchdog whichever gap is larger.
+        return Math.max(elapsedMs, player.getTransactionPing());
     }
 
     public void removeScheduler() {

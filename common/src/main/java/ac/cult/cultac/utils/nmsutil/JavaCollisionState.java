@@ -1,9 +1,5 @@
 package ac.cult.cultac.utils.nmsutil;
 
-import ac.cult.blocksim.data.BlockIds;
-import ac.cult.blocksim.data.DataTables;
-import ac.cult.blocksim.data.FluidTags;
-import ac.cult.blocksim.engine.SimFluidState;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.blocksim.entity.EntityTags;
@@ -16,10 +12,8 @@ import ac.cult.cultac.utils.inventory.ItemTypes;
 
 /** Immutable entity-dependent shape inputs; never backed by a live server entity. */
 public record JavaCollisionState(
-        double fallDistance, boolean walksOnPowderSnow, boolean descending, boolean fallingBlock, boolean strider) {
+        double fallDistance, boolean walksOnPowderSnow, boolean descending, boolean fallingBlock) {
     private static final VoxelShape FALLING_SNOW = Shapes.create(0, 0, 0, 1, (double) 0.9F, 1);
-    // Strider#getLiquidCollisionShape, Block.column(16, 0, 8); before 26.1 the same LiquidBlock#STABLE_SHAPE.
-    private static final VoxelShape STRIDER_LIQUID = Shapes.create(0, 0, 0, 1, 0.5, 1);
     /** States with a +0.0 fall distance by {@link #flagIndex}. */
     private static final JavaCollisionState[] AT_REST = atRest();
 
@@ -27,63 +21,31 @@ public record JavaCollisionState(
         boolean self = actor == player.compensatedEntities.getSelf();
         boolean walks = EntityTags.POWDER_SNOW_WALKABLE_MOBS.test(actor.type)
                 || self && player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS;
-        // Entity#isDescending is isShiftKeyDown: LocalPlayer's shift key, or another entity's shared flag 1.
-        boolean descending = self ? player.isSneaking : (actor.actionSharedFlags & 2) != 0;
-        return of(
-                fallDistance,
-                walks,
-                descending,
-                actor.type == EntityTypeIds.FALLING_BLOCK,
-                actor.type == EntityTypeIds.STRIDER);
+        return of(fallDistance, walks, isDescending(player, actor), actor.type == EntityTypeIds.FALLING_BLOCK);
     }
 
     /** A state with these components; a shared one when the fall distance is +0.0. */
     static JavaCollisionState of(
-            double fallDistance, boolean walksOnPowderSnow, boolean descending, boolean fallingBlock, boolean strider) {
+            double fallDistance, boolean walksOnPowderSnow, boolean descending, boolean fallingBlock) {
         if (Double.doubleToRawLongBits(fallDistance) == 0L)
-            return AT_REST[flagIndex(walksOnPowderSnow, descending, fallingBlock, strider)];
-        return new JavaCollisionState(fallDistance, walksOnPowderSnow, descending, fallingBlock, strider);
+            return AT_REST[flagIndex(walksOnPowderSnow, descending, fallingBlock)];
+        return new JavaCollisionState(fallDistance, walksOnPowderSnow, descending, fallingBlock);
     }
 
-    private static int flagIndex(boolean walksOnPowderSnow, boolean descending, boolean fallingBlock, boolean strider) {
-        return (walksOnPowderSnow ? 1 : 0) | (descending ? 2 : 0) | (fallingBlock ? 4 : 0) | (strider ? 8 : 0);
+    private static int flagIndex(boolean walksOnPowderSnow, boolean descending, boolean fallingBlock) {
+        return (walksOnPowderSnow ? 1 : 0) | (descending ? 2 : 0) | (fallingBlock ? 4 : 0);
     }
 
     private static JavaCollisionState[] atRest() {
-        JavaCollisionState[] states = new JavaCollisionState[16];
+        JavaCollisionState[] states = new JavaCollisionState[8];
         for (int i = 0; i < states.length; i++)
-            states[i] = new JavaCollisionState(0.0, (i & 1) != 0, (i & 2) != 0, (i & 4) != 0, (i & 8) != 0);
+            states[i] = new JavaCollisionState(0.0, (i & 1) != 0, (i & 2) != 0, (i & 4) != 0);
         return states;
     }
 
-    /** Whether the state's collision shape reads these moving-entity inputs rather than only its bottom. */
-    public static boolean readsActor(int state) {
-        return BlockIds.is(state, BlockIds.POWDER_SNOW)
-                || BlockIds.is(state, BlockIds.SCAFFOLDING)
-                || isLiquidBlock(state);
-    }
-
-    /** Water and lava are the only LiquidBlocks. */
-    public static boolean isLiquidBlock(int state) {
-        return BlockIds.is(state, BlockIds.LAVA) || BlockIds.is(state, BlockIds.WATER);
-    }
-
-    /**
-     * LiquidBlock#getCollisionShape outside alwaysCollideWithFluid: a source block carries the moving mob's
-     * getLiquidCollisionShape when the mob's bottom is above it and LivingEntity#canStandOnFluid accepts its fluid with
-     * no fluid of the same type over it. Strider is the only mob with a non-empty shape and an accepting
-     * canStandOnFluid, which tests the client's lava tag.
-     */
-    public VoxelShape liquidShape(CultPlayer player, int state, int x, int y, int z, double entityBottom) {
-        if (!strider) return Shapes.empty();
-        // A LiquidBlock's fluid state is a source exactly at LEVEL 0.
-        SimFluidState fluid = SimFluidState.of(DataTables.defaults().registry().facts(state));
-        if (!fluid.isSource()
-                || !(entityBottom > y + 0.5 - 1.0E-5F)
-                || !ClientFluidQueries.is(player, fluid, FluidTags.LAVA)) return Shapes.empty();
-        SimFluidState above = ClientFluidQueries.fluidAt(
-                player.compensatedWorld, new ac.cult.cultac.protocol.value.BlockPos(x, y + 1, z));
-        return above.isSame(fluid) ? Shapes.empty() : STRIDER_LIQUID;
+    /** Entity#isDescending: LocalPlayer's shift key, or another entity's shared crouching flag. */
+    public static boolean isDescending(CultPlayer player, PacketEntity actor) {
+        return actor == player.compensatedEntities.getSelf() ? player.isSneaking : (actor.actionSharedFlags & 2) != 0;
     }
 
     public static JavaCollisionState current(CultPlayer player) {

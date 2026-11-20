@@ -1,7 +1,6 @@
 package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
-import static ac.cult.cultac.network.JavaTickFixture.assertRejected;
 import static ac.cult.cultac.network.JavaTickFixture.assertVehicleExact;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
@@ -19,7 +18,6 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -32,8 +30,7 @@ import org.junit.jupiter.api.Test;
  * From 1.21.2 to 1.21.5 the client roars itself: Ravager#handleEntityEvent(39) sets stunnedTick to 40, and
  * Ravager#aiStep, after the interpolation step of super.aiStep, counts roarTick from 20 once stunnedTick reaches 0
  * and runs roar at roarTick 10, the 50th aiStep. Its client branch runs strongKnockback on the local player inside
- * the ravager's box inflated by 4.0. The push is part of the travel that follows it, so a client that stays where the
- * roar pushes it fails the simulation of that travel.
+ * the ravager's box inflated by 4.0.
  */
 class LegacyRavagerRoarTest {
     private static final ServerboundPlayerInput NONE =
@@ -68,8 +65,7 @@ class LegacyRavagerRoarTest {
 
     /**
      * A ravager the local player ticks after pushes the 50th tick's travel from where that tick's interpolation step
-     * leaves it. That step brings its box onto the player's, so LivingEntity#pushEntities, which super.aiStep runs
-     * before the roar, pushes the player too.
+     * leaves it.
      */
     @Test
     void aStunnedRavagerTickingBeforeThePlayerPushesItsFiftiethTickFromWhereItsInterpolationStepLeavesIt()
@@ -88,8 +84,7 @@ class LegacyRavagerRoarTest {
                     RAVAGER_AT.x + 1.0 / 3 * (target.x - RAVAGER_AT.x),
                     RAVAGER_AT.y,
                     RAVAGER_AT.z + 1.0 / 3 * (target.z - RAVAGER_AT.z));
-            assertTrue(Math.abs(at.x - STANDING.x) < (1.95F + 0.6F) / 2, "the ravager's box reaches the player's");
-            assertExact(f.tick(STANDING.add(push(at)).add(bodyPush(at)), false));
+            assertExact(f.tick(STANDING.add(push(at)), false));
             assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
         }
     }
@@ -102,8 +97,9 @@ class LegacyRavagerRoarTest {
 
             event(f, STUN);
             for (int tick = 1; tick <= 49; tick++) assertExact(f.tick(STANDING, true));
+            f.tick(STANDING, true);
 
-            assertRejected(f.tick(STANDING, true), "Speed");
+            assertTrue(f.player.checkManager.getExplosionHandler().violations > 0, "the push was not required");
         }
     }
 
@@ -136,8 +132,9 @@ class LegacyRavagerRoarTest {
             event(f, STUN);
             for (int tick = 1; tick <= 49; tick++) assertExact(f.tick(STANDING, true));
             f.tickEnd();
+            f.tick(STANDING, true);
 
-            assertRejected(f.player.checkManager.getSimulationProcessor().getLastPrediction(), "Speed");
+            assertTrue(f.player.checkManager.getExplosionHandler().violations > 0, "the push was not required");
         }
     }
 
@@ -150,8 +147,9 @@ class LegacyRavagerRoarTest {
             event(f, STUN);
             for (int tick = 1; tick <= 49; tick++) assertExact(f.tick(STANDING, true));
             f.statusTick(true, false);
+            f.tick(STANDING, true);
 
-            assertRejected(f.player.checkManager.getSimulationProcessor().getLastPrediction(), "Speed");
+            assertTrue(f.player.checkManager.getExplosionHandler().violations > 0, "the push was not required");
         }
     }
 
@@ -306,8 +304,9 @@ class LegacyRavagerRoarTest {
 
             event(f, STUN);
             for (int tick = 1; tick <= 50; tick++) assertExact(f.tick(STANDING, true));
+            f.tick(STANDING, true);
 
-            assertRejected(f.tick(STANDING, true), "Speed");
+            assertTrue(f.player.checkManager.getExplosionHandler().violations > 0, "the push was not required");
         }
     }
 
@@ -323,27 +322,6 @@ class LegacyRavagerRoarTest {
             for (int tick = 1; tick <= 50; tick++) assertExact(f.tick(STANDING, true));
 
             assertExact(f.tick(STANDING.add(push(RAVAGER_AT)), false));
-        }
-    }
-
-    /** ClientLevel#removeEntity before the 50th aiStep leaves no ravager to roar. */
-    @Test
-    void aRavagerRemovedTheTickBeforeItsRoarPushesNoOne() throws Exception {
-        try (var f = standing(ClientVersion.V_1_21_4)) {
-            addRavager(f);
-            addRavager(f, SECOND_RAVAGER, SECOND_RAVAGER_AT);
-
-            event(f, STUN);
-            for (int tick = 1; tick <= 49; tick++) assertExact(f.tick(STANDING, true));
-            var packet = new ClientboundRemoveEntities(List.of(RAVAGER));
-            var event = new PacketSendEvent<>(
-                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.REMOVE_ENTITIES, packet, false);
-            f.player.packetEntityReplication.onRemoveEntities(event, f.player, packet);
-            event.tasksAfter().forEach(Runnable::run);
-            f.pongThrough(f.player.lastTransactionSent.get());
-
-            for (int tick = 50; tick <= 52; tick++) assertExact(f.tick(STANDING, true));
-            assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
         }
     }
 
@@ -463,15 +441,6 @@ class LegacyRavagerRoarTest {
         double zd = STANDING.z - at.z;
         double dd = Math.max(xd * xd + zd * zd, 0.001);
         return new Vec3(xd / dd * 4.0, GROUNDED.y + 0.2, zd / dd * 4.0);
-    }
-
-    /** Entity#push on the standing player from a ravager at {@code at} whose box reaches the player's. */
-    private static Vec3 bodyPush(Vec3 at) {
-        double xd = at.x - STANDING.x;
-        double zd = at.z - STANDING.z;
-        double root = Math.sqrt(Math.max(Math.abs(xd), Math.abs(zd)));
-        double scale = Math.min(1.0, 1.0 / root) / root * 0.05F;
-        return new Vec3(-xd * scale, 0, -zd * scale);
     }
 
     private static void assertExact(PredictionResult result) {

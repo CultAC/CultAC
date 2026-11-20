@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
+import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
@@ -35,10 +36,9 @@ final class BedrockWorldSnapshotBuilder {
             SimulationContext context,
             BedrockCollisionOverrideCatalog geometry,
             BedrockAuthInputFrame frame,
-            BedrockPlayerContext playerContext,
-            BedrockCollisionSampleRegion region) {
+            BedrockPlayerContext playerContext) {
         BedrockBlockCollisionWorldSampler.BedrockSampledBlockWorld sampledBlockWorld =
-                blockWorld.sample(player, context, geometry, frame, playerContext, region);
+                blockWorld.sample(player, context, geometry, frame, playerContext);
         BlockCollisionWorld collisionWorld = withHardCollidingEntities(
                         sampledBlockWorld.world(), context.getHardCollidingEntityCollisionsForMovementTick())
                 .withCoordinateFrame(frame.getCoordinateFrame());
@@ -52,10 +52,6 @@ final class BedrockWorldSnapshotBuilder {
                 new StandingSurfaceState(java.util.Set.of()),
                 BlockMovementSlowdownState.NONE,
                 HoneySlideState.NONE);
-    }
-
-    BedrockCollisionSampleRegion carriedMoveRegion(SimulationContext context, BedrockPlayerContext playerContext) {
-        return blockWorld.carriedMoveRegion(context, playerContext);
     }
 
     private BedrockMovementContext movementContext(
@@ -85,10 +81,10 @@ final class BedrockWorldSnapshotBuilder {
         if (context == null || context.getWorldData() == null) {
             return Medium.AIR;
         }
-        if (context.getWorldData().isInWater()) {
+        if (context.getWorldData().getInWater().determinePessimistically()) {
             return Medium.WATER;
         }
-        if (context.getWorldData().isInLava()) {
+        if (context.getWorldData().getInLava().determinePessimistically()) {
             return Medium.LAVA;
         }
         return Medium.AIR;
@@ -97,13 +93,13 @@ final class BedrockWorldSnapshotBuilder {
     private static boolean sourceWaterContact(SimulationContext context) {
         return context != null
                 && context.getWorldData() != null
-                && context.getWorldData().isInWater();
+                && context.getWorldData().getInWater().determinePessimistically();
     }
 
     private static boolean sourceLavaContact(SimulationContext context) {
         return context != null
                 && context.getWorldData() != null
-                && context.getWorldData().isInLava();
+                && context.getWorldData().getInLava().determinePessimistically();
     }
 
     static BlockCollisionWorld withHardCollidingEntities(
@@ -138,16 +134,26 @@ final class BedrockWorldSnapshotBuilder {
                 || sourceBox.minZ >= sourceBox.maxZ) {
             return null;
         }
-        return collision
-                .depenetrationLimit()
-                .solidActor(
-                        new WorldCollisionBox(
-                                sourceBox.minX,
-                                sourceBox.minY,
-                                sourceBox.minZ,
-                                sourceBox.maxX,
-                                sourceBox.maxY,
-                                sourceBox.maxZ),
-                        collision.buffer());
+        WorldCollisionBox collisionBox = new WorldCollisionBox(
+                sourceBox.minX, sourceBox.minY, sourceBox.minZ, sourceBox.maxX, sourceBox.maxY, sourceBox.maxZ);
+        String identifier = hardCollidingEntityIdentifier(collision);
+        return PlacedBlockCollision.manual(
+                new BlockPosition((int) Math.floor(collisionBox.minX()), (int) Math.floor(collisionBox.minY()), (int)
+                        Math.floor(collisionBox.minZ())),
+                identifier,
+                identifier,
+                List.of(collisionBox),
+                List.of(collisionBox),
+                List.of(collisionBox));
+    }
+
+    private static String hardCollidingEntityIdentifier(SimulationContext.HardCollidingEntityCollision collision) {
+        if (collision.boatLike()) {
+            return "minecraft:boat_entity_collision";
+        }
+        if (collision.minecartLike()) {
+            return "minecraft:minecart_entity_collision";
+        }
+        return "minecraft:hard_entity_collision";
     }
 }

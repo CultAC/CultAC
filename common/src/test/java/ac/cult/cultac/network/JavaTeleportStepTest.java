@@ -201,7 +201,7 @@ class JavaTeleportStepTest {
     }
 
     private static void settleBlocks(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     private static void standFrozen(JavaTickFixture f, Vec3 at, float yaw, float pitch) throws Exception {
@@ -277,20 +277,9 @@ class JavaTeleportStepTest {
         assertTrue(exact(result), tick + " " + describe(result));
     }
 
-    /**
-     * The repeated step is the collision step of the walk, not a jump: the frozen jump_strength cannot jump, and
-     * Entity#collide raises a move that did not ask to rise.
-     */
+    /** The repeated step is the collision step of the walk, not a jump: the frozen jump_strength cannot jump. */
     private static void assertStep(JavaTickFixture f) {
-        PredictionResult result = f.player.checkManager.getSimulationProcessor().getLastPrediction();
-        Vec3 accepted = result.getAcceptedClosestToTarget();
-        Vec3 asked = result.getValidMovements().getClosestTrace().preCollisionMovement();
-        assertTrue(
-                accepted instanceof PredVector step
-                        && step.hasReason("Entity#collide")
-                        && !step.isJump()
-                        && asked.y <= 0
-                        && accepted.y == 0.5,
-                "repeated step " + accepted + " from " + asked);
+        Vec3 accepted = f.player.checkManager.getSimulationProcessor().getLastPrediction().getAcceptedClosestToTarget();
+        assertTrue(accepted instanceof PredVector step && step.hasReason("step") && !step.isJump(), "repeated step " + accepted);
     }
 }

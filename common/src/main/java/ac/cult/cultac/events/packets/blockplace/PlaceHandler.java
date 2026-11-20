@@ -14,19 +14,15 @@ import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.TraverseBlocks;
 import java.util.function.Supplier;
-import org.jetbrains.annotations.Nullable;
 
 public class PlaceHandler {
-    /** The prediction applied to the simulation world, or {@code null} when none was made. */
-    public static @Nullable ClientBlockActions.Prediction handleQueuedUseItem(
-            CultPlayer player, ServerboundUseItem place) {
-        return handleQueuedPlace(
+    public static void handleQueuedUseItem(CultPlayer player, ServerboundUseItem place) {
+        handleQueuedPlace(
                 player, true, place.yaw(), place.pitch(), place.sequence(), () -> handleUseItem(player, place));
     }
 
-    /** The prediction applied to the simulation world. */
-    public static ClientBlockActions.Prediction handleQueuedUseItemOn(CultPlayer player, ServerboundUseItemOn place) {
-        return handleQueuedPlace(player, false, 0, 0, place.sequence(), () -> handleUseItemOn(player, place));
+    public static void handleQueuedUseItemOn(CultPlayer player, ServerboundUseItemOn place) {
+        handleQueuedPlace(player, false, 0, 0, place.sequence(), () -> handleUseItemOn(player, place));
     }
 
     public static ClientBlockActions.Prediction predictRejectedUseItemOn(
@@ -42,21 +38,17 @@ public class PlaceHandler {
                                 player, place, player.getInventory().getHandItem(place.hand()))));
     }
 
-    private static ClientBlockActions.Prediction handleQueuedPlace(
-            CultPlayer player,
-            boolean updateRotation,
-            float yaw,
-            float pitch,
-            int sequence,
-            Supplier<ClientBlockActions.Prediction> action) {
-        return atClientPosition(player, updateRotation, yaw, pitch, () -> {
+    private static void handleQueuedPlace(
+            CultPlayer player, boolean updateRotation, float yaw, float pitch, int sequence, Runnable action) {
+        atClientPosition(player, updateRotation, yaw, pitch, () -> {
             player.compensatedWorld.startPredicting();
             try (SmoketestPredictionSafety.Scope ignored =
                     SmoketestPredictionSafety.enter(player, updateRotation ? "use-item" : "use-item-on")) {
-                return action.get();
+                action.run();
             } finally {
                 player.compensatedWorld.stopPredicting(sequence);
             }
+            return null;
         });
     }
 
@@ -73,8 +65,7 @@ public class PlaceHandler {
         player.y = player.packetStateData.clientSidePosition.y;
         player.z = player.packetStateData.clientSidePosition.z;
 
-        boolean riding = player.compensatedEntities.getSelf().getRiding() != null;
-        if (riding) {
+        if (player.compensatedEntities.getSelf().getRiding() != null) {
             Vec3 posFromVehicle = BoundingBoxSize.getRidingOffsetFromVehicle(
                     player.compensatedEntities.getSelf().getRiding(), player);
             player.x = posFromVehicle.x;
@@ -87,10 +78,7 @@ public class PlaceHandler {
             player.yRot = pitch;
         }
 
-        // A Java rider's boundingBox is its vehicle's, which the movement engine moves. Entity#positionRider gave the
-        // rider its own box at the seat: EntityGetter#isUnobstructed and the placement CollisionContext read that one.
-        boolean ownBox = player.isBedrockMovement() || riding;
-        if (ownBox) {
+        if (player.isBedrockMovement()) {
             player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, player.x, player.y, player.z);
         }
 
@@ -102,17 +90,17 @@ public class PlaceHandler {
             player.z = lastZ;
             player.xRot = lastXRot;
             player.yRot = lastYRot;
-            if (ownBox) player.boundingBox = lastBoundingBox;
+            if (player.isBedrockMovement()) player.boundingBox = lastBoundingBox;
         }
     }
 
-    private static ClientBlockActions.Prediction handleUseItem(CultPlayer player, ServerboundUseItem place) {
-        return ClientBlockActions.use(player, place.hand());
+    private static void handleUseItem(CultPlayer player, ServerboundUseItem place) {
+        ClientBlockActions.use(player, place.hand());
     }
 
-    private static ClientBlockActions.Prediction handleUseItemOn(CultPlayer player, ServerboundUseItemOn place) {
+    private static void handleUseItemOn(CultPlayer player, ServerboundUseItemOn place) {
         Hand hand = place.hand();
-        return ClientBlockActions.useOn(
+        ClientBlockActions.useOn(
                 player,
                 createUseItemOnBlockPlace(player, place, player.getInventory().getHandItem(hand)));
     }

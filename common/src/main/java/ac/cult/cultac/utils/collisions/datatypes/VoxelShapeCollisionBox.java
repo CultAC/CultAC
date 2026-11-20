@@ -176,23 +176,6 @@ public final class VoxelShapeCollisionBox extends SimpleCollisionBox {
                         translated);
     }
 
-    /** Whether the collision scan placed this shape at a block; the offset then names the block whose shape it is. */
-    public boolean isTranslated() {
-        return translated;
-    }
-
-    public double offsetX() {
-        return offsetX;
-    }
-
-    public double offsetY() {
-        return offsetY;
-    }
-
-    public double offsetZ() {
-        return offsetZ;
-    }
-
     @Override
     public VoxelShapeCollisionBox offset(double x, double y, double z) {
         super.offset(x, y, z);

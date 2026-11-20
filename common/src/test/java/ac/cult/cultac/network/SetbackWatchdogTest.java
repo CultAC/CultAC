@@ -242,13 +242,12 @@ class SetbackWatchdogTest {
     private static void replaced(JavaTickFixture f) {
         CultPlayer player = f.player;
         player.user.executeAfterWrites(() -> {
-            if (player.checkManager.getKnockbackHandler().lastSent != null
-                    && !player.inVehicle()
-                    && !player.getSetbackTeleportUtil().isPendingSetback()) {
+            if (player.checkManager.getKnockbackHandler().lastSent != null && !player.inVehicle()) {
                 var movementTimes = player.checkManager.getSimulationProcessor().getLastMovementTime();
                 if (!movementTimes.isEmpty()) {
                     long mostRecentMovement = Collections.max(movementTimes);
                     int elapsedMs = (int) ((System.nanoTime() - mostRecentMovement) / 1e6);
+                    elapsedMs = Math.max(elapsedMs, player.getTransactionPing());
                     int allowedLatencyMs = CultAPI.INSTANCE.getConfigManager().getMaxPingKnockback() + 50;
                     if (elapsedMs > allowedLatencyMs)
                         player.getSetbackTeleportUtil()

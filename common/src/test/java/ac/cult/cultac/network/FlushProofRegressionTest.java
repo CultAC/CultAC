@@ -8,7 +8,6 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerWindow;
 import ac.cult.cultac.network.event.PacketListenerPriority;
-import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
@@ -60,8 +59,7 @@ class FlushProofRegressionTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             assertEquals(
                     .2, f.player.checkManager.getExplosionHandler().secondBread.getVel().x, 1e-12);
-            // The motion sets a vertical speed of 0, so Entity#move finds no floor under the travel.
-            var result = f.tick(new Vec3(.5 + sentMotion(.5) + .2, 64, .5), false);
+            var result = f.tick(new Vec3(1.2, 64, .5), true);
             assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
             assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
             assertEquals(0, f.player.checkManager.getKnockbackHandler().violations);
@@ -77,24 +75,17 @@ class FlushProofRegressionTest {
             send(f.fixture, new ClientboundExplode(Vec3d.ZERO, new Vec3d(.3, 0, 0)));
             send(f.fixture, new ClientboundEntityMotion(f.player.entityID, new Vec3d(.5, 0, 0)));
             f.pongThrough(f.player.lastTransactionSent.get());
-            // The motion replaces the explosion's push and sets a vertical speed of 0: the travel finds no floor.
-            var result = f.tick(new Vec3(.5 + sentMotion(.5), 64, .5), false);
+            var result = f.tick(new Vec3(1, 64, .5), true);
             assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
             assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
         }
     }
 
-    /** The speed the client reads for {@code sent}: ClientboundSetEntityMotionPacket carries it as an LpVec3. */
-    private static double sentMotion(double sent) {
-        return PacketCodecUtil.quantizeLpVec3(new Vec3(sent, 0, 0)).x;
-    }
-
     @Test
     void aSetbackCarriesAnExplosionSentAfterAMotionInTheSameFlush() throws Exception {
-        // ClientPacketListener#handleExplosion pushes onto the motion before it, though one ping proves both. The
-        // push is sent as doubles and the motion as an LpVec3, so the sum is the motion the client read plus the push.
+        // ClientPacketListener#handleExplosion pushes onto the motion before it, though one ping proves both.
         assertEquals(
-                setbackVelocityAfter(new Vec3d(.5, 0, 0), null).add(.2, 0, 0),
+                setbackVelocityAfter(new Vec3d(.7, 0, 0), null),
                 setbackVelocityAfter(new Vec3d(.5, 0, 0), new Vec3d(.2, 0, 0)));
     }
 
@@ -229,22 +220,14 @@ class FlushProofRegressionTest {
             f.fixture.channel.releaseOutbound();
             open(f.fixture);
             send(f.fixture, new ClientboundMoveVehicle(new Vec3d(8.5, 64, .5), 0, 0));
-            // The server's own passenger list: its codec only reads, so the frame goes out as the server wrote it.
-            ByteBuf dismount = f.fixture.id(ClientboundPackets.SET_PASSENGERS, "set_passengers");
-            Wire.writeVarInt(dismount, 100);
-            Wire.writeVarInt(dismount, 0);
-            var written = f.fixture.channel.write(dismount);
-            assertFalse(written.isDone() && !written.isSuccess(), () -> String.valueOf(written.cause()));
+            send(f.fixture, new ClientboundSetPassengers(100, java.util.List.of()));
             // ClientPacketListener#handleMoveVehicle sends the echo before the client handles any later packet.
             answerPingsBefore(f.fixture, "minecraft:move_vehicle");
             var echo = new ServerboundMoveVehicle(new Vec3d(8.5, 64, .5), 0, 0, false, false);
             var event = f.event(ServerboundPackets.MOVE_VEHICLE, echo);
             f.listener.onMoveVehicle(event, f.player, echo);
-            assertTrue(event.answersTeleport());
+            assertFalse(event.isCancelled());
             assertEquals(0, f.player.checkManager.getCheck(BadPacketsVehicle.class).violations);
-            // The server has already dismounted the player: ServerGamePacketListenerImpl#handleMoveVehicle moves only a
-            // root the player still controls there, so the echo is kept from it.
-            assertTrue(event.isCancelled());
             f.pongThrough(f.player.lastTransactionSent.get());
             assertNull(f.player.compensatedEntities.getSelf().getRiding());
         }

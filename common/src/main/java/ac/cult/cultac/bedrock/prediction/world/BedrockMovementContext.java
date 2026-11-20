@@ -90,11 +90,6 @@ public record BedrockMovementContext(
         return modifierState.movementAbilityInstabuild();
     }
 
-    /** A player without collision moves its box by its whole move: no block or actor stops it. */
-    public boolean movementNoClip() {
-        return modifierState.noClip();
-    }
-
     public double movementAbilityFlySpeed() {
         return modifierState.movementAbilityFlySpeed();
     }

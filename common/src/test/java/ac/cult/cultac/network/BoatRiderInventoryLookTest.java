@@ -77,11 +77,10 @@ class BoatRiderInventoryLookTest {
 
     @Test
     void aBoatYawThatIsNotTheBoatsTurnCannotExplainTheRidersLook() throws Exception {
-        // The boat reports a yaw that clampRotation turns into a look the keys gave no boat to make. The engine keeps
-        // the boat's own yaw, so every turned look after it is judged against that yaw too.
+        // The boat reports a yaw that clampRotation turns into a look the keys gave no boat to make.
         Run run = drive(true, OPEN_TICK + 2, 0, 0, -120);
 
-        assertEquals(9, run.violations);
+        assertEquals(1, run.violations);
     }
 
     /**
@@ -166,9 +165,7 @@ class BoatRiderInventoryLookTest {
                     boat = boat.add(drift);
                 }
                 rot(f, yaw, LOOK_PITCH);
-                // fromEntity reports the active path's target rotation and position, while
-                // controlBoat/positionRider above used the boat's physical rotation.
-                moveBoat(f, steps > 0 ? target : boat, steps > 0 ? targetYaw : boatYaw);
+                moveBoat(f, boat, boatYaw);
                 f.tickEnd();
                 if (tick == TELEPORT_TICK) f.pongThrough(nextPing);
             }

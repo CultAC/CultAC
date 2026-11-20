@@ -168,8 +168,9 @@ public final class BedrockGlideLandingHistoryTest {
                 Vec3d.ZERO);
         var result = BedrockForwardTick.simulate(input).getFirst();
         var state = result.movementResult().predictedState();
-        var entries = List.of(new BedrockProfileState.Entry(
-                BedrockForwardTick.finish(result.movementResult(), state), result.mobJumpComponent()));
+        var entries = BedrockForwardTick.finish(result.movementResult(), state).stream()
+                .map(next -> new BedrockProfileState.Entry(next, result.mobJumpComponent()))
+                .toList();
         return new BedrockActorHistory.Frame(
                 tick,
                 input,

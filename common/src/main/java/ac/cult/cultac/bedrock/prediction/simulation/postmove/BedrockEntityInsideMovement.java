@@ -9,13 +9,22 @@ public final class BedrockEntityInsideMovement {
 
     public static BedrockPostMoveResult apply(
             BedrockPostMoveContext context, BedrockPostMoveResult effects, Vec3d nextPosition) {
-        InsideVelocity inside = applyVelocity(context, effects, nextPosition, effects.velocity());
-        return effects.withEntityInside(inside.velocity(), effects.velocity(), inside.preInsideBlockVelocity());
+        InsideVelocity hop = applyVelocity(context, effects, nextPosition, effects.velocity());
+        Vec3d nonHop = effects.nonHopVelocity() == null
+                ? null
+                : applyVelocity(context, effects, nextPosition, effects.nonHopVelocity())
+                        .velocity();
+        return effects.withEntityInside(hop.velocity(), effects.velocity(), hop.preInsideBlockVelocity(), nonHop);
     }
 
     private static InsideVelocity applyVelocity(
             BedrockPostMoveContext context, BedrockPostMoveResult effects, Vec3d nextPosition, Vec3d velocity) {
-        velocity = applyBubbleColumns(effects.postMoveContext(), velocity);
+        velocity = applyBubbleColumns(
+                effects.postMoveContext(),
+                context.gliding().activeAtTravelSensing(),
+                velocity,
+                nextPosition,
+                context.current().simulationTick());
         if (context.clearVelocityAfterSlowdownMove()) {
             velocity = new Vec3d(0.0D, velocity.y(), 0.0D);
         }
@@ -30,15 +39,44 @@ public final class BedrockEntityInsideMovement {
 
     private record InsideVelocity(Vec3d velocity, Vec3d preInsideBlockVelocity) {}
 
-    /** A gliding actor is pushed like any other; only flight ignores the column. */
-    public static Vec3d applyBubbleColumns(BedrockMovementContext postMoveContext, Vec3d velocity) {
-        if (postMoveContext.movementAbilityFlying()) {
+    public static Vec3d applyBubbleColumns(
+            BedrockMovementContext postMoveContext,
+            boolean glidingActive,
+            Vec3d velocity,
+            Vec3d nextPosition,
+            long simulationTick) {
+        if (postMoveContext.movementAbilityFlying() || glidingActive) {
             return velocity;
         }
-        return new Vec3d(
-                velocity.x(),
-                BedrockBubbleColumnMovement.velocityY(
-                        postMoveContext.worldState().fluidState().bubbleColumnState(), velocity.y()),
-                velocity.z());
+        if (!postMoveContext
+                .worldState()
+                .fluidState()
+                .bubbleColumnState()
+                .layers()
+                .isEmpty()) {
+            return new Vec3d(
+                    velocity.x(),
+                    BedrockBubbleColumnMovement.velocityY(
+                            postMoveContext.worldState().fluidState().bubbleColumnState(),
+                            velocity.y(),
+                            nextPosition.y(),
+                            simulationTick),
+                    velocity.z());
+        }
+        if (postMoveContext.inUpwardBubbleColumn()) {
+            velocity = new Vec3d(
+                    velocity.x(),
+                    BedrockUpwardBubbleColumnMovement.velocityY(
+                            postMoveContext, velocity.y(), nextPosition.y(), simulationTick),
+                    velocity.z());
+        }
+        if (postMoveContext.inDownwardBubbleColumn()) {
+            velocity = BedrockDownwardBubbleColumnMovement.velocity(
+                    postMoveContext.worldState().fluidState().bubbleColumnState(),
+                    velocity,
+                    nextPosition.y(),
+                    simulationTick);
+        }
+        return velocity;
     }
 }

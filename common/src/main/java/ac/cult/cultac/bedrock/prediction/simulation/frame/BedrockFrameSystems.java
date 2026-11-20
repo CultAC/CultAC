@@ -83,15 +83,9 @@ public final class BedrockFrameSystems {
                 facts.context(),
                 facts.effectState());
 
-        // A flying player is not pushed by the current.
-        BedrockFluidMovementSource movementSource =
-                !input.previousState().isVehicle() && facts.context().movementAbilityFlying()
-                        ? BedrockFluidMovementSource.NONE
-                        : BedrockFluidMovementSourceResolver.fromContext(
-                                facts.context(), input.previousState().physicalFeetPosition().y());
+        BedrockFluidMovementSource movementSource = BedrockFluidMovementSourceResolver.fromContext(
+                facts.context(), input.previousState().physicalFeetPosition().y());
         velocity = velocity.add(movementSource.appliedDelta());
-        // The lerp step drops the motion the tick carries in, the current's push with it; input still applies.
-        if (input.options().lerpStep()) velocity = Vec3d.ZERO;
         BedrockSwimmingMovement.SwimmingState swimming =
                 facts.swimming().afterActions(intent, facts.context().inWater());
         facts = facts.withSwimming(swimming);
@@ -119,9 +113,7 @@ public final class BedrockFrameSystems {
         if (mobJump.active()) {
             velocity = mobJump.applyVelocityMutation(velocity);
         }
-        // The launch and its cooldown start together. A tick that handles a teleport
-        // still launches: it only skips the move, gravity and drag that follow.
-        boolean groundJumpApplied = mobJump.groundJumpRequest();
+        boolean groundJumpApplied = input.options().travelActive() && mobJump.groundJumpRequest();
         if (groundJumpApplied) {
             JumpPreventionState jumpPreventionState = BedrockJumpPreventionResolver.resolve(
                     facts.context(),
@@ -134,16 +126,7 @@ public final class BedrockFrameSystems {
         }
         if (BedrockWaterSwimControl.applies(facts, input.inputFrame())) {
             velocity = BedrockWaterSwimControl.lookAdjustedVelocity(
-                    velocity,
-                    input.inputFrame(),
-                    intent,
-                    facts.context(),
-                    BedrockUnderwaterSensing.headBlock(
-                            input.previousState(),
-                            input.previousState().cameraWater(),
-                            facts.context(),
-                            input.previousState().physicalFeetPosition(),
-                            input.previousState().playerDimensions()));
+                    velocity, input.inputFrame(), intent, facts.context(), liquidContact.waterHeadInWater());
         }
 
         var horse = input.previousState().horse();
@@ -173,12 +156,11 @@ public final class BedrockFrameSystems {
                         BedrockTravelType.NONE, input.previousState().movementBranch())
                 : BedrockTravelTypeResolver.resolve(
                         facts.context(),
-                        intent.fly().start(),
                         facts.inWater(),
                         facts.lavaTravelFlag(),
                         travelSensingOnGround(input, facts),
                         gliding.activeAtTravelSensing(),
-                        facts.climb().climbing() && !facts.climb().inScaffolding());
+                        facts.climb().climbing());
         return new BedrockFrameState(
                 input,
                 intent,

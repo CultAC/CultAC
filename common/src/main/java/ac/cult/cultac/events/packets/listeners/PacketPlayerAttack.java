@@ -17,9 +17,7 @@ import ac.cult.cultac.utils.data.ClientAttackStrength;
 import ac.cult.cultac.utils.data.ClientCombatAttributes;
 import ac.cult.cultac.utils.data.ClientSprintState.AttackReset;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import java.util.OptionalInt;
 
 public class PacketPlayerAttack {
 
@@ -28,21 +26,18 @@ public class PacketPlayerAttack {
     public void onInteract(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
         if (packet.action() == InteractAction.ATTACK) {
+            PacketEntity entity = player.compensatedEntities.getEntity(packet.entityId());
             if (!player.isBedrockMovement()) {
-                onLocalAttack(player, packet.entityId());
-            } else if (player.compensatedEntities.getEntity(packet.entityId()) != null) {
+                onLocalAttack(player, entity);
+            } else if (entity != null) {
                 player.maxPlayerAttackSlow += 1;
             }
         }
     }
 
-    // A damping certain from an attack after the tick's travel lands on the next travel's deltaMovement.
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        player.minPlayerAttackSlow = player.attackSlowsAfterTravel;
-        player.attackSlowsAfterTravel = 0;
-        player.travelPredictedThisClientTick = false;
-        player.attackStrength.onClientTickEnd();
+        player.minPlayerAttackSlow = 0;
     }
 
     @CultPacketHandler
@@ -50,7 +45,7 @@ public class PacketPlayerAttack {
         // Minecraft#startAttack resets on a miss before its main-hand swing (26.3: punch).
         // ClientPacketListener#handleAnimate's LocalPlayer#swing leaves the attack strength ticker as it is.
         if (packet.hand() == Hand.MAIN_HAND && !player.serverSwingEcho.isEcho()) {
-            player.attackStrength.onPossibleMiss();
+            player.attackStrength.onPossibleReset();
         }
     }
 
@@ -110,50 +105,14 @@ public class PacketPlayerAttack {
         }
     }
 
-    /**
-     * Minecraft#startAttack attacks only the entity of an EntityHitResult, which Minecraft#pick finds among the
-     * client's pickable entities. An id the client cannot hold, or a type it cannot pick, is no client attack.
-     */
-    private static void onLocalAttack(CultPlayer player, int entityId) {
-        CompensatedEntities entities = player.compensatedEntities;
-        PacketEntity held = entities.getEntity(entityId);
-        if (held != null) {
-            if (EntityTypeUtil.isPickable(held.type)) onLocalAttack(player, clientHurt(held.type), true);
-            return;
-        }
-        int unproven = entities.unprovenEntityType(entityId);
-        if (unproven >= 0) {
-            if (EntityTypeUtil.isPickable(unproven)) onLocalAttack(player, possibleHurt(unproven), false);
-            return;
-        }
-        // An EnderDragonPart is picked and hurts its dragon, which Entity#hurtClient leaves unhurt.
-        OptionalInt dragon = entities.enderDragonOfPart(entityId);
-        if (dragon.isPresent()) {
-            onLocalAttack(player, AttackReset.NONE, entities.getEntity(dragon.getAsInt()) != null);
-        }
-    }
-
-    /**
-     * MultiPlayerGameMode#attack: Player#attack samples attack strength, then resetAttackStrengthTicker. An entity the
-     * client has not proven it holds may not be the one the client attacked, so its reset is only possible.
-     */
-    private static void onLocalAttack(CultPlayer player, AttackReset hurt, boolean held) {
+    // MultiPlayerGameMode#attack: Player#attack samples attack strength, then resetAttackStrengthTicker.
+    private static void onLocalAttack(CultPlayer player, PacketEntity target) {
         player.attackStrength.onClaimedMainHand(player.getInventory().getHeldItem());
-        player.attackStrength.onEntityAttack();
-        AttackReset reset = attackReset(player, hurt);
+        AttackReset reset = attackReset(player, target);
         player.sprintState.onAttack(reset);
         if (reset != AttackReset.NONE) player.maxPlayerAttackSlow += 1;
-        if (reset == AttackReset.CERTAIN) {
-            player.minPlayerAttackSlow += 1;
-            if (player.packetStateData.receivedMovementThisClientTick && player.travelPredictedThisClientTick) {
-                player.attackSlowsAfterTravel += 1;
-            }
-        }
-        if (held) {
-            player.attackStrength.onReset();
-        } else {
-            player.attackStrength.onPossibleReset();
-        }
+        if (reset == AttackReset.CERTAIN) player.minPlayerAttackSlow += 1;
+        player.attackStrength.onReset();
     }
 
     /**
@@ -162,7 +121,8 @@ public class PacketPlayerAttack {
      * positive: LivingEntity#getKnockback is attack_knockback / 2 on the client, plus 0.5 for a sprinting attack above
      * 0.9 strength. Combat attributes come from the client's bundle-proven server snapshots.
      */
-    private static AttackReset attackReset(CultPlayer player, AttackReset hurt) {
+    private static AttackReset attackReset(CultPlayer player, PacketEntity target) {
+        AttackReset hurt = target == null ? AttackReset.POSSIBLE : clientHurt(target.type);
         if (hurt == AttackReset.NONE) return AttackReset.NONE;
 
         ClientCombatAttributes current = player.combatAttributes;
@@ -199,14 +159,9 @@ public class PacketPlayerAttack {
                 || EntityTypeUtil.isType(type, "item_frame")
                 || EntityTypeUtil.isType(type, "glow_item_frame")
                 || EntityTypeUtil.isType(type, "painting")
-                || EntityTypeUtil.isType(type, "leash_knot")
-                || EntityTypeUtil.isType(type, "cushion")) {
+                || EntityTypeUtil.isType(type, "leash_knot")) {
             return AttackReset.POSSIBLE;
         }
         return AttackReset.NONE;
-    }
-
-    private static AttackReset possibleHurt(int type) {
-        return clientHurt(type) == AttackReset.NONE ? AttackReset.NONE : AttackReset.POSSIBLE;
     }
 }

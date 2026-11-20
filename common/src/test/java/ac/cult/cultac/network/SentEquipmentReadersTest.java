@@ -101,8 +101,8 @@ class SentEquipmentReadersTest {
             assertSame(eagerHorse.saddleItem, sentHorse.saddleItem);
             var eagerGhast = (PacketEntityHappyGhast) eagerFixture.player.compensatedEntities.getEntity(43);
             var sentGhast = (PacketEntityHappyGhast) sentFixture.player.compensatedEntities.getEntity(43);
-            assertFalse(sentGhast.bodyItem.isEmpty());
-            assertEquals(eagerGhast.bodyItem.isEmpty(), sentGhast.bodyItem.isEmpty());
+            assertTrue(sentGhast.hasBodyArmor);
+            assertEquals(eagerGhast.hasBodyArmor, sentGhast.hasBodyArmor);
             for (int slot = 0; slot <= Inventory.SLOT_SADDLE; slot++)
                 assertTrue(sentFixture.player.getInventory().inventory.getInventoryStorage().getItem(slot).isEmpty());
         }

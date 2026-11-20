@@ -106,7 +106,7 @@ class JavaFallingWaterThresholdTest {
     }
 
     private static void settle(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     private static Vec3 at(double y) {

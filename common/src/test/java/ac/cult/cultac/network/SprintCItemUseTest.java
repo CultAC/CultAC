@@ -64,7 +64,7 @@ class SprintCItemUseTest {
     void aSwimmerUnderWaterKeepsSprintingWhileUsingAnItem() throws Exception {
         try (var f = pool(ClientVersion.V_1_21_4, 3, "minecraft:shield")) {
             startSprinting(f);
-            swim(f, 6, true, tick -> {
+            swim(f, 6, tick -> {
                 if (tick == 2) useOffhand(f);
             });
             assertEquals(0.0, sprintC(f).violations, 0.0);
@@ -76,7 +76,7 @@ class SprintCItemUseTest {
     void aSprintStartedUnderWaterWhileUsingAnItemFlags() throws Exception {
         try (var f = pool(ClientVersion.V_1_21_4, 3, "minecraft:shield")) {
             f.input(FORWARD);
-            swim(f, 10, true, tick -> {
+            swim(f, 10, tick -> {
                 if (tick == 2) useOffhand(f);
                 if (tick == 5) {
                     f.input(FORWARD_SPRINT);
@@ -95,7 +95,7 @@ class SprintCItemUseTest {
     void aServerSprintFlagUnderWaterWhileUsingAnItemStartsTheSprint() throws Exception {
         try (var f = pool(ClientVersion.V_1_21_4, 3, "minecraft:shield")) {
             f.input(FORWARD);
-            swim(f, 10, true, tick -> {
+            swim(f, 10, tick -> {
                 if (tick == 2) useOffhand(f);
                 if (tick == 5) {
                     sharedFlags(f, (byte) 0x08);
@@ -112,7 +112,7 @@ class SprintCItemUseTest {
     void aWaderWithItsEyeAboveTheWaterSprintingWhileUsingAnItemFlags() throws Exception {
         try (var f = pool(ClientVersion.V_1_21_4, 1, "minecraft:shield")) {
             startSprinting(f);
-            swim(f, 6, false, tick -> {
+            swim(f, 6, tick -> {
                 if (tick == 2) useOffhand(f);
             });
             assertTrue(sprintC(f).violations > 0, "SprintC violations " + sprintC(f).violations);
@@ -211,29 +211,19 @@ class SprintCItemUseTest {
         }
     }
 
-    /**
-     * LivingEntity#travelInWater from rest at the floor, slowed by 0.9 while sprinting and 0.8 otherwise.
-     * {@code eyeUnderWater} is whether the water covers the eye, so that a sprint swims.
-     */
-    private static void swim(JavaTickFixture f, int ticks, boolean eyeUnderWater, IntConsumer before) {
+    /** LivingEntity#travelInWater from rest at the floor, slowed by 0.9 while sprinting and 0.8 otherwise. */
+    private static void swim(JavaTickFixture f, int ticks, IntConsumer before) {
         Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
         Vec3 velocity = Vec3.ZERO;
-        // The fixture places the player with a standing player's downward velocity.
-        boolean sinks = true;
         for (int tick = 0; tick < ticks; tick++) {
             before.accept(tick);
             float slowdown = f.player.isClientUsingItem() ? ITEM_USE : 1.0F;
             Vec3 delta = velocity.add(ClientMoveInput.of(f, FORWARD, slowdown, WATER_SPEED, YAW));
             position = position.add(delta.x, 0.0, delta.z);
-            // Entity#move reports the ground only for a move down into the floor: Player#travel pulls a swimmer down
-            // its downward look before the move, and anyone else moves down only with the sinking of the tick before.
-            boolean swims = eyeUnderWater && f.player.isSprinting && tick > 0;
-            PredictionResult result = f.tick(position, sinks || swims);
+            PredictionResult result = f.tick(position, true);
             assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             float slowDown = f.player.isSprinting ? 0.9F : 0.8F;
             velocity = new Vec3(delta.x * slowDown, 0.0, delta.z * slowDown);
-            // LivingEntity#getFluidFallingAdjustedMovement sinks only an entity that is not sprinting.
-            sinks = !f.player.isSprinting;
         }
     }
 
@@ -263,7 +253,7 @@ class SprintCItemUseTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
         f.player.getInventory()
                 .inventory
                 .getInventoryStorage()
@@ -284,9 +274,6 @@ class SprintCItemUseTest {
         f.setPassengers(CAMEL, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
-        // The camel mounts with no velocity: its first Entity#move does not collide below and reports it airborne.
-        PredictionResult first = f.rideTick(camelAt, false);
-        assertTrue(exact(first), "first ride tick: " + describe(first));
         return camelAt;
     }
 

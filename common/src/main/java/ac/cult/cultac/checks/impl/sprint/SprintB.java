@@ -56,7 +56,7 @@ public final class SprintB extends Check implements PostPredictionListener {
                 || world.isUnderwater()
                 || FlightToggle.flyingBeforeAiStep(player)
                 || context.getVehicle() != null
-                || !world.isInWater()) {
+                || !world.getInWater().determinePessimistically()) {
             return false;
         }
         Vec3 from = context.getStart();

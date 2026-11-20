@@ -59,14 +59,16 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
         if (player.isBedrockMovement() || complete.isTeleport()) return;
         jumpedThisTick = queued;
         PredictionResult result = complete.getPredictionResult();
-        boolean previous = JavaMovementMath.select(player, result.getInitialStartingVel());
-        try {
-            queued = !complete.isExempt() && !result.hasEffectiveFlags() && schedulesJump(result);
-            movedClientTick = player.packetStateData.acceptedClientTick;
-            possible = !provablyCannotFire(result);
-        } finally {
-            JavaMovementMath.restore(player, previous);
-        }
+        queued = !complete.isExempt() && !result.hasEffectiveFlags() && schedulesJump(result);
+        movedClientTick = player.packetStateData.acceptedClientTick;
+        possible = !provablyCannotFire(result);
+    }
+
+    /** A client tick that sent no position, simulated from the player's position under the movement exemption. */
+    public void onExemptNoPositionTick(PredictionResult result) {
+        if (player.isBedrockMovement()) return;
+        movedClientTick = player.packetStateData.acceptedClientTick;
+        possible = !provablyCannotFire(result);
     }
 
     boolean schedulesJump(PredictionResult result) {
@@ -92,8 +94,9 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
         SimulationContext context = result.getSimulationContext();
         if (context == null) return false;
         if (BlockProperties.onHoneyBlock(
-                player, context.getWorldData().getMainSupportingBlockPos(), new Vec3(player.x, player.y, player.z)))
-            return true;
+                player,
+                context.getWorldData().getMainSupportingBlockPos(),
+                new Vec3(player.x, player.y, player.z))) return true;
         double margin = positionMargin();
         SimpleCollisionBox end =
                 GetBoundingBox.getCollisionBoxForPlayer(endScratch, player, player.x, player.y, player.z);
@@ -222,7 +225,8 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
             Vec3 move, ClientSprintState.Outcome sprint, Integer amplifier, MainSupportingBlockData support) {
         if (player.isSneaking
                 || player.inVehicle()
-                || BlockProperties.onHoneyBlock(player, support, new Vec3(player.x, player.y, player.z))) return false;
+                || BlockProperties.onHoneyBlock(player, support, new Vec3(player.x, player.y, player.z)))
+            return false;
         var keys = player.packetStateData.knownInput;
         Vec3 input = new Vec3(
                 (keys.left() ? 1 : 0) - (keys.right() ? 1 : 0),

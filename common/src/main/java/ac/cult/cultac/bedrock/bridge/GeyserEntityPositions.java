@@ -24,8 +24,9 @@ final class GeyserEntityPositions {
     private final Map<Long, Position> written = new HashMap<>();
     // Updates written since the last latency marker; the next marker proves them.
     private ArrayList<Runnable> pending = new ArrayList<>();
-    // Actors whose last written flags carry COLLIDABLE: only their flag updates can clear it.
-    private final LongOpenHashSet collidable = new LongOpenHashSet();
+    // Actors with a move written since the last latency marker: that move begins when the client answers the marker
+    // before it.
+    private final LongOpenHashSet movedSinceMarker = new LongOpenHashSet();
 
     static boolean hasPosition(BedrockPacket packet) {
         return packet instanceof AddEntityPacket
@@ -33,6 +34,30 @@ final class GeyserEntityPositions {
                 || packet instanceof MoveEntityAbsolutePacket
                 || packet instanceof MoveEntityDeltaPacket
                 || packet instanceof MovePlayerPacket;
+    }
+
+    /** Whether {@code packet} moves an actor other than the player. */
+    static boolean movesOtherActor(BedrockPacket packet, long playerRuntimeId) {
+        long runtimeId;
+        if (packet instanceof MoveEntityAbsolutePacket move) runtimeId = move.getRuntimeEntityId();
+        else if (packet instanceof MoveEntityDeltaPacket move) runtimeId = move.getRuntimeEntityId();
+        else if (packet instanceof MovePlayerPacket move) runtimeId = move.getRuntimeEntityId();
+        else return false;
+        return runtimeId != playerRuntimeId;
+    }
+
+    /**
+     * Whether {@code packet} moves an actor that already has a move written since the last latency marker. Both moves
+     * would begin at that marker's answer, but the client may tick between handling them, so the move written first
+     * needs a marker after it to prove it before the next one begins.
+     */
+    boolean movesActorAgain(BedrockPacket packet) {
+        if (movedSinceMarker.isEmpty()) return false;
+        if (packet instanceof MoveEntityAbsolutePacket move)
+            return movedSinceMarker.contains(move.getRuntimeEntityId());
+        if (packet instanceof MoveEntityDeltaPacket move) return movedSinceMarker.contains(move.getRuntimeEntityId());
+        if (packet instanceof MovePlayerPacket move) return movedSinceMarker.contains(move.getRuntimeEntityId());
+        return false;
     }
 
     void capture(GeyserSession session, CultPlayer player, BedrockPacket packet, BedrockCoordinateFrame coordinates) {
@@ -65,12 +90,7 @@ final class GeyserEntityPositions {
         if (packet instanceof SetEntityDataPacket data) {
             Size size = Size.read(data.getMetadata());
             Position previous = written.get(data.getRuntimeEntityId());
-            if (size != null
-                    && previous != null
-                    && (writesCollidable(data.getRuntimeEntityId(), size)
-                            || size.sized()
-                            || size.seat() != null
-                            || isBat(player, previous.javaId()))) {
+            if (size != null && previous != null && (size.sized() || isBat(player, previous.javaId()))) {
                 long id = data.getRuntimeEntityId();
                 pending.add(() -> player.latencyUtils.addRealTimeTask(previous.creationTransaction(), () -> {
                     PacketEntity entity = player.compensatedEntities.getEntity(previous.javaId());
@@ -83,7 +103,6 @@ final class GeyserEntityPositions {
         }
         if (packet instanceof RemoveEntityPacket remove) {
             long removedId = remove.getUniqueEntityId();
-            collidable.remove(removedId);
             Position removed = written.remove(removedId);
             if (removed != null)
                 pending.add(() -> player.latencyUtils.addRealTimeTask(removed.creationTransaction(), () -> {
@@ -163,19 +182,34 @@ final class GeyserEntityPositions {
         Vec3 world = coordinates.toWorld(new Vec3(position.getX(), position.getY(), position.getZ()));
         written.put(runtimeId, new Position(javaId, creationTransaction, world, yaw, pitch));
         Size size = spawnSize;
-        if (size != null) writesCollidable(runtimeId, size);
         float offset = clientOffset(translated);
         Vec3 feet = coordinates.toWorld(new Vec3(position.getX(), position.getY() - offset, position.getZ()));
         Vec3 spawnVelocity = motion == null ? null : new Vec3(motion.getX(), motion.getY(), motion.getZ());
         boolean moveLocal = forceLocal;
-        // The marker written after the move proves the client handled it, and the move takes effect whole there.
+        boolean[] begun = new boolean[1];
+        if (!spawn) {
+            movedSinceMarker.add(runtimeId);
+            // The client may handle the move once it has answered the marker written before it.
+            player.addBedrockTransactionTask(
+                    player.getLastClientboundBedrockTransaction(),
+                    () -> player.latencyUtils.addRealTimeTask(creationTransaction, () -> {
+                        PacketEntity entity = player.compensatedEntities.getEntity(javaId);
+                        if (entity == null || entity.bedrockRuntimeId != runtimeId || placedDirectly(player, entity))
+                            return;
+                        begun[0] = true;
+                        entity.bedrockPositionOffset = offset;
+                        entity.beginBedrockMove(
+                                player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport, ground);
+                    }));
+        }
+        // The marker written after the move proves the client handled it.
         pending.add(() -> player.latencyUtils.addRealTimeTask(creationTransaction, () -> {
             PacketEntity entity = player.compensatedEntities.getEntity(javaId);
             if (entity == null || !spawn && entity.bedrockRuntimeId != runtimeId) return;
             if (spawn) entity.bedrockRuntimeId = runtimeId;
             if (size != null) size.apply(entity);
             if (spawnVelocity != null) entity.deltaMovement = spawnVelocity;
-            if (entity == BedrockVehicleControl.predictedVehicle(player) && !spawn && !moveLocal) return;
+            if (entity == BedrockVehicleControl.controlledVehicle(player) && !spawn && !moveLocal) return;
             boolean ridden = entity == player.compensatedEntities.getSelf().getRiding();
             if (!spawn && (teleport || moveLocal) && ridden) {
                 player.checkManager
@@ -193,7 +227,12 @@ final class GeyserEntityPositions {
                         yaw - boatYaw(entity),
                         pitch);
             } else {
-                entity.handleBedrockMove(player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport, ground);
+                // A move that did not begin, such as one for the player's own ride or one sent with the spawn, applies
+                // whole at its proof.
+                if (!begun[0]) {
+                    entity.beginBedrockMove(player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport, ground);
+                }
+                entity.onSecondTransaction();
             }
             if (moveLocal && entity.bedrockPrediction != null) {
                 ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
@@ -207,11 +246,10 @@ final class GeyserEntityPositions {
         return entity.isBoat() ? 90.0F : 0.0F;
     }
 
-    // A ride the client does not predict is placed directly by a teleport. One it is about to predict still lerps
-    // until its first predicted tick, as a remote actor.
+    // The player's own ride is placed directly when the move is proven, not interpolated in two halves.
     private static boolean placedDirectly(CultPlayer player, PacketEntity entity) {
-        return entity == player.compensatedEntities.getSelf().getRiding()
-                && entity != BedrockVehicleControl.controlledVehicle(player);
+        return entity == BedrockVehicleControl.controlledVehicle(player)
+                || entity == player.compensatedEntities.getSelf().getRiding();
     }
 
     boolean hasPending() {
@@ -220,6 +258,7 @@ final class GeyserEntityPositions {
 
     void boundary(CultPlayer player, CultPlayer.BedrockTransaction transaction) {
         if (transaction == null) return;
+        movedSinceMarker.clear();
         if (pending.isEmpty()) return;
         var batch = pending;
         pending = new ArrayList<>();
@@ -229,13 +268,7 @@ final class GeyserEntityPositions {
     void clear() {
         written.clear();
         pending.clear();
-        collidable.clear();
-    }
-
-    /** Records the COLLIDABLE flag {@code size} writes for the actor; whether it changes what was last written. */
-    private boolean writesCollidable(long runtimeId, Size size) {
-        if (size.collidable() == null) return false;
-        return size.collidable() ? collidable.add(runtimeId) : collidable.remove(runtimeId);
+        movedSinceMarker.clear();
     }
 
     private static float byteAngle(float angle) {
@@ -263,27 +296,17 @@ final class GeyserEntityPositions {
     private static final float SLEEPING_PLAYER_OFFSET = 0.2F;
     private static final float PLAYER_OFFSET = 1.62001F;
 
-    // The actor data that shapes the box the client holds for the actor: its size, the RESTING flag a bat hangs by,
-    // the COLLIDABLE flag that makes the box solid for other actors, and the offset that seats a passenger.
-    private record Size(Float width, Float height, Float scale, Boolean resting, Boolean collidable, Vec3 seat) {
+    // The actor data that shapes where the client shows the actor: its size, and the RESTING flag a bat hangs by.
+    private record Size(Float width, Float height, Float scale, Boolean resting) {
         static Size read(EntityDataMap data) {
             if (data == null) return null;
             Float width = data.get(EntityDataTypes.WIDTH);
             Float height = data.get(EntityDataTypes.HEIGHT);
             Float scale = data.get(EntityDataTypes.SCALE);
-            boolean flags = data.get(EntityDataTypes.FLAGS) != null;
-            Boolean resting = flags ? data.getFlag(EntityFlag.RESTING) : null;
-            Boolean collidable = flags ? data.getFlag(EntityFlag.COLLIDABLE) : null;
-            Vector3f seat = data.get(EntityDataTypes.SEAT_OFFSET);
-            return width == null && height == null && scale == null && !flags && seat == null
+            Boolean resting = data.get(EntityDataTypes.FLAGS) == null ? null : data.getFlag(EntityFlag.RESTING);
+            return width == null && height == null && scale == null && resting == null
                     ? null
-                    : new Size(
-                            width,
-                            height,
-                            scale,
-                            resting,
-                            collidable,
-                            seat == null ? null : new Vec3(seat.getX(), seat.getY(), seat.getZ()));
+                    : new Size(width, height, scale, resting);
         }
 
         boolean sized() {
@@ -293,8 +316,6 @@ final class GeyserEntityPositions {
         void apply(PacketEntity entity) {
             entity.setBedrockSize(width, height, scale);
             if (resting != null) entity.setBedrockResting(resting);
-            if (collidable != null) entity.bedrockCollidable = collidable;
-            if (seat != null) entity.bedrockSeatOffset = seat;
         }
     }
 }

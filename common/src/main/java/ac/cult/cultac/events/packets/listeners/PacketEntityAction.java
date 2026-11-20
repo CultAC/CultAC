@@ -3,7 +3,6 @@ package ac.cult.cultac.events.packets.listeners;
 import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.checks.impl.badpackets.BadPacketsQ;
 import ac.cult.cultac.checks.impl.elytra.ElytraA;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -12,9 +11,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
-import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.RidingJumpCharge;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
@@ -22,7 +19,6 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.inventory.ClientGlider;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
-import org.jetbrains.annotations.Nullable;
 
 public class PacketEntityAction {
 
@@ -34,7 +30,6 @@ public class PacketEntityAction {
         if (player.isBedrockMovement()) return;
         switch (packet.action()) {
             case START_SPRINTING:
-                if (player.usesModernJavaItemUse()) player.clientItemUse.startedSprinting(player.getClientVersion());
                 player.isSprinting = true;
                 player.sprintClearedAsPassenger = false;
                 player.vehicleData.camelSprintingState = SprintingState.STARTED;
@@ -44,15 +39,12 @@ public class PacketEntityAction {
                 player.vehicleData.camelSprintingState = SprintingState.STOPPED;
                 break;
             case START_FLYING_WITH_ELYTRA:
-                boolean grounded = player.checkManager.getSimulationProcessor().glideStartOnGround();
+                boolean grounded = player.onGround || player.lastOnGround;
                 // Only a TridentItem#releaseUsing spin lifts a player on ground before LocalPlayer#aiStep reads
                 // onGround, so a glide start after a release on the ground follows a spin.
                 boolean released = RiptideUtil.releasedOnTheGround(player);
                 if (released) player.packetStateData.riptideReleaseCertain = true;
-                if (grounded && !released
-                        || lavaPreventsGlideActivation(player)
-                        || RiptideUtil.glideStartsInWater(player)
-                        || provenStateForbidsGlide(player)) {
+                if (grounded && !released || lavaPreventsGlideActivation(player)) {
                     rejectGlideStart(event, player);
                     break;
                 }
@@ -62,10 +54,6 @@ public class PacketEntityAction {
                 player.checkManager.getCheck(ElytraA.class).onStartGliding(event);
 
                 if (canGlideUsingEquippedItem(player)) {
-                    if (!player.isBedrockMovement() && player.packetStateData.glidingBeforeClientAction == null)
-                        player.packetStateData.glidingBeforeClientAction = player.isGliding;
-                    if (!released && !player.isGliding && !event.isCancelled())
-                        player.checkManager.getSimulationProcessor().commitAirborneGlideStart();
                     // The pose follows in Player#updatePlayerPose, after this tick's aiStep.
                     player.isGliding = true;
                 } else {
@@ -78,27 +66,19 @@ public class PacketEntityAction {
                         ? value
                         : null;
                 if (nautilus != null) {
-                    // LocalPlayer#aiStep releases after the nautilus's whole tick, whose cooldown tail runs at the
-                    // client tick end, so the tick end judges AbstractNautilus#onPlayerJump after that tail. Unlike
-                    // AbstractHorse#onPlayerJump, it does not clamp a negative amount.
-                    nautilus.nextPendingJumpScale = pendingJumpScale(packet.data());
+                    // The release follows the nautilus's whole tick, whose dash and cooldown the tick's vehicle move
+                    // and end commit, so the tick end judges AbstractNautilus#onPlayerJump after them.
+                    nautilus.nextPendingJumpScale = packet.data() >= 90 ? 1.0F : 0.4F + 0.4F * packet.data() / 90.0F;
                     break;
                 }
                 PacketEntityHorse horse = player.compensatedEntities.vehicles.getClientVisibleHorseRoot();
-                // Camel#onPlayerJump also needs no dash cooldown and the ground, as Camel#tick's move and cooldown
-                // tail leave them before this release. The client tick end judges them after both have run.
-                int data = packet.data();
-                if (horse != null && !(horse instanceof PacketEntityCamel)) {
-                    Integer charged = chargedReleaseData(event, player, packet);
-                    if (charged != null && charged == RidingJumpCharge.NO_RELEASE) break;
-                    if (charged != null) data = charged;
+                // Camel#onPlayerJump. The client releases the jump only if Camel#canJump holds after the camel's tick.
+                if (horse instanceof PacketEntityCamel camel
+                        && (!camel.hasSaddle || camel.dashCooldown > 0 || !camel.onGround)) {
+                    break;
                 }
                 if (horse != null && horse.hasSaddle) {
-                    // AbstractHorse#onPlayerJump clamps a negative amount to 0, and only a non-negative one allows
-                    // stand sliding and calls standIfPossible(). LocalPlayer#aiStep sends a negative amount for a
-                    // jump held through a camel's dash cooldown: getJumpCooldown() skips the riding block, so
-                    // jumpRidingTicks keeps the last release's -10 and then counts up from it while the jump is held.
-                    int jumpAmount = data;
+                    double jumpScale = packet.data() >= 90 ? 1.0F : 0.4F + 0.4F * packet.data() / 90.0F;
                     // MCP-Reborn ClientLevel#tickNonPassenger ticks the root
                     // horse before tickPassenger runs LocalPlayer#rideTick.
                     // LocalPlayer#aiStep calls onPlayerJump(...) during that
@@ -108,49 +88,17 @@ public class PacketEntityAction {
                     // serialized by LocalPlayer#tick. The same callback also
                     // sets AbstractHorse#allowStandSliding and calls
                     // standIfPossible() for that next tick.
-                    horse.nextHorseJump = pendingJumpScale(Math.max(jumpAmount, 0));
-                    if (jumpAmount >= 0) {
-                        horse.nextAllowStandSliding = true;
-                        // Before 1.21.5, Entity#isEffectiveAi is !level().isClientSide, so the client horse never
-                        // stands.
-                        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
-                            horse.armClientRidingJumpStand();
-                        }
+                    horse.nextHorseJump = jumpScale;
+                    horse.nextAllowStandSliding = true;
+                    // Before 1.21.5, Entity#isEffectiveAi is !level().isClientSide, so the client horse never stands.
+                    if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
+                        horse.armClientRidingJumpStand();
                     }
                 }
                 break;
             default:
                 break;
         }
-    }
-
-    /** PlayerRideableJumping#getPlayerJumpPendingScale. */
-    private static float pendingJumpScale(int jumpAmount) {
-        return jumpAmount >= 90 ? 1.0F : 0.4F + 0.4F * jumpAmount / 90.0F;
-    }
-
-    /**
-     * The START_RIDING_JUMP data LocalPlayer#aiStep's charge lets this release send, when it differs from the packet's;
-     * NO_RELEASE when no release can be sent now, null when the server receives the packet's data: it is that charge,
-     * the charge is not known, or the packet is left unmodified.
-     */
-    @Nullable
-    private static Integer chargedReleaseData(
-            PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return null;
-        Integer charged =
-                player.ridingJumpCharge.releaseData(player.compensatedEntities.vehicles.ridingJumpable());
-        if (charged == null || charged == packet.data()) return null;
-        if (!player.checkManager.getCheck(BadPacketsQ.class).onReleaseBeyondCharge(packet.data(), charged)) {
-            return null;
-        }
-        if (charged == RidingJumpCharge.NO_RELEASE) {
-            event.setCancelled(true);
-            player.onPacketCancel();
-        } else {
-            event.replace(new ServerboundPlayerCommand(packet.entityId(), packet.action(), charged));
-        }
-        return charged;
     }
 
     static boolean lavaPreventsGlideActivation(CultPlayer player) {
@@ -162,15 +110,6 @@ public class PacketEntityAction {
             if (ClientFluidQueries.depth(player, box, FluidTags.LAVA) <= 0.0D) return false;
         }
         return true;
-    }
-
-    /**
-     * LivingEntity#canGlide: an effect or a vehicle applies at the ping that trails its packet, which the client answers
-     * before its next tick, so the applied state is the client's.
-     */
-    private static boolean provenStateForbidsGlide(CultPlayer player) {
-        return player.compensatedEntities.hasPotionEffect(MovementEffect.LEVITATION)
-                || player.inVehicle();
     }
 
     private void rejectGlideStart(PacketReceiveEvent event, CultPlayer player) {

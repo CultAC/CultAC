@@ -34,12 +34,9 @@ class WaterCurrentFluidHeightTest {
         Vec3 legacy = current(ProtocolVersion.V1_21_11);
         Vec3 modern = current(ProtocolVersion.V26_3);
 
-        // Entity sums int Y + float height, then measures from the deflated box. The newer
-        // interaction sums double Y + float height and measures from the entity's actual box.
-        float height = 1 / 9.0F;
-        double legacyHeight = (double) (64 + height) - (64.0D + .001D);
-        double modernHeight = (64.0D + height) - 64.0D;
-        assertEquals(legacyHeight / modernHeight, legacy.x / modern.x, 1.0E-12D);
+        // Water at level 7 stands 1/9 above its block; the deflated box starts 0.001 higher.
+        double height = 1.0D / 9.0D;
+        assertEquals((height - 0.001D) / height, legacy.x / modern.x, 1.0E-6D);
         assertEquals(legacy.z / legacy.x, modern.z / modern.x, 1.0E-12D);
     }
 
@@ -48,10 +45,7 @@ class WaterCurrentFluidHeightTest {
         try {
             BlockRegistry registry = DataTables.defaults().registry();
             int water = registry.block("minecraft:water").defaultState();
-            // This corner-of-chunk body needs the adjacent negative-X/Z columns for either release's update.
-            for (int x = -1; x <= 0; x++) {
-                for (int z = -1; z <= 0; z++) player.compensatedWorld.ensureValidationChunkLoaded(x, z);
-            }
+            player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
             player.compensatedWorld.updateBlock(1, 64, 0, water);
             player.compensatedWorld.updateBlock(0, 64, 0, registry.with(water, "level", "7"));
 

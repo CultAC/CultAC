@@ -29,10 +29,11 @@ public class BlockPredictionRetentionTest {
             for (int i = 0; i < count; i++) {
                 BlockPos pos = position(i);
                 world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), air);
-                world.advanceClientPredictionSequence(0);
+                world.advanceClientPredictionSequence();
                 world.startPredicting();
                 world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), stone);
                 world.stopPredicting(0);
+                world.handlePredictionConfirmation(0, player.lastTransactionSent.get());
             }
             BlockPos oldest = position(0);
             assertEquals(cap, ((Map<?, ?>) field(world, "serverIsCurrentlyProcessingThesePredictions")).size());
@@ -61,7 +62,7 @@ public class BlockPredictionRetentionTest {
                     DataTables.defaults().registry().block("minecraft:stone").defaultState();
             BlockPos pos = position(0);
             world.ensureValidationChunkLoaded(0, 0);
-            world.advanceClientPredictionSequence(1);
+            world.advanceClientPredictionSequence();
             world.startPredicting();
             world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), stone);
             world.stopPredicting(1);
@@ -120,7 +121,7 @@ public class BlockPredictionRetentionTest {
             BlockPos oldest = position(0);
             world.updateBlock(oldest.getX(), oldest.getY(), oldest.getZ(), stone);
             moveTo(player, oldest.getX() + 0.5, 70, oldest.getZ() + 0.5);
-            world.advanceClientPredictionSequence(0);
+            world.advanceClientPredictionSequence();
             world.startPredicting();
             world.updateBlock(oldest.getX(), oldest.getY(), oldest.getZ(), air);
             world.stopPredicting(0);
@@ -130,7 +131,7 @@ public class BlockPredictionRetentionTest {
             for (int i = 1; i <= cap; i++) {
                 BlockPos pos = position(i);
                 world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), air);
-                world.advanceClientPredictionSequence(0);
+                world.advanceClientPredictionSequence();
                 world.startPredicting();
                 world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), stone);
                 world.stopPredicting(0);

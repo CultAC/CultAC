@@ -9,7 +9,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportData;
-import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.Test;
 
@@ -33,7 +32,6 @@ public class PhaseTeleportTest {
         player.x = -100;
         player.y = 64;
         player.z = -100;
-        player.compensatedEntities = mock(CompensatedEntities.class);
         Phase phase = new Phase(player);
         phase.oldBox = new SimpleCollisionBox(-101, 64, -101, -99, 66, -99);
         SimpleCollisionBox previous = phase.oldBox;

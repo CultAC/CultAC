@@ -19,7 +19,6 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
-      - "Phase"
     # Eşik:Aralık Komutu
     #
     # Örnek: 100 ihlalde "yanlış hareket!" mesajıyla oyuncuyu atmak için, aralık komutu olmadan:
@@ -131,4 +130,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 6
+cult-config-version: 5

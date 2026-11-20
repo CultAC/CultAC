@@ -96,16 +96,14 @@ final class GeyserFloatingPointsAdapter {
                 dispatch.begin();
                 try {
                     var rewritten = hook.rewriter.receive(downstream, packet);
-                    Vector3i offset = hooks.offset();
-                    finishRewrite(offset, operation);
-                    Packet delivered = GfpEntityTeleportRebase.apply(packet, rewritten.packet(), offset);
-                    if (switchesState(delivered)) {
-                        if (!rewritten.cancelled()) stateSwitch = delivered;
+                    finishRewrite(hooks.offset(), operation);
+                    if (switchesState(rewritten.packet())) {
+                        if (!rewritten.cancelled()) stateSwitch = rewritten.packet();
                     } else if (!rewritten.cancelled()) {
                         dispatch.withOperation(
                                 operation,
                                 () -> hook.delegates.forEach(
-                                        listener -> listener.packetReceived(downstream, delivered)));
+                                        listener -> listener.packetReceived(downstream, rewritten.packet())));
                     }
                     bindTeleportCache(beforeCache, operation);
                 } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {

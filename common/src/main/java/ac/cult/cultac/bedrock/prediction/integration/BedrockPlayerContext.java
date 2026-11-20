@@ -6,7 +6,6 @@ import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
-import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
@@ -28,6 +27,7 @@ record BedrockPlayerContext(
         BedrockEffectState effects) {
     private static final double BEDROCK_PLAYER_WIDTH = Double.parseDouble(Float.toString(0.6F));
     private static final double BEDROCK_STANDING_HEIGHT = Double.parseDouble(Float.toString(1.8F));
+    private static final double BEDROCK_SNEAKING_HEIGHT = Double.parseDouble(Float.toString(1.49F));
     private static final double BEDROCK_LOW_POSE_HEIGHT = Double.parseDouble(Float.toString(0.6F));
     private static final int BEDROCK_ELYTRA_MAX_DAMAGE = 432;
 
@@ -56,7 +56,7 @@ record BedrockPlayerContext(
         BedrockClientPoseState pose = player.bedrockState == null
                 ? BedrockClientPoseState.STANDING
                 : player.bedrockState.getClientPoseState(frame);
-        EquipmentState equipment = equipment(player);
+        EquipmentState equipment = equipment(player, context);
         return new BedrockPlayerContext(
                 pose,
                 actorGliding,
@@ -104,16 +104,13 @@ record BedrockPlayerContext(
         return equipment.elytraEquipped();
     }
 
-    /** The player's scale is the one its client acknowledged. It scales the sneaking height too. */
     private static PlayerDimensionsState dimensions(
             BedrockClientPoseState pose, boolean actorGliding, SimulationContext context) {
-        float scale = context.getScale();
+
         double height = pose.lowHeightPose() || actorGliding
-                ? BEDROCK_LOW_POSE_HEIGHT * scale
-                : pose.sneaking()
-                        ? BedrockActorDimensions.sneakingHeight(scale)
-                        : BEDROCK_STANDING_HEIGHT * scale;
-        return new PlayerDimensionsState(BEDROCK_PLAYER_WIDTH * scale, height);
+                ? BEDROCK_LOW_POSE_HEIGHT
+                : pose.sneaking() ? BEDROCK_SNEAKING_HEIGHT : BEDROCK_STANDING_HEIGHT;
+        return new PlayerDimensionsState(BEDROCK_PLAYER_WIDTH, height * context.getScale());
     }
 
     static AttributeState attributes(CultPlayer player) {
@@ -129,15 +126,11 @@ record BedrockPlayerContext(
         return attributes.apply(AttributeState.DEFAULT);
     }
 
-    private static EquipmentState equipment(CultPlayer player) {
-        // The client reads these enchantment levels from the items it wears.
-        SimItemStack boots = player == null || player.getInventory() == null ? null : player.getInventory().getBoots();
-        SimItemStack leggings =
-                player == null || player.getInventory() == null ? null : player.getInventory().getLeggings();
+    private static EquipmentState equipment(CultPlayer player, SimulationContext context) {
         return new EquipmentState(
-                ItemUtil.enchantmentLevel(boots, "minecraft:depth_strider"),
-                ItemUtil.enchantmentLevel(boots, "minecraft:soul_speed"),
-                ItemUtil.enchantmentLevel(leggings, "minecraft:swift_sneak"),
+                Math.max(0, Math.round(context.getDepthStriderLevel())),
+                0,
+                Math.max(0, context.getSwiftSneakLevel()),
                 riptideLevel(player),
                 wearingLeatherBoots(player),
                 wearingElytra(player));

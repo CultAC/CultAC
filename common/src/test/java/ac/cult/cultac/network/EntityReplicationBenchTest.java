@@ -104,7 +104,8 @@ class EntityReplicationBenchTest {
                             packet);
                 }
                 acknowledgeAll(player);
-                for (PacketEntity entity : player.compensatedEntities.entityMap.values()) entity.onMovement(player);
+                for (PacketEntity entity : player.compensatedEntities.entityMap.values())
+                    entity.onMovement(player, true);
             };
             byte[] flags = {0};
             PacketType<EntityMetadata> metadataType = metadataType();
@@ -113,7 +114,8 @@ class EntityReplicationBenchTest {
                     var packet = new EntityMetadata(
                             ids.get(i), List.of(EntityMetadata.Entry.of(0, (byte) (n & 1), flags, 0, 1)));
                     player.packetEntityReplication.onSetEntityData(
-                            new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, metadataType, packet, false),
+                            new PacketSendEvent<>(
+                                    player.user, ConnectionPhase.PLAY, metadataType, packet, false),
                             player,
                             packet);
                 }
@@ -164,7 +166,8 @@ class EntityReplicationBenchTest {
                         sortedCpu[REPS - 1]));
             }
             System.out.print(report);
-            Files.writeString(Path.of(out), report + "---\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            Files.writeString(
+                    Path.of(out), report + "---\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } finally {
             close(player);
         }
@@ -213,8 +216,8 @@ class EntityReplicationBenchTest {
             @Override
             public void sendMessage(Component message) {}
         };
-        User user =
-                TestUsers.create(new User.Profile(UUID.randomUUID(), "Replication"), new EmbeddedChannel(), platform);
+        User user = TestUsers.create(
+                new User.Profile(UUID.randomUUID(), "Replication"), new EmbeddedChannel(), platform);
         CultPlayer player = new CultPlayer(user);
         user.bind(Mockito.mock(PlatformPlayer.class));
         return player;

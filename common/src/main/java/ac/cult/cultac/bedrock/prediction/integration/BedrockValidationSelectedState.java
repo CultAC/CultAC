@@ -31,16 +31,11 @@ final class BedrockValidationSelectedState {
 
     static BedrockMovementState candidateBase(
             BedrockMovementResult movementResult, BedrockValidationSelection selection) {
-        return relocated(movementResult, selection.externalDisplacement(), selection.validationSelectedPosition());
-    }
-
-    /** The candidate's move, displaced by {@code external}, placed at the selected {@code position}. */
-    static BedrockMovementState relocated(BedrockMovementResult movementResult, Vec3d external, Vec3d position) {
-        Vec3d moved = position.subtract(movementResult.previousState().physicalFeetPosition());
+        Vec3d position = selection.validationSelectedPosition();
         return movementResult
                 .predictedState()
-                .withExternalDisplacement(external)
-                .withRelocatedPosition(position, moved.x() * moved.x() + moved.y() * moved.y() + moved.z() * moved.z());
+                .withExternalDisplacement(selection.externalDisplacement())
+                .withObservedPosition(position, displacementSquared(selection, position));
     }
 
     static Vec3d nextTickBasePosition(BedrockValidationSelection selection) {

@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.crash;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
-import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -18,26 +17,25 @@ public class CrashC extends Check implements CheckListener {
         super(player);
     }
 
-    // Registered as an early receive check: a rejected packet must not reach CheckManagerListener's movement handling,
-    // which writes the rotation and starts the client tick before pre-prediction checks run. CheckManagerListener
-    // also calls this for a move that reaches it uncancelled, before teleport matching or last-sent tick state.
-    @CultPacketHandler
+    /** CheckManagerListener calls this before teleport matching or last-sent tick state can consume the values. */
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        boolean finitePosition = !packet.hasPosition()
-                || (Double.isFinite(packet.x()) && Double.isFinite(packet.y()) && Double.isFinite(packet.z()));
-        boolean finiteRotation =
-                !packet.hasRotation() || (Float.isFinite(packet.yaw()) && Float.isFinite(packet.pitch()));
-        if (finitePosition && finiteRotation) return;
-        flag(V.write(verbose())
-                .f64(packet.xOr(0))
-                .f64(packet.yOr(0))
-                .f64(packet.zOr(0))
-                .f32(packet.yawOr(0))
-                .f32(packet.pitchOr(0)));
-        executeViolationSetback();
-        event.cancelFinally();
-        player.onPacketCancel();
+        if (packet.hasPosition() || packet.hasRotation()) {
+            double x = packet.xOr(0);
+            double y = packet.yOr(0);
+            double z = packet.zOr(0);
+            float yaw = packet.yawOr(0);
+            float pitch = packet.pitchOr(0);
+            if (packet.hasPosition() && (!Double.isFinite(x)
+                    || !Double.isFinite(y)
+                    || !Double.isFinite(z))
+                    || packet.hasRotation() && (!Float.isFinite(yaw) || !Float.isFinite(pitch))) {
+                flag(V.write(verbose()).f64(x).f64(y).f64(z).f32(yaw).f32(pitch));
+                executeViolationSetback();
+                event.cancelFinally();
+                player.onPacketCancel();
+            }
+        }
     }
 
     /** MoveVehicle is checked before its coordinates or rotation reach vehicle prediction. */

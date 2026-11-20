@@ -34,7 +34,7 @@ class MovementHistoryTextTest {
     private static final int WORLD_AT = 18;
     private static final int TELEPORT_AT = 21;
     /** SHA-256 of every history snapshot of {@link #aFixedWalkKeepsTheSameHistory}, joined by NUL. */
-    private static final String EXPECTED = "6a31424a9bd1cd13753a273c578282910e35fd89dd1e471256515d9c56ff139f";
+    private static final String EXPECTED = "a71598a952d941fa6abb0812fd249bb0a8e50a87525171cba204a15b62305ed3";
 
     @Test
     void aFixedWalkKeepsTheSameHistory() throws Exception {

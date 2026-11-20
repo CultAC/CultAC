@@ -78,8 +78,7 @@ class JavaRiptideGlideStartTest {
     void theLiftLeavesShallowWaterForTheGlide(int depth, double violations) throws Exception {
         try (var f = new JavaTickFixture()) {
             fill(f, BlockIds.WATER, depth);
-            // A grounded move must attempt downward travel; Entity#move(SELF, ZERO) clears onGround.
-            stand(f, START, new Vec3(0, -0.005, 0));
+            stand(f, START, Vec3.ZERO);
             release(f, -90.0F, true);
             startGlide(f);
             assertEquals(violations, f.player.checkManager.getCheck(ElytraI.class).violations, 0.0);
@@ -105,7 +104,7 @@ class JavaRiptideGlideStartTest {
         for (int y = 0; y < depth; y++) {
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + y, 0), fluid.defaultState());
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     private static void elytra(JavaTickFixture f) {

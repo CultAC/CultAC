@@ -116,12 +116,8 @@ class ConfigurationPingTimeoutTest {
                 PlatformPlayer platform = mock(PlatformPlayer.class);
                 player.user.bind(platform);
                 player.platformPlayer = platform;
-                // An observing server lets an unanswered player go where another kicks it: the exemption marks the
-                // timeout without a platform to kick through.
-                try (var observing = RecordReceiveFixture.observeOnly(true)) {
+                try {
                     body.accept(player);
-                } catch (Exception failure) {
-                    throw new IllegalStateException(failure);
                 } finally {
                     CultAPI.INSTANCE.getPlayerDataManager().clearExemptions(player.user);
                 }

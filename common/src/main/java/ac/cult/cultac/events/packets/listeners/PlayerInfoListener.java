@@ -19,15 +19,6 @@ import java.util.stream.Collectors;
 
 public class PlayerInfoListener {
     @CultPacketHandler
-    public void onPlayerTeam(
-            PacketSendEvent<ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam> event,
-            CultPlayer player,
-            ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam packet) {
-        if (!player.isBedrockMovement())
-            prove(event, player, () -> player.compensatedEntities.teamCollision.apply(packet));
-    }
-
-    @CultPacketHandler
     public void onPlayerInfoUpdate(
             PacketSendEvent<ClientboundPlayerInfoUpdate> event,
             CultPlayer receiver,
@@ -57,14 +48,12 @@ public class PlayerInfoListener {
 
         EnumSet<Action> strippedActions = EnumSet.copyOf(packet.actions());
         strippedActions.remove(Action.UPDATE_GAME_MODE);
-        var stripped = new ClientboundPlayerInfoUpdate(strippedActions, packet.entries());
-        event.replace(stripped);
-        track(event, receiver, stripped, List.of());
+        event.replace(new ClientboundPlayerInfoUpdate(strippedActions, packet.entries()));
         if (!visibleEntries.isEmpty()) {
             var gameModeUpdate = new ClientboundPlayerInfoUpdate(EnumSet.of(Action.UPDATE_GAME_MODE), visibleEntries);
             event.getTasksAfterSend().add(() -> event.getUser().write(new CultWrite(gameModeUpdate, false)));
         }
-        // The generated UPDATE_GAME_MODE passes through this listener at its own actual wire position.
+        track(event, receiver, packet, visibleEntries);
     }
 
     private static void track(
@@ -77,18 +66,8 @@ public class PlayerInfoListener {
                 || !packet.actions().contains(Action.ADD_PLAYER)
                         && !packet.actions().contains(Action.UPDATE_GAME_MODE)) return;
         Set<UUID> visibleModes = visibleEntries.stream().map(Entry::profileId).collect(Collectors.toUnmodifiableSet());
-        long sequence = receiver.nextImpulseSequence();
-        // This is the outbound local-player lifetime, not hasClientLoaded: packet handlers can write motion
-        // before LocalPlayer#tick is enabled. Capture it here, before later login/configuration writes.
-        boolean localPlayerPresent = event.getPhase() == ac.cult.cultac.protocol.ConnectionPhase.PLAY
-                && receiver.packetStateData.javaLocalPlayerPresent
-                && receiver.getClientVersion().isNewerThanOrEquals(
-                        ac.cult.cultac.network.protocol.ClientVersion.V_1_21_2);
         prove(event, receiver, () -> receiver.compensatedEntities.clientPlayerModes.update(
-                packet, visibleModes, receiver.compensatedEntities.entityMap.values(), (id, mode) -> {
-                    if (localPlayerPresent && receiver.playerUUID.equals(id) && mode == GameMode.SPECTATOR)
-                        receiver.checkManager.getSimulationProcessor().applyPlayerInfoSpectatorReset(sequence);
-                }));
+                packet, visibleModes, receiver.compensatedEntities.entityMap.values()));
     }
 
     /** Applies {@code task} once the client has handled the event's packet, at its flush proof. */

@@ -50,12 +50,9 @@ final class GeyserSprintAttributes {
                 .findFirst()
                 .orElse(null);
         if (movement == null) return true;
-        // Geyser resends its cached movement attribute for a Speed effect, a respawn and a dimension change.
-        // This write runs after source() stored any later Java value, so a resend never replaces that value;
-        // it only seeds a session that has none, and is otherwise re-encoded from the current one.
-        if (Float.isNaN(nonSprintValue))
-            nonSprintValue =
-                    GeyserMovementAttributeCodec.capture(movement).removeSprint().current();
+        // Direct Bedrock updates already describe Bedrock attribute state; Java echoes go through source().
+        nonSprintValue =
+                GeyserMovementAttributeCodec.capture(movement).removeSprint().current();
         packet.setAttributes(packet.getAttributes().stream()
                 .map(a -> a == movement ? GeyserMovementAttributeCodec.encode(attribute(boundary.sprinting())) : a)
                 .toList());

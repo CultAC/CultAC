@@ -22,7 +22,7 @@ public final class LoginCodec implements PacketCodec<ClientboundLogin> {
         int levels = Wire.readLength(input, input.readableBytes());
         for (int i = 0; i < levels; i++) Wire.readIdentifier(input);
         Wire.readVarInt(input); // Maximum players
-        int chunkRadius = Wire.readVarInt(input);
+        Wire.readVarInt(input); // View distance
         Wire.readVarInt(input); // Simulation distance
         input.readBoolean(); // Reduced debug information
         boolean showDeathScreen = input.readBoolean();
@@ -30,8 +30,7 @@ public final class LoginCodec implements PacketCodec<ClientboundLogin> {
         return new ClientboundLogin(
                 playerId,
                 showDeathScreen,
-                SpawnInfoCodec.read(input, context.version().atLeast(ProtocolVersion.V26_3)),
-                chunkRadius);
+                SpawnInfoCodec.read(input, context.version().atLeast(ProtocolVersion.V26_3)));
     }
 
     @Override

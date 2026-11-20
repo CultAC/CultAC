@@ -65,7 +65,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
                         ClientItemUseState.duration(heldStack),
                         !ItemUseInventory.possiblyRefused(player, hand)
                                 && (RiptideUtil.getRiptideLevel(heldStack) <= 0
-                                        || RiptideUtil.inWaterOrRain(player)));
+                                        || RiptideUtil.inWaterOrRain(player).determinePessimistically()));
             return;
         }
         if (canStartUsingItem(heldStack)) {
@@ -84,7 +84,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     }
 
     public void releaseItem() {
-        if (player.usesModernJavaItemUse()) player.clientItemUse.clientReleased();
+        if (player.usesModernJavaItemUse()) player.clientItemUse.release();
         player.packetStateData.setSlowedByUsingItem(false);
     }
 
@@ -116,7 +116,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
                 // TridentItem#use refuses a riptide trident only while !Player#isInWaterOrRain.
                 return !nms.nextDamageWillBreak()
                         && (ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0
-                                || RiptideUtil.inWaterOrRain(player));
+                                || RiptideUtil.inWaterOrRain(player).determineOptimistically());
             }
 
             var consumable = ItemComponents.consumable(nms.components());
@@ -140,7 +140,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
             // TridentItem#use refuses a riptide trident only while !Player#isInWaterOrRain.
             return !nms.nextDamageWillBreak()
                     && (ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0
-                            || RiptideUtil.inWaterOrRain(player));
+                            || RiptideUtil.inWaterOrRain(player).determineOptimistically());
         }
         if (material == ItemTypes.BOW || material == ItemTypes.CROSSBOW) {
             return false;
@@ -225,23 +225,16 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     public void onRespawn() {
         resetItemUse();
         player.packetStateData.setSlowedByUsingItem(false);
-        // ClientPacketListener#handleRespawn constructs a new LocalPlayer.
-        if (!player.isBedrockMovement()) newLocalPlayerState();
     }
 
     /** The Java client constructed another player; accumulated anti-abuse accounting survives. */
     public void onJavaPlayerReplacement() {
         player.clientItemUse.reset();
-        newLocalPlayerState();
+        player.clientItemUse.onNewLocalPlayer();
+        player.checkManager.getCompensatedCooldown().clearPossibleCooldowns();
         // A LocalPlayer's FoodData starts full.
         player.food = 20;
         player.packetStateData.setSlowedByUsingItem(false);
-    }
-
-    /** A new LocalPlayer starts with fresh FoodData and empty ItemCooldowns. */
-    private void newLocalPlayerState() {
-        player.clientItemUse.onNewLocalPlayer();
-        player.checkManager.getCompensatedCooldown().clearForNewLocalPlayer();
     }
 
     private void clearMainHandUseAfterSlotChange() {

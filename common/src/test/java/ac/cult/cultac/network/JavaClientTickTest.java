@@ -11,47 +11,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.checks.Check;
-import ac.cult.cultac.checks.impl.badpackets.BadPacketsV;
-import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
-import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.type.CheckListener;
-import ac.cult.cultac.checks.type.PositionListener;
-import ac.cult.cultac.events.packets.PacketServerRegistries;
-import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
-import ac.cult.cultac.manager.player.CheckManager;
-import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
-import ac.cult.cultac.protocol.packet.Opaque;
-import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
-import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Relative;
-import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 class JavaClientTickTest {
     private static final ServerboundPlayerInput NONE =
@@ -133,402 +113,22 @@ class JavaClientTickTest {
     }
 
     @Test
-    void ticksTheTimerRejectsStillCountTowardThePositionReminder() throws Exception {
-        try (var f = new JavaTickFixture()) {
-            f.player.setExperimentalChecks(true);
-            Vec3 standing = new Vec3(9020.141477520196, FLOOR_Y, 9954.096716503434);
-            floorUnder(f, standing);
-            f.place(standing, Vec3.ZERO);
-            f.player.xRot = -13.647054f;
-            f.player.yRot = 39.60002f;
-            f.input(NONE);
-            move(f, new ServerboundMovePlayer(standing.x, standing.y, standing.z, 0, 0, true, false, true, false));
-            f.tickEnd();
-            // The player's chunk is loaded once a ping after it is answered, so the setback blocks movement.
-            f.pongThrough(f.player.sendTrailingTransaction());
-            DumbTimer dumbTimer = f.player.checkManager.getListener(DumbTimer.class);
-
-            // LocalPlayer#sendPosition advances positionReminder on each of these 19 ticks: bare tick ends, Rot, and
-            // five Rot moves the timer rejects before prediction. The 20th tick sends the unchanged position.
-            float[][] rotations = {
-                null, null, null, null,
-                {-13.197054862976074f, 41.85002517700195f},
-                {-13.347054481506348f, 50.70003128051758f},
-                {-11.697054862976074f, 61.50002670288086f},
-                {-10.647056579589844f, 64.95002746582031f},
-                null,
-                {-10.647056579589844f, 66.00003051757812f},
-                {-10.797056198120117f, 68.25004577636719f},
-                {-10.94705581665039f, 69.60005950927734f},
-                {-11.847053527832031f, 71.55007934570312f},
-                {-12.147052764892578f, 72.15008544921875f},
-                {-12.297052383422852f, 72.30008697509766f},
-                {-12.597051620483398f, 73.05009460449219f},
-                {-12.747051239013672f, 73.35009765625f},
-                {-15.147051811218262f, 75.75011444091797f},
-                {-16.79705047607422f, 77.8501205444336f}
-            };
-            for (int tick = 0; tick < rotations.length; tick++) {
-                float[] rotation = rotations[tick];
-                if (rotation != null) {
-                    boolean rejected = tick >= 14;
-                    if (rejected) JavaTickFixture.setField(DumbTimer.class, dumbTimer, "balance", Double.MAX_VALUE);
-                    var event = move(
-                            f, new ServerboundMovePlayer(0, 0, 0, rotation[0], rotation[1], true, false, false, true));
-                    JavaTickFixture.setField(DumbTimer.class, dumbTimer, "balance", Double.NEGATIVE_INFINITY);
-                    assertEquals(rejected, event.isCancelled(), "tick " + tick);
-                }
-                f.tickEnd();
-            }
-            move(
-                    f,
-                    new ServerboundMovePlayer(
-                            standing.x,
-                            standing.y,
-                            standing.z,
-                            -16.79705047607422f,
-                            78.0001220703125f,
-                            true,
-                            false,
-                            true,
-                            true));
-
-            assertEquals(0, f.player.checkManager.getCheck(BadPacketsV.class).getViolations());
-        }
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void furtherMovesInOneClientTickAdvanceNoPositionReminder(boolean observeOnly) throws Exception {
-        try (var f = new JavaTickFixture();
-                var mode = observeOnly ? JavaTickFixture.observeOnly() : (AutoCloseable) () -> {}) {
-            f.player.setExperimentalChecks(true);
-            f.place(STANDING, Vec3.ZERO);
-            f.input(NONE);
-            f.tick(STANDING, true);
-            f.pongThrough(f.player.sendTrailingTransaction());
-
-            assertFalse(move(f, new ServerboundMovePlayer(0, 0, 0, 1, 0, true, false, false, true)).isCancelled());
-            for (int extra = 0; extra < 18; extra++) {
-                var event = move(f, new ServerboundMovePlayer(0, 0, 0, 2 + extra, 0, true, false, false, true));
-                assertEquals(!observeOnly, event.isCancelled(), "extra move " + extra);
-            }
-            f.tickEnd();
-            move(f, new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, true, false, true, false));
-
-            assertEquals(1, f.player.checkManager.getCheck(BadPacketsV.class).getViolations());
-        }
-    }
-
-    @Test
-    void ticksWithoutMovementCountTowardThePositionReminder() throws Exception {
-        try (var f = new JavaTickFixture()) {
-            f.player.setExperimentalChecks(true);
-            f.place(STANDING, Vec3.ZERO);
-            f.input(NONE);
-            f.tick(STANDING, true);
-            BadPacketsV check = f.player.checkManager.getCheck(BadPacketsV.class);
-            var reminder =
-                    new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, true, false, true, false);
-
-            for (int tick = 0; tick < 19; tick++) f.tickEnd();
-            move(f, reminder);
-            f.tickEnd();
-            assertEquals(0, check.getViolations());
-
-            for (int tick = 0; tick < 18; tick++) f.tickEnd();
-            move(f, reminder);
-            assertEquals(1, check.getViolations());
-        }
-    }
-
-    @Test
-    void bareTicksWhoseEndTheTimerRejectsCountTowardThePositionReminder() throws Exception {
-        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
-            f.player.setExperimentalChecks(true);
-            Vec3 standing = new Vec3(-1742.0905744499437, FLOOR_Y, -3460.2175705758923);
-            floorUnder(f, standing);
-            f.place(standing, Vec3.ZERO);
-            f.player.xRot = 93.874886f;
-            f.player.yRot = 44.193295f;
-            f.input(NONE);
-            var reminder =
-                    new ServerboundMovePlayer(standing.x, standing.y, standing.z, 0, 0, true, false, true, false);
-            move(f, reminder);
-            f.tickEnd();
-            f.pongThrough(f.player.sendTrailingTransaction());
-
-            // Nineteen ticks without movement; the timer rejects the end of the 12th; the 20th sends the position.
-            for (int tick = 0; tick < 19; tick++) {
-                boolean rejected = tick == 11;
-                if (rejected) aheadOfTheClock(f, false);
-                var end = tickEnd(f, false);
-                f.resetTimerBalances();
-                assertEquals(rejected, end.isCancelled(), "tick " + tick);
-            }
-            move(f, reminder);
-
-            assertEquals(0, f.player.checkManager.getCheck(BadPacketsV.class).getViolations());
-        }
-    }
-
-    @ParameterizedTest
-    @ValueSource(ints = {11, 13})
-    void ticksAroundATimerRejectionCountTowardThePositionReminder(int rejectedTick) throws Exception {
-        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
-            f.player.setExperimentalChecks(true);
-            Vec3 standing = new Vec3(-55.07375866570726, FLOOR_Y, 49.04205444707398);
-            floorUnder(f, standing);
-            f.place(standing, Vec3.ZERO);
-            f.player.xRot = -488.04974f;
-            f.player.yRot = 37.26146f;
-            f.input(NONE);
-            move(
-                    f,
-                    new ServerboundMovePlayer(
-                            standing.x,
-                            standing.y,
-                            standing.z,
-                            -508.3454284667969f,
-                            37.414058685302734f,
-                            true,
-                            false,
-                            true,
-                            true));
-            f.tickEnd();
-            f.pongThrough(f.player.sendTrailingTransaction());
-
-            float[][] rotations = {
-                {-521.31640625f, 37.414058685302734f},
-                {-522.5371704101562f, 37.414058685302734f},
-                null,
-                {-522.5371704101562f, 37.26145935058594f},
-                {-521.774169921875f, 35.73546600341797f},
-                {-516.1279907226562f, 31.31007957458496f},
-                {-512.6181030273438f, 28.71588897705078f},
-                {-507.2771301269531f, 25.206098556518555f},
-                {-502.2413330078125f, 22.76450538635254f},
-                {-498.42633056640625f, 21.391111373901367f},
-                {-495.67950439453125f, 20.32291603088379f},
-                {-494.30609130859375f, 20.017717361450195f},
-                {-494.00091552734375f, 19.7125186920166f},
-                null,
-                {-493.69573974609375f, 19.407320022583008f},
-                {-492.9327697753906f, 18.644323348999023f},
-                {-492.0172119140625f, 17.88132667541504f},
-                {-491.5594482421875f, 17.27092933654785f},
-                {-491.2542724609375f, 17.118330001831055f}
-            };
-            for (int tick = 0; tick < rotations.length; tick++) {
-                // TimerCheck rejects the movement of tick 11, which cancels its end, or the end of bare tick 13.
-                boolean rejected = tick == rejectedTick;
-                float[] rotation = rotations[tick];
-                if (rotation != null) {
-                    if (rejected) aheadOfTheClock(f, true);
-                    var event = move(
-                            f, new ServerboundMovePlayer(0, 0, 0, rotation[0], rotation[1], true, false, false, true));
-                    f.resetTimerBalances();
-                    if (rejected) assertTrue(event.isCancelled(), "tick " + tick);
-                } else if (rejected) {
-                    aheadOfTheClock(f, true);
-                }
-                var end = tickEnd(f, false);
-                f.resetTimerBalances();
-                assertEquals(rejected, end.isCancelled(), "tick end " + tick);
-            }
-            move(
-                    f,
-                    new ServerboundMovePlayer(
-                            standing.x,
-                            standing.y,
-                            standing.z,
-                            -490.9490966796875f,
-                            16.965730667114258f,
-                            true,
-                            false,
-                            true,
-                            true));
-
-            assertEquals(0, f.player.checkManager.getCheck(BadPacketsV.class).getViolations());
-        }
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void tickEndsTheTimerRejectsCountOncePerEnd(boolean timerCheck) throws Exception {
-        try (var f = new JavaTickFixture()) {
-            f.player.setExperimentalChecks(true);
-            f.place(STANDING, Vec3.ZERO);
-            f.input(NONE);
-            f.tick(STANDING, true);
-            f.pongThrough(f.player.sendTrailingTransaction());
-            BadPacketsV check = f.player.checkManager.getCheck(BadPacketsV.class);
-            TimerCheck timer = f.player.checkManager.getCheck(TimerCheck.class);
-            var reminder =
-                    new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, true, false, true, false);
-
-            // DumbTimer sets back at its first rejection, which leaves the teleport unanswered for the rest.
-            for (int tick = 0; tick < 18; tick++) {
-                boolean rejected = timerCheck ? tick >= 12 : tick == 12;
-                if (rejected) aheadOfTheClock(f, timerCheck);
-                var end = tickEnd(f, false);
-                f.resetTimerBalances();
-                assertEquals(rejected, end.isCancelled(), "tick " + tick);
-            }
-            if (!timerCheck) assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback());
-            move(f, reminder);
-            f.tickEnd();
-            assertEquals(1, check.getViolations());
-            if (!timerCheck) return;
-
-            double timerViolations = timer.getViolations();
-            for (int tick = 0; tick < 19; tick++) {
-                if (tick >= 13) aheadOfTheClock(f, true);
-                assertEquals(tick >= 13, tickEnd(f, false).isCancelled(), "tick " + tick);
-                f.resetTimerBalances();
-            }
-            move(f, reminder);
-            assertEquals(1, check.getViolations());
-            assertEquals(timerViolations + 6, timer.getViolations());
-        }
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void aTimeoutTickEndAdvancesNoPositionReminder(boolean rejected) throws Exception {
-        try (var f = new JavaTickFixture()) {
-            f.player.setExperimentalChecks(true);
-            f.place(STANDING, Vec3.ZERO);
-            f.input(NONE);
-            f.tick(STANDING, true);
-            f.pongThrough(f.player.sendTrailingTransaction());
-
-            for (int tick = 0; tick < 18; tick++) f.tickEnd();
-            if (rejected) aheadOfTheClock(f, false);
-            assertEquals(rejected, tickEnd(f, true).isCancelled());
-            f.resetTimerBalances();
-            move(f, new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, true, false, true, false));
-
-            assertEquals(1, f.player.checkManager.getCheck(BadPacketsV.class).getViolations());
-        }
-    }
-
-    /** Puts TimerCheck, or else DumbTimer, ahead of the clock until {@link JavaTickFixture#resetTimerBalances}. */
-    private static void aheadOfTheClock(JavaTickFixture f, boolean timerCheck) throws Exception {
-        if (timerCheck) {
-            TimerCheck timer = f.player.checkManager.getCheck(TimerCheck.class);
-            JavaTickFixture.setField(Check.class, timer, "isEnabled", true);
-            JavaTickFixture.setField(AbstractTimerCheck.class, timer, "timerBalanceRealTime", Long.MAX_VALUE / 2);
-        } else {
-            DumbTimer timer = f.player.checkManager.getListener(DumbTimer.class);
-            JavaTickFixture.setField(DumbTimer.class, timer, "balance", Double.MAX_VALUE);
-        }
-    }
-
-    private static PacketReceiveEvent<Opaque> tickEnd(JavaTickFixture f, boolean synthetic) {
-        var event = new PacketReceiveEvent<>(
-                f.fixture.user,
-                ConnectionPhase.PLAY,
-                ServerboundPackets.CLIENT_TICK_END,
-                ServerboundPackets.CLIENT_TICK_END.opaqueValue(),
-                synthetic);
-        CheckManagerListener.processClientTickEndReceive(event, f.player);
-        return event;
-    }
-
-    /**
-     * ClientPacketListener#handleLogin creates a LocalPlayer after a reconfiguration, and its xLast and
-     * positionReminder start at zero; a LOGIN that keeps the LocalPlayer keeps both.
-     */
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void aLoginsNewLocalPlayerSendsItsFirstPositionAgainstAnEmptyCache(boolean reconfigured) throws Exception {
-        try (var f = new JavaTickFixture()) {
-            f.player.setExperimentalChecks(true);
-            f.pongThrough(ItemUseTestSupport.login(f.player, GameMode.SURVIVAL));
-            floorUnder(f, STANDING);
-            f.player.packetStateData.playerLoadedIntoLevel = true;
-            f.teleport(STANDING, new RelativeFlag(0));
-            f.place(STANDING, Vec3.ZERO);
-            f.input(NONE);
-            f.tick(STANDING, true);
-            BadPacketsV check = f.player.checkManager.getCheck(BadPacketsV.class);
-            assertEquals(0, check.getViolations());
-
-            if (reconfigured) finishConfiguration(f);
-            f.pongThrough(ItemUseTestSupport.login(f.player, GameMode.SURVIVAL));
-            floorUnder(f, STANDING);
-            f.teleport(new Vec3(-3.4838760496460055, FLOOR_Y, 31.25099413056115), new RelativeFlag(0));
-            f.teleport(STANDING, new RelativeFlag(0));
-            for (int tick = 0; tick < 11; tick++) f.tickEnd();
-            f.player.packetStateData.playerLoadedIntoLevel = true;
-            move(f, new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, false, false, true, false));
-
-            assertEquals(reconfigured ? 0 : 1, check.getViolations());
-
-            // The first position fills the empty cache: an unchanged one on the next tick is no reminder.
-            f.tickEnd();
-            move(f, new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, true, false, true, false));
-            assertEquals(reconfigured ? 1 : 2, check.getViolations());
-        }
-    }
-
-    private static void finishConfiguration(JavaTickFixture f) {
-        var type = ClientboundPackets.FINISH_CONFIGURATION;
-        var finish = new PacketSendEvent<>(f.player.user, ConnectionPhase.CONFIGURATION, type, new Opaque(type), false);
-        new PacketServerRegistries().onFinishConfiguration(finish, f.player, new Opaque(type));
-        finish.getTasksAfterSend().forEach(Runnable::run);
-    }
-
-    private static PacketReceiveEvent<ServerboundMovePlayer> move(JavaTickFixture f, ServerboundMovePlayer packet) {
-        var event = f.event(ServerboundPackets.MOVE_PLAYER, packet);
-        f.listener.onMovePlayer(event, f.player, packet);
-        return event;
-    }
-
-    private static void floorUnder(JavaTickFixture f, Vec3 position) {
-        int blockX = (int) Math.floor(position.x);
-        int blockZ = (int) Math.floor(position.z);
-        for (int x = (blockX >> 4) - 1; x <= (blockX >> 4) + 1; x++) {
-            for (int z = (blockZ >> 4) - 1; z <= (blockZ >> 4) + 1; z++) {
-                f.player.compensatedWorld.ensureValidationChunkLoaded(x, z);
-            }
-        }
-        for (int x = blockX - 8; x <= blockX + 8; x++) {
-            for (int z = blockZ - 8; z <= blockZ + 8; z++) {
-                f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.STONE.defaultState());
-            }
-        }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
-    }
-
-    @Test
     void aFarTeleportAcceptanceReachesPositionListenersAtItsTarget() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.place(STANDING, Vec3.ZERO);
             f.input(NONE);
             f.tick(STANDING, true);
-            List<PositionUpdate> updates = new ArrayList<>();
-            Field listeners = CheckManager.class.getDeclaredField("positionUpdateListeners");
-            listeners.setAccessible(true);
-            CheckListener[] registered = (CheckListener[]) listeners.get(f.player.checkManager);
-            CheckListener[] probed = Arrays.copyOf(registered, registered.length + 1);
-            probed[registered.length] = new PositionListener() {
-                @Override
-                public void onPositionUpdate(PositionUpdate update) {
-                    updates.add(update);
-                }
-            };
-            listeners.set(f.player.checkManager, probed);
+            DumbTimer dumbTimer = f.player.checkManager.getListener(DumbTimer.class);
+            Field lastLongTeleport = DumbTimer.class.getDeclaredField("lastLongTeleport");
+            lastLongTeleport.setAccessible(true);
 
-            // 26.3 sends no PosRot after the acceptance; position listeners still see the teleport.
+            // 26.3 sends no PosRot after the acceptance; DumbTimer's long-teleport window still opens.
             Vec3 far = new Vec3(1_000.5, FLOOR_Y, 1_000.5);
+            long beforeTeleport = System.nanoTime();
             f.teleport(far, new RelativeFlag(0));
 
-            assertTrue(
-                    updates.stream().anyMatch(update -> update.getTeleportData().isTeleport()
-                            && far.equals(update.getTo())),
-                    "no position listener saw the teleport at its target");
+            // Only DumbTimer#onPositionUpdate's long-teleport branch moves this past the construction time.
+            assertTrue(lastLongTeleport.getDouble(dumbTimer) >= beforeTeleport);
             assertEquals(
                     far, f.player.getSetbackTeleportUtil().safePosition().getPos());
             assertEquals(far.x, f.player.x, 0);
@@ -688,7 +288,7 @@ class JavaClientTickTest {
             BlockPos broken = new BlockPos(3, FLOOR_Y, 0);
             world.updateBlock(broken, BlockIds.STONE.defaultState());
 
-            world.advanceClientPredictionSequence(1);
+            world.advanceClientPredictionSequence();
             world.startPredicting();
             world.updateBlock(broken, BlockIds.AIR.defaultState());
             world.stopPredicting(1);

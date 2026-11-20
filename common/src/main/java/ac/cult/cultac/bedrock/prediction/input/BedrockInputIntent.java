@@ -1,7 +1,5 @@
 package ac.cult.cultac.bedrock.prediction.input;
 
-import java.util.Set;
-
 public record BedrockInputIntent(
         JumpIntent jump,
         PoseIntent pose,
@@ -38,8 +36,7 @@ public record BedrockInputIntent(
                         frame.inputData().contains("ASCEND_BLOCK"),
                         frame.inputData().contains("DESCEND"),
                         frame.inputData().contains("SNEAK_DOWN"),
-                        frame.inputData().contains("WANT_DOWN"),
-                        descendsThroughBlock(frame.inputData())),
+                        frame.inputData().contains("WANT_DOWN")),
                 new SprintIntent(
                         frame.inputData().contains("SPRINTING"),
                         frame.inputData().contains("START_SPRINTING"),
@@ -55,19 +52,6 @@ public record BedrockInputIntent(
                         frame.inputData().contains("STOP_SPIN_ATTACK"),
                         frame.inputData().contains("SERVER_USING_ITEM")),
                 frame.swimmingRequested());
-    }
-
-    /** The descent through the block under the feet has its own control in each input mode. */
-    private static boolean descendsThroughBlock(Set<String> inputData) {
-        return switch (BedrockInputMode.of(inputData)) {
-            case MOUSE -> inputData.contains("SNEAKING");
-            case TOUCH -> inputData.contains("DESCEND_BLOCK");
-            case GAMEPAD ->
-                inputData.contains("SNEAK_TOGGLE_DOWN")
-                        && inputData.contains("SNEAKING")
-                        && inputData.contains("SNEAK_DOWN");
-            case OTHER -> false;
-        };
     }
 
     public record JumpIntent(boolean start, boolean held) {}
@@ -91,13 +75,7 @@ public record BedrockInputIntent(
     }
 
     public record VerticalIntent(
-            boolean wantUp,
-            boolean ascend,
-            boolean ascendBlock,
-            boolean descend,
-            boolean sneakDown,
-            boolean wantDown,
-            boolean descendThroughBlock) {
+            boolean wantUp, boolean ascend, boolean ascendBlock, boolean descend, boolean sneakDown, boolean wantDown) {
         public boolean upwardClimbInput(boolean jumping) {
             return upwardInput(jumping) || ascend || ascendBlock;
         }

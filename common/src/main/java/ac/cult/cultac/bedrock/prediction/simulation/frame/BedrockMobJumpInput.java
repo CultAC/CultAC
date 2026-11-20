@@ -15,9 +15,7 @@ record BedrockMobJumpInput(
             BedrockTravelInput input, BedrockFrameFacts frameFacts, BedrockLiquidJumpContact liquidJumpContact) {
         BedrockSwimmingMovement.SwimmingState swimming = frameFacts.swimming();
         BedrockClimbState climb = frameFacts.climb();
-        // Held jump feeds flight ascent while flying. The water-flight captures show
-        // no additional swim-up impulse, so ordinary mob-jump branches stay inactive.
-        boolean jumping = input.inputFrame().jumping() && !frameFacts.context().movementAbilityFlying();
+        boolean jumping = input.inputFrame().jumping();
         boolean inWater = frameFacts.inWater();
         boolean inLava = frameFacts.inLava();
         boolean swimmingAfterActions = swimming.actorStateAfterActions();
@@ -25,33 +23,31 @@ record BedrockMobJumpInput(
         return new BedrockMobJumpInput(
                 jumping,
                 autoSurfaceSwim(liquidJumpContact, swimmingAfterActions),
-                swimTransition(swimming),
+                swimTransition(input, swimming, liquidJumpContact),
                 scaffoldingOrAscendableBlock(input, climb),
                 climb.climbable().ascending() || frameFacts.rawPowderSnowAtFeetAscendable(),
                 nonSwimmerSwimUp(liquidJumpContact),
                 liquidJumpContact.lavaSwimUpApplies(),
-                groundJumpRequest(input, frameFacts, inWater, inLava));
+                BedrockLocalPlayerJumpMovement.requestedLaunch(
+                        input.previousState(),
+                        input.inputFrame(),
+                        inWater,
+                        inLava,
+                        climb.inScaffolding(),
+                        swimming.swimAmount()));
     }
 
-    private static boolean groundJumpRequest(
-            BedrockTravelInput input, BedrockFrameFacts frameFacts, boolean inWater, boolean inLava) {
-        return BedrockLocalPlayerJumpMovement.requestedLaunch(
-                input.previousState(),
-                input.inputFrame(),
-                inWater,
-                inLava,
-                frameFacts.climb().inScaffolding(),
-                frameFacts.swimming().swimAmount());
-    }
-
-    // Held jump is withheld while the swimmer's head is out of water or the swim
-    // pose is still blending, in any medium.
     private static boolean autoSurfaceSwim(BedrockLiquidJumpContact liquidJumpContact, boolean swimmingAfterActions) {
-        return swimmingAfterActions && !liquidJumpContact.waterHeadInWater();
+        return liquidJumpContact.waterSwimUpApplies() && swimmingAfterActions && !liquidJumpContact.waterHeadInWater();
     }
 
-    private static boolean swimTransition(BedrockSwimmingMovement.SwimmingState swimming) {
-        return swimming.swimAmount() > 0.0D && swimming.swimAmount() < FULL_SWIM_AMOUNT;
+    private static boolean swimTransition(
+            BedrockTravelInput input,
+            BedrockSwimmingMovement.SwimmingState swimming,
+            BedrockLiquidJumpContact liquidJumpContact) {
+        return liquidJumpContact.waterSwimUpApplies()
+                && swimming.swimAmount() > 0.0D
+                && swimming.swimAmount() < FULL_SWIM_AMOUNT;
     }
 
     private static boolean scaffoldingOrAscendableBlock(BedrockTravelInput input, BedrockClimbState climb) {

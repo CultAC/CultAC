@@ -23,8 +23,7 @@ public class PacketPlayerSteer {
         ServerboundPlayerInput input = packet;
         // Vanilla sends input only when key state changes; keep the latest raw state even before mounting.
         // Living vehicles read the KeyboardInput impulses (xxa/zza), where opposing keys cancel.
-        // AbstractBoat#setInput instead receives the raw key bits, kept in nextVehicleKeys until a ridden tick end
-        // gives them to the steered boat (BoatData#onClientTickEnd).
+        // AbstractBoat#setInput instead receives the raw key bits, kept separately in vehicleKeys.
         KnownInput vehicleKeys = new KnownInput(
                 input.forward(),
                 input.backward(),
@@ -61,6 +60,7 @@ public class PacketPlayerSteer {
             player.boatData.vehicleHoriz = vehicleHoriz;
             player.boatData.vehicleForward = vehicleForward;
             player.boatData.vehicleJump = vehicleJump;
+            player.boatData.vehicleKeys = vehicleKeys;
         }
     }
 }

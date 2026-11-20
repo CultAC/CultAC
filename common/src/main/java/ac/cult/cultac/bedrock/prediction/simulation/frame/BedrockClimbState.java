@@ -13,16 +13,9 @@ public record BedrockClimbState(
         return surface.climbing();
     }
 
-    /**
-     * A descent in or over scaffolding drags its descend velocity and takes no gravity; one into powder snow does not.
-     */
-    public boolean descendingThroughScaffolding() {
-        return scaffolding.descendingThroughBlock() && (inScaffolding() || surface.overScaffolding());
-    }
-
-    /** The climbable block at the centre of the feet caps a fall, whatever scaffolding the box reaches. */
     public boolean fallClampApplies(Vec3d baseVelocity) {
-        return surface.climbableAtFeet()
+        return climbing()
+                && !inScaffolding()
                 && !surface.fluidSuppressesFallClamp()
                 && !climbable.holdingSneak()
                 && baseVelocity.y() < BedrockClimbMovement.CLIMBABLE_MAX_FALL_SPEED;

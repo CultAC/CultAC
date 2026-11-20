@@ -77,7 +77,7 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 tickers,
                 blockEntities,
                 biomes,
-                packet.motionBlockingValues());
+                packet.motionBlocking());
     }
 
     private static int biomeRegistrySize(CultPlayer player) {

@@ -86,7 +86,6 @@ final class BedrockPistonArmCollisionShape {
         }
     }
 
-    /** The arm's boxes, relative to its piston's cell, with the piston at {@code progress}. */
     static List<BlockAabb> collisionAabbs(FacingDirection facingDirection, double progress) {
         FacingDirection direction = Objects.requireNonNull(facingDirection, "facingDirection");
         validateProgress(progress);

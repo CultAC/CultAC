@@ -71,7 +71,7 @@ class SupportSearchEquivalenceTest {
                             }
                         }
                     }
-                    for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
+                    for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
                 }
 
                 player.x = random.nextDouble(-3.0, 5.0);

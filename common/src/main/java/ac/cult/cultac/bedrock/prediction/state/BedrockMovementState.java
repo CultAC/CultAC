@@ -13,26 +13,13 @@ import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
 import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
-import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
-import java.util.List;
 import java.util.Objects;
 
 public record BedrockMovementState(
-        Motion motion, ActorState actor, TickMemory memory, TickStart tickStart, BedrockActorAttributes attributes) {
-    /**
-     * How the actor's next tick starts. A handled teleport places it, and the tick runs no travel. A vehicle the client
-     * starts predicting while it still lerps toward a move takes that lerp step first: it drops the motion the tick
-     * carries in, and the rest of the tick runs as usual.
-     */
-    public enum TickStart {
-        MOVE,
-        TELEPORT,
-        LERP_STEP
-    }
-
+        Motion motion, ActorState actor, TickMemory memory, boolean hasTeleported, BedrockActorAttributes attributes) {
     public BedrockMovementState(Motion motion, ActorState actor, TickMemory memory, boolean hasTeleported) {
-        this(motion, actor, memory, hasTeleported ? TickStart.TELEPORT : TickStart.MOVE, BedrockActorAttributes.EMPTY);
+        this(motion, actor, memory, hasTeleported, BedrockActorAttributes.EMPTY);
     }
 
     public BedrockMovementState(Motion motion, ActorState actor, TickMemory memory) {
@@ -43,7 +30,6 @@ public record BedrockMovementState(
         Objects.requireNonNull(motion, "motion");
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(memory, "memory");
-        Objects.requireNonNull(tickStart, "tickStart");
         Objects.requireNonNull(attributes, "attributes");
         if (motion.collisionBox() == null) {
             motion = motion.withCollisionBox(BedrockActorBox.create(
@@ -137,31 +123,6 @@ public record BedrockMovementState(
                         BedrockDolphinBoost.INITIAL));
     }
 
-    /** How many moves in a row, up to two, overlapped a shape they met. */
-    public int penetratingMoves() {
-        return memory.penetratingMoves();
-    }
-
-    /** Counts the move just made: one that overlapped any shape it met extends the run, any other ends it. */
-    public BedrockMovementState withPenetratingMove(boolean penetrating) {
-        int value = penetrating ? Math.min(memory.penetratingMoves() + 1, 2) : 0;
-        return new BedrockMovementState(motion, actor, memory.withPenetratingMoves(value), tickStart, attributes);
-    }
-
-    /**
-     * The boxes of the doors, trapdoors and fence gates whose cell the actor's box has reached and that its box has
-     * overlapped at every tick since. A block shape inside one of them does not push the actor out.
-     */
-    public List<WorldCollisionBox> oneWayBoxes() {
-        return memory.oneWayBoxes();
-    }
-
-    public BedrockMovementState withOneWayBoxes(List<WorldCollisionBox> boxes) {
-        return boxes.equals(oneWayBoxes())
-                ? this
-                : new BedrockMovementState(motion, actor, memory.withOneWayBoxes(boxes), tickStart, attributes);
-    }
-
     public BedrockCoordinateFrame coordinateFrame() {
         return motion.coordinateFrame();
     }
@@ -189,7 +150,7 @@ public record BedrockMovementState(
                         collisionBox()),
                 actor,
                 memory,
-                tickStart,
+                hasTeleported,
                 attributes);
     }
 
@@ -225,18 +186,6 @@ public record BedrockMovementState(
         Vec3d position =
                 BedrockPositionTranslator.normalizePhysicalFeetPosition(feet, coordinateFrame(), packetYOffset());
         return withMotion(motion.withPosition(position, displacementSquared, lastPhysicalDisplacement()));
-    }
-
-    /**
-     * Places the actor where the engine decided it is, which need not be where its own sweep ended. The collision
-     * box is the actor's real extent and the next sweep starts from it, so it moves by the same displacement.
-     */
-    public BedrockMovementState withRelocatedPosition(Vec3d feet, double displacementSquared) {
-        Vec3d position =
-                BedrockPositionTranslator.normalizePhysicalFeetPosition(feet, coordinateFrame(), packetYOffset());
-        return withMotion(motion.withPosition(position, displacementSquared, lastPhysicalDisplacement())
-                .withCollisionBox(BedrockActorBox.move(
-                        collisionBox(), position.subtract(physicalFeetPosition()), coordinateFrame())));
     }
 
     public BedrockMovementState withExternalDisplacement(Vec3d movement) {
@@ -303,16 +252,6 @@ public record BedrockMovementState(
         return memory.fallFlyTicks();
     }
 
-    public int geyserBoostTicks() {
-        return memory.geyserBoostTicks();
-    }
-
-    public BedrockMovementState withGeyserBoostTicks(int ticks) {
-        return ticks == geyserBoostTicks()
-                ? this
-                : new BedrockMovementState(motion, actor, memory.withGeyserBoostTicks(ticks), tickStart, attributes);
-    }
-
     public float fallDistance() {
         return memory.fallDistance();
     }
@@ -341,14 +280,6 @@ public record BedrockMovementState(
         return memory.cameraWater();
     }
 
-    public float sneakMoveScale() {
-        return memory.sneakMoveScale();
-    }
-
-    public BedrockMovementState withSneakMoveScale(float value) {
-        return new BedrockMovementState(motion, actor, memory.withSneakMoveScale(value), tickStart, attributes);
-    }
-
     public BedrockMovementState withAcknowledgedPose(Boolean crawling, Boolean swimming, Boolean spinning) {
         PoseState pose = actor.pose();
         ActorState nextActor = actor.copy(
@@ -360,7 +291,7 @@ public record BedrockMovementState(
                         pose.itemUseSlowdownActive()),
                 actor.travel());
         return new BedrockMovementState(
-                motion, nextActor, spinning == null ? memory : memory.withSpin(spinning), tickStart, attributes);
+                motion, nextActor, spinning == null ? memory : memory.withSpin(spinning), hasTeleported, attributes);
     }
 
     public long riptideChargeTicks() {
@@ -503,35 +434,15 @@ public record BedrockMovementState(
     }
 
     public BedrockMovementState withDolphinBoost(BedrockDolphinBoost value) {
-        return new BedrockMovementState(motion, actor, memory.withDolphinBoost(value), tickStart, attributes);
+        return new BedrockMovementState(motion, actor, memory.withDolphinBoost(value), hasTeleported, attributes);
     }
 
     public BedrockMovementState withCameraWater(BedrockCameraWaterState value) {
-        return new BedrockMovementState(motion, actor, memory.withCameraWater(value), tickStart, attributes);
-    }
-
-    public boolean hasTeleported() {
-        return tickStart == TickStart.TELEPORT;
+        return new BedrockMovementState(motion, actor, memory.withCameraWater(value), hasTeleported, attributes);
     }
 
     public BedrockMovementState withTeleportPending() {
-        return hasTeleported() ? this : new BedrockMovementState(motion, actor, memory, TickStart.TELEPORT, attributes);
-    }
-
-    /** No ground contact and the air branch; velocity and position unchanged. */
-    public BedrockMovementState offGround() {
-        return withVelocityAndCollisionFlags(velocity(), BedrockCollisionFlags.AIR).withMovementBranch(Medium.AIR);
-    }
-
-    public BedrockMovementState withTeleportTaken() {
-        return hasTeleported() ? new BedrockMovementState(motion, actor, memory, TickStart.MOVE, attributes) : this;
-    }
-
-    /** The tick takes the actor's remaining lerp step before its move; a pending teleport still places it. */
-    public BedrockMovementState withLerpStep() {
-        return tickStart != TickStart.MOVE
-                ? this
-                : new BedrockMovementState(motion, actor, memory, TickStart.LERP_STEP, attributes);
+        return hasTeleported ? this : new BedrockMovementState(motion, actor, memory, true, attributes);
     }
 
     public BedrockMovementState withMovementBranch(Medium movementBranch) {
@@ -554,12 +465,7 @@ public record BedrockMovementState(
             TickMemory memory,
             boolean hasTeleported,
             BedrockMovementAttributeState movementAttribute) {
-        this(
-                motion,
-                actor,
-                memory,
-                hasTeleported ? TickStart.TELEPORT : TickStart.MOVE,
-                BedrockActorAttributes.EMPTY.withMovement(movementAttribute));
+        this(motion, actor, memory, hasTeleported, BedrockActorAttributes.EMPTY.withMovement(movementAttribute));
     }
 
     public BedrockMovementAttributeState movementAttribute() {
@@ -567,7 +473,7 @@ public record BedrockMovementState(
     }
 
     public BedrockMovementState withAttributes(BedrockActorAttributes value) {
-        return new BedrockMovementState(motion, actor, memory, tickStart, value);
+        return new BedrockMovementState(motion, actor, memory, hasTeleported, value);
     }
 
     public BedrockMovementState withMovementAttribute(BedrockMovementAttributeState attribute) {
@@ -656,14 +562,8 @@ public record BedrockMovementState(
                         coordinateFrame()),
                 actor,
                 memory.withFallDistance(0.0F),
-                TickStart.TELEPORT,
+                true,
                 attributes);
-    }
-
-    /** A dimension change puts the actor at its position at rest; unlike a teleport, its next actor tick travels. */
-    public BedrockMovementState afterDimensionChange(Vec3d physicalFeetPosition) {
-        BedrockMovementState placed = afterServerTeleport(physicalFeetPosition, Vec3d.ZERO);
-        return new BedrockMovementState(placed.motion, placed.actor, placed.memory, tickStart, placed.attributes);
     }
 
     public BedrockMovementState withPhysicalFeetPosition(Vec3d physicalFeetPosition, Vec3d lastPhysicalDisplacement) {
@@ -679,7 +579,7 @@ public record BedrockMovementState(
                 motion,
                 actor.withGliding(gliding, gliding),
                 memory.withFallFlyTicks(gliding ? fallFlyTicks() : 0L),
-                tickStart,
+                hasTeleported,
                 attributes);
     }
 
@@ -710,10 +610,6 @@ public record BedrockMovementState(
 
     public BedrockMovementState withClimbableContact(BedrockClimbableContact contact) {
         return withActor(actor.withClimbableContact(contact));
-    }
-
-    public BedrockMovementState withClimberFlags(BedrockClimberFlags flags) {
-        return withClimbableContact(climbableContact().withActorFlags(flags));
     }
 
     public BedrockMovementState advance(BedrockMovementUpdate update) {
@@ -765,17 +661,13 @@ public record BedrockMovementState(
                         frame.sneaking() ? sneakingTicks() + 1L : 0L,
                         update.itemUse().slowdownTicks(),
                         dolphinBoost(),
-                        cameraWater(),
-                        sneakMoveScale(),
-                        penetratingMoves(),
-                        geyserBoostTicks(),
-                        oneWayBoxes()),
-                TickStart.MOVE,
+                        cameraWater()),
+                false,
                 attributes);
     }
 
     private BedrockMovementState withMotion(Motion motion) {
-        return new BedrockMovementState(motion, actor, memory, tickStart, attributes);
+        return new BedrockMovementState(motion, actor, memory, hasTeleported, attributes);
     }
 
     private BedrockMovementState withActor(ActorState actor) {
@@ -783,7 +675,7 @@ public record BedrockMovementState(
                 ? motion
                 : motion.withCollisionBox(BedrockActorBox.resize(
                         collisionBox(), physicalFeetPosition(), actor.playerDimensions(), coordinateFrame()));
-        return new BedrockMovementState(next, actor, memory, tickStart, attributes);
+        return new BedrockMovementState(next, actor, memory, hasTeleported, attributes);
     }
 
     private static long initialSneakingTicks(BedrockInputFrame frame) {
@@ -1067,9 +959,8 @@ public record BedrockMovementState(
 
         ContactState withDescendAllowed(boolean value) {
             return withClimbableContact(new BedrockClimbableContact(
-                    climbableContact.ladder(),
+                    climbableContact.climbing(),
                     climbableContact.scaffolding(),
-                    climbableContact.overScaffolding(),
                     value,
                     climbableContact.ascendableBlock()));
         }
@@ -1120,48 +1011,7 @@ public record BedrockMovementState(
             long sneakingTicks,
             long itemUseSlowdownTicks,
             BedrockDolphinBoost dolphinBoost,
-            BedrockCameraWaterState cameraWater,
-            float sneakMoveScale,
-            int penetratingMoves,
-            int geyserBoostTicks,
-            List<WorldCollisionBox> oneWayBoxes) {
-        /** The client starts with the plain sneaking move scale until its sneaking system first writes one. */
-        public static final float DEFAULT_SNEAK_MOVE_SCALE = 0.3F;
-
-        public TickMemory(
-                long simulationTick,
-                long powderSnowTicks,
-                long fallFlyTicks,
-                float fallDistance,
-                double swimAmount,
-                long riptideChargeTicks,
-                boolean riptideSpinActive,
-                long riptideSpinTicks,
-                long sneakingTicks,
-                long itemUseSlowdownTicks,
-                BedrockDolphinBoost dolphinBoost,
-                BedrockCameraWaterState cameraWater,
-                float sneakMoveScale,
-                int penetratingMoves) {
-            this(
-                    simulationTick,
-                    powderSnowTicks,
-                    fallFlyTicks,
-                    fallDistance,
-                    swimAmount,
-                    riptideChargeTicks,
-                    riptideSpinActive,
-                    riptideSpinTicks,
-                    sneakingTicks,
-                    itemUseSlowdownTicks,
-                    dolphinBoost,
-                    cameraWater,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    0,
-                    List.of());
-        }
-
+            BedrockCameraWaterState cameraWater) {
         public TickMemory(
                 long simulationTick,
                 long powderSnowTicks,
@@ -1186,17 +1036,12 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    BedrockCameraWaterState.INITIAL,
-                    DEFAULT_SNEAK_MOVE_SCALE,
-                    0);
+                    BedrockCameraWaterState.INITIAL);
         }
 
         public TickMemory {
             Objects.requireNonNull(dolphinBoost, "dolphinBoost");
             Objects.requireNonNull(cameraWater, "cameraWater");
-            oneWayBoxes = List.copyOf(oneWayBoxes);
-            if (geyserBoostTicks < -1)
-                throw new IllegalArgumentException("geyser boost ticks must be -1 or non-negative");
             requireNonNegative("simulationTick", simulationTick);
             requireNonNegative("powderSnowTicks", powderSnowTicks);
             requireNonNegative("fallFlyTicks", fallFlyTicks);
@@ -1228,11 +1073,7 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    cameraWater,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    geyserBoostTicks,
-                    oneWayBoxes);
+                    cameraWater);
         }
 
         TickMemory withFallDistance(float value) {
@@ -1248,11 +1089,7 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    cameraWater,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    geyserBoostTicks,
-                    oneWayBoxes);
+                    cameraWater);
         }
 
         TickMemory withItemUseSlowdownTicks(long value) {
@@ -1268,11 +1105,7 @@ public record BedrockMovementState(
                     sneakingTicks,
                     value,
                     dolphinBoost,
-                    cameraWater,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    geyserBoostTicks,
-                    oneWayBoxes);
+                    cameraWater);
         }
 
         TickMemory withDolphinBoost(BedrockDolphinBoost value) {
@@ -1288,11 +1121,7 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     value,
-                    cameraWater,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    geyserBoostTicks,
-                    oneWayBoxes);
+                    cameraWater);
         }
 
         TickMemory withCameraWater(BedrockCameraWaterState value) {
@@ -1308,11 +1137,7 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    value,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    geyserBoostTicks,
-                    oneWayBoxes);
+                    value);
         }
 
         TickMemory withSpin(boolean value) {
@@ -1328,91 +1153,7 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    cameraWater,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    geyserBoostTicks,
-                    oneWayBoxes);
-        }
-
-        TickMemory withSneakMoveScale(float value) {
-            return new TickMemory(
-                    simulationTick,
-                    powderSnowTicks,
-                    fallFlyTicks,
-                    fallDistance,
-                    swimAmount,
-                    riptideChargeTicks,
-                    riptideSpinActive,
-                    riptideSpinTicks,
-                    sneakingTicks,
-                    itemUseSlowdownTicks,
-                    dolphinBoost,
-                    cameraWater,
-                    value,
-                    penetratingMoves,
-                    geyserBoostTicks,
-                    oneWayBoxes);
-        }
-
-        TickMemory withPenetratingMoves(int value) {
-            return new TickMemory(
-                    simulationTick,
-                    powderSnowTicks,
-                    fallFlyTicks,
-                    fallDistance,
-                    swimAmount,
-                    riptideChargeTicks,
-                    riptideSpinActive,
-                    riptideSpinTicks,
-                    sneakingTicks,
-                    itemUseSlowdownTicks,
-                    dolphinBoost,
-                    cameraWater,
-                    sneakMoveScale,
-                    value,
-                    geyserBoostTicks,
-                    oneWayBoxes);
-        }
-
-        TickMemory withGeyserBoostTicks(int value) {
-            return new TickMemory(
-                    simulationTick,
-                    powderSnowTicks,
-                    fallFlyTicks,
-                    fallDistance,
-                    swimAmount,
-                    riptideChargeTicks,
-                    riptideSpinActive,
-                    riptideSpinTicks,
-                    sneakingTicks,
-                    itemUseSlowdownTicks,
-                    dolphinBoost,
-                    cameraWater,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    value,
-                    oneWayBoxes);
-        }
-
-        TickMemory withOneWayBoxes(List<WorldCollisionBox> value) {
-            return new TickMemory(
-                    simulationTick,
-                    powderSnowTicks,
-                    fallFlyTicks,
-                    fallDistance,
-                    swimAmount,
-                    riptideChargeTicks,
-                    riptideSpinActive,
-                    riptideSpinTicks,
-                    sneakingTicks,
-                    itemUseSlowdownTicks,
-                    dolphinBoost,
-                    cameraWater,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    geyserBoostTicks,
-                    value);
+                    cameraWater);
         }
 
         private static void requireNonNegative(String name, long value) {

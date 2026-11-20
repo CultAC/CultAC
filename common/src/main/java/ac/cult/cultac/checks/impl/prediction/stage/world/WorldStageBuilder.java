@@ -4,15 +4,12 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
-import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActors;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
@@ -25,9 +22,9 @@ import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
@@ -41,7 +38,6 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
-import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.FluidTypeFlowing;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
@@ -54,6 +50,13 @@ import lombok.Data;
 import org.jetbrains.annotations.Nullable;
 
 public class WorldStageBuilder {
+    // Temporary Bedrock push-out approximation, inset on every face.
+    // prevents exploits due to incomplete phase check
+    // bedrock client sends pos as (minX + maxX) / 2 and doesn't rebase bounding box on position like java client
+    // causing floating point inaccuracies. Yes, this causes falses, but I'm not sure how to fix bedrock's
+    // floating point inprecision is any decent way... perhaps looking at the many bounding boxes that can send
+    // the position and picking the one at the end of the tick that doesn't intersect with any new block collisions?
+    private static final double BEDROCK_PUSH_OUT_INSET = 0.002D;
     private static final BlockRegistry BLOCKS = DataTables.defaults().registry();
     private static final Direction[] HORIZONTAL_ESCAPES = {
         Direction.WEST, Direction.EAST, Direction.NORTH, Direction.SOUTH
@@ -91,30 +94,6 @@ public class WorldStageBuilder {
     private int pushingTickingAfterPlayer;
     private int ridersTickingAfterPlayer;
 
-    /**
-     * Whether the moving entity can be on a climbable: the player itself, or a ridden pig, strider or nautilus, which
-     * keep LivingEntity#onClimbable. AbstractHorse and HappyGhast override it to return false.
-     */
-    public static boolean canClimb(PacketEntity vehicle) {
-        return vehicle == null
-                || vehicle instanceof PacketEntityStrider
-                || vehicle instanceof PacketEntityNautilus
-                || vehicle.type == EntityTypeIds.PIG;
-    }
-
-    /** The climbable state at one Entity#move endpoint, before any later block-entity shove. */
-    public static DesyncStatus climbingAtPosition(CultPlayer player, SimulationContext context, Vec3 position) {
-        if (!canClimb(context.getVehicle())) return DesyncStatus.FALSE;
-        DesyncStatus climbing =
-                DesyncStatus.fromBoolean(Collisions.onClimbable(player, position.x, position.y, position.z));
-        int state = player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(position.x, position.y, position.z));
-        if (player.isBedrockMovement()
-                && BlockIds.is(state, BlockIds.POWDER_SNOW)
-                && player.getInventory().getBoots().getItem() == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS)
-            return DesyncStatus.UNKNOWN;
-        return climbing;
-    }
-
     public WorldData generateWorldData(
             CultPlayer player,
             SimulationContext simulationContext,
@@ -125,39 +104,52 @@ public class WorldStageBuilder {
         double deltaX = to.x - from.x;
         double deltaZ = to.z - from.z;
 
-        FluidState fluidState;
-        FluidState maxFluidState = null;
-        if (player.isBedrockMovement()) {
-            // Bedrock bounds its pose between the smallest and tallest player boxes.
-            fluidState = getFluidState(player, simulationContext.getFromMinimumExtent(minFluidBox));
-            maxFluidState = simulationContext.getVehicle() != null
-                    ? fluidState
-                    : getFluidState(player, simulationContext.getFromMaximumExtent(maxFluidBox));
-        } else {
-            // Entity#baseTick's fluid update samples Entity#getBoundingBox where baseTick ran: the pose
-            // Player#updatePlayerPose left last tick at the player's scale, or the vehicle's own box before
-            // Camel#tickRidden can stand it up. Travel reads that cache even after a pre-26.3 root's interpolation
-            // step moves it.
-            fluidState = getFluidState(
-                    player,
-                    simulationContext.getPoseBeforeTravelAt(simulationContext.getBaseTickStart(player), minFluidBox));
+        // -0.001 is mojang's magic value, not ours.
+        double expandAmount = 0.001;
+        SimpleCollisionBox minFluid =
+                simulationContext.getFromMinimumExtent(minFluidBox).expand(-expandAmount);
+        SimpleCollisionBox maxFluid =
+                simulationContext.getFromMaximumExtent(maxFluidBox).expand(-expandAmount);
+
+        double minFluidReferenceY = simulationContext.getFromMinimumExtent(extentBox).minY;
+        double maxFluidReferenceY = simulationContext.getVehicle() != null
+                ? minFluidReferenceY
+                : simulationContext.getFromMaximumExtent(extentBox).minY;
+
+        FluidState minFluidState = getFluidState(player, minFluid, minFluidReferenceY);
+        // Vehicles have the same thing as the fluid state as before.
+        FluidState maxFluidState = simulationContext.getVehicle() != null
+                ? minFluidState
+                : getFluidState(player, maxFluid, maxFluidReferenceY);
+
+        DesyncStatus isInWater = DesyncStatus.fromBooleans(minFluidState.isInWater(), maxFluidState.isInWater());
+        DesyncStatus isInLava = DesyncStatus.fromBooleans(minFluidState.isInLava(), maxFluidState.isInLava());
+        DesyncStatus touchingLava = isInLava;
+        DesyncStatus isInFlowingFluid =
+                DesyncStatus.fromBooleans(minFluidState.isInFlowingFluid(), maxFluidState.isInFlowingFluid());
+
+        if (minFluidState.isWaterTimingUncertain() || maxFluidState.isWaterTimingUncertain()) {
+            isInWater = DesyncStatus.UNKNOWN;
+            isInFlowingFluid = DesyncStatus.UNKNOWN;
         }
-        boolean isInWater = fluidState.isInWater() && (maxFluidState == null || maxFluidState.isInWater());
-        boolean isInLava = fluidState.isInLava() && (maxFluidState == null || maxFluidState.isInLava());
-        boolean isInFlowingFluid =
-                fluidState.isInFlowingFluid() && (maxFluidState == null || maxFluidState.isInFlowingFluid());
-        WorldData.BedrockFluidBounds bedrockFluidBounds = maxFluidState == null
-                ? null
-                : new WorldData.BedrockFluidBounds(
-                        fluidState.isInWater() || maxFluidState.isInWater(),
-                        fluidState.isInLava() || maxFluidState.isInLava(),
-                        fluidState.isInFlowingFluid() || maxFluidState.isInFlowingFluid());
+        if (minFluidState.isLavaTimingUncertain() || maxFluidState.isLavaTimingUncertain()) {
+            isInLava = DesyncStatus.UNKNOWN;
+            touchingLava = DesyncStatus.UNKNOWN;
+            isInFlowingFluid = DesyncStatus.UNKNOWN;
+        }
+
+        if (player.packetStateData.riptideLevel > 0) {
+            isInWater = DesyncStatus.UNKNOWN;
+            isInLava = DesyncStatus.UNKNOWN;
+            isInFlowingFluid = DesyncStatus.UNKNOWN;
+        }
 
         boolean canFluidHop = false;
 
         if (lastPrediction != null) {
             WorldData oldWorldData = lastPrediction.getSimulationContext().getWorldData();
-            boolean wasInWaterOrLava = oldWorldData.mayBeInLiquid();
+            boolean wasInWaterOrLava = oldWorldData.getInWater().determineOptimistically()
+                    || oldWorldData.getInLava().determineOptimistically();
             boolean didCollide = lastPrediction.getCollideAxisData().couldCollideHorizontally();
             canFluidHop = wasInWaterOrLava
                     && didCollide
@@ -170,21 +162,39 @@ public class WorldStageBuilder {
         // before travel, and LivingEntity#floatInWaterWhileRidden later reads
         // that cached state inside the same tick. Keep the current tick's
         // pre-move deep-water state so the next tick can carry the exact +0.04.
-        boolean riddenFloat = ClientFluidQueries.floatWhileRidden(
-                player, simulationContext, fluidState.isInWater(), fluidState.getMaxWaterHeight());
-        boolean canFloatWhileRidden = riddenFloat;
-        boolean couldFloatWhileRidden = riddenFloat;
+        DesyncStatus riddenFloat = ClientFluidQueries.floatWhileRidden(
+                player,
+                simulationContext,
+                minFluidState.isInWater(),
+                minFluidState.getMaxWaterHeight(),
+                minFluidState.isWaterTimingUncertain());
+        boolean canFloatWhileRidden = riddenFloat.determinePessimistically();
+        boolean couldFloatWhileRidden = riddenFloat.determineOptimistically();
 
         // LivingEntity#travelFallFlying samples the starting block, before movement.
         DesyncStatus climbingAtStart = sampleClimbingAtStart(player, simulationContext);
 
-        DesyncStatus climbing = climbingAtPosition(player, simulationContext, to);
+        DesyncStatus climbing = DesyncStatus.fromBoolean(Collisions.onClimbable(player, to.x, to.y, to.z));
+
+        int toState = player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(to.x, to.y, to.z));
+        if (BlockIds.is(toState, BlockIds.POWDER_SNOW)
+                && player.getInventory().getBoots().getItem()
+                        == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS) {
+            climbing = DesyncStatus.UNKNOWN;
+        }
+
+        // Pigs, striders and nautiluses keep LivingEntity#onClimbable; AbstractHorse and HappyGhast return false
+        if (simulationContext.getVehicle() != null
+                && !(simulationContext.getVehicle() instanceof PacketEntityStrider
+                        || simulationContext.getVehicle() instanceof PacketEntityNautilus
+                        || simulationContext.getVehicle().type == EntityTypeIds.PIG)) {
+            climbingAtStart = DesyncStatus.FALSE;
+            climbing = DesyncStatus.FALSE;
+        }
 
         MainSupportingBlockData mainSupportingBlockData = findMainSupportingBlockPos(
                 player,
-                player.isBedrockMovement()
-                        ? player.checkManager.getSimulationProcessor().lastTickSupport(lastPrediction)
-                        : simulationContext.getLastTickMainSupportingBlockData(),
+                player.checkManager.getSimulationProcessor().lastTickSupport(lastPrediction),
                 deltaX,
                 deltaZ,
                 simulationContext.getToMaxPose(),
@@ -206,42 +216,30 @@ public class WorldStageBuilder {
         // If the player isn't in water, then they aren't in a bubble column
         final BubbleColumnData bubble = computeBubbleColumns(player, to, simulationContext);
 
-        StuckSpeedData stuckSpeedData = calculateStuckSpeed(player, simulationContext);
+        PistonPushes push = player.compensatedWorld.tickPlayerInPistonPushingArea(
+                simulationContext,
+                lastOnGround.determineOptimistically(),
+                lastPrediction == null
+                        ? null
+                        : lastPrediction.getSimulationContext().getWorldData().getPistonPushes());
+        // Java 1.21.2+ sends tick-end after the block-entity pass. Its piston,
+        // shulker and recent world state already advance in CheckManager at that
+        // boundary, including idle ticks; prediction must not advance them again.
+        StuckSpeedData stuckSpeedData = calculateStuckSpeed(player, simulationContext, push);
 
         // Entity#baseTick samples the eye at the movement start, at the pose Player#updatePlayerPose left last tick.
-        int eyeContact = eyeFluidContact(player, simulationContext, player.pose, extentBox);
-        boolean eyeInWater = ClientFluidQueries.eyeContactInWater(player, eyeContact);
+        boolean eyeInWater = eyeInWater(player, simulationContext, player.pose, extentBox);
         // LocalPlayer#isUnderWater is the eye Player#updateIsUnderwater read before this tick's Entity#baseTick.
         boolean underwater = lastPrediction != null
                 && lastPrediction.getSimulationContext().getWorldData().isEyeInWater();
-        if (!player.isBedrockMovement() && simulationContext.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
-            // The cache also has a construction boundary: an older prediction can predate a respawn.
-            underwater = player.checkManager.getSimulationProcessor().isLastWorldEyeInWater();
-            if (simulationContext.getVersion().isNewerThanOrEquals(ClientVersion.V_26_1)
-                    && simulationContext.getProfileCarry() instanceof JavaPredictionCarry carry
-                    && !carry.states().isEmpty()) {
-                // The combined interaction can refresh eyes during travel and later piston callbacks.
-                // Contexts select one carried state before building this world's swimming state.
-                underwater = ClientFluidQueries.eyeContactInWater(
-                        player, carry.states().getFirst().playerEyeFluidContact());
-            }
-        }
         // Entity#updateSwimming runs in Entity#baseTick, before LocalPlayer#aiStep updates the sprint and flying
-        // flags; Player#updateSwimming clears it while flying, so a flight this tick's aiStep stops still clears it.
-        boolean waterAtFeet =
-                player.isBedrockMovement() || simulationContext.getVersion().isOlderThan(ClientVersion.V_1_21_2)
-                        ? player.compensatedWorld.getWaterFluidLevelAt(from.x, from.y, from.z) > 0
-                        : ClientFluidQueries.is(
-                                player,
-                                ClientFluidQueries.fluidAt(
-                                        player.compensatedWorld, BlockPos.containing(from.x, from.y, from.z)),
-                                FluidTags.WATER);
+        // flags; Player#updateSwimming clears it while flying, which only a flight kept since last tick proves.
         boolean swimming = simulationContext.getVehicle() == null
-                && (player.isBedrockMovement() || !FlightToggle.flyingBeforeAiStep(player))
+                && !(player.isFlying && player.swimState.flewLastTick())
                 && player.sprintState.flagBeforeAiStep()
                 && (player.swimState.swimming() && player.gamemode != GameMode.SPECTATOR
-                        ? (bedrockFluidBounds == null ? isInWater : bedrockFluidBounds.water())
-                        : underwater && waterAtFeet);
+                        ? isInWater.determineOptimistically()
+                        : underwater && player.compensatedWorld.getWaterFluidLevelAt(from.x, from.y, from.z) > 0);
         // Portal contact uses the swept inside-block volume.
         player.intersectedWithNetherPortal = Collisions.hasState(
                 player,
@@ -263,9 +261,14 @@ public class WorldStageBuilder {
 
         DesyncStatus desyncLastOnGround = lastOnGround;
 
+        Boolean groundAfterShove = push.onGroundAfterShoveBeforeTravel();
         if (simulationContext.isRiptideReleaseCertain()) {
             // Entity#move of TridentItem#releaseUsing's upward lift leaves onGround false before LivingEntity#aiStep.
             desyncLastOnGround = DesyncStatus.FALSE;
+        } else if (groundAfterShove != null) {
+            desyncLastOnGround = DesyncStatus.fromBoolean(groundAfterShove);
+        } else if (!push.getPush().isEmpty()) {
+            desyncLastOnGround = DesyncStatus.UNKNOWN;
         }
         if (simulationContext.getVehicle() != null
                 && !desyncLastOnGround.determineOptimistically()
@@ -278,6 +281,8 @@ public class WorldStageBuilder {
             desyncLastOnGround = DesyncStatus.UNKNOWN;
         }
 
+        SimpleCollisionBox fishingRodPulls = findFishingRodPullsBox(player);
+
         // Negative jump boost breaks onGround optimization
         boolean hasNegativeJumpBoost =
                 player.compensatedEntities.getPotionLevelForPlayer(MovementEffect.JUMP_BOOST) != null
@@ -285,16 +290,16 @@ public class WorldStageBuilder {
         boolean canJump = desyncLastOnGround.determineOptimistically()
                 && (!simulationContext.isOnGround()
                         || hasNegativeJumpBoost
-                        || canGroundJumpInShallowFluid(player, simulationContext, fluidState, maxFluidState))
+                        || canGroundJumpInShallowFluid(simulationContext, minFluidState, maxFluidState))
                 && (simulationContext.getVehicle() == null
                         || simulationContext.getVehicle() instanceof PacketEntityHorse);
 
-        WorldData world = new WorldData(
+        return new WorldData(
                 desyncLastOnGround,
                 isInWater,
                 isInLava,
+                touchingLava,
                 isInFlowingFluid,
-                bedrockFluidBounds,
                 isSuffocating,
                 canJump,
                 canFluidHop,
@@ -312,40 +317,29 @@ public class WorldStageBuilder {
                 onBlock,
                 stuckEdgeData,
                 bubble,
+                push,
                 stuckSpeedData,
                 honeySlide,
                 onHoney,
                 mainSupportingBlockData,
+                fishingRodPulls,
                 pushesWhileLoadingLevel(player, simulationContext),
                 lastOnGround,
                 eyeInWater,
                 underwater,
                 swimming,
-                simulationContext.getVehicle() != null && fluidState.isInWater(),
+                simulationContext.getVehicle() != null && minFluidState.isInWater(),
                 spinTarget != SpinTarget.NONE,
                 spinTarget == SpinTarget.PLAYER);
-        world.setEyeFluidContact(eyeContact);
-        world.setWaterHeight(fluidState.getMaxWaterHeight());
-        world.setLavaHeight(fluidState.getMaxLavaHeight());
-        // LivingEntity#shouldTravelInFluid reads the starting block's fluid, not the body-overlap cache.
-        // Strider#canStandOnFluid accepts lava, including flowing lava and fully submerged travel.
-        world.setCanStandOnStartFluid(!player.isBedrockMovement()
-                && simulationContext.getVehicle() instanceof PacketEntityStrider
-                && ClientFluidQueries.is(
-                        player,
-                        ClientFluidQueries.fluidAt(
-                                player.compensatedWorld, BlockPos.containing(from.x, from.y, from.z)),
-                        FluidTags.LAVA));
-        return world;
     }
 
     // EntityFluidInteraction#update finds the eye only among the fluids inside Entity#getFluidInteractionBox.
-    private static int eyeFluidContact(
+    private static boolean eyeInWater(
             CultPlayer player, SimulationContext context, Pose pose, SimpleCollisionBox body) {
         Vec3 from = context.getStart();
         if (context.getVehicle() != null) {
             if (player.isBedrockMovement()) {
-                return ClientFluidQueries.eyeFluidContact(
+                return ClientFluidQueries.eyesInWater(
                         player, context.getFromMinimumExtent(), from, from.y + pose.eyeHeight * player.dimensionScale);
             }
             // Entity#rideTick runs the passenger's Entity#baseTick where the previous Entity#positionRider seated it;
@@ -356,20 +350,18 @@ public class WorldStageBuilder {
         }
         GetBoundingBox.getBoundingBoxFromPosAndSize(
                 body, from.x, from.y, from.z, pose.width * player.dimensionScale, pose.height * player.dimensionScale);
-        return ClientFluidQueries.eyeFluidContact(player, body, from, from.y + pose.eyeHeight * player.dimensionScale);
+        return ClientFluidQueries.eyesInWater(player, body, from, from.y + pose.eyeHeight * player.dimensionScale);
     }
 
     private DesyncStatus sampleClimbingAtStart(CultPlayer player, SimulationContext context) {
-        if (!canClimb(context.getVehicle())) return DesyncStatus.FALSE;
         Vec3 position = context.getStart();
         DesyncStatus climbingAtStart = DesyncStatus.fromBoolean(
                 Collisions.onClimbable(player, position.x, position.y, position.z, context.isGliding()));
         return climbingAtStart;
     }
 
-    /** {@code maxFluidState} is Bedrock's tallest-box sample, null for Java's one exact sample. */
     private boolean canGroundJumpInShallowFluid(
-            CultPlayer player, SimulationContext simulationContext, FluidState fluidState, FluidState maxFluidState) {
+            SimulationContext simulationContext, FluidState minFluidState, FluidState maxFluidState) {
         if (!simulationContext.isOnGround()) {
             return false;
         }
@@ -377,17 +369,8 @@ public class WorldStageBuilder {
         // MCP-Reborn LivingEntity#aiStep calls jumpFromGround, not jumpInLiquid,
         // when this.onGround() is true and the current fluid height is at or
         // below Entity#getFluidJumpThreshold() (0.4 for normal players).
-        if (!player.isBedrockMovement()) {
-            // LivingEntity#aiStep selects lava's height first, then compares it with getFluidJumpThreshold.
-            double height = fluidState.isInLava() ? fluidState.getMaxLavaHeight() : fluidState.getMaxWaterHeight();
-            double threshold =
-                    simulationContext.getPose().eyeHeight * simulationContext.getScale() < 0.4D ? 0.0D : 0.4D;
-            return (fluidState.isInWater() || fluidState.isInLava()) && height <= threshold;
-        }
-        return fluidState.canGroundJumpFromFluid()
-                || (maxFluidState != null
-                        && simulationContext.getVehicle() == null
-                        && maxFluidState.canGroundJumpFromFluid());
+        return minFluidState.canGroundJumpFromFluid()
+                || (simulationContext.getVehicle() == null && maxFluidState.canGroundJumpFromFluid());
     }
 
     @Data
@@ -398,6 +381,8 @@ public class WorldStageBuilder {
         boolean inFlowingFluid;
         double maxWaterHeight;
         double maxLavaHeight;
+        boolean waterTimingUncertain;
+        boolean lavaTimingUncertain;
 
         private boolean canGroundJumpFromFluid() {
             return (inWater && maxWaterHeight > 0.0D && maxWaterHeight <= 0.4D)
@@ -405,48 +390,44 @@ public class WorldStageBuilder {
         }
     }
 
-    /** Entity's fluid update on {@code body}, the entity's bounding box, deflated by Mojang's 0.001. */
-    private FluidState getFluidState(CultPlayer player, SimpleCollisionBox body) {
-        return getFluidState(player, body.copy().expand(-0.001), body.minY, body);
-    }
-
-    private FluidState getFluidState(
-            CultPlayer player, SimpleCollisionBox box, double entityBoundingBoxMinY, SimpleCollisionBox body) {
-        FluidState state = new FluidState(false, false, false, 0.0D, 0.0D);
-        if (!ClientFluidQueries.hasLoadedFluidNeighborhood(player, body)) return state;
-        // Collisions#hasState visits floor(min) to floor(max) on each axis, which holds the cells Entity reads.
+    private FluidState getFluidState(CultPlayer player, SimpleCollisionBox box, double entityBoundingBoxMinY) {
+        FluidState state = new FluidState(false, false, false, 0.0D, 0.0D, false, false);
+        state.setWaterTimingUncertain(player.compensatedWorld.hasRecentClientWaterChanges(box));
+        state.setLavaTimingUncertain(player.compensatedWorld.hasRecentClientLavaChanges(box));
+        // Collisions#hasState visits floor(min) to floor(max) on each axis.
         if (!player.compensatedWorld.mayHaveFluid(
-                        (int) Math.floor(box.minX),
-                        (int) Math.floor(box.minY),
-                        (int) Math.floor(box.minZ),
-                        (int) Math.floor(box.maxX),
-                        (int) Math.floor(box.maxY),
-                        (int) Math.floor(box.maxZ))
-                && !ClientFluidQueries.countsEmptyFluid(player, FluidTags.WATER)
-                && !ClientFluidQueries.countsEmptyFluid(player, FluidTags.LAVA)) return state;
+                (int) Math.floor(box.minX),
+                (int) Math.floor(box.minY),
+                (int) Math.floor(box.minZ),
+                (int) Math.floor(box.maxX),
+                (int) Math.floor(box.maxY),
+                (int) Math.floor(box.maxZ))) return state;
 
-        SimpleCollisionBox lavaCollision = box.copy();
-        double depthMinY = ClientFluidQueries.usesLegacyFluidDepth(player) ? box.minY : entityBoundingBoxMinY;
-
-        Collisions.StatePredicate sample = (block, pos) -> {
+        Collisions.hasState(player, box, (block, x, y, z) -> {
+            ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, block, x, y, z);
+            if (!fluid.water() && !fluid.lava()) return false;
+            BlockPos pos = new BlockPos(x, y, z);
             boolean isInsideFluid = false;
-            ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, block, pos);
-            double fluidTop = ClientFluidQueries.fluidSurfaceY(player, pos.getY(), fluid.height());
             if (fluid.water()) {
-                boolean status = calculateStatusForFluid(box, fluidTop, pos);
+                double fluidHeight = fluid.height();
+                boolean status = calculateStatusForFluid(player, box, fluidHeight, pos);
                 state.setInWater(status || state.isInWater());
                 if (status) {
-                    state.setMaxWaterHeight(Math.max(state.getMaxWaterHeight(), fluidTop - depthMinY));
+                    state.setMaxWaterHeight(Math.max(
+                            state.getMaxWaterHeight(),
+                            getFluidHeightAboveMinY(entityBoundingBoxMinY, fluidHeight, pos)));
                 }
                 isInsideFluid = status;
             }
 
             if (fluid.lava()) {
-                // 1.14 doesn't care about actual lava collision box
-                boolean status = calculateStatusForFluid(lavaCollision, fluidTop, pos);
+                double fluidHeight = fluid.height();
+                boolean status = calculateStatusForFluid(player, box, fluidHeight, pos);
                 state.setInLava(status || state.isInLava());
                 if (status) {
-                    state.setMaxLavaHeight(Math.max(state.getMaxLavaHeight(), fluidTop - depthMinY));
+                    state.setMaxLavaHeight(Math.max(
+                            state.getMaxLavaHeight(),
+                            getFluidHeightAboveMinY(entityBoundingBoxMinY, fluidHeight, pos)));
                 }
                 isInsideFluid |= status;
             }
@@ -459,23 +440,15 @@ public class WorldStageBuilder {
                 state.setInFlowingFluid(true);
             }
             return false;
-        };
-        if (player.isBedrockMovement()) {
-            Collisions.hasState(player, box, sample);
-        } else {
-            // Entity#updateFluidHeightAndDoFluidPushing and EntityFluidInteraction#update use ceil(max) exclusive.
-            BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-            for (int x = (int) Math.floor(box.minX); x < Math.ceil(box.maxX); x++) {
-                for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++) {
-                    for (int z = (int) Math.floor(box.minZ); z < Math.ceil(box.maxZ); z++) {
-                        pos.set(x, y, z);
-                        sample.test(player.compensatedWorld.getBlockStateIdAt(pos), pos);
-                    }
-                }
-            }
-        }
+        });
 
         return state;
+    }
+
+    private double getFluidHeightAboveMinY(double entityBoundingBoxMinY, double fluidHeight, BlockPos fluidPos) {
+        // MCP-Reborn EntityFluidInteraction#update measures tracker.height from
+        // entity.getBoundingBox().minY, not from the deflated fluid-interaction box.
+        return Math.max(0.0D, fluidPos.getY() + fluidHeight - entityBoundingBoxMinY);
     }
 
     private boolean mightBeSuffocating(CultPlayer player, SimulationContext context) {
@@ -484,26 +457,14 @@ public class WorldStageBuilder {
         if (player.isBedrockMovement()) return false;
         // TODO: Does 0.03 affect this and if so, how?
         float bbWidth = context.getPose().width * context.getScale();
-        // LocalPlayer#suffocatesAt reads this actor's current body. A release lift or earlier mover already
-        // changed the context's start, independently of the packet's player position.
-        double bodyMaxY = oldPos.y + context.getPose().height * context.getScale();
-        return this.moveToClosestSpace(
-                        player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D, bodyMaxY)
-                || this.moveToClosestSpace(
-                        player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z - bbWidth * 0.35D, bodyMaxY)
-                || this.moveToClosestSpace(
-                        player, oldPos.x + bbWidth * 0.35D, oldPos.y, oldPos.z - bbWidth * 0.35D, bodyMaxY)
-                || this.moveToClosestSpace(
-                        player, oldPos.x + bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D, bodyMaxY);
+        return this.moveToClosestSpace(player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D)
+                || this.moveToClosestSpace(player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z - bbWidth * 0.35D)
+                || this.moveToClosestSpace(player, oldPos.x + bbWidth * 0.35D, oldPos.y, oldPos.z - bbWidth * 0.35D)
+                || this.moveToClosestSpace(player, oldPos.x + bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D);
     }
 
-    /**
-     * The horizontal direction that leaves the shapes the box overlaps, or null when nothing pushes it. Each axis
-     * points away from their mean center, turns around when only the opposite corridor is free and is dropped when
-     * neither is. A box centered on them leaves towards +x and +z. The boxes are in the float coordinates collision
-     * uses, and a box no more than one float step inside a face only touches it.
-     */
-    public static Vec3 moveTowardsClosestSpaceBedrock(SimpleCollisionBox box, List<SimpleCollisionBox> shapes) {
+    public static boolean moveTowardsClosestSpaceBedrock(SimpleCollisionBox box, List<SimpleCollisionBox> shapes) {
+        box = box.copy().expand(-BEDROCK_PUSH_OUT_INSET);
         List<SimpleCollisionBox> surrounding = new ArrayList<>();
         SimpleCollisionBox search = box.copy().expand(1.0, 0.0, 1.0);
         float centerX = 0.0F;
@@ -511,7 +472,7 @@ public class WorldStageBuilder {
         int overlaps = 0;
         for (SimpleCollisionBox shape : shapes) {
             if (!search.isIntersected(shape)) continue;
-            if (overlapsPastContact(box, shape)) {
+            if (box.isIntersected(shape)) {
                 centerX += (float) ((shape.minX + shape.maxX) * 0.5);
                 centerZ += (float) ((shape.minZ + shape.maxZ) * 0.5);
                 overlaps++;
@@ -519,7 +480,7 @@ public class WorldStageBuilder {
                 surrounding.add(shape);
             }
         }
-        if (overlaps == 0) return null;
+        if (overlaps == 0) return false;
         centerX *= 1.0F / overlaps;
         centerZ *= 1.0F / overlaps;
         float dx = (float) ((box.minX + box.maxX) * 0.5) - centerX;
@@ -532,56 +493,32 @@ public class WorldStageBuilder {
         // unlike java, anything with a collision box can push the player
         SimpleCollisionBox centered =
                 box.copy().offset(centerX - (box.minX + box.maxX) * 0.5, 0.0, centerZ - (box.minZ + box.maxZ) * 0.5);
-        float pushX = dx * freeCorridor(centered, surrounding, Math.signum(dx), 0.0F);
-        float pushZ = dz * freeCorridor(centered, surrounding, 0.0F, Math.signum(dz));
-        return pushX == 0.0F && pushZ == 0.0F ? null : new Vec3(pushX, 0.0, pushZ);
-    }
-
-    /**
-     * Whether the box is more than one float step inside the shape through every face. A box carried from a reported
-     * position can sit a step past a face it was left flush with, so an overlap that shallow is not one to leave.
-     */
-    private static boolean overlapsPastContact(SimpleCollisionBox box, SimpleCollisionBox shape) {
-        return pastContact(shape.maxX - box.minX, shape.maxX)
-                && pastContact(box.maxX - shape.minX, shape.minX)
-                && pastContact(shape.maxY - box.minY, shape.maxY)
-                && pastContact(box.maxY - shape.minY, shape.minY)
-                && pastContact(shape.maxZ - box.minZ, shape.maxZ)
-                && pastContact(box.maxZ - shape.minZ, shape.minZ);
-    }
-
-    private static boolean pastContact(double depth, double face) {
-        return depth > Math.max(SimpleCollisionBox.COLLISION_EPSILON, Math.ulp((float) face));
-    }
-
-    /** 1 when the corridor along the direction is free, -1 when only the opposite one is, else 0. */
-    private static float freeCorridor(
-            SimpleCollisionBox centered, List<SimpleCollisionBox> surrounding, float x, float z) {
-        if (x == 0.0F && z == 0.0F) return 0.0F;
-        for (float side = 1.0F; side >= -1.0F; side -= 2.0F) {
-            SimpleCollisionBox corridor = centered.copy().expandToCoordinate(x * side, 0.0, z * side);
-            if (surrounding.stream().noneMatch(corridor::isIntersected)) return side;
+        for (Direction direction : HORIZONTAL_ESCAPES) {
+            if (direction.getModX() != 0 ? dx == 0.0F : dz == 0.0F) continue;
+            SimpleCollisionBox corridor =
+                    centered.copy().expandToCoordinate(direction.getModX(), 0.0, direction.getModZ());
+            if (surrounding.stream().noneMatch(corridor::isIntersected)) return true;
         }
-        return 0.0F;
+        return false;
     }
 
     // Does minY to maxY exist in a block?
-    private boolean suffocatesAt(CultPlayer player, int x, int z, double minY, double maxY) {
-        SimpleCollisionBox axisAlignedBB =
-                extentBox.set(x, minY, z, x + 1.0, maxY, z + 1.0, false).expand(-1.0E-7);
+    private boolean suffocatesAt(CultPlayer player, int x, int z) {
+        SimpleCollisionBox axisAlignedBB = extentBox
+                .set(x, player.boundingBox.minY, z, x + 1.0, player.boundingBox.maxY, z + 1.0, false)
+                .expand(-1.0E-7);
         return Collisions.suffocatesAt(player, axisAlignedBB);
     }
 
-    private boolean moveToClosestSpace(CultPlayer player, double xPos, double yPos, double zPos, double maxY) {
-        return moveTowardsClosestSpaceModern(player, xPos, zPos, yPos, maxY);
+    private boolean moveToClosestSpace(CultPlayer player, double xPos, double yPos, double zPos) {
+        return moveTowardsClosestSpaceModern(player, xPos, zPos);
     }
 
-    private boolean moveTowardsClosestSpaceModern(
-            CultPlayer player, double xPosition, double zPosition, double minY, double maxY) {
+    private boolean moveTowardsClosestSpaceModern(CultPlayer player, double xPosition, double zPosition) {
         int blockX = (int) Math.floor(xPosition);
         int blockZ = (int) Math.floor(zPosition);
 
-        if (!this.suffocatesAt(player, blockX, blockZ, minY, maxY)) {
+        if (!this.suffocatesAt(player, blockX, blockZ)) {
             return false;
         }
         double relativeXMovement = xPosition - blockX;
@@ -599,17 +536,17 @@ public class WorldStageBuilder {
             boolean doesSuffocate;
             switch (direction2) {
                 case EAST:
-                    doesSuffocate = this.suffocatesAt(player, blockX + 1, blockZ, minY, maxY);
+                    doesSuffocate = this.suffocatesAt(player, blockX + 1, blockZ);
                     break;
                 case WEST:
-                    doesSuffocate = this.suffocatesAt(player, blockX - 1, blockZ, minY, maxY);
+                    doesSuffocate = this.suffocatesAt(player, blockX - 1, blockZ);
                     break;
                 case NORTH:
-                    doesSuffocate = this.suffocatesAt(player, blockX, blockZ - 1, minY, maxY);
+                    doesSuffocate = this.suffocatesAt(player, blockX, blockZ - 1);
                     break;
                 default:
                 case SOUTH:
-                    doesSuffocate = this.suffocatesAt(player, blockX, blockZ + 1, minY, maxY);
+                    doesSuffocate = this.suffocatesAt(player, blockX, blockZ + 1);
                     break;
             }
 
@@ -620,9 +557,10 @@ public class WorldStageBuilder {
         return direction != null;
     }
 
-    private boolean calculateStatusForFluid(SimpleCollisionBox box, double fluidTop, BlockPos fluidPos) {
+    private boolean calculateStatusForFluid(
+            CultPlayer player, SimpleCollisionBox box, double fluidHeight, BlockPos fluidPos) {
         SimpleCollisionBox fluidCollision = new SimpleCollisionBox(fluidPos);
-        fluidCollision.maxY = fluidTop;
+        fluidCollision.maxY = fluidCollision.minY + fluidHeight;
 
         return box.isCollided(fluidCollision);
     }
@@ -650,6 +588,7 @@ public class WorldStageBuilder {
         pushingTickingAfterPlayer = 0;
         ridersTickingAfterPlayer = 0;
         List<SimpleCollisionBox> entityCollisionBoxes = null;
+        List<HardCollidingEntityCollision> hardCollidingEntityCollisions = null;
 
         // Players in vehicles do not have collisions
         if (context.getVehicle() == null) {
@@ -681,22 +620,26 @@ public class WorldStageBuilder {
                 if (entities.clientTickOrder(entity) < playerTickOrder) {
                     if (pushesPlayer(entity, entityBox, sweep)) collidingTickingBeforePlayer++;
                 } else {
-                    if (pushesPlayer(entity, entityBox, sweep)
-                            && !(entity.isBoat() && EntityPush.carriesBoatPushAtReport(player, context)))
-                        pushingTickingAfterPlayer++;
+                    if (pushesPlayer(entity, entityBox, sweep)) pushingTickingAfterPlayer++;
                     if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot))
                         ridersTickingAfterPlayer++;
                 }
-                if (entityCollisionBoxes == null) entityCollisionBoxes = new ArrayList<>();
-                entityCollisionBoxes.add(entityBox.copy());
+                boolean boatLike = entity.isBoat();
+                boolean minecartLike = entity.isMinecart();
+                if (boatLike || minecartLike || isBedrockHardCollidingEntity(entity)) {
+                    if (hardCollidingEntityCollisions == null) hardCollidingEntityCollisions = new ArrayList<>();
+                    hardCollidingEntityCollisions.add(
+                            new HardCollidingEntityCollision(entityBox.copy(), boatLike, minecartLike));
+                } else {
+                    if (entityCollisionBoxes == null) entityCollisionBoxes = new ArrayList<>();
+                    entityCollisionBoxes.add(entityBox.copy());
+                }
             }
         }
         context.cacheEntityCollisionBoxesForMovementTick(
                 entityCollisionBoxes == null ? List.of() : List.copyOf(entityCollisionBoxes));
         context.cacheHardCollidingEntityCollisionsForMovementTick(
-                player.isBedrockMovement() && player.bedrockState != null
-                        ? List.copyOf(BedrockSolidActors.collect(player, context))
-                        : List.of());
+                hardCollidingEntityCollisions == null ? List.of() : List.copyOf(hardCollidingEntityCollisions));
 
         return numColliding;
     }
@@ -708,15 +651,12 @@ public class WorldStageBuilder {
         PLAYER
     }
 
-    /** The pose-exact search; alternative entity positions remain separate boxes. */
+    /**
+     * The LivingEntity that may lie in the box LivingEntity#checkAutoSpinAttack searches while autoSpinAttackTicks is
+     * positive: the player's boxes before and after the travel, the box before it lifted by a release on the ground.
+     * Every LivingEntity but a spectator counts, armor stands included.
+     */
     private SpinTarget spinTarget(CultPlayer player, SimulationContext context) {
-        if (player.isBedrockMovement()) return bedrockSpinTarget(player, context);
-        var hit = JavaSpinAttack.check(player, context, context.getEnd());
-        if (hit.player()) return SpinTarget.PLAYER;
-        return hit.living() == JavaSpinAttack.Presence.ABSENT ? SpinTarget.NONE : SpinTarget.LIVING;
-    }
-
-    private SpinTarget bedrockSpinTarget(CultPlayer player, SimulationContext context) {
         if (context.getVehicle() != null || player.riptideSpinAttackTicks <= 0) return SpinTarget.NONE;
         Vec3 from = context.getStart();
         SimpleCollisionBox start = GetBoundingBox.getPlayerBoundingBox(spinStartBox, player, from.x, from.y, from.z);
@@ -747,6 +687,31 @@ public class WorldStageBuilder {
             target = SpinTarget.LIVING;
         }
         return target;
+    }
+
+    /**
+     * Whether LivingEntity#checkAutoSpinAttack certainly finds a LivingEntity after the travel to the context's end: a
+     * living entity at rest, in a box the client has applied, intersects the least box the player swept.
+     */
+    public static boolean certainlySpinAttacks(CultPlayer player, SimulationContext context) {
+        if (context.getVehicle() != null
+                || context.getRiptideLevel() != 0
+                || context.isTestingPointThree()
+                || !player.isTickingReliablyFor(1)) return false;
+        int received = player.lastTransactionReceived.get();
+        SimpleCollisionBox sweep = context.getFromMinimumExtent().union(context.getToMinimumExtent());
+        for (PacketEntity entity : context.getEntities().entityMap.values()) {
+            if (!entity.isLivingEntity()
+                    || entity instanceof PacketEntityPlayer
+                    || entity.type == EntityTypeIds.PUFFERFISH
+                    || entity instanceof PacketEntityArmorStand stand && !stand.hasMovementSize()
+                    || entity.isDead
+                    || !entity.hasCertainBox(received)) continue;
+            SimpleCollisionBox entityBox = entity.toBoundingBox(
+                    player, entity.getExactMovementCollisionBox().copy());
+            if (intersects(entityBox, 0.0D, 0.0D, sweep)) return true;
+        }
+        return false;
     }
 
     /** EntitySelector#NO_SPECTATORS, which Level#getEntities applies, for a remote player of known game mode. */
@@ -811,20 +776,10 @@ public class WorldStageBuilder {
         if (context == null
                 || context.getVehicle() != null
                 || !context.getWorldData().isPushable()) return;
-        // LivingEntity#pushEntities runs before Level#tickBlockEntities. From 26.3 the report is after that
-        // pass, but a later entity still touched the player at the endpoint of travel, in its chosen pose.
-        var pass = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.passAfterTravel(prediction);
         PredictionScratch scratch = PredictionScratch.of(player);
-        SimpleCollisionBox sweepOut = scratch == null ? new SimpleCollisionBox() : scratch.recountSweep;
-        SimpleCollisionBox sweep = pass == null
-                ? playerSweep(context, sweepOut, scratch == null ? new SimpleCollisionBox() : scratch.recountSweepScratch)
-                : GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        sweepOut,
-                        pass.travel().position().x,
-                        pass.travel().position().y,
-                        pass.travel().position().z,
-                        pass.pose().width * context.getScale(),
-                        pass.pose().height * context.getScale());
+        SimpleCollisionBox sweep = scratch == null
+                ? playerSweep(context, new SimpleCollisionBox(), new SimpleCollisionBox())
+                : playerSweep(context, scratch.recountSweep, scratch.recountSweepScratch);
         SimpleCollisionBox playerBox =
                 pusherContactBox(sweep, scratch == null ? new SimpleCollisionBox() : scratch.recountContact);
         SimpleCollisionBox entityBounds = scratch == null ? new SimpleCollisionBox() : scratch.recountEntityBounds;
@@ -839,7 +794,6 @@ public class WorldStageBuilder {
         for (int i = 0; i < candidates.size(); i++) {
             PacketEntity entity = candidates.get(i);
             if (!entity.mayPushOrCollide() || entities.clientTickOrder(entity) < playerTickOrder) continue;
-            if (entity.isBoat() && EntityPush.carriesBoatPushAtReport(player, context)) continue;
             // A rider pushes from the seat its vehicle gave it before this tick: the movement's own count holds it.
             if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;
             SimpleCollisionBox entityBox = collidingPusherBox(
@@ -933,15 +887,14 @@ public class WorldStageBuilder {
     /**
      * Whether a rider outside the player's riding trees pushes it: Entity#rideTick runs LivingEntity#tick, whose aiStep
      * pushes from the seat positionRider last gave the rider, or on the first ride tick after a mount from riding
-     * nothing, from where Entity#startRiding found it. Boats, minecarts, striders and happy ghasts stay out.
+     * nothing, from where Entity#startRiding found it. Hard-colliding riders stay out, as Bedrock contact skips them.
      */
     private static boolean mayPushAsUntrackedRider(CultPlayer player, PacketEntity entity) {
         return !player.isBedrockMovement()
                 && entity.isLivingEntity()
                 && !entity.isBoat()
                 && !entity.isMinecart()
-                && entity.type != EntityTypeIds.STRIDER
-                && !entity.isHappyGhast();
+                && !isBedrockHardCollidingEntity(entity);
     }
 
     /** {@link PacketEntity#ridesFirstTickFromItsMount} this tick, for the client versions whose order was read. */
@@ -949,6 +902,10 @@ public class WorldStageBuilder {
         ClientVersion version = player.getClientVersion();
         return (version == ClientVersion.V_1_21_11 || version.isNewerThanOrEquals(ClientVersion.V_26_2))
                 && rider.ridesFirstTickFromItsMount(player.packetStateData.acceptedClientTick);
+    }
+
+    private static boolean isBedrockHardCollidingEntity(PacketEntity entity) {
+        return entity.type == EntityTypeIds.STRIDER || entity.isHappyGhast();
     }
 
     private StuckEdgeData couldBeOnStuckEdge(
@@ -1148,7 +1105,7 @@ public class WorldStageBuilder {
         return DesyncStatus.fromBooleans(hasSmall, hasLarge);
     }
 
-    public StuckSpeedData calculateStuckSpeed(CultPlayer player, SimulationContext context) {
+    public StuckSpeedData calculateStuckSpeed(CultPlayer player, SimulationContext context, PistonPushes push) {
         // Preserve the existing extent approximation. A vehicle uses its full body;
         // player minimum/maximum extents account for pose and movement-threshold uncertainty.
         boolean inVehicle = context.getVehicle() != null;
@@ -1166,6 +1123,19 @@ public class WorldStageBuilder {
                         context.getFromMaximumExtent(sweepFromBox),
                         context.getToMaximumExtent(sweepToBox),
                         powderSnowCanApply);
+
+        boolean hasPistonPush = push != null
+                && push.getPistonPush() != null
+                && !push.getPistonPush().isEmpty();
+        if (hasPistonPush) {
+            // MCP-Reborn LocalPlayer#tick sends movement during ClientLevel#tickEntities,
+            // before Minecraft#tick runs piston block entities. A later
+            // PistonMovingBlockEntity#moveEntityByPiston calls
+            // Entity#move(MoverType.PISTON), which clears Entity#stuckSpeedMultiplier
+            // without applying it to the piston shove, so piston-overlapped stuck
+            // speed is optional rather than required for the next packet.
+            return new StuckSpeedData(null, firstKnownStuckSpeed(required, optional));
+        }
 
         // This two-result representation does not cover every intermediate-box outcome.
         if (optional != null && optional.equals(required)) optional = null;
@@ -1221,40 +1191,41 @@ public class WorldStageBuilder {
         return primary != null ? primary : swept;
     }
 
+    private SimpleCollisionBox findFishingRodPullsBox(CultPlayer player) {
+        if (player.compensatedEntities.fishingRodPulls.isEmpty()) return null;
+
+        SimpleCollisionBox fishingRodPulls = new SimpleCollisionBox();
+        for (SimpleCollisionBox pullTo : player.compensatedEntities.fishingRodPulls) {
+            Vector3dm pullOrigin = new Vector3dm(player.lastX, player.lastY + 0.8 * 1.8, player.lastZ);
+
+            Vector3dm diff = new Vector3dm(pullTo.minX, pullTo.minY, pullTo.minZ)
+                    .subtract(pullOrigin)
+                    .multiply(0.1);
+            fishingRodPulls.minX = Math.min(0, diff.getX());
+            fishingRodPulls.minY = Math.min(0, diff.getY());
+            fishingRodPulls.minZ = Math.min(0, diff.getZ());
+
+            diff = new Vector3dm(pullTo.maxX, pullTo.maxY, pullTo.maxZ)
+                    .subtract(pullOrigin)
+                    .multiply(0.1);
+            fishingRodPulls.maxX = Math.max(0, diff.getX());
+            fishingRodPulls.maxY = Math.max(0, diff.getY());
+            fishingRodPulls.maxZ = Math.max(0, diff.getZ());
+        }
+        return fishingRodPulls;
+    }
+
     /**
-     * Entity#checkSupportingBlock after a move of ({@code lastMovementX}, {@code lastMovementZ}) that left the box
-     * {@code maxPose}, from the support {@code previous} the move started with, whose onGroundNoBlocks stops the
-     * search behind the movement (null when there is none).
+     * Entity#checkSupportingBlock. {@code lastSupport} is the supporting block the move started with, whose
+     * onGroundNoBlocks stops the search behind the movement; null when there is none.
      */
     public MainSupportingBlockData findMainSupportingBlockPos(
             CultPlayer player,
-            @Nullable MainSupportingBlockData previous,
+            @Nullable MainSupportingBlockData lastSupport,
             double lastMovementX,
             double lastMovementZ,
             SimpleCollisionBox maxPose,
             boolean isOnGround) {
-        return findMainSupportingBlockPos(
-                player,
-                previous,
-                lastMovementX,
-                lastMovementZ,
-                maxPose,
-                isOnGround,
-                new Vec3(player.x, player.y, player.z));
-    }
-
-    /**
-     * The same support for a replayed move: CollisionGetter#findSupportingBlock scores distances against the
-     * mover's own position after its Entity#move, {@code ownPosition}, not the packet's reported position.
-     */
-    public MainSupportingBlockData findMainSupportingBlockPos(
-            CultPlayer player,
-            MainSupportingBlockData previous,
-            double lastMovementX,
-            double lastMovementZ,
-            SimpleCollisionBox maxPose,
-            boolean isOnGround,
-            Vec3 ownPosition) {
         if (!isOnGround) {
             return new MainSupportingBlockData(null, false);
         }
@@ -1262,8 +1233,8 @@ public class WorldStageBuilder {
         double minX = maxPose.minX, minY = maxPose.minY - 1.0E-6D, minZ = maxPose.minZ;
         double maxX = maxPose.maxX, maxY = maxPose.minY, maxZ = maxPose.maxZ;
 
-        BlockPos supportingBlock = findSupportingBlock(player, minX, minY, minZ, maxX, maxY, maxZ, ownPosition);
-        if (supportingBlock == null && (previous != null && !previous.lastOnGroundAndNoBlock())) {
+        BlockPos supportingBlock = findSupportingBlock(player, minX, minY, minZ, maxX, maxY, maxZ);
+        if (supportingBlock == null && lastSupport != null && !lastSupport.lastOnGroundAndNoBlock()) {
             double offsetX = -lastMovementX, offsetZ = -lastMovementZ;
             return new MainSupportingBlockData(
                     findSupportingBlock(
@@ -1273,47 +1244,18 @@ public class WorldStageBuilder {
                             minZ + offsetZ,
                             maxX + offsetX,
                             maxY + 0.0D,
-                            maxZ + offsetZ,
-                            ownPosition),
+                            maxZ + offsetZ),
                     true);
         }
         return new MainSupportingBlockData(supportingBlock, true);
     }
 
-    /**
-     * Entity#setOnGround(true)'s checkSupportingBlock(true, null) for the box {@code maxPose} at {@code ownPosition},
-     * from the support {@code previous}. With no movement to offset the search by, a block missed below the box
-     * leaves the previous support's block, unless that support already had none; either way none was found.
-     */
-    public MainSupportingBlockData findMainSupportingBlockPosWithoutMovement(
-            CultPlayer player, MainSupportingBlockData previous, SimpleCollisionBox maxPose, Vec3 ownPosition) {
-        BlockPos supportingBlock = findSupportingBlock(
-                player,
-                maxPose.minX,
-                maxPose.minY - 1.0E-6D,
-                maxPose.minZ,
-                maxPose.maxX,
-                maxPose.minY,
-                maxPose.maxZ,
-                ownPosition);
-        if (supportingBlock != null || previous.lastOnGroundAndNoBlock())
-            return new MainSupportingBlockData(supportingBlock, true);
-        return new MainSupportingBlockData(previous.getBlockPos(), true, true);
-    }
-
     /** The supporting block Entity#checkSupportingBlock picks inside the search box with these bounds, or null. */
     private BlockPos findSupportingBlock(
-            CultPlayer player,
-            double minX,
-            double minY,
-            double minZ,
-            double maxX,
-            double maxY,
-            double maxZ,
-            Vec3 ownPosition) {
+            CultPlayer player, double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
         SupportScan scan = supportScan.inUse ? new SupportScan() : supportScan;
         try {
-            scan.start(player, minX, minY, minZ, maxX, maxY, maxZ, ownPosition);
+            scan.start(player, minX, minY, minZ, maxX, maxY, maxZ);
             Collisions.hasState(player, scan.cells, scan);
             return scan.best;
         } finally {
@@ -1333,14 +1275,7 @@ public class WorldStageBuilder {
         private double bestDistance;
 
         private SupportScan start(
-                CultPlayer player,
-                double minX,
-                double minY,
-                double minZ,
-                double maxX,
-                double maxY,
-                double maxZ,
-                Vec3 ownPosition) {
+                CultPlayer player, double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
             inUse = true;
             this.player = player;
             searchBox.set(minX, minY, minZ, maxX, maxY, maxZ);
@@ -1352,9 +1287,9 @@ public class WorldStageBuilder {
                     Math.floor(maxX + 1.0E-7) + 1,
                     Math.floor(maxY + 1.0E-7) + 1,
                     Math.floor(maxZ + 1.0E-7) + 1);
-            playerX = ownPosition.x;
-            playerY = ownPosition.y;
-            playerZ = ownPosition.z;
+            playerX = player.x;
+            playerY = player.y;
+            playerZ = player.z;
             best = null;
             bestDistance = Double.MAX_VALUE;
             return this;
@@ -1378,15 +1313,7 @@ public class WorldStageBuilder {
                     || outer == 2 && !BlockIds.is(block, BlockIds.MOVING_PISTON)) return false;
 
             CollisionBox collision = ClientBlockShapes.movement(player, block, x, y, z);
-            // BlockCollisions uses AABB#intersects for Shapes.block(), without the voxel join's 1.0E-7 epsilon.
-            // A sub-epsilon overlap can therefore retain a full stone support beside a lower honey block.
-            boolean fullBlock = collision instanceof VoxelShapeCollisionBox voxel
-                    ? voxel.usesStrictFullBlockIntersection()
-                    : collision.isFullBlock();
-            boolean intersects = !player.isBedrockMovement() && fullBlock
-                    ? searchBox.intersects(x, y, z, x + 1.0, y + 1.0, z + 1.0)
-                    : collision.isIntersected(searchBox);
-            if (!intersects) return false;
+            if (!collision.isIntersected(searchBox)) return false;
 
             double distanceX = x + 0.5 - playerX;
             double distanceY = y + 0.5 - playerY;
