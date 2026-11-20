@@ -520,6 +520,26 @@ final class CompressedForwarder extends ChannelDuplexHandler {
     }
 
     /**
+     * As {@link #unlinkDetached(CompressedKeep, String)}, in a task on the loop the forwarder was installed on that acts
+     * only while {@link #onClientLoop}; nothing the hand-off throws leaves this method.
+     */
+    void unlinkLater(CompressedKeep keep, String status) {
+        try {
+            loop.execute(() -> {
+                if (onClientLoop()) unlinkDetached(keep, status);
+            });
+        } catch (Throwable rejected) {
+            // A loop that takes no task runs no forwarder of a registered channel.
+        }
+    }
+
+    /** Whether the client channel is registered on the loop the forwarder was installed on. */
+    boolean registeredOnLoop() {
+        Channel client = inbound.channel();
+        return client.isRegistered() && client.eventLoop() == loop;
+    }
+
+    /**
      * Ends the current link and leaves its keep, which passes every frame on untouched, for the next {@link #unlink};
      * makes no pipeline change and never waits.
      */

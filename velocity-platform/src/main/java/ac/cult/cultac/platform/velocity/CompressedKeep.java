@@ -261,14 +261,15 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     }
 
     /**
-     * Leaves the pipeline, ending the link from this side when it is the current one and the client's loop runs this,
-     * and passes the event on unchanged.
+     * Leaves the pipeline, ending the link from this side when it is the current one, on the client's loop or in a task
+     * queued there, and passes the event on unchanged.
      */
     @Override
     public void channelUnregistered(ChannelHandlerContext ctx) {
         try {
-            if (forwarder.onClientLoop())
-                forwarder.unlinkDetached(this, ctx.channel().isOpen() ? UNREGISTERED : CLOSED);
+            String status = ctx.channel().isOpen() ? UNREGISTERED : CLOSED;
+            if (forwarder.onClientLoop()) forwarder.unlinkDetached(this, status);
+            else forwarder.unlinkLater(this, status);
             CompressedForwarder.remove(ctx.pipeline(), this);
         } finally {
             ctx.fireChannelUnregistered();

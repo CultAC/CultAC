@@ -1901,23 +1901,32 @@ class VelocityCompressedForwardLoopTest {
 
     @Test
     void readPastABackendDecoderRemovedAfterAMoveWithPinnedNeighboursIsDeliveredAsWithTheSwitchOff() throws Exception {
-        for (boolean moveClient : new boolean[] {true, false}) pinnedNeighboursOfARemovedCodec(true, moveClient, false);
+        for (boolean moveClient : new boolean[] {true, false})
+            pinnedNeighboursOfARemovedCodec(true, moveClient, false, false);
     }
 
     @Test
     void writePastAClientEncoderRemovedAfterAMoveWithPinnedNeighboursIsDeliveredAsWithTheSwitchOff() throws Exception {
-        for (boolean own : new boolean[] {false, true}) pinnedNeighboursOfARemovedCodec(false, true, own);
+        for (boolean own : new boolean[] {false, true}) pinnedNeighboursOfARemovedCodec(false, true, own, false);
+    }
+
+    @Test
+    void readPastABackendDecoderRemovedAfterALinkWhileTheBackendIsUnregisteredIsDeliveredAsWithTheSwitchOff()
+            throws Exception {
+        pinnedNeighboursOfARemovedCodec(true, false, false, true);
     }
 
     /**
      * Pins the handlers on either side of the backend decoder, or else of the client encoder, to the first loop (with
      * {@code own}, the tail-side one where and as the plugin adds its packet encoder), adds the codec with no executor,
-     * moves the client when {@code moveClient} and then the backend to a second loop, removes the codec there and holds
+     * moves the client when {@code moveClient} and then the backend to a second loop (with {@code unregisteredAtLink},
+     * the backend is deregistered before the link and registered there after it), removes the codec there and holds
      * that loop while the first fires a read from the handler before the decoder, or a write from the handler after the
      * encoder; compares what reaches the handler past the codec before and after the second loop resumes with the switch
      * off.
      */
-    private void pinnedNeighboursOfARemovedCodec(boolean read, boolean moveClient, boolean own) throws Exception {
+    private void pinnedNeighboursOfARemovedCodec(
+            boolean read, boolean moveClient, boolean own, boolean unregisteredAtLink) throws Exception {
         var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
         EventLoop first = group.next();
         List<List<Integer>> counts = new ArrayList<>();
@@ -1969,15 +1978,21 @@ class VelocityCompressedForwardLoopTest {
                             ReferenceCountUtil.release(msg);
                         }
                     });
+                    return null;
+                });
+                if (unregisteredAtLink) fromBackend.deregister().sync();
+                onLoop(() -> {
                     if (on) {
                         VelocityCompressedForward.link(
                                 forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
-                        assertEquals("linked", forwarder.linkStatus());
+                        assertEquals(
+                                unregisteredAtLink ? CompressedKeep.UNREGISTERED : "linked", forwarder.linkStatus());
                     }
                     return null;
                 });
                 if (moveClient) moveTo(second, toClient);
-                moveTo(second, fromBackend);
+                if (unregisteredAtLink) second.register(fromBackend).sync();
+                else moveTo(second, fromBackend);
                 Channel codecs = read ? fromBackend : toClient;
                 within(
                         codecs,
@@ -2200,17 +2215,226 @@ class VelocityCompressedForwardLoopTest {
         fromBackend.close().sync();
         assertNull(onLoop(() -> fromBackend.pipeline().get(CompressedKeep.NAME)));
         onLoop(() -> {
-            for (Field field : CompressedForwarder.class.getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers())) continue;
-                field.setAccessible(true);
-                Object value = field.get(forwarder);
-                assertNotSame(fromBackend, value, field.getName());
-                assertNotSame(keep, value, field.getName());
-                if (value instanceof Reference<?>) assertInstanceOf(WeakReference.class, value, field.getName());
-            }
+            assertHoldsNeither(forwarder, fromBackend, keep);
             return null;
         });
         toClient.close().sync();
+    }
+
+    /** Asserts that no field of {@code forwarder} is {@code backend} or {@code keep} and each reference is weak. */
+    private static void assertHoldsNeither(CompressedForwarder forwarder, Channel backend, Object keep)
+            throws IllegalAccessException {
+        for (Field field : CompressedForwarder.class.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers())) continue;
+            field.setAccessible(true);
+            Object value = field.get(forwarder);
+            assertNotSame(backend, value, field.getName());
+            assertNotSame(keep, value, field.getName());
+            if (value instanceof Reference<?>) assertInstanceOf(WeakReference.class, value, field.getName());
+        }
+    }
+
+    @Test
+    void clientUnregisteredAtInstallGetsNoForwarderAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        List<List<String>> seen = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                Channel toClient = client(false).proxySide();
+                toClient.deregister().sync();
+                // The connection's attach runs on a thread of its own, here while the client is unregistered.
+                if (on)
+                    assertNull(VelocityCompressedForward.install(
+                            toClient.pipeline(), CompressEncoder.class, CompressDecoder.class, COMPRESSORS));
+                second.register(toClient).sync();
+                seen.add(within(toClient, () -> toClient.pipeline().names()));
+                toClient.close().sync();
+            }
+            assertFalse(seen.get(1).contains(CompressedForwarder.NAME));
+            assertEquals(seen.get(0), seen.get(1), "the client's handlers on the second loop with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void keepUnregisteredOnAnotherLoopEndsItsLinkOnTheClientsLoopAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        List<List<String>> names = new ArrayList<>();
+        List<List<String>> events = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                Channel toClient = client(on).proxySide();
+                var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                var seen = new CopyOnWriteArrayList<String>();
+                var reached = new CountDownLatch(1);
+                Channel fromBackend = backend(group, new ChannelInboundHandlerAdapter() {
+                            @Override
+                            public void channelUnregistered(ChannelHandlerContext ctx) {
+                                seen.add("unregistered on "
+                                        + Thread.currentThread().getName());
+                                reached.countDown();
+                                ctx.fireChannelUnregistered();
+                            }
+                        })
+                        .proxySide();
+                Object keep = onLoop(() -> {
+                    if (on)
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                    return fromBackend.pipeline().get(CompressedKeep.NAME);
+                });
+                assertEquals(on, keep != null);
+                var resume = new CountDownLatch(1);
+                var failure = new AtomicReference<Throwable>();
+                onLoop(() -> fromBackend.pipeline().addFirst("mover", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelUnregistered(ChannelHandlerContext ctx) {
+                        try {
+                            // A register can begin once the channel reads unregistered, before this event moves on.
+                            assertTrue(second.next().register(ctx.channel()).await(5, TimeUnit.SECONDS));
+                        } catch (Throwable thrown) {
+                            failure.set(thrown);
+                        }
+                        ctx.fireChannelUnregistered();
+                        // The client's loop stays held while the second loop runs the rest of the event.
+                        await(resume);
+                    }
+                }));
+                ChannelFuture deregistered = fromBackend.deregister();
+                try {
+                    await(reached);
+                    assertNull(failure.get());
+                    if (on) assertEquals("linked", forwarder.linkStatus(), "no link field written on the second loop");
+                    names.add(within(fromBackend, () -> fromBackend.pipeline().names()));
+                } finally {
+                    resume.countDown();
+                }
+                deregistered.sync();
+                if (on)
+                    onLoop(() -> {
+                        assertEquals(CompressedKeep.UNREGISTERED, forwarder.linkStatus());
+                        assertHoldsNeither(forwarder, fromBackend, keep);
+                        return null;
+                    });
+                events.add(List.copyOf(seen));
+                fromBackend.close().sync();
+                toClient.close().sync();
+            }
+            assertFalse(names.get(1).contains(CompressedKeep.NAME));
+            assertEquals(names.get(0), names.get(1), "the backend's handlers with the switch off");
+            assertEquals(events.get(0), events.get(1), "the later handler's event and thread with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void unregistrationAndCloseReachTheHandlersAfterTheAddedOnesAsWithTheSwitchOff() throws Exception {
+        for (boolean close : new boolean[] {false, true}) {
+            List<List<String>> seen = new ArrayList<>();
+            for (boolean on : new boolean[] {false, true}) {
+                Channel toClient = client(on).proxySide();
+                var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                var events = new CopyOnWriteArrayList<String>();
+                Channel fromBackend =
+                        backend(group, recorder("backend", events)).proxySide();
+                onLoop(() -> {
+                    toClient.pipeline().addLast(recorder("client", events));
+                    if (on) {
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                        assertEquals("linked", forwarder.linkStatus());
+                    }
+                    return null;
+                });
+                for (Channel channel : List.of(fromBackend, toClient)) {
+                    if (close) channel.close().sync();
+                    else channel.deregister().sync();
+                    within(channel, () -> null);
+                }
+                seen.add(List.copyOf(events));
+                if (!close)
+                    for (Channel channel : List.of(fromBackend, toClient)) {
+                        group.next().register(channel).sync();
+                        channel.close().sync();
+                    }
+            }
+            assertEquals(seen.get(0), seen.get(1), close ? "at a close" : "at a deregistration");
+        }
+    }
+
+    /** Records each channelInactive and channelUnregistered with its thread, and passes it on. */
+    private static ChannelInboundHandlerAdapter recorder(String side, List<String> events) {
+        return new ChannelInboundHandlerAdapter() {
+            @Override
+            public void channelInactive(ChannelHandlerContext ctx) {
+                events.add(side + " inactive on " + Thread.currentThread().getName());
+                ctx.fireChannelInactive();
+            }
+
+            @Override
+            public void channelUnregistered(ChannelHandlerContext ctx) {
+                events.add(side + " unregistered on " + Thread.currentThread().getName());
+                ctx.fireChannelUnregistered();
+            }
+        };
+    }
+
+    @Test
+    void keepLeftOnAChannelThatLeftItsLoopPublishesNothingAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        byte[] packet = packet(4000, 111);
+        try {
+            // A head-side handler that keeps the event leaves the added handlers on the client, or the backend it
+            // moves.
+            for (boolean moveBackend : new boolean[] {false, true}) {
+                List<List<Boolean>> seen = new ArrayList<>();
+                for (boolean on : new boolean[] {false, true}) {
+                    Channel toClient = client(on).proxySide();
+                    var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                    var published = new CopyOnWriteArrayList<Boolean>();
+                    var read = new CountDownLatch(1);
+                    Pair backend = backend(group, new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                            published.add(forwarder != null && forwarder.markBuf == msg);
+                            ReferenceCountUtil.release(msg);
+                            read.countDown();
+                        }
+                    });
+                    Channel fromBackend = backend.proxySide();
+                    Channel moved = moveBackend ? fromBackend : toClient;
+                    onLoop(() -> {
+                        if (on)
+                            VelocityCompressedForward.link(
+                                    forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                        moved.pipeline().addFirst("keeper", new ChannelInboundHandlerAdapter() {
+                            @Override
+                            public void channelUnregistered(ChannelHandlerContext ctx) {}
+                        });
+                        return null;
+                    });
+                    if (moveBackend) moveTo(second, fromBackend);
+                    else toClient.deregister().sync();
+                    if (on) {
+                        assertEquals("linked", within(toClient, forwarder::linkStatus));
+                        assertNotNull(
+                                within(fromBackend, () -> fromBackend.pipeline().get(CompressedKeep.NAME)));
+                    }
+                    serve(backend, packet);
+                    await(read);
+                    seen.add(List.copyOf(published));
+                    if (!moveBackend) group.next().register(toClient).sync();
+                    fromBackend.close().sync();
+                    toClient.close().sync();
+                }
+                assertEquals(List.of(false), seen.get(0));
+                assertEquals(seen.get(0), seen.get(1), moveBackend ? "a backend moved" : "a client unregistered");
+            }
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
     }
 
     /** Waits until {@code thread} is blocked entering {@code monitor}'s monitor. */

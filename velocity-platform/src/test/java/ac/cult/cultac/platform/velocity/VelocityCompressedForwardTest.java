@@ -2877,6 +2877,7 @@ class VelocityCompressedForwardTest {
             Channel backend = mock(Channel.class);
             when(backend.pipeline()).thenReturn(racing);
             when(backend.eventLoop()).thenReturn(f.backend.eventLoop());
+            when(backend.isRegistered()).thenReturn(true);
             VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), backend, DECODER, COMPRESSORS);
             assertEquals("linked", f.forwarder.linkStatus());
             real.addBefore(VelocityCompressedForward.COMPRESSION_DECODER, "tap", new ChannelInboundHandlerAdapter());

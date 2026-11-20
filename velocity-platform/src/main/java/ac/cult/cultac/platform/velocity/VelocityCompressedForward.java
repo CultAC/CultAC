@@ -306,9 +306,9 @@ final class VelocityCompressedForward {
     }
 
     /**
-     * The forwarder installed, in a pipeline that touches no message, directly after an encoder exactly of
-     * {@code encoderClass} on the channel's loop, with a decoder exactly of {@code decoderClass} sharing an open
-     * compressor of one of {@code compressors}' classes, or null.
+     * The forwarder installed on a registered channel, in a pipeline that touches no message, directly after an encoder
+     * exactly of {@code encoderClass} on the channel's loop, with a decoder exactly of {@code decoderClass} sharing an
+     * open compressor of one of {@code compressors}' classes, or null.
      */
     static @Nullable CompressedForwarder install(
             ChannelPipeline pipeline, Class<?> encoderClass, Class<?> decoderClass, Compressors compressors) {
@@ -381,6 +381,7 @@ final class VelocityCompressedForward {
             return null;
         }
         Refusal refusal = null;
+        boolean unregistered = false;
         // The touch check admits only netty's pipeline class or a subclass, whose final mutators hold this monitor.
         synchronized (pipeline) {
             if (!CompressedForwarder.onLoop(pipeline)) {
@@ -396,9 +397,12 @@ final class VelocityCompressedForward {
                 } catch (RuntimeException failure) {
                     refusal = Refusal.CHANGED;
                 }
-                if (refusal != null) CompressedForwarder.remove(pipeline, forwarder);
+                // A handler in the pipeline when its channel reads registered sees that registration's unregistration.
+                if (refusal == null && !forwarder.registeredOnLoop()) unregistered = true;
+                if (refusal != null || unregistered) CompressedForwarder.remove(pipeline, forwarder);
             }
         }
+        if (unregistered) return null;
         if (refusal != null) {
             refused.accept(refusal);
             return null;
@@ -650,8 +654,8 @@ final class VelocityCompressedForward {
     }
 
     /**
-     * Places the keep, in a backend pipeline that touches no message, before the backend's decoder exactly of
-     * {@code decoderClass} holding a compressor of one of {@code compressors}' classes; one loop for both.
+     * Places the keep, in a registered backend's pipeline that touches no message, before the backend's decoder exactly
+     * of {@code decoderClass} holding a compressor of one of {@code compressors}' classes; one loop for both.
      */
     static void place(
             CompressedForwarder forwarder,
@@ -764,6 +768,12 @@ final class VelocityCompressedForward {
                     || decoder.isRemoved()
                     || !CompressedForwarder.follows(decoder, keepContext)) {
                 forwarder.linkStatus("backend-adjacency");
+                CompressedForwarder.remove(pipeline, keep);
+                return;
+            }
+            // A handler in the pipeline when its channel reads registered sees that registration's unregistration.
+            if (!backend.isRegistered()) {
+                forwarder.linkStatus(CompressedKeep.UNREGISTERED);
                 CompressedForwarder.remove(pipeline, keep);
                 return;
             }
