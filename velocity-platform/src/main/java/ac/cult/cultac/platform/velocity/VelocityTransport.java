@@ -28,6 +28,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import net.kyori.adventure.text.Component;
+import org.jetbrains.annotations.Nullable;
 
 /** Intercepts client-facing frames, after Velocity's entity-ID rewriting and before compression. */
 final class VelocityTransport {
@@ -46,6 +47,7 @@ final class VelocityTransport {
     private final Method connectionMethod;
     private final Method channelMethod;
     private final VelocityClientSupport clients;
+    private final @Nullable VelocityCompressedForward compressedForward;
     private volatile boolean running;
 
     VelocityTransport(
@@ -53,8 +55,10 @@ final class VelocityTransport {
             Object plugin,
             CultNetworkManager manager,
             AdapterFactory platform,
-            Function<Channel, PacketOwner> bedrockOwners) {
+            Function<Channel, PacketOwner> bedrockOwners,
+            @Nullable VelocityCompressedForward compressedForward) {
         this.proxy = proxy;
+        this.compressedForward = compressedForward;
         this.plugin = plugin;
         this.manager = manager;
         this.platform = platform;
@@ -190,6 +194,7 @@ final class VelocityTransport {
         // Authentication enables compression (including Via's relocation) before
         // PostLogin CONFIG. Keep these handlers stable for the whole session.
         VelocityPacketPipeline.install(connection);
+        if (compressedForward != null) compressedForward.installClient(connection, adapter, player);
         connection.execute(connection::prepare);
     }
 
@@ -222,6 +227,7 @@ final class VelocityTransport {
         connection
                 .removeHandlers(() -> {
                     ((VelocityConnectionAdapter) connection.platform()).closeBackendTicks();
+                    if (compressedForward != null) VelocityCompressedForward.uninstall(channel);
                     CultDecoder.uninstall(channel);
                     CultEncoder.uninstall(channel);
                 })
@@ -237,6 +243,8 @@ final class VelocityTransport {
             return CompletableFuture.supplyAsync(
                             () -> connection.removeHandlers(() -> {
                                 ((VelocityConnectionAdapter) connection.platform()).closeBackendTicks();
+                                if (compressedForward != null)
+                                    VelocityCompressedForward.uninstall(connection.channel());
                                 CultDecoder.uninstall(connection.channel());
                                 CultEncoder.uninstall(connection.channel());
                             }),
