@@ -46,6 +46,25 @@ tasks.register("printVersion") {
     }
 }
 
+// ---------- Decompiled Minecraft patches ----------
+// ./gradlew mcsrc: per-class patches from the latest Minecraft release back to every release down to
+// runtimeHostMinVersion, in mc-sources/releases/. ./gradlew mcsrcSnapshot: patches from the latest release to every
+// snapshot since, in mc-sources/snapshots/. The latest versions come from Mojang's version manifest; both tasks share
+// one cache across worktrees, so a version is only decompiled and a pair of versions only diffed once.
+tasks.register<mcsrc.GenerateReleasePatches>("mcsrc") {
+    description = "Writes patches of the decompiled Minecraft client from the latest release back to older releases"
+    minVersion.set(providers.gradleProperty("runtimeHostMinVersion"))
+    outputDir.set(layout.projectDirectory.dir("mc-sources/releases"))
+}
+tasks.register<mcsrc.GenerateSnapshotPatches>("mcsrcSnapshot") {
+    description = "Writes patches of the decompiled Minecraft client from the latest release to every snapshot since"
+    outputDir.set(layout.projectDirectory.dir("mc-sources/snapshots"))
+}
+tasks.withType<mcsrc.MinecraftPatchTask>().configureEach {
+    decompilerMaxHeap.set(providers.gradleProperty("mcsrc.decompilerHeap").orElse("8g"))
+    cacheDir.set(gradle.gradleUserHomeDir.resolve("caches/cultac-mcsrc"))
+}
+
 // ---------- Java Compile Optimization ----------
 subprojects {
     repositories.maven("https://repo.papermc.io/repository/maven-public/") {
