@@ -1613,6 +1613,230 @@ class VelocityCompressedForwardLoopTest {
         assertArrayEquals(sent.get(0), sent.get(1), "the bytes the encoder sends with the switch off");
     }
 
+    /**
+     * A thread that, holding the backend pipeline's monitor, inserts a handler between the keep and the decoder and
+     * waits for a task on the shared loop while a backend read on that loop reaches the keep, which refuses the frame.
+     */
+    @Test
+    void backendMonitorHolderWaitingForTheLoopDuringARefusedReadGetsItsAnswerAsWithTheSwitchOff() throws Exception {
+        byte[] packet = packet(4000, 109);
+        List<byte[]> sent = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            synchronized (received) {
+                received.reset();
+            }
+            Pair client = client(on);
+            Channel toClient = client.proxySide();
+            var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+            var answers = new CopyOnWriteArrayList<Boolean>();
+            var holder = new AtomicReference<Thread>();
+            Pair backend = connect(false);
+            ChannelPipeline backendPipeline = backend.proxySide().pipeline();
+            onLoop(() -> {
+                backendPipeline.addLast("frame-decoder", new FrameDecoder());
+                backendPipeline.addLast("holder", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                        ctx.pipeline().remove(this);
+                        var holding = new CountDownLatch(1);
+                        var other = new Thread(() -> {
+                            synchronized (backendPipeline) {
+                                backendPipeline.addBefore(
+                                        VelocityCompressedForward.COMPRESSION_DECODER,
+                                        "inserted",
+                                        new ChannelInboundHandlerAdapter());
+                                Future<Boolean> task = toClient.eventLoop().submit(() -> true);
+                                holding.countDown();
+                                try {
+                                    answers.add(task.get(5, TimeUnit.SECONDS));
+                                } catch (Exception timedOut) {
+                                    answers.add(false);
+                                }
+                            }
+                        });
+                        holder.set(other);
+                        other.start();
+                        assertTrue(holding.await(5, TimeUnit.SECONDS), "the holder waits for the loop");
+                        ctx.fireChannelRead(msg);
+                    }
+                });
+                backendPipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+                backendPipeline.addLast("handler", relay(toClient));
+                if (on)
+                    VelocityCompressedForward.link(
+                            forwarder, toClient, backend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                return null;
+            });
+            if (on) assertEquals("linked", onLoop(forwarder::linkStatus));
+            serve(backend, packet);
+            assertPackets(List.of(packet), awaitFrames(1));
+            Thread other = holder.get();
+            assertNotNull(other);
+            other.join(10_000);
+            assertFalse(other.isAlive(), "the holder finished");
+            assertEquals(List.of(true), answers, "the holder's task ran on the loop");
+            synchronized (received) {
+                sent.add(received.toByteArray());
+            }
+            if (on) {
+                assertEquals(0L, onLoop(forwarder::forwarded));
+                assertEquals("backend-adjacency", onLoop(forwarder::linkStatus));
+                assertNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the keep's queued removal ran");
+            }
+            backend.proxySide().close().sync();
+            toClient.close().sync();
+        }
+        assertArrayEquals(sent.get(0), sent.get(1), "the bytes the encoder sends with the switch off");
+    }
+
+    /**
+     * A thread that holds the backend pipeline's monitor and waits for a task on the shared loop while a published
+     * write finds a handler inserted between the client encoder and the forwarder, which turns the forwarder off.
+     */
+    @Test
+    void backendMonitorHolderWaitingForTheLoopDuringAWriteThatEndsTheLinkGetsItsAnswerAsWithTheSwitchOff()
+            throws Exception {
+        byte[] packet = packet(4000, 110);
+        List<byte[]> sent = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            synchronized (received) {
+                received.reset();
+            }
+            Pair client = client(on);
+            Channel toClient = client.proxySide();
+            ChannelPipeline clientPipeline = toClient.pipeline();
+            var forwarder = (CompressedForwarder) clientPipeline.get(CompressedForwarder.NAME);
+            var answers = new CopyOnWriteArrayList<Boolean>();
+            var writes = new CopyOnWriteArrayList<ChannelFuture>();
+            var holder = new AtomicReference<Thread>();
+            Pair backend = connect(false);
+            ChannelPipeline backendPipeline = backend.proxySide().pipeline();
+            onLoop(() -> {
+                backendPipeline.addLast("frame-decoder", new FrameDecoder());
+                backendPipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
+                backendPipeline.addLast("handler", new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                        ByteBuf buf = (ByteBuf) msg;
+                        try {
+                            var holding = new CountDownLatch(1);
+                            var other = new Thread(() -> {
+                                synchronized (backendPipeline) {
+                                    Future<Boolean> task = toClient.eventLoop().submit(() -> true);
+                                    holding.countDown();
+                                    try {
+                                        answers.add(task.get(5, TimeUnit.SECONDS));
+                                    } catch (Exception timedOut) {
+                                        answers.add(false);
+                                    }
+                                }
+                            });
+                            holder.set(other);
+                            other.start();
+                            assertTrue(holding.await(5, TimeUnit.SECONDS), "the holder waits for the loop");
+                            clientPipeline.addAfter(
+                                    CompressedForwarder.COMPRESSION_ENCODER,
+                                    "between",
+                                    new ChannelOutboundHandlerAdapter());
+                            writes.add(toClient.writeAndFlush(buf.retain()));
+                        } finally {
+                            buf.release();
+                        }
+                    }
+                });
+                if (on)
+                    VelocityCompressedForward.link(
+                            forwarder, toClient, backend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                return null;
+            });
+            if (on) assertEquals("linked", onLoop(forwarder::linkStatus));
+            serve(backend, packet);
+            assertPackets(List.of(packet), awaitFrames(1));
+            Thread other = holder.get();
+            assertNotNull(other);
+            other.join(10_000);
+            assertFalse(other.isAlive(), "the holder finished");
+            assertEquals(List.of(true), answers, "the holder's task ran on the loop");
+            synchronized (received) {
+                sent.add(received.toByteArray());
+            }
+            assertEquals(1, writes.size());
+            assertTrue(writes.getFirst().await(5, TimeUnit.SECONDS));
+            assertTrue(writes.getFirst().isSuccess());
+            if (on) {
+                assertEquals(0L, onLoop(forwarder::forwarded));
+                assertEquals("adjacency", onLoop(forwarder::status));
+                assertNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the keep's queued removal ran");
+            }
+            backend.proxySide().close().sync();
+            toClient.close().sync();
+        }
+        assertArrayEquals(sent.get(0), sent.get(1), "the bytes the encoder sends with the switch off");
+    }
+
+    /**
+     * A handler inserted between the keep and the decoder that removes itself at the first of two frames of one read:
+     * the keep refuses the first, and its link has ended when the second arrives with the decoder adjacent again.
+     */
+    @Test
+    void keepWhoseLinkEndedPassesTheNextFrameOfTheReadOnAsWithTheSwitchOff() throws Exception {
+        byte[] first = packet(3000, 111);
+        byte[] second = packet(3000, 112);
+        List<byte[]> sent = new ArrayList<>();
+        for (boolean on : new boolean[] {false, true}) {
+            synchronized (received) {
+                received.reset();
+            }
+            Pair client = client(on);
+            var forwarder = (CompressedForwarder) client.proxySide().pipeline().get(CompressedForwarder.NAME);
+            Pair backend = backend(client.proxySide());
+            ChannelPipeline backendPipeline = backend.proxySide().pipeline();
+            onLoop(() -> {
+                if (on)
+                    VelocityCompressedForward.link(
+                            forwarder, client.proxySide(), backend.proxySide(), CompressDecoder.class, COMPRESSORS);
+                backendPipeline.addBefore(
+                        VelocityCompressedForward.COMPRESSION_DECODER, "between", new ChannelInboundHandlerAdapter() {
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                                ctx.pipeline().remove(this);
+                                ctx.fireChannelRead(msg);
+                            }
+                        });
+                return null;
+            });
+            if (on) {
+                assertEquals("linked", onLoop(forwarder::linkStatus));
+                List<String> names = onLoop(backendPipeline::names);
+                int keep = names.indexOf(CompressedKeep.NAME);
+                assertEquals(
+                        List.of(CompressedKeep.NAME, "between", VelocityCompressedForward.COMPRESSION_DECODER),
+                        names.subList(keep, keep + 3));
+            }
+            backend.remote()
+                    .writeAndFlush(Unpooled.wrappedBuffer(
+                            concat(frame(body(first, THRESHOLD)), frame(body(second, THRESHOLD)))))
+                    .sync();
+            backend.proxySide().eventLoop().execute(() -> {
+                backend.proxySide().config().setAutoRead(true);
+                backend.proxySide().read();
+            });
+            assertPackets(List.of(first, second), awaitFrames(2));
+            synchronized (received) {
+                sent.add(received.toByteArray());
+            }
+            if (on) {
+                assertEquals(0L, onLoop(forwarder::forwarded));
+                assertEquals("on", onLoop(forwarder::status));
+                assertEquals("backend-adjacency", onLoop(forwarder::linkStatus));
+                assertNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the keep's queued removal ran");
+            }
+            backend.proxySide().close().sync();
+            client.proxySide().close().sync();
+        }
+        assertArrayEquals(sent.get(0), sent.get(1), "the bytes the encoder sends with the switch off");
+    }
+
     /** Waits until {@code thread} is blocked entering {@code monitor}'s monitor. */
     private static void awaitBlockedOn(Thread thread, Object monitor) {
         ThreadMXBean threads = ManagementFactory.getThreadMXBean();

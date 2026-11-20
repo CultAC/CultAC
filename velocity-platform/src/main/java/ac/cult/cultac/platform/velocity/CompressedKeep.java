@@ -266,6 +266,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         if (forwarder.disabled
                 // The mark's fields are written only on the client's loop, so one keep publishes at a time.
                 || !forwarder.onClientLoop()
+                // A keep whose link has ended stays in the pipeline until its queued removal runs.
+                || !forwarder.linksTo(this)
                 || !(msg instanceof ByteBuf frame)
                 || !nettyFrame(frame)
                 || frame.refCnt() == 0

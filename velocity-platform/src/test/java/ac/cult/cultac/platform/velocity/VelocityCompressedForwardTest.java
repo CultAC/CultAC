@@ -433,7 +433,12 @@ class VelocityCompressedForwardTest {
         byte[] inner = packet(2000, 23);
         var nested = new ArrayList<Fixture.Backend>();
         try (var f = new Fixture(Options.forwarding().onFrame((fixture, buf) -> {
-            if (buf.readableBytes() == outer.length) nested.getFirst().read(frame(body(inner, THRESHOLD)));
+            if (buf.readableBytes() == outer.length) {
+                var inside = nested.getFirst();
+                fixture.forwarder.link(inside.channel, (CompressedKeep)
+                        inside.channel.pipeline().get(CompressedKeep.NAME));
+                inside.read(frame(body(inner, THRESHOLD)));
+            }
             fixture.delayedWrite(buf);
         }))) {
             var second = f.backend(Options.forwarding());
@@ -3031,6 +3036,7 @@ class VelocityCompressedForwardTest {
                 assertEquals("linked", f.forwarder.linkStatus(), label);
                 if (removed) f.client.pipeline().remove(f.forwarder);
                 else f.forwarder.disable("test-disabled");
+                f.backend.runPendingTasks();
                 assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
                 assertEquals("none", f.forwarder.linkStatus(), label);
                 assertTrue(f.forwarder.stats().contains(", link=none,"), label);

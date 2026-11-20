@@ -42,7 +42,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final int MAX_FORWARDED_LENGTH = maxForwardedLength();
     // Netty follows this link from a context to the next outbound handler toward the head.
     private static final @Nullable VarHandle PREVIOUS = link("prev");
-    // A context removed from another thread keeps its own links until its removal runs on the loop.
+    // Netty never writes a context that has left the list into another context's link.
     private static final @Nullable VarHandle NEXT = link("next");
     // Netty touches every message it dispatches to a context of a pipeline built with leak detection enabled.
     private static final @Nullable VarHandle TOUCH = touch();
@@ -70,6 +70,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private String linkStatus = "none";
     private Channel linkChannel;
     private CompressedKeep linkKeep;
+    private @Nullable Channel endedChannel;
+    private @Nullable CompressedKeep endedKeep;
 
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
     private long notMarked, indicesChanged, guardMismatch, failures, forwardFailures;
@@ -464,7 +466,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         if (disabled) return;
         disabled = true;
         status = why;
-        unlink();
+        end();
     }
 
     void linkStatus(String status) {
@@ -481,29 +483,60 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         linkStatus = "linked";
     }
 
-    /** Removes the current link with status {@code backend-adjacency} when {@code keep} is its keep. */
+    /** Whether {@code keep} is the current link's keep. */
+    boolean linksTo(CompressedKeep keep) {
+        return linkKeep == keep;
+    }
+
+    /** Ends the current link with status {@code backend-adjacency} when {@code keep} is its keep. */
     void unlinkDetached(CompressedKeep keep) {
         unlinkDetached(keep, "backend-adjacency");
     }
 
-    /** Removes the current link with {@code status} when {@code keep} is its keep. */
+    /** Ends the current link with {@code status} when {@code keep} is its keep. */
     void unlinkDetached(CompressedKeep keep, String status) {
         if (linkKeep != keep) return;
         try {
-            unlink();
+            end();
         } finally {
             linkStatus = status;
         }
     }
 
-    /** Removes the current link's keep from its backend; never waits for another loop. */
-    void unlink() {
+    /** Ends the current link and queues its keep's removal on the backend's loop; takes no lock and never waits. */
+    private void end() {
         Channel channel = linkChannel;
         CompressedKeep keep = linkKeep;
         linkChannel = null;
         linkKeep = null;
         if (channel == null) return;
         linkStatus = "none";
+        endedChannel = channel;
+        endedKeep = keep;
+        try {
+            channel.eventLoop().execute(() -> remove(channel.pipeline(), keep));
+        } catch (Throwable dropped) {
+            // A keep left in its pipeline passes every frame on untouched.
+        }
+    }
+
+    /** Removes the current link's keep and an ended link's keep from their backends; never waits for another loop. */
+    void unlink() {
+        Channel ended = endedChannel;
+        CompressedKeep stale = endedKeep;
+        endedChannel = null;
+        endedKeep = null;
+        if (ended != null) removeKeep(ended, stale);
+        Channel channel = linkChannel;
+        CompressedKeep keep = linkKeep;
+        linkChannel = null;
+        linkKeep = null;
+        if (channel == null) return;
+        linkStatus = "none";
+        removeKeep(channel, keep);
+    }
+
+    private static void removeKeep(Channel channel, CompressedKeep keep) {
         if (channel.eventLoop().inEventLoop()) {
             remove(channel.pipeline(), keep);
             return;
