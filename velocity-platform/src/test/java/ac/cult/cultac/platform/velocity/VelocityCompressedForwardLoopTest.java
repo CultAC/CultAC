@@ -2856,7 +2856,9 @@ class VelocityCompressedForwardLoopTest {
     void frameFiredInsideTheBackendsUnregistrationAheadOfTheKeepIsSentAsWithTheSwitchOff() throws Exception {
         byte[] packet = packet(4000, 112);
         List<byte[]> sent = new ArrayList<>();
-        for (boolean on : new boolean[] {false, true}) {
+        for (int mode = 0; mode < 3; mode++) {
+            boolean on = mode > 0;
+            boolean gap = mode == 2;
             synchronized (received) {
                 received.reset();
             }
@@ -2864,6 +2866,7 @@ class VelocityCompressedForwardLoopTest {
             var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
             Channel fromBackend = backend(toClient).proxySide();
             var states = new CopyOnWriteArrayList<Boolean>();
+            var links = new CopyOnWriteArrayList<String>();
             onLoop(() -> {
                 fromBackend.pipeline().addAfter("frame-decoder", "buffering", new ChannelInboundHandlerAdapter() {
                     @Override
@@ -2872,17 +2875,24 @@ class VelocityCompressedForwardLoopTest {
                         states.add(toClient.isRegistered());
                         ctx.fireChannelRead(ctx.alloc().directBuffer().writeBytes(body(packet, THRESHOLD)));
                         ctx.fireChannelReadComplete();
+                        if (on) links.add(forwarder.linkStatus());
                         ctx.fireChannelUnregistered();
                     }
                 });
                 if (on)
                     VelocityCompressedForward.link(
                             forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                if (gap)
+                    fromBackend.pipeline().addAfter(CompressedKeep.NAME, "between", new ChannelInboundHandlerAdapter());
                 return null;
             });
             if (on) assertEquals("linked", onLoop(forwarder::linkStatus));
             fromBackend.deregister().sync();
             assertEquals(List.of(false, true), states);
+            if (on) {
+                assertEquals(List.of("linked"), links, "the link after the refused read");
+                assertEquals(CompressedKeep.UNREGISTERED, onLoop(forwarder::linkStatus));
+            }
             assertPackets(List.of(packet), awaitFrames(1));
             synchronized (received) {
                 sent.add(received.toByteArray());
@@ -2893,6 +2903,7 @@ class VelocityCompressedForwardLoopTest {
             toClient.close().sync();
         }
         assertArrayEquals(sent.get(0), sent.get(1), "the frame the encoder compresses with the switch off");
+        assertArrayEquals(sent.get(0), sent.get(2), "the frame the encoder compresses with the switch off");
     }
 
     @Test
