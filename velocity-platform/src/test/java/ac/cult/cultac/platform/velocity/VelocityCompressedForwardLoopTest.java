@@ -2303,6 +2303,7 @@ class VelocityCompressedForwardLoopTest {
                         await(resume);
                     }
                 }));
+                awaitIdle(fromBackend);
                 ChannelFuture deregistered = fromBackend.deregister();
                 try {
                     await(reached);
@@ -2705,6 +2706,7 @@ class VelocityCompressedForwardLoopTest {
                 var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
                 Channel fromBackend = backend(toClient).proxySide();
                 var pending = new AtomicInteger(-1);
+                var read = new CountDownLatch(1);
                 onLoop(() -> {
                     if (on)
                         VelocityCompressedForward.link(
@@ -2712,20 +2714,22 @@ class VelocityCompressedForwardLoopTest {
                     toClient.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                         @Override
                         public void channelUnregistered(ChannelHandlerContext ctx) {
-                            pending.compareAndSet(-1, ((SingleThreadEventExecutor) ctx.executor()).pendingTasks());
+                            if (pending.compareAndSet(-1, ((SingleThreadEventExecutor) ctx.executor()).pendingTasks()))
+                                read.countDown();
                             ctx.fireChannelUnregistered();
                         }
                     });
                     return null;
                 });
-                if (close) closeFully(toClient);
-                else toClient.deregister().sync();
+                // The count is read with no task of this thread or of an earlier channel queued on the loop.
+                awaitIdle(toClient);
+                if (close) toClient.close();
+                else toClient.deregister();
+                await(read);
                 seen.add(pending.get());
-                if (!close) {
-                    group.next().register(toClient).sync();
-                    toClient.close().sync();
-                }
-                fromBackend.close().sync();
+                if (!close) group.next().register(toClient).sync();
+                closeFully(toClient);
+                closeFully(fromBackend);
             }
             assertEquals(seen.get(0), seen.get(1), close ? "at a close" : "at a deregistration");
         }
@@ -2856,6 +2860,13 @@ class VelocityCompressedForwardLoopTest {
             }
             return loop;
         }
+    }
+
+    /** Returns once a task on {@code channel}'s loop finds no other task queued there. */
+    private static void awaitIdle(Channel channel) throws Exception {
+        for (int i = 0; i < 100; i++)
+            if (within(channel, () -> ((SingleThreadEventExecutor) channel.eventLoop()).pendingTasks() == 0)) return;
+        fail("the loop stays busy");
     }
 
     /** Closes {@code channel} and returns once its loop has run the unregistration a close queues after its future. */
