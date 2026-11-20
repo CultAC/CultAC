@@ -1607,7 +1607,10 @@ class VelocityCompressedForwardLoopTest {
             assertEquals(1, writes.size());
             assertTrue(writes.getFirst().await(5, TimeUnit.SECONDS));
             assertTrue(writes.getFirst().isSuccess());
-            if (on) assertEquals(0L, onLoop(forwarder::forwarded));
+            if (on) {
+                assertEquals(0L, onLoop(forwarder::forwarded));
+                assertEquals(1L, onLoop(forwarder::decoderUnlinked), "the published write reached the link check");
+            }
             backend.proxySide().close().sync();
             toClient.close().sync();
         }
