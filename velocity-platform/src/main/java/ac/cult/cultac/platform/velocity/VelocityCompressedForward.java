@@ -519,14 +519,13 @@ final class VelocityCompressedForward {
         }
     }
 
-    /** Removes the forwarder and its backend link; runs on the client's loop or its packet owner. */
+    /**
+     * Removes the forwarder, whose {@code handlerRemoved} ends its backend link on the loop the client is registered
+     * on at the removal; runs on the client's loop or its packet owner.
+     */
     static void uninstall(Channel client) {
         var pipeline = client.pipeline();
-        if (!(pipeline.get(CompressedForwarder.NAME) instanceof CompressedForwarder forwarder)) return;
-        try {
-            // Only the client's loop writes the link; elsewhere the handlerRemoved Netty runs on that loop unlinks.
-            if (forwarder.onClientLoop()) forwarder.unlink();
-        } finally {
+        if (pipeline.get(CompressedForwarder.NAME) instanceof CompressedForwarder forwarder) {
             CompressedForwarder.remove(pipeline, forwarder);
         }
     }

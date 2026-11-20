@@ -2444,8 +2444,7 @@ class VelocityCompressedForwardLoopTest {
         var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
         byte[] packet = packet(4000, 111);
         try {
-            // A head-side handler that keeps the event leaves the added handlers on the client, or the backend it
-            // moves.
+            // A head-side handler that keeps the event leaves the added handlers on a channel that left its loop.
             for (boolean moveBackend : new boolean[] {false, true}) {
                 List<List<Boolean>> seen = new ArrayList<>();
                 for (boolean on : new boolean[] {false, true}) {
