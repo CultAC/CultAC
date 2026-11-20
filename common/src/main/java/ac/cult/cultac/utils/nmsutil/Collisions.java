@@ -19,6 +19,7 @@ import ac.cult.cultac.utils.collisions.datatypes.CollisionBoxPool;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import ac.cult.cultac.utils.debug.DebugText;
+import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.math.CultMath;
@@ -625,11 +626,23 @@ public class Collisions {
         int minYIterate = Math.max(minBlock, minBlockY);
         int maxYIterate = Math.min(maxBlock, maxBlockY);
 
-        for (int currChunkZ = minChunkZ; currChunkZ <= maxChunkZ; ++currChunkZ) {
+        int firstChunkX = minChunkX;
+        int lastChunkX = maxChunkX;
+        int firstChunkZ = minChunkZ;
+        int lastChunkZ = maxChunkZ;
+        if (CompensatedWorld.isWideColumnWalk(firstChunkX, lastChunkX, firstChunkZ, lastChunkZ)) {
+            int[] stored = player.compensatedWorld.storedChunkBounds();
+            firstChunkX = Math.max(firstChunkX, stored[0]);
+            lastChunkX = Math.min(lastChunkX, stored[1]);
+            firstChunkZ = Math.max(firstChunkZ, stored[2]);
+            lastChunkZ = Math.min(lastChunkZ, stored[3]);
+        }
+
+        for (int currChunkZ = firstChunkZ; currChunkZ <= lastChunkZ; ++currChunkZ) {
             int minZ = currChunkZ == minChunkZ ? minBlockZ & 15 : 0; // coordinate in chunk
             int maxZ = currChunkZ == maxChunkZ ? maxBlockZ & 15 : 15; // coordinate in chunk
 
-            for (int currChunkX = minChunkX; currChunkX <= maxChunkX; ++currChunkX) {
+            for (int currChunkX = firstChunkX; currChunkX <= lastChunkX; ++currChunkX) {
                 int minX = currChunkX == minChunkX ? minBlockX & 15 : 0; // coordinate in chunk
                 int maxX = currChunkX == maxChunkX ? maxBlockX & 15 : 15; // coordinate in chunk
 
@@ -1913,11 +1926,23 @@ public class Collisions {
         int minYIterate = Math.max(minBlock, minBlockY);
         int maxYIterate = Math.min(maxBlock, maxBlockY);
 
-        for (int currChunkZ = minChunkZ; currChunkZ <= maxChunkZ; ++currChunkZ) {
+        int firstChunkX = minChunkX;
+        int lastChunkX = maxChunkX;
+        int firstChunkZ = minChunkZ;
+        int lastChunkZ = maxChunkZ;
+        if (CompensatedWorld.isWideColumnWalk(firstChunkX, lastChunkX, firstChunkZ, lastChunkZ)) {
+            int[] stored = player.compensatedWorld.storedChunkBounds();
+            firstChunkX = Math.max(firstChunkX, stored[0]);
+            lastChunkX = Math.min(lastChunkX, stored[1]);
+            firstChunkZ = Math.max(firstChunkZ, stored[2]);
+            lastChunkZ = Math.min(lastChunkZ, stored[3]);
+        }
+
+        for (int currChunkZ = firstChunkZ; currChunkZ <= lastChunkZ; ++currChunkZ) {
             int minZ = currChunkZ == minChunkZ ? minBlockZ & 15 : 0; // coordinate in chunk
             int maxZ = currChunkZ == maxChunkZ ? maxBlockZ & 15 : 15; // coordinate in chunk
 
-            for (int currChunkX = minChunkX; currChunkX <= maxChunkX; ++currChunkX) {
+            for (int currChunkX = firstChunkX; currChunkX <= lastChunkX; ++currChunkX) {
                 int minX = currChunkX == minChunkX ? minBlockX & 15 : 0; // coordinate in chunk
                 int maxX = currChunkX == maxChunkX ? maxBlockX & 15 : 15; // coordinate in chunk
 

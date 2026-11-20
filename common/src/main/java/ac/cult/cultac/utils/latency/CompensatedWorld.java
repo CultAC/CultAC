@@ -1820,6 +1820,29 @@ public class CompensatedWorld {
         return chunk;
     }
 
+    /** Whether a walk over these chunk ranges is long enough to bound by {@link #storedChunkBounds} first. */
+    public static boolean isWideColumnWalk(int firstChunkX, int lastChunkX, int firstChunkZ, int lastChunkZ) {
+        return lastChunkX >= firstChunkX
+                && lastChunkZ >= firstChunkZ
+                && ((long) lastChunkX - firstChunkX + 1) * ((long) lastChunkZ - firstChunkZ + 1) > 4096;
+    }
+
+    /**
+     * {minX, maxX, minZ, maxZ} over the stored columns, with minX above maxX when none is stored. {@link #getChunk} is
+     * null for every column outside them.
+     */
+    public int[] storedChunkBounds() {
+        int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, minZ = Integer.MAX_VALUE, maxZ = Integer.MIN_VALUE;
+        for (long key : chunks.keySet()) {
+            int chunkX = chunkXFromPosition(key), chunkZ = chunkZFromPosition(key);
+            minX = Math.min(minX, chunkX);
+            maxX = Math.max(maxX, chunkX);
+            minZ = Math.min(minZ, chunkZ);
+            maxZ = Math.max(maxZ, chunkZ);
+        }
+        return new int[] {minX, maxX, minZ, maxZ};
+    }
+
     /** Whether the client has applied the column at the chunk position and no load or unload of it is in flight. */
     public boolean isColumnProven(int chunkX, int chunkZ) {
         CachedChunk column = getChunk(chunkX, chunkZ);
