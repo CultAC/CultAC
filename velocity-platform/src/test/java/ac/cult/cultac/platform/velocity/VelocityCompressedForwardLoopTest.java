@@ -2270,11 +2270,14 @@ class VelocityCompressedForwardLoopTest {
                 var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
                 var seen = new CopyOnWriteArrayList<String>();
                 var reached = new CountDownLatch(1);
+                var before = new AtomicInteger();
+                var queued = new AtomicInteger();
                 Channel fromBackend = backend(group, new ChannelInboundHandlerAdapter() {
                             @Override
                             public void channelUnregistered(ChannelHandlerContext ctx) {
                                 seen.add("unregistered on "
                                         + Thread.currentThread().getName());
+                                queued.set(pendingTasks(toClient) - before.get());
                                 reached.countDown();
                                 ctx.fireChannelUnregistered();
                             }
@@ -2289,26 +2292,35 @@ class VelocityCompressedForwardLoopTest {
                 assertEquals(on, keep != null);
                 var resume = new CountDownLatch(1);
                 var failure = new AtomicReference<Throwable>();
-                onLoop(() -> fromBackend.pipeline().addFirst("mover", new ChannelInboundHandlerAdapter() {
-                    @Override
-                    public void channelUnregistered(ChannelHandlerContext ctx) {
-                        try {
-                            // A register can begin once the channel reads unregistered, before this event moves on.
-                            assertTrue(second.next().register(ctx.channel()).await(5, TimeUnit.SECONDS));
-                        } catch (Throwable thrown) {
-                            failure.set(thrown);
+                onLoop(() -> {
+                    fromBackend.pipeline().addFirst("mover", new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelUnregistered(ChannelHandlerContext ctx) {
+                            try {
+                                // A register can begin once the channel reads unregistered, before the event moves on.
+                                assertTrue(second.next().register(ctx.channel()).await(5, TimeUnit.SECONDS));
+                            } catch (Throwable thrown) {
+                                failure.set(thrown);
+                            }
+                            ctx.fireChannelUnregistered();
+                            // The client's loop stays held while the second loop runs the rest of the event.
+                            await(resume);
                         }
-                        ctx.fireChannelUnregistered();
-                        // The client's loop stays held while the second loop runs the rest of the event.
-                        await(resume);
-                    }
-                }));
-                awaitIdle(fromBackend);
+                    });
+                    fromBackend.pipeline().addAfter("frame-decoder", "counter", new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelUnregistered(ChannelHandlerContext ctx) {
+                            before.set(pendingTasks(toClient));
+                            ctx.fireChannelUnregistered();
+                        }
+                    });
+                    return null;
+                });
                 ChannelFuture deregistered = fromBackend.deregister();
                 try {
                     await(reached);
                     assertNull(failure.get());
-                    pending.add(((SingleThreadEventExecutor) group.next()).pendingTasks());
+                    pending.add(queued.get());
                     if (on) assertEquals("linked", forwarder.linkStatus(), "no link field written on the second loop");
                     names.add(within(fromBackend, () -> fromBackend.pipeline().names()));
                 } finally {
@@ -2328,7 +2340,7 @@ class VelocityCompressedForwardLoopTest {
             assertFalse(names.get(1).contains(CompressedKeep.NAME));
             assertEquals(names.get(0), names.get(1), "the backend's handlers with the switch off");
             assertEquals(events.get(0), events.get(1), "the later handler's event and thread with the switch off");
-            assertEquals(pending.get(0) + 1, pending.get(1), "one queued unlink on the held loop");
+            assertEquals(List.of(0, 1), pending, "the tasks the keep queues on the held loop");
         } finally {
             second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
         }
@@ -2705,33 +2717,40 @@ class VelocityCompressedForwardLoopTest {
                 Channel toClient = client(on).proxySide();
                 var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
                 Channel fromBackend = backend(toClient).proxySide();
-                var pending = new AtomicInteger(-1);
+                var before = new AtomicInteger(-1);
+                var queued = new AtomicInteger(-1);
                 var read = new CountDownLatch(1);
                 onLoop(() -> {
                     if (on)
                         VelocityCompressedForward.link(
                                 forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                    // The forwarder and the keep leave between these two reads, inside one event on the loop.
+                    toClient.pipeline().addFirst(new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelUnregistered(ChannelHandlerContext ctx) {
+                            before.compareAndSet(-1, pendingTasks(toClient));
+                            ctx.fireChannelUnregistered();
+                        }
+                    });
                     toClient.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                         @Override
                         public void channelUnregistered(ChannelHandlerContext ctx) {
-                            if (pending.compareAndSet(-1, ((SingleThreadEventExecutor) ctx.executor()).pendingTasks()))
-                                read.countDown();
+                            if (queued.compareAndSet(-1, pendingTasks(toClient) - before.get())) read.countDown();
                             ctx.fireChannelUnregistered();
                         }
                     });
                     return null;
                 });
-                // The count is read with no task of this thread or of an earlier channel queued on the loop.
-                awaitIdle(toClient);
-                if (close) toClient.close();
-                else toClient.deregister();
+                // This thread queues nothing on the loop until both reads are made.
+                ChannelFuture left = close ? toClient.close() : toClient.deregister();
                 await(read);
-                seen.add(pending.get());
+                left.sync();
+                seen.add(queued.get());
                 if (!close) group.next().register(toClient).sync();
                 closeFully(toClient);
                 closeFully(fromBackend);
             }
-            assertEquals(seen.get(0), seen.get(1), close ? "at a close" : "at a deregistration");
+            assertEquals(List.of(0, 0), seen, close ? "at a close" : "at a deregistration");
         }
     }
 
@@ -2862,11 +2881,9 @@ class VelocityCompressedForwardLoopTest {
         }
     }
 
-    /** Returns once a task on {@code channel}'s loop finds no other task queued there. */
-    private static void awaitIdle(Channel channel) throws Exception {
-        for (int i = 0; i < 100; i++)
-            if (within(channel, () -> ((SingleThreadEventExecutor) channel.eventLoop()).pendingTasks() == 0)) return;
-        fail("the loop stays busy");
+    /** The tasks queued on {@code channel}'s loop. */
+    private static int pendingTasks(Channel channel) {
+        return ((SingleThreadEventExecutor) channel.eventLoop()).pendingTasks();
     }
 
     /** Closes {@code channel} and returns once its loop has run the unregistration a close queues after its future. */
