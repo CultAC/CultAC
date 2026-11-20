@@ -274,7 +274,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         boolean laterMovementThisClientTick = false;
         // A teleport acknowledgement is not LocalPlayer#tick movement.
         if (!teleport.isTeleport()) {
-            laterMovementThisClientTick = state.receivedMovementThisClientTick
+            laterMovementThisClientTick = state.sentPositionCache.tickSentMovement()
                     && player.user.getCultConnection().runtime().supports(ServerboundPackets.CLIENT_TICK_END);
             // Before the pre-prediction checks: a setback they raise rejects this movement.
             setbacks.movementReceived();
@@ -606,7 +606,10 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         state.markVehicleMove(tickMove);
         if (fromClientTick) {
             state.clientTickVehicleMoveThisClientTick = true;
-            if (!teleport.isTeleport()) state.receivedMovementThisClientTick = true;
+            if (!teleport.isTeleport()) {
+                state.receivedMovementThisClientTick = true;
+                state.sentPositionCache.onTickVehicleMovement();
+            }
         }
 
         player.checkManager.dispatchPrePredictionReceive(event);
@@ -713,6 +716,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             if (root != null && !state.clientTickVehicleMoveThisClientTick) root.interpolateBeforeLocalTravel(player);
             state.clientTickVehicleMoveThisClientTick = true;
             state.receivedMovementThisClientTick = true;
+            state.sentPositionCache.onTickVehicleMovement();
         }
     }
 
@@ -966,13 +970,17 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     /**
      * Ends a Java client tick in its order: the timer judges the boundary, then the look, LocalPlayer#aiStep's effects
      * and the receive checks, then the tick counters and per-tick state. Returns false when the timer cancelled the
-     * boundary, which then ends no tick.
+     * boundary, which then ends no tick. LocalPlayer's position reminder still counts it.
      */
     private static boolean endJavaClientTick(PacketReceiveEvent<?> event, CultPlayer player) {
         PacketStateData state = player.packetStateData;
         // The timer must judge the boundary before it advances idle physics, attack cooldown, or the tick index.
         player.checkManager.dispatchPrePredictionReceive(event);
-        if (event.isCancelled()) return false;
+        if (event.isCancelled()) {
+            // The client ran the tick whose end the timer rejects.
+            if (!event.isSynthetic()) state.sentPositionCache.onClientTickEnd();
+            return false;
+        }
         // A tick whose LocalPlayer#sendPosition sent no movement ends with its look unchanged.
         player.checkManager.doChecksWithKnownLook();
         // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
@@ -985,7 +993,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
         if (aiStep) FlightToggle.onClientTick(player);
         player.sprintState.onClientTickEnd();
-        if (!state.receivedMovementThisClientTick) state.sentPositionCache.onTickWithoutMovement();
+        // A synthetic tick end is a timeout, not a client tick that runs LocalPlayer#sendPosition.
+        if (!event.isSynthetic()) state.sentPositionCache.onClientTickEnd();
 
         player.endCountedClientTick();
         if (ticked) state.localPlayerTickedSinceSpawn = true;

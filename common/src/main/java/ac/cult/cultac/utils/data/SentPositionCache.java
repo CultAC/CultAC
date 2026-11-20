@@ -14,6 +14,7 @@ public final class SentPositionCache {
     private int ticksWithoutPosition;
     private double sentDistanceSquared;
     private int ticksWithoutPositionBeforeSent;
+    private boolean tickSentMovement;
 
     /** A new LocalPlayer starts at zero; ClientPacketListener#handleMovePlayer does not write it. */
     public void onNewLocalPlayer() {
@@ -23,13 +24,25 @@ public final class SentPositionCache {
 
     /** The client tick's movement packet, at {@code position} when it has one. */
     public void onTickMovement(boolean hasPosition, Vec3 position) {
+        tickSentMovement = true;
         if (hasPosition) onPositionSent(position);
         else ticksWithoutPosition++;
     }
 
-    /** A client tick that sent no movement packet. */
-    public void onTickWithoutMovement() {
-        ticksWithoutPosition++;
+    /** A client tick that ran no LocalPlayer#sendPosition because the player rides. */
+    public void onTickVehicleMovement() {
+        tickSentMovement = true;
+    }
+
+    /** Whether the current client tick sent its movement. */
+    public boolean tickSentMovement() {
+        return tickSentMovement;
+    }
+
+    /** Minecraft#tick ends the client tick, whether or not the server keeps its end; a tick without movement counts. */
+    public void onClientTickEnd() {
+        if (!tickSentMovement) ticksWithoutPosition++;
+        tickSentMovement = false;
     }
 
     /** A sent position, replacing the cache without counting a tick. */
