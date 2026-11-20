@@ -781,6 +781,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         } finally {
                             this.predictingAtTickEnd = false;
                         }
+                        // ClientLevel#tickPassenger seats the player's riders after Player#updatePlayerPose.
+                        this.player.compensatedEntities.reseatRidersOfSelf();
                         // Player#tick clears a spectator's onGround every tick, and LocalPlayer#sendPosition sends
                         // nothing while another entity is the camera.
                         if (this.player.gamemode == GameMode.SPECTATOR

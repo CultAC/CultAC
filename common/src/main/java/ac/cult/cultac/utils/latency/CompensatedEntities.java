@@ -2152,19 +2152,28 @@ public class CompensatedEntities {
             rider.putLazyRiderTickPosition(true, i, riderTickBox);
         }
         rider.beginLazyRiderTick(beforeCount);
-        boolean needsPhysical = rider instanceof PacketEntityStrider
-                || rider instanceof PacketEntityHook
-                || rider instanceof PacketEntityFirework
-                || rider instanceof PacketEntityHurtingProjectile
-                || rider.clientFrostReadsPosition(player);
+        boolean needsPhysical = lazyRiderNeedsPhysical(rider);
         if (needsPhysical) {
             rider.setLazyRiderPhysicalPosition(rider.lazyRiderCommittedBox(riderTickBox, true));
             rider.clientPhysicalPositionExact = beforeCount == 1;
         }
         rider.deltaMovement = Vec3.ZERO;
         tick.accept(rider);
+        seatLazyRider(rider, needsPhysical);
+    }
+
+    private boolean lazyRiderNeedsPhysical(PacketEntity rider) {
+        return rider instanceof PacketEntityStrider
+                || rider instanceof PacketEntityHook
+                || rider instanceof PacketEntityFirework
+                || rider instanceof PacketEntityHurtingProjectile
+                || rider.clientFrostReadsPosition(player);
+    }
+
+    /** Entity#positionRider at the end of {@code rider}'s Entity#rideTick; leaves its first seat in riderTickBox. */
+    private boolean seatLazyRider(PacketEntity rider, boolean needsPhysical) {
         PacketEntity vehicle = rider.getRiding();
-        if (vehicle == null) return;
+        if (vehicle == null) return false;
         // Every parent has already been seated. Preserve its existing candidates without multiplying paths.
         int count = vehicle.possibleMovementCollisionBoxCandidateCount();
         for (int i = 0; i < count; i++) {
@@ -2193,6 +2202,29 @@ public class CompensatedEntities {
             rider.clientPhysicalPositionExact = count == 1;
         }
         onLazyRiderMoved(rider, riderTickBox);
+        return true;
+    }
+
+    /**
+     * Entity#positionRider for the riders of the on-foot local player after a client tick that sent no movement.
+     * ClientLevel#tickPassenger seats them once Player#tick has ended with Player#updatePlayerPose, and that tick's
+     * pose is known only when its prediction commits, after their own ticks ran here.
+     */
+    public void reseatRidersOfSelf() {
+        if (player.isBedrockMovement() || playerEntity.getRiding() != null) return;
+        for (int i = 0; i < playerEntity.passengers.size(); i++) reseatLazyTree(playerEntity.passengers.get(i));
+    }
+
+    private void reseatLazyTree(PacketEntity rider) {
+        // A rider outside the ticking entities ran no rideTick and keeps its place, and so does all it carries.
+        if (!rider.lazyRiderTickedThisTick() || !isUntrackedRider(rider)) return;
+        if (seatLazyRider(rider, lazyRiderNeedsPhysical(rider))) {
+            rider.recordRiderInterpolationPass(riderTickBox, null, null);
+        }
+        for (int i = 0; i < rider.passengers.size(); i++) {
+            PacketEntity passenger = rider.passengers.get(i);
+            if (passenger.getRiding() == rider) reseatLazyTree(passenger);
+        }
     }
 
     /**
