@@ -312,10 +312,12 @@ final class CompressedForwarder extends ChannelDuplexHandler {
         try {
             target.write(out, promise);
         } catch (Throwable failure) {
-            EncoderException thrown = encoderFailure(failure);
-            // As MessageToByteEncoder.write's finally: one release, whose own throw replaces the failure.
-            out.release();
-            throw thrown;
+            // As MessageToByteEncoder.write's finally: one release, also when wrapping throws, whose own throw wins.
+            try {
+                throw encoderFailure(failure);
+            } finally {
+                out.release();
+            }
         }
         forwarded++;
         forwardedWireBytes += sent;
@@ -599,11 +601,12 @@ final class CompressedForwarder extends ChannelDuplexHandler {
 
     /**
      * The status, link and counters; a link whose backend channel is inactive reads {@code backend-closed}. The hit
-     * rate is forwarded submissions over those plus the marked buffer's writes passed to the encoder for changed
-     * indices, changed content or a failed comparison, each counted when it is passed on; a write that fails at the
-     * forwarder's own release of its input is in neither part. {@code not marked} counts every other buffer written
-     * while enabled, and {@code decoder unlinked} the published writes passed on while the client decoder's neighbours
-     * did not both link to it, outside the hit rate.
+     * rate is forwarded frames (hand-offs to the encoder's context that returned normally) over those plus the marked
+     * buffer's writes passed to the encoder for changed indices, changed content or a failed comparison, each counted
+     * when it is passed on; a write that fails at the forwarder's own release of its input, or whose hand-off throws,
+     * is in neither part. {@code not marked} counts every other buffer written while enabled, and
+     * {@code decoder unlinked} the published writes passed on while the client decoder's neighbours did not both link
+     * to it, outside the hit rate.
      */
     String stats() {
         long recompressed = indicesChanged + guardMismatch + forwardFailures;

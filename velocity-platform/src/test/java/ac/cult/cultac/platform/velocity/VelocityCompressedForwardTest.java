@@ -2343,22 +2343,48 @@ class VelocityCompressedForwardTest {
         byte[] read = frame(body(packet(3000, 140), THRESHOLD));
         var group = new DefaultEventExecutorGroup(1);
         try {
-            String today = handOffSizeThrows(read, Options.today(), group);
-            assertEquals(
-                    "promise " + EncoderException.class.getName() + " / " + IllegalStateException.class.getName()
-                            + ", frame 0, sent 0",
-                    today);
-            assertEquals(today, handOffSizeThrows(read, Options.forwarding(), group));
+            Map<Runnable, String> expected = new LinkedHashMap<>();
+            expected.put(
+                    () -> {
+                        throw new IllegalStateException("size");
+                    },
+                    EncoderException.class.getName() + " / " + IllegalStateException.class.getName());
+            expected.put(
+                    () -> {
+                        throw new AssertionError("size");
+                    },
+                    EncoderException.class.getName() + " / " + AssertionError.class.getName());
+            // Wrapping reads the failure's toString, which throws here.
+            expected.put(
+                    () -> {
+                        throw new UnprintableFailure();
+                    },
+                    UnsupportedOperationException.class.getName() + " / null");
+            for (var entry : expected.entrySet()) {
+                String today = handOffSizeThrows(read, Options.today(), group, entry.getKey());
+                assertEquals("promise " + entry.getValue() + ", frame 0, sent 0", today);
+                assertEquals(today, handOffSizeThrows(read, Options.forwarding(), group, entry.getKey()));
+            }
         } finally {
             group.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
         }
     }
 
+    /** A failure whose {@code toString} throws. */
+    static final class UnprintableFailure extends RuntimeException {
+        @Override
+        public String toString() {
+            throw new UnsupportedOperationException("toString");
+        }
+    }
+
     /**
      * One write of {@code read}'s packet whose frame meets a head-side handler on {@code group}, added after
-     * installation, while the client's size estimator throws: the promise, the frame's count and the bytes sent.
+     * installation, while the client's size estimator runs {@code failure}: the promise, the frame's count and the
+     * bytes sent.
      */
-    private static String handOffSizeThrows(byte[] read, Options base, DefaultEventExecutorGroup group) {
+    private static String handOffSizeThrows(
+            byte[] read, Options base, DefaultEventExecutorGroup group, Runnable failure) {
         var sized = new ArrayList<ByteBuf>();
         var writes = new ArrayList<ChannelFuture>();
         boolean[] armed = {false};
@@ -2366,7 +2392,8 @@ class VelocityCompressedForwardTest {
         MessageSizeEstimator estimator = () -> msg -> {
             if (!armed[0]) return sizes.size(msg);
             sized.add((ByteBuf) msg);
-            throw new IllegalStateException("size");
+            failure.run();
+            return 0;
         };
         Options options = base.onFrame((fixture, buf) -> {
             armed[0] = true;
@@ -3602,8 +3629,11 @@ class VelocityCompressedForwardTest {
     @Test
     void retainedBackendFrameEndsWithTheIndicesAndCountOfTheSwitchOff() {
         byte[] packet = packet(3000, 124);
-        byte[] read = frame(concat(body(packet, THRESHOLD), new byte[] {1, 2, 3}));
+        byte[] whole = frame(body(packet, THRESHOLD));
+        byte[] trailing = frame(concat(body(packet, THRESHOLD), new byte[] {1, 2, 3}));
         for (boolean consume : new boolean[] {true, false}) {
+            // The Java compressor holds only a frame it reads whole; libdeflate holds one with trailing bytes.
+            byte[] read = consume ? whole : trailing;
             for (boolean direct : new boolean[] {false, true}) {
                 List<String> seen = new ArrayList<>();
                 for (boolean forward : new boolean[] {false, true}) {
@@ -3640,8 +3670,7 @@ class VelocityCompressedForwardTest {
                                         });
                         f.read(read.clone());
                         assertPackets(List.of(packet), read(f.wire(), THRESHOLD, true));
-                        // The Java compressor reports the trailing bytes unread, so only libdeflate forwards.
-                        if (forward) assertEquals(!consume && direct ? 1 : 0, f.forwarder.forwarded(), label);
+                        if (forward) assertEquals(consume || direct ? 1 : 0, f.forwarder.forwarded(), label);
                         ByteBuf frame = held.getFirst();
                         assertEquals(direct, frame.hasMemoryAddress(), label);
                         seen.add("reader " + frame.readerIndex() + ", writer " + frame.writerIndex() + ", count "
@@ -3776,11 +3805,22 @@ class VelocityCompressedForwardTest {
     void nestedReadFromTheKeepsLastAllocationLeavesTheOuterFrameAsWithTheSwitchOff() {
         byte[] outer = packet(3000, 128);
         byte[] inner = packet(9000, 129);
-        byte[] read = frame(concat(body(outer, THRESHOLD), new byte[] {1, 2, 3}));
         byte[] innerBody = body(inner, THRESHOLD);
+        for (boolean suffix : new boolean[] {false, true}) {
+            nestedReadFromTheKeepsLastAllocation(outer, inner, innerBody, suffix);
+        }
+    }
+
+    /**
+     * The outer frame, with or without three bytes after its zlib stream, and the frame a nested read delivers at the
+     * keep's last allocation, compared with the switch off.
+     */
+    private static void nestedReadFromTheKeepsLastAllocation(
+            byte[] outer, byte[] inner, byte[] innerBody, boolean suffix) {
+        byte[] read = frame(suffix ? concat(body(outer, THRESHOLD), new byte[] {1, 2, 3}) : body(outer, THRESHOLD));
         List<String> seen = new ArrayList<>();
         for (boolean forward : new boolean[] {false, true}) {
-            String label = "forward " + forward;
+            String label = "forward " + forward + ", trailing bytes " + suffix;
             try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
                 var held = new ArrayList<ByteBuf>();
                 hold(f, held);
@@ -3795,8 +3835,8 @@ class VelocityCompressedForwardTest {
                 f.backend.config().setAllocator(allocator);
                 f.read(read.clone());
                 assertPackets(List.of(inner, outer), read(f.wire(), THRESHOLD, true));
-                // The outer frame's trailing bytes stay unread, so only the inner frame is forwarded.
-                if (forward) assertEquals(1, f.forwarder.forwarded(), label);
+                // An outer frame with bytes the Java compressor leaves unread is recompressed.
+                if (forward) assertEquals(suffix ? 1 : 2, f.forwarder.forwarded(), label);
                 ByteBuf frame = held.getFirst();
                 seen.add("reader " + frame.readerIndex() + ", writer " + frame.writerIndex() + ", count "
                         + frame.refCnt());
@@ -3804,7 +3844,7 @@ class VelocityCompressedForwardTest {
                 for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
             }
         }
-        assertEquals(seen.get(0), seen.get(1));
+        assertEquals(seen.get(0), seen.get(1), "trailing bytes " + suffix);
     }
 
     /** Runs {@code hook} at keep allocation {@code k}, or at the decoder's one allocation when {@code k} is 0. */
