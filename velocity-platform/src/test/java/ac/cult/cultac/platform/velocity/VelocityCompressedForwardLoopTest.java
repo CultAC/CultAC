@@ -2263,6 +2263,7 @@ class VelocityCompressedForwardLoopTest {
         var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
         List<List<String>> names = new ArrayList<>();
         List<List<String>> events = new ArrayList<>();
+        List<Integer> pending = new ArrayList<>();
         try {
             for (boolean on : new boolean[] {false, true}) {
                 Channel toClient = client(on).proxySide();
@@ -2306,6 +2307,7 @@ class VelocityCompressedForwardLoopTest {
                 try {
                     await(reached);
                     assertNull(failure.get());
+                    pending.add(((SingleThreadEventExecutor) group.next()).pendingTasks());
                     if (on) assertEquals("linked", forwarder.linkStatus(), "no link field written on the second loop");
                     names.add(within(fromBackend, () -> fromBackend.pipeline().names()));
                 } finally {
@@ -2325,6 +2327,7 @@ class VelocityCompressedForwardLoopTest {
             assertFalse(names.get(1).contains(CompressedKeep.NAME));
             assertEquals(names.get(0), names.get(1), "the backend's handlers with the switch off");
             assertEquals(events.get(0), events.get(1), "the later handler's event and thread with the switch off");
+            assertEquals(pending.get(0) + 1, pending.get(1), "one queued unlink on the held loop");
         } finally {
             second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
         }
