@@ -2392,6 +2392,7 @@ class VelocityCompressedForwardTest {
             byte[] read, Options base, DefaultEventExecutorGroup group, Runnable failure) {
         var sized = new ArrayList<ByteBuf>();
         var writes = new ArrayList<ChannelFuture>();
+        var marks = new ArrayList<ByteBuf>();
         boolean[] armed = {false};
         MessageSizeEstimator.Handle sizes = DefaultMessageSizeEstimator.DEFAULT.newHandle();
         MessageSizeEstimator estimator = () -> msg -> {
@@ -2401,11 +2402,13 @@ class VelocityCompressedForwardTest {
             return 0;
         };
         Options options = base.onFrame((fixture, buf) -> {
+            if (fixture.forwarder != null) marks.add(fixture.forwarder.markFrame());
             armed[0] = true;
             try {
                 writes.add(fixture.client.write(buf));
             } finally {
                 armed[0] = false;
+                if (fixture.forwarder != null) marks.add(fixture.forwarder.markFrame());
             }
         });
         try (var f = new Fixture(options)) {
@@ -2427,7 +2430,10 @@ class VelocityCompressedForwardTest {
             assertEquals(1, sized.size(), "the write task's construction sizes the frame");
             if (f.forwarder != null) {
                 assertEquals(0, f.forwarder.forwarded(), "a forward that throws is not counted");
-                assertNull(f.forwarder.markFrame(), "the forward took the frame");
+                assertEquals(2, marks.size());
+                assertNotNull(marks.getFirst(), "the read published a frame");
+                assertSame(marks.getFirst(), sized.getFirst(), "the write task sized the published frame");
+                assertNull(marks.get(1), "the forward took the frame");
             }
             return "promise " + describe(writes.getFirst().cause()) + ", frame "
                     + sized.getFirst().refCnt() + ", sent " + f.wire().length;
@@ -3637,8 +3643,7 @@ class VelocityCompressedForwardTest {
         byte[] whole = frame(body(packet, THRESHOLD));
         byte[] trailing = frame(concat(body(packet, THRESHOLD), new byte[] {1, 2, 3}));
         for (boolean consume : new boolean[] {true, false}) {
-            // The keep holds a frame under the Java compressor only when it is read whole; under libdeflate it holds a
-            // direct one with trailing bytes.
+            // The keep holds a Java frame only when read whole, and a direct libdeflate frame with trailing bytes.
             byte[] read = consume ? whole : trailing;
             for (boolean direct : new boolean[] {false, true}) {
                 List<String> seen = new ArrayList<>();
