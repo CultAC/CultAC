@@ -42,7 +42,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     static final int MAX_FORWARDED_LENGTH = maxForwardedLength();
     // Netty follows this link from a context to the next outbound handler toward the head.
     private static final @Nullable VarHandle PREVIOUS = link("prev");
-    // Netty never writes a context that has left the list into another context's link.
+    // Netty 4.2.19 checks membership under the monitor at a removal or replacement, so it never writes a context that
+    // has left the list into another context's link.
     private static final @Nullable VarHandle NEXT = link("next");
     // Netty touches every message it dispatches to a context of a pipeline built with leak detection enabled.
     private static final @Nullable VarHandle TOUCH = touch();
@@ -74,7 +75,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private @Nullable CompressedKeep endedKeep;
 
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
-    private long notMarked, indicesChanged, guardMismatch, failures, forwardFailures;
+    private long notMarked, indicesChanged, guardMismatch, failures, forwardFailures, decoderUnlinked;
 
     /**
      * {@code encoderThreshold} reads {@code compression}'s threshold as {@code ()int}; {@code inbound} is the client's
@@ -243,6 +244,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
         // Netty unlinks a context before its removal callback runs, and an insert beside it writes one link at a time.
         if (!linked(inbound)) {
+            decoderUnlinked++;
             ctx.write(msg, promise);
             return;
         }
@@ -503,7 +505,10 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** Ends the current link and queues its keep's removal on the backend's loop; takes no lock and never waits. */
+    /**
+     * Ends the current link and leaves its keep, which passes every frame on untouched, for the next {@link #unlink};
+     * makes no pipeline change and never waits.
+     */
     private void end() {
         Channel channel = linkChannel;
         CompressedKeep keep = linkKeep;
@@ -513,11 +518,6 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         linkStatus = "none";
         endedChannel = channel;
         endedKeep = keep;
-        try {
-            channel.eventLoop().execute(() -> remove(channel.pipeline(), keep));
-        } catch (Throwable dropped) {
-            // A keep left in its pipeline passes every frame on untouched.
-        }
     }
 
     /** Removes the current link's keep and an ended link's keep from their backends; never waits for another loop. */
@@ -562,7 +562,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
      * rate is forwarded submissions over those plus the marked buffer's writes passed to the encoder for changed
      * indices, changed content or a failed comparison, each counted when it is passed on; a write that fails at the
      * forwarder's own release of its input is in neither part. {@code not marked} counts every other buffer written
-     * while enabled.
+     * while enabled, and {@code decoder unlinked} the published writes passed on while the client decoder's neighbours
+     * did not both link to it, outside the hit rate.
      */
     String stats() {
         long recompressed = indicesChanged + guardMismatch + forwardFailures;
@@ -574,12 +575,13 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
                 + ", forwarded=" + forwarded + " (" + forwardedWireBytes
                 + " B sent, " + forwardedInflatedBytes + " B inflated), recompressed: not marked=" + notMarked
                 + ", indices changed=" + indicesChanged + ", guard mismatch=" + guardMismatch
-                + "; failures=" + failures;
+                + ", comparison failed=" + forwardFailures + "; failures=" + failures
+                + ", decoder unlinked=" + decoderUnlinked;
     }
 
     void resetStats() {
         forwarded = forwardedWireBytes = forwardedInflatedBytes = 0;
-        notMarked = indicesChanged = guardMismatch = failures = forwardFailures = 0;
+        notMarked = indicesChanged = guardMismatch = failures = forwardFailures = decoderUnlinked = 0;
     }
 
     long forwarded() {
@@ -596,6 +598,10 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
 
     long guardMismatch() {
         return guardMismatch;
+    }
+
+    long decoderUnlinked() {
+        return decoderUnlinked;
     }
 
     String status() {

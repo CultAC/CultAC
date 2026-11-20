@@ -1374,6 +1374,7 @@ class VelocityCompressedForwardLoopTest {
                 if (on) {
                     assertEquals(0L, onLoop(forwarder::forwarded));
                     assertEquals("on", onLoop(forwarder::status), "the frame written before the callback");
+                    assertEquals(1L, onLoop(forwarder::decoderUnlinked), "the write counted outside the hit rate");
                 }
                 assertTrue(onLoop(old::isRemoved), "the removal callback has run");
                 serve(backend, after);
@@ -1614,8 +1615,9 @@ class VelocityCompressedForwardLoopTest {
     }
 
     /**
-     * A thread that, holding the backend pipeline's monitor, inserts a handler between the keep and the decoder and
-     * waits for a task on the shared loop while a backend read on that loop reaches the keep, which refuses the frame.
+     * A thread that, holding the backend pipeline's monitor, inserts a handler between the keep and the decoder, lets
+     * a backend read on the shared loop reach the keep, which refuses the frame, and once that read has returned
+     * submits a task to the loop and waits for it.
      */
     @Test
     void backendMonitorHolderWaitingForTheLoopDuringARefusedReadGetsItsAnswerAsWithTheSwitchOff() throws Exception {
@@ -1630,6 +1632,7 @@ class VelocityCompressedForwardLoopTest {
             var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
             var answers = new CopyOnWriteArrayList<Boolean>();
             var holder = new AtomicReference<Thread>();
+            var ended = new CountDownLatch(1);
             Pair backend = connect(false);
             ChannelPipeline backendPipeline = backend.proxySide().pipeline();
             onLoop(() -> {
@@ -1645,9 +1648,10 @@ class VelocityCompressedForwardLoopTest {
                                         VelocityCompressedForward.COMPRESSION_DECODER,
                                         "inserted",
                                         new ChannelInboundHandlerAdapter());
-                                Future<Boolean> task = toClient.eventLoop().submit(() -> true);
                                 holding.countDown();
                                 try {
+                                    assertTrue(ended.await(5, TimeUnit.SECONDS), "the read has ended the link");
+                                    Future<Boolean> task = toClient.eventLoop().submit(() -> true);
                                     answers.add(task.get(5, TimeUnit.SECONDS));
                                 } catch (Exception timedOut) {
                                     answers.add(false);
@@ -1656,8 +1660,9 @@ class VelocityCompressedForwardLoopTest {
                         });
                         holder.set(other);
                         other.start();
-                        assertTrue(holding.await(5, TimeUnit.SECONDS), "the holder waits for the loop");
+                        assertTrue(holding.await(5, TimeUnit.SECONDS), "the holder holds the monitor");
                         ctx.fireChannelRead(msg);
+                        ended.countDown();
                     }
                 });
                 backendPipeline.addLast(VelocityCompressedForward.COMPRESSION_DECODER, new CompressDecoder(THRESHOLD));
@@ -1681,7 +1686,12 @@ class VelocityCompressedForwardLoopTest {
             if (on) {
                 assertEquals(0L, onLoop(forwarder::forwarded));
                 assertEquals("backend-adjacency", onLoop(forwarder::linkStatus));
-                assertNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the keep's queued removal ran");
+                assertNotNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the keep stays until an unlink");
+                onLoop(() -> {
+                    VelocityCompressedForward.uninstall(toClient);
+                    return null;
+                });
+                assertNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the forwarder's removal takes it");
             }
             backend.proxySide().close().sync();
             toClient.close().sync();
@@ -1690,8 +1700,9 @@ class VelocityCompressedForwardLoopTest {
     }
 
     /**
-     * A thread that holds the backend pipeline's monitor and waits for a task on the shared loop while a published
-     * write finds a handler inserted between the client encoder and the forwarder, which turns the forwarder off.
+     * A thread that holds the backend pipeline's monitor while a published write finds a handler inserted between the
+     * client encoder and the forwarder, which turns the forwarder off, and once that write has returned submits a task
+     * to the shared loop and waits for it.
      */
     @Test
     void backendMonitorHolderWaitingForTheLoopDuringAWriteThatEndsTheLinkGetsItsAnswerAsWithTheSwitchOff()
@@ -1709,6 +1720,7 @@ class VelocityCompressedForwardLoopTest {
             var answers = new CopyOnWriteArrayList<Boolean>();
             var writes = new CopyOnWriteArrayList<ChannelFuture>();
             var holder = new AtomicReference<Thread>();
+            var ended = new CountDownLatch(1);
             Pair backend = connect(false);
             ChannelPipeline backendPipeline = backend.proxySide().pipeline();
             onLoop(() -> {
@@ -1722,9 +1734,11 @@ class VelocityCompressedForwardLoopTest {
                             var holding = new CountDownLatch(1);
                             var other = new Thread(() -> {
                                 synchronized (backendPipeline) {
-                                    Future<Boolean> task = toClient.eventLoop().submit(() -> true);
                                     holding.countDown();
                                     try {
+                                        assertTrue(ended.await(5, TimeUnit.SECONDS), "the write has ended the link");
+                                        Future<Boolean> task =
+                                                toClient.eventLoop().submit(() -> true);
                                         answers.add(task.get(5, TimeUnit.SECONDS));
                                     } catch (Exception timedOut) {
                                         answers.add(false);
@@ -1733,12 +1747,13 @@ class VelocityCompressedForwardLoopTest {
                             });
                             holder.set(other);
                             other.start();
-                            assertTrue(holding.await(5, TimeUnit.SECONDS), "the holder waits for the loop");
+                            assertTrue(holding.await(5, TimeUnit.SECONDS), "the holder holds the monitor");
                             clientPipeline.addAfter(
                                     CompressedForwarder.COMPRESSION_ENCODER,
                                     "between",
                                     new ChannelOutboundHandlerAdapter());
                             writes.add(toClient.writeAndFlush(buf.retain()));
+                            ended.countDown();
                         } finally {
                             buf.release();
                         }
@@ -1766,7 +1781,12 @@ class VelocityCompressedForwardLoopTest {
             if (on) {
                 assertEquals(0L, onLoop(forwarder::forwarded));
                 assertEquals("adjacency", onLoop(forwarder::status));
-                assertNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the keep's queued removal ran");
+                assertNotNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the keep stays until an unlink");
+                onLoop(() -> {
+                    VelocityCompressedForward.uninstall(toClient);
+                    return null;
+                });
+                assertNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the forwarder's removal takes it");
             }
             backend.proxySide().close().sync();
             toClient.close().sync();
@@ -1829,7 +1849,7 @@ class VelocityCompressedForwardLoopTest {
                 assertEquals(0L, onLoop(forwarder::forwarded));
                 assertEquals("on", onLoop(forwarder::status));
                 assertEquals("backend-adjacency", onLoop(forwarder::linkStatus));
-                assertNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the keep's queued removal ran");
+                assertNotNull(onLoop(() -> backendPipeline.get(CompressedKeep.NAME)), "the keep stays until an unlink");
             }
             backend.proxySide().close().sync();
             client.proxySide().close().sync();

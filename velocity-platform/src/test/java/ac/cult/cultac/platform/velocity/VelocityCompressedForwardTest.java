@@ -258,6 +258,46 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void failedComparisonIsCompressedAgainAndPrintedByItsCause() {
+        byte[] packet = packet(3000, 115);
+        byte[] body = body(packet, THRESHOLD);
+        try (var f = new Fixture(Options.forwarding().unlinked())) {
+            ByteBuf input = Unpooled.directBuffer(packet.length).writeBytes(packet);
+            ByteBuf copy = f.track(
+                    new UnpooledHeapByteBuf(ByteBufAllocator.DEFAULT, packet.length, packet.length) {
+                        @Override
+                        public ByteBuffer internalNioBuffer(int index, int length) {
+                            throw new IllegalStateException("comparison");
+                        }
+                    }.writeBytes(packet));
+            ByteBuf kept = f.track(Unpooled.wrappedBuffer(body));
+            ByteBuf frame = f.forwarder.frameBuffer(ByteBufAllocator.DEFAULT, kept.readableBytes());
+            assertNotNull(frame);
+            int header = CompressedForwarder.varIntSize(packet.length);
+            CompressedForwarder.fillFrame(
+                    frame, packet.length, kept, kept.readerIndex() + header, kept.readableBytes() - header);
+            ChannelFuture write;
+            f.forwarder.mark(input, input.readerIndex(), input.writerIndex(), copy, frame);
+            try {
+                write = f.client.writeAndFlush(input);
+            } finally {
+                f.forwarder.mark(null, 0, 0, null, null);
+            }
+            assertTrue(write.isSuccess(), String.valueOf(write.cause()));
+            assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
+            assertEquals(0, f.forwarder.forwarded());
+            assertTrue(f.forwarder.stats().contains(", hit=0.00%,"), f.forwarder.stats());
+            assertTrue(
+                    f.forwarder.stats().contains(", indices changed=0, guard mismatch=0, comparison failed=1;"),
+                    f.forwarder.stats());
+            assertEquals(1, frame.refCnt(), "the frame no write took");
+            frame.release();
+            copy.release();
+            kept.release();
+        }
+    }
+
+    @Test
     void movedReaderIndexIsCompressedAgain() {
         byte[] packet = packet(3000, 9);
         try (var f =
@@ -582,7 +622,8 @@ class VelocityCompressedForwardTest {
             assertPackets(List.of(small, large), read(f.wire(), THRESHOLD));
             assertEquals(List.of(small.length, large.length), seen, "the inserted handler sees every frame");
             assertEquals("adjacency", f.forwarder.status());
-            assertNull(f.backend.pipeline().get(CompressedKeep.NAME), "the link is removed with it");
+            assertNotNull(
+                    f.backend.pipeline().get(CompressedKeep.NAME), "the ended link's keep stays until the next unlink");
             assertEquals(0, f.forwarder.forwarded());
         }
         try (var f = new Fixture(Options.forwarding().unlinked())) {
@@ -730,7 +771,7 @@ class VelocityCompressedForwardTest {
             assertEquals(expected.size(), f.forwarder.notMarked());
             assertEquals("backend-adjacency", f.forwarder.linkStatus());
             assertEquals("on", f.forwarder.status());
-            assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
+            assertNotNull(f.backend.pipeline().get(CompressedKeep.NAME));
         }
     }
 
@@ -1117,7 +1158,8 @@ class VelocityCompressedForwardTest {
             assertFalse(frames.getFirst().compressed(), "framed by the encoder at its new threshold");
             assertEquals("threshold", f.forwarder.status());
             assertEquals(0, f.forwarder.forwarded());
-            assertNull(f.backend.pipeline().get(CompressedKeep.NAME), "the link is removed with it");
+            assertNotNull(
+                    f.backend.pipeline().get(CompressedKeep.NAME), "the ended link's keep stays until the next unlink");
         }
     }
 
@@ -1429,7 +1471,7 @@ class VelocityCompressedForwardTest {
                     assertSameBytes(today, f.wire());
                     assertEquals(0, f.forwarder.forwarded(), label);
                     assertEquals("backend-limiter", f.forwarder.linkStatus(), label);
-                    assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                    assertEquals(beforeLink, f.backend.pipeline().get(CompressedKeep.NAME) == null, label);
                 }
             }
         }
@@ -1533,7 +1575,7 @@ class VelocityCompressedForwardTest {
                 assertSameBytes(today, f.wire());
                 assertEquals(0, f.forwarder.forwarded(), label);
                 assertEquals("backend-limiter", f.forwarder.linkStatus(), label);
-                assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                assertNotNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
                 for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
             }
         }
@@ -2021,7 +2063,7 @@ class VelocityCompressedForwardTest {
                 assertEquals(accounted, f.accounted, label);
                 assertEquals(0, f.forwarder.forwarded(), label);
                 assertEquals(CompressedKeep.LIMITED, f.forwarder.linkStatus(), label);
-                assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                assertNotNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
                 for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
             }
         }
@@ -2763,7 +2805,7 @@ class VelocityCompressedForwardTest {
                 assertSameBytes(today, f.wire());
                 assertEquals(0, f.forwarder.forwarded(), label);
                 assertEquals("backend-limiter", f.forwarder.linkStatus(), label);
-                assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                assertNotNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
                 for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
             }
         }
@@ -2843,6 +2885,8 @@ class VelocityCompressedForwardTest {
             assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
             assertEquals(0, f.forwarder.forwarded());
             assertEquals("backend-adjacency", f.forwarder.linkStatus());
+            assertNotNull(real.get(CompressedKeep.NAME), "the ended link's keep stays until the next unlink");
+            f.forwarder.unlink();
             assertNull(real.get(CompressedKeep.NAME));
         }
     }
@@ -3037,9 +3081,14 @@ class VelocityCompressedForwardTest {
                 if (removed) f.client.pipeline().remove(f.forwarder);
                 else f.forwarder.disable("test-disabled");
                 f.backend.runPendingTasks();
-                assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                assertEquals(removed, f.backend.pipeline().get(CompressedKeep.NAME) == null, label);
                 assertEquals("none", f.forwarder.linkStatus(), label);
                 assertTrue(f.forwarder.stats().contains(", link=none,"), label);
+                if (!removed) {
+                    f.client.pipeline().remove(f.forwarder);
+                    f.backend.runPendingTasks();
+                    assertNull(f.backend.pipeline().get(CompressedKeep.NAME), "the forwarder's removal takes the keep");
+                }
             }
         }
     }
@@ -3068,7 +3117,7 @@ class VelocityCompressedForwardTest {
             assertPackets(List.of(packet, packet), read(f.wire(), THRESHOLD));
             assertEquals(1, f.forwarder.forwarded());
             assertEquals(CompressedKeep.UNTRUSTED, f.forwarder.linkStatus());
-            assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
+            assertNotNull(f.backend.pipeline().get(CompressedKeep.NAME));
             for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation");
         }
     }
@@ -3399,7 +3448,7 @@ class VelocityCompressedForwardTest {
                 if (forward) {
                     assertEquals(0, f.forwarder.forwarded(), label);
                     assertEquals("compression-closed", f.forwarder.status(), label);
-                    assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                    assertNotNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
                 }
             }
         }
@@ -3870,7 +3919,7 @@ class VelocityCompressedForwardTest {
                     assertEquals(0, f.forwarder.forwarded(), label);
                     assertEquals(1, f.forwarder.notMarked(), label);
                     assertEquals(CompressedKeep.UNTRUSTED, f.forwarder.linkStatus(), label);
-                    assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                    assertNotNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
                 }
             }
             ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
@@ -4430,7 +4479,7 @@ class VelocityCompressedForwardTest {
             assertEquals(1, f.decoder.inflated.size(), "the decoder decodes the frame");
             assertEquals(List.of(3000), f.accounted);
             assertEquals(CompressedKeep.LIMITED, f.forwarder.linkStatus());
-            assertNull(f.backend.pipeline().get(CompressedKeep.NAME));
+            assertNotNull(f.backend.pipeline().get(CompressedKeep.NAME));
         }
     }
 
