@@ -3637,7 +3637,8 @@ class VelocityCompressedForwardTest {
         byte[] whole = frame(body(packet, THRESHOLD));
         byte[] trailing = frame(concat(body(packet, THRESHOLD), new byte[] {1, 2, 3}));
         for (boolean consume : new boolean[] {true, false}) {
-            // The Java compressor holds only a frame it reads whole; libdeflate holds one with trailing bytes.
+            // The keep holds a frame under the Java compressor only when it is read whole; under libdeflate it holds a
+            // direct one with trailing bytes.
             byte[] read = consume ? whole : trailing;
             for (boolean direct : new boolean[] {false, true}) {
                 List<String> seen = new ArrayList<>();
