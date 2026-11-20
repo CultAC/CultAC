@@ -47,6 +47,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 public class CompensatedWorld {
     private static final int RECENT_CLIENT_COLLISION_CHANGE_TICKS = 3;
     private static final int RECENT_CLIENT_FLUID_CHANGE_TICKS = 3;
+    private static final int RECENT_CHANGE_TRIM_PEAK = 64;
     private static final int MAX_PENDING_PREDICTIONS = 1024;
     private static final int MAX_REINTERN_CONTENT_COMPARISONS_PER_TICK = 10;
     private static final int MAX_REINTERN_HASH_CALCULATIONS_PER_TICK = 50;
@@ -84,6 +85,8 @@ public class CompensatedWorld {
     private final Long2IntOpenHashMap recentClientCollisionChanges = new Long2IntOpenHashMap();
     private final Long2IntOpenHashMap recentClientFluidChanges = new Long2IntOpenHashMap();
     private final Long2ByteOpenHashMap recentClientFluidChangeKinds = new Long2ByteOpenHashMap();
+    private int recentClientCollisionPeak;
+    private int recentClientFluidPeak;
     // Blocks a Bedrock client's own predictions wrote that no server update has replaced since. Its predictions are
     // written straight into this world, and the client may not hold them: Geyser can refuse a use and restore the
     // block on the client without anything reaching this world.
@@ -1177,6 +1180,7 @@ public class CompensatedWorld {
 
     private void tickRecentClientCollisionChanges() {
         if (recentClientCollisionChanges.isEmpty()) return;
+        recentClientCollisionPeak = Math.max(recentClientCollisionPeak, recentClientCollisionChanges.size());
         var iterator = recentClientCollisionChanges.long2IntEntrySet().fastIterator();
         while (iterator.hasNext()) {
             var entry = iterator.next();
@@ -1184,10 +1188,12 @@ public class CompensatedWorld {
             if (ticks <= 0) iterator.remove();
             else entry.setValue(ticks);
         }
+        recentClientCollisionPeak = trimAfterBurst(recentClientCollisionChanges, recentClientCollisionPeak);
     }
 
     private void tickRecentClientFluidChanges() {
         if (recentClientFluidChanges.isEmpty()) return;
+        recentClientFluidPeak = Math.max(recentClientFluidPeak, recentClientFluidChanges.size());
         var iterator = recentClientFluidChanges.long2IntEntrySet().fastIterator();
         while (iterator.hasNext()) {
             var entry = iterator.next();
@@ -1197,6 +1203,19 @@ public class CompensatedWorld {
                 iterator.remove();
             } else entry.setValue(ticks);
         }
+        recentClientFluidPeak = trimAfterBurst(recentClientFluidChanges, recentClientFluidPeak);
+    }
+
+    /**
+     * Rehashes a recent-change table down once it holds an eighth of its largest size. The iterator visits every
+     * slot of the table on each client tick and removing through it never shrinks the table.
+     *
+     * @return the peak to carry on: the current size after a rehash, otherwise {@code peak}
+     */
+    private static int trimAfterBurst(Long2IntOpenHashMap changes, int peak) {
+        if (peak < RECENT_CHANGE_TRIM_PEAK || changes.size() * 8 > peak) return peak;
+        changes.trim();
+        return changes.size();
     }
 
     public int updateBlock(int x, int y, int z, int newState) {
