@@ -608,10 +608,16 @@ public final class JavaMovementEngine implements MovementEngine {
                 || result.isExempt() && !result.getFlags().isEmpty();
     }
 
-    /** A wall can hide which table travelled, while a later rocket or swimming update keeps different velocity. */
+    /**
+     * A wall can hide which table travelled, while a later rocket or swimming update keeps different velocity. The
+     * other table keeps one sibling: its travel from the selected travel's carried start, else the best by candidate
+     * order, so the carried states stay bounded.
+     */
     private static void addMathSiblings(PredictionResult selected, List<PredictionResult> alternatives) {
         var choice = selected.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
         if (choice == null) return;
+        PredictionResult ownStart = null;
+        PredictionResult best = null;
         for (PredictionResult other : selected.getRealities()) {
             var math = other.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
             if (other == selected
@@ -631,8 +637,14 @@ public final class JavaMovementEngine implements MovementEngine {
                             > Math.max(
                                     selected.selectionOffset(),
                                     JavaMathRouter.reportRounding(selected.getSimulationContext()))) continue;
-            alternatives.add(other);
+            if (other.getInitialStartingVel()
+                    .carriedVelocity()
+                    .equals(selected.getInitialStartingVel().carriedVelocity())) {
+                if (INSTANCE.isBetterCandidate(other, ownStart)) ownStart = other;
+            } else if (INSTANCE.isBetterCandidate(other, best)) best = other;
         }
+        if (ownStart != null) alternatives.add(ownStart);
+        else if (best != null) alternatives.add(best);
     }
 
     private static void addCompatiblePatchCandidate(PredictionResult selected, List<PredictionResult> alternatives) {
