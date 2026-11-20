@@ -4,9 +4,9 @@ import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPipeline;
@@ -16,6 +16,7 @@ import io.netty.util.concurrent.EventExecutor;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.lang.ref.WeakReference;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -25,10 +26,10 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Sits on the client channel directly after Velocity's compression encoder and sends the marked, unchanged inflated
- * buffer as its keep's private frame through the encoder's context. Every other message passes on to the encoder with
- * no call of its own made. Runs on the client's event loop and takes a mark only on the thread that published it.
+ * buffer as its keep's private frame through the encoder's context; every other message passes on with no call of its
+ * own. Runs on the loop it was installed on, takes a mark only on its publishing thread, and leaves at deregistration.
  */
-final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
+final class CompressedForwarder extends ChannelDuplexHandler {
     static final String NAME = "cult-compressed-forward";
     static final String COMPRESSION_ENCODER = "compression-encoder";
     // Leak detection is enabled, or the client's allocator or netty's leak detector is not of netty's own classes.
@@ -57,6 +58,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private final Runnable untrusted;
     private @Nullable ChannelHandlerContext compression;
     private final ChannelHandlerContext inbound;
+    private final EventLoop loop;
 
     // The live mark: set only inside a linked backend's channelRead, restored in its finally.
     ByteBuf markBuf;
@@ -70,8 +72,8 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     private String linkStatus = "none";
     private Channel linkChannel;
     private CompressedKeep linkKeep;
-    private @Nullable Channel endedChannel;
-    private @Nullable CompressedKeep endedKeep;
+    // An installed keep is held by its pipeline; these leave a removed keep and its backend to the collector.
+    private @Nullable WeakReference<CompressedKeep> linkRef, endedKeep;
 
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
     private long notMarked, indicesChanged, guardMismatch, failures, forwardFailures, decoderUnlinked;
@@ -96,6 +98,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         this.threshold = encoderThreshold();
         this.compression = compression;
         this.inbound = inbound;
+        this.loop = inbound.channel().eventLoop();
         this.consume = consume;
         this.disposed = disposed;
     }
@@ -219,6 +222,16 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
         status = "removed";
         compression = null;
         unlink();
+    }
+
+    /** Leaves the pipeline, which removes the link's keep, and passes the event on unchanged. */
+    @Override
+    public void channelUnregistered(ChannelHandlerContext ctx) {
+        try {
+            remove(ctx.pipeline(), this);
+        } finally {
+            ctx.fireChannelUnregistered();
+        }
     }
 
     @Override
@@ -436,12 +449,13 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     }
 
     /**
-     * Whether the client channel is registered and the current thread is its event loop, the only thread a keep
-     * publishes from; a channel registered on that loop when a read starts cannot leave it before the read ends.
+     * Whether the client channel is registered on the loop the forwarder was installed on and the current thread is
+     * that loop, the only thread a keep publishes from; a channel registered there when a read starts stays there
+     * until the read ends.
      */
     boolean onClientLoop() {
         Channel client = inbound.channel();
-        return client.isRegistered() && client.eventLoop().inEventLoop();
+        return client.isRegistered() && client.eventLoop() == loop && loop.inEventLoop();
     }
 
     int markReader() {
@@ -481,6 +495,7 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
     void link(Channel backend, CompressedKeep keep) {
         linkChannel = backend;
         linkKeep = keep;
+        linkRef = new WeakReference<>(keep);
         linkStatus = "linked";
     }
 
@@ -510,32 +525,33 @@ final class CompressedForwarder extends ChannelOutboundHandlerAdapter {
      */
     private void end() {
         Channel channel = linkChannel;
-        CompressedKeep keep = linkKeep;
+        WeakReference<CompressedKeep> keep = linkRef;
         linkChannel = null;
         linkKeep = null;
+        linkRef = null;
         if (channel == null) return;
         linkStatus = "none";
-        endedChannel = channel;
         endedKeep = keep;
     }
 
     /** Removes the current link's keep and an ended link's keep from their backends; never waits for another loop. */
     void unlink() {
-        Channel ended = endedChannel;
-        CompressedKeep stale = endedKeep;
-        endedChannel = null;
+        WeakReference<CompressedKeep> ended = endedKeep;
         endedKeep = null;
-        if (ended != null) removeKeep(ended, stale);
+        CompressedKeep stale = ended == null ? null : ended.get();
+        if (stale != null) removeKeep(stale.channel(), stale);
         Channel channel = linkChannel;
         CompressedKeep keep = linkKeep;
         linkChannel = null;
         linkKeep = null;
+        linkRef = null;
         if (channel == null) return;
         linkStatus = "none";
         removeKeep(channel, keep);
     }
 
-    private static void removeKeep(Channel channel, CompressedKeep keep) {
+    private static void removeKeep(@Nullable Channel channel, CompressedKeep keep) {
+        if (channel == null) return;
         if (channel.eventLoop().inEventLoop()) {
             remove(channel.pipeline(), keep);
             return;

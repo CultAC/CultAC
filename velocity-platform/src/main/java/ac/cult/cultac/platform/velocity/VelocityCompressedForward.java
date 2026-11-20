@@ -566,7 +566,8 @@ final class VelocityCompressedForward {
 
     /**
      * Links the client's forwarder, on the client's loop, to the backend {@code server} names when the task runs; a
-     * task the loop does not take is dropped, and nothing the hand-off throws leaves this method.
+     * task that runs while the client is unregistered or on another loop, or that the loop does not take, does nothing,
+     * and nothing the hand-off throws leaves this method.
      */
     private static void schedule(
             Channel client,
@@ -577,6 +578,8 @@ final class VelocityCompressedForward {
             Consumer<Refusal> refused) {
         try {
             client.eventLoop().execute(() -> {
+                // A task queued on a loop can run after the client has left it.
+                if (!client.isRegistered() || !client.eventLoop().inEventLoop()) return;
                 if (!(client.pipeline().get(CompressedForwarder.NAME) instanceof CompressedForwarder forwarder)) return;
                 Channel backend;
                 try {

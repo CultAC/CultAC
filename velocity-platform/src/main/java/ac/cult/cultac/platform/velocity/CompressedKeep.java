@@ -7,6 +7,7 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.DecoderException;
@@ -36,6 +37,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     static final String UNTRUSTED = "backend-untrusted";
     // The backend's pipeline was built with leak detection enabled, or how it was built cannot be read.
     static final String LEAK_DETECTION = "backend-leak-detection";
+    // The linked backend channel was deregistered, open or closed.
+    static final String UNREGISTERED = "backend-unregistered";
+    static final String CLOSED = "backend-closed";
     // Netty's own allocators; any other can run code between the keep's checks and its publish.
     private static final Set<Class<?>> ALLOCATORS =
             Set.of(AdaptiveByteBufAllocator.class, PooledByteBufAllocator.class, UnpooledByteBufAllocator.class);
@@ -247,6 +251,28 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
             return false;
         }
         return true;
+    }
+
+    /** The backend channel of the attached context, or null before {@link #attach}. */
+    @Nullable
+    Channel channel() {
+        ChannelHandlerContext keep = keepContext;
+        return keep == null ? null : keep.channel();
+    }
+
+    /**
+     * Leaves the pipeline, ending the link from this side when it is the current one and the client's loop runs this,
+     * and passes the event on unchanged.
+     */
+    @Override
+    public void channelUnregistered(ChannelHandlerContext ctx) {
+        try {
+            if (forwarder.onClientLoop())
+                forwarder.unlinkDetached(this, ctx.channel().isOpen() ? UNREGISTERED : CLOSED);
+            CompressedForwarder.remove(ctx.pipeline(), this);
+        } finally {
+            ctx.fireChannelUnregistered();
+        }
     }
 
     /** Whether the cached decoder is in the pipeline directly after this keep. */
