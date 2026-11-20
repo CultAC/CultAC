@@ -524,7 +524,8 @@ final class VelocityCompressedForward {
         var pipeline = client.pipeline();
         if (!(pipeline.get(CompressedForwarder.NAME) instanceof CompressedForwarder forwarder)) return;
         try {
-            forwarder.unlink();
+            // Only the client's loop writes the link; elsewhere the handlerRemoved Netty runs on that loop unlinks.
+            if (forwarder.onClientLoop()) forwarder.unlink();
         } finally {
             CompressedForwarder.remove(pipeline, forwarder);
         }

@@ -568,7 +568,7 @@ final class CompressedForwarder extends ChannelDuplexHandler {
 
     private static void removeKeep(@Nullable Channel channel, CompressedKeep keep) {
         keep.markEnded();
-        // A keep that has left its pipeline leaves nothing to remove, whichever loop its channel is on now.
+        // A keep that has left its pipeline leaves nothing to remove, whichever loop its channel is on.
         if (channel == null || keep.removed()) return;
         if (channel.eventLoop().inEventLoop()) {
             remove(channel.pipeline(), keep);

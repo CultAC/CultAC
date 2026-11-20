@@ -2704,6 +2704,107 @@ class VelocityCompressedForwardLoopTest {
     }
 
     @Test
+    void keepOnABackendMovedBehindAKeeperLeavesAtTheClientsCloseAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        List<List<String>> seen = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                Channel toClient = client(on).proxySide();
+                var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                Channel fromBackend = backend(toClient).proxySide();
+                onLoop(() -> {
+                    if (on)
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                    fromBackend.pipeline().addFirst("keeper", new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelUnregistered(ChannelHandlerContext ctx) {}
+                    });
+                    return null;
+                });
+                moveTo(second, fromBackend);
+                if (on)
+                    assertNotNull(
+                            within(fromBackend, () -> fromBackend.pipeline().get(CompressedKeep.NAME)));
+                closeFully(toClient);
+                seen.add(within(fromBackend, () -> fromBackend.pipeline().names()));
+                fromBackend.close().sync();
+            }
+            assertFalse(seen.get(1).contains(CompressedKeep.NAME));
+            assertEquals(seen.get(0), seen.get(1), "the backend's handlers on the second loop with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void installOffTheClientsLoopRunsNoRefusalAsWithTheSwitchOff() throws Exception {
+        Channel toClient = client(false).proxySide();
+        List<String> before = within(toClient, () -> toClient.pipeline().names());
+        var refusals = new CopyOnWriteArrayList<VelocityCompressedForward.Refusal>();
+        // The client's decoder is not of the class asked for, which an install on the client's loop refuses.
+        assertNull(VelocityCompressedForward.install(
+                toClient.pipeline(), CompressEncoder.class, Object.class, COMPRESSORS, refusals::add));
+        assertEquals(List.of(), refusals);
+        assertEquals(before, within(toClient, () -> toClient.pipeline().names()), "the client's handlers");
+        assertNull(within(
+                toClient,
+                () -> VelocityCompressedForward.install(
+                        toClient.pipeline(), CompressEncoder.class, Object.class, COMPRESSORS, refusals::add)));
+        assertEquals(List.of(VelocityCompressedForward.Refusal.DECODER), refusals);
+        toClient.close().sync();
+    }
+
+    @Test
+    void uninstallOffTheClientsLoopLeavesTheLinkToThatLoopAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        List<List<String>> seen = new ArrayList<>();
+        try {
+            for (boolean on : new boolean[] {false, true}) {
+                Channel toClient = client(on).proxySide();
+                var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                Channel fromBackend = backend(toClient).proxySide();
+                onLoop(() -> {
+                    if (on)
+                        VelocityCompressedForward.link(
+                                forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                    toClient.pipeline().addFirst("keeper", new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void channelUnregistered(ChannelHandlerContext ctx) {}
+                    });
+                    return null;
+                });
+                moveTo(second, toClient);
+                var release = new CountDownLatch(1);
+                String held;
+                try {
+                    hold(toClient.eventLoop(), release);
+                    // The release runs on the loop the forwarder was installed on while the client's loop is held.
+                    held = onLoop(() -> {
+                        VelocityCompressedForward.uninstall(toClient);
+                        return forwarder == null ? null : forwarder.linkStatus();
+                    });
+                } finally {
+                    release.countDown();
+                }
+                if (on) {
+                    assertEquals("linked", held, "the link while the client's loop is held");
+                    assertEquals(
+                            List.of("removed", "none"),
+                            within(toClient, () -> List.of(forwarder.status(), forwarder.linkStatus())));
+                }
+                seen.add(onLoop(() -> fromBackend.pipeline().names()));
+                fromBackend.close().sync();
+                toClient.close().sync();
+            }
+            assertFalse(seen.get(1).contains(CompressedKeep.NAME));
+            assertEquals(seen.get(0), seen.get(1), "the backend's handlers with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
     void keepRemovedByOtherCodeEndsItsLinkAndHoldsNoReferenceToItsClosedBackend() throws Exception {
         Channel toClient = client().proxySide();
         var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
