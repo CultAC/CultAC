@@ -539,11 +539,13 @@ final class CompressedForwarder extends ChannelDuplexHandler {
      */
     private void end() {
         Channel channel = linkChannel;
+        CompressedKeep ended = linkKeep;
         WeakReference<CompressedKeep> keep = linkRef;
         linkChannel = null;
         linkKeep = null;
         linkRef = null;
         if (channel == null) return;
+        if (ended != null) ended.markEnded();
         linkStatus = "none";
         endedKeep = keep;
     }
@@ -566,7 +568,8 @@ final class CompressedForwarder extends ChannelDuplexHandler {
 
     private static void removeKeep(@Nullable Channel channel, CompressedKeep keep) {
         keep.markEnded();
-        if (channel == null) return;
+        // A keep that has left its pipeline leaves nothing to remove, whichever loop its channel is on now.
+        if (channel == null || keep.removed()) return;
         if (channel.eventLoop().inEventLoop()) {
             remove(channel.pipeline(), keep);
             return;

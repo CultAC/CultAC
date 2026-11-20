@@ -2260,6 +2260,11 @@ class VelocityCompressedForwardLoopTest {
 
     @Test
     void keepUnregisteredOnAnotherLoopEndsItsLinkOnTheClientsLoopAsWithTheSwitchOff() throws Exception {
+        for (boolean ended : new boolean[] {false, true}) keepUnregisteredOnAnotherLoop(ended);
+    }
+
+    /** As the case above; with {@code ended}, the forwarder is turned off, which ends the link, before the move. */
+    private void keepUnregisteredOnAnotherLoop(boolean ended) throws Exception {
         var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
         List<List<String>> names = new ArrayList<>();
         List<List<String>> events = new ArrayList<>();
@@ -2284,12 +2289,16 @@ class VelocityCompressedForwardLoopTest {
                         })
                         .proxySide();
                 Object keep = onLoop(() -> {
-                    if (on)
+                    if (on) {
                         VelocityCompressedForward.link(
                                 forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                        if (ended) forwarder.disable("adjacency");
+                    }
                     return fromBackend.pipeline().get(CompressedKeep.NAME);
                 });
                 assertEquals(on, keep != null);
+                String link = on ? onLoop(forwarder::linkStatus) : null;
+                if (on) assertEquals(ended ? "none" : "linked", link);
                 var resume = new CountDownLatch(1);
                 var failure = new AtomicReference<Throwable>();
                 onLoop(() -> {
@@ -2321,7 +2330,7 @@ class VelocityCompressedForwardLoopTest {
                     await(reached);
                     assertNull(failure.get());
                     pending.add(queued.get());
-                    if (on) assertEquals("linked", forwarder.linkStatus(), "no link field written on the second loop");
+                    if (on) assertEquals(link, forwarder.linkStatus(), "no link field written on the second loop");
                     names.add(within(fromBackend, () -> fromBackend.pipeline().names()));
                 } finally {
                     resume.countDown();
@@ -2329,7 +2338,7 @@ class VelocityCompressedForwardLoopTest {
                 deregistered.sync();
                 if (on)
                     onLoop(() -> {
-                        assertEquals(CompressedKeep.UNREGISTERED, forwarder.linkStatus());
+                        assertEquals(ended ? "none" : CompressedKeep.UNREGISTERED, forwarder.linkStatus());
                         assertHoldsNeither(forwarder, fromBackend, keep);
                         return null;
                     });
@@ -2340,7 +2349,7 @@ class VelocityCompressedForwardLoopTest {
             assertFalse(names.get(1).contains(CompressedKeep.NAME));
             assertEquals(names.get(0), names.get(1), "the backend's handlers with the switch off");
             assertEquals(events.get(0), events.get(1), "the later handler's event and thread with the switch off");
-            assertEquals(List.of(0, 1), pending, "the tasks the keep queues on the held loop");
+            assertEquals(List.of(0, ended ? 0 : 1), pending, "the tasks the keep queues on the held loop");
         } finally {
             second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
         }
@@ -2600,12 +2609,14 @@ class VelocityCompressedForwardLoopTest {
     void linkHeldWhileItsBackendIsRegisteredElsewhereGetsNoKeepAsWithTheSwitchOff() throws Exception {
         var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
         List<List<String>> seen = new ArrayList<>();
+        List<Integer> queued = new ArrayList<>();
         try {
             for (boolean on : new boolean[] {false, true}) {
                 Channel toClient = client(on).proxySide();
                 var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
                 Channel oldBackend = backend(toClient).proxySide();
                 Channel newBackend = backend(toClient).proxySide();
+                var releaseSecond = new CountDownLatch(1);
                 Thread loop = onLoop(() -> {
                     if (on) {
                         VelocityCompressedForward.link(
@@ -2625,18 +2636,68 @@ class VelocityCompressedForwardLoopTest {
                         awaitBlockedOn(loop, oldBackend.pipeline());
                     }
                     second.register(newBackend).sync();
+                    // The removed keep's handlerRemoved waits on the second loop until the client's loop is held.
+                    hold(newBackend.eventLoop(), releaseSecond);
                 }
                 if (on) {
                     link.get(5, TimeUnit.SECONDS);
                     assertEquals("loop", onLoop(forwarder::linkStatus));
                 }
-                seen.add(within(newBackend, () -> newBackend.pipeline().names()));
+                var releaseFirst = new CountDownLatch(1);
+                try {
+                    hold(toClient.eventLoop(), releaseFirst);
+                    releaseSecond.countDown();
+                    seen.add(within(newBackend, () -> newBackend.pipeline().names()));
+                    queued.add(pendingTasks(toClient));
+                } finally {
+                    releaseSecond.countDown();
+                    releaseFirst.countDown();
+                }
                 newBackend.close().sync();
                 oldBackend.close().sync();
                 toClient.close().sync();
             }
             assertFalse(seen.get(1).contains(CompressedKeep.NAME));
             assertEquals(seen.get(0), seen.get(1), "the new backend's handlers on the second loop with the switch off");
+            assertEquals(List.of(0, 0), queued, "the tasks queued on the client's loop with the switch off");
+        } finally {
+            second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
+        }
+    }
+
+    @Test
+    void keepThatLeftItsBackendBeforeAMoveQueuesNoRemovalOnTheNewLoopAsWithTheSwitchOff() throws Exception {
+        var second = new MultiThreadIoEventLoopGroup(1, LocalIoHandler.newFactory());
+        List<Integer> queued = new ArrayList<>();
+        try {
+            for (boolean ended : new boolean[] {false, true}) {
+                for (boolean on : new boolean[] {false, true}) {
+                    Channel toClient = client(on).proxySide();
+                    var forwarder = (CompressedForwarder) toClient.pipeline().get(CompressedForwarder.NAME);
+                    Channel fromBackend = backend(toClient).proxySide();
+                    onLoop(() -> {
+                        if (on) {
+                            VelocityCompressedForward.link(
+                                    forwarder, toClient, fromBackend, CompressDecoder.class, COMPRESSORS);
+                            if (ended) forwarder.disable("adjacency");
+                        }
+                        return null;
+                    });
+                    // The keep leaves at the deregistration, which runs on the client's loop.
+                    moveTo(second, fromBackend);
+                    if (on) assertEquals(ended ? "none" : CompressedKeep.UNREGISTERED, onLoop(forwarder::linkStatus));
+                    var release = new CountDownLatch(1);
+                    try {
+                        hold(fromBackend.eventLoop(), release);
+                        closeFully(toClient);
+                        queued.add(pendingTasks(fromBackend));
+                    } finally {
+                        release.countDown();
+                    }
+                    fromBackend.close().sync();
+                }
+            }
+            assertEquals(List.of(0, 0, 0, 0), queued, "the tasks queued on the backend's new loop with the switch off");
         } finally {
             second.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).sync();
         }
@@ -2879,6 +2940,16 @@ class VelocityCompressedForwardLoopTest {
             }
             return loop;
         }
+    }
+
+    /** Runs a task on {@code loop} that waits for {@code release}, and returns once that task has started. */
+    private static void hold(EventLoop loop, CountDownLatch release) {
+        var started = new CountDownLatch(1);
+        loop.execute(() -> {
+            started.countDown();
+            await(release);
+        });
+        await(started);
     }
 
     /** The tasks queued on {@code channel}'s loop. */

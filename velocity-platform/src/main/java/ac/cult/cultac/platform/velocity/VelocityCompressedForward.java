@@ -762,6 +762,7 @@ final class VelocityCompressedForward {
                 pipeline.addBefore(COMPRESSION_DECODER, CompressedKeep.NAME, keep);
             } catch (RuntimeException failure) {
                 forwarder.linkStatus("backend-install-failed");
+                keep.markEnded();
                 CompressedForwarder.remove(pipeline, keep);
                 return;
             }
@@ -771,6 +772,7 @@ final class VelocityCompressedForward {
                     || decoder.isRemoved()
                     || !CompressedForwarder.follows(decoder, keepContext)) {
                 forwarder.linkStatus("backend-adjacency");
+                keep.markEnded();
                 CompressedForwarder.remove(pipeline, keep);
                 return;
             }
@@ -778,6 +780,7 @@ final class VelocityCompressedForward {
             boolean registered = backend.isRegistered();
             if (!registered || !backend.eventLoop().inEventLoop()) {
                 forwarder.linkStatus(registered ? "loop" : CompressedKeep.UNREGISTERED);
+                keep.markEnded();
                 CompressedForwarder.remove(pipeline, keep);
                 return;
             }

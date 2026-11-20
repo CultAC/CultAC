@@ -282,9 +282,15 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         endLink(ctx.channel().isOpen() ? "backend-adjacency" : CLOSED);
     }
 
-    /** Marks the keep as one the forwarder holds no link to, before the forwarder removes it. */
+    /** Marks the keep as one the forwarder holds no link to, when its link ends or before the plugin removes it. */
     void markEnded() {
         ended = true;
+    }
+
+    /** Whether the attached context reads removed from its pipeline. */
+    boolean removed() {
+        ChannelHandlerContext keep = keepContext;
+        return keep != null && keep.isRemoved();
     }
 
     private void endLink(String status) {
