@@ -14,8 +14,12 @@ import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.ItemUtil;
@@ -31,6 +35,7 @@ import org.junit.jupiter.api.Test;
 class ItemUseBurstTest {
     private static final long TICK = 50_000_000L;
     private static final byte USING_MAIN_HAND = 1;
+    private static final byte USING_OFF_HAND = 3;
     private static final int HOTBAR_0 = Inventory.HOTBAR_OFFSET;
 
     @Test
@@ -114,6 +119,41 @@ class ItemUseBurstTest {
         });
     }
 
+    @Test
+    void releasingUsesTheServerStartedNeverAddsUpToAFlag() {
+        // hoplite capture 01a1f48c (26.3): the release of an unheld server-started use arrives 146.977 ms
+        // after its flag with two tick ends between. Each was 0.793 ticks of debt, flagging the 14th.
+        run(f -> {
+            f.inventory().inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, f.apple.copy());
+            for (int i = 0; i < 40; i++) {
+                long flag = f.now.get();
+                f.check.serverFlags(USING_OFF_HAND, null);
+                f.now.set(flag + 48_354_000L);
+                f.check.onPlayerTickEnd(null);
+                f.now.set(flag + 98_796_000L);
+                f.check.onPlayerTickEnd(null);
+                f.now.set(flag + 146_977_000L);
+                f.check.onPlayerAction(null, f.player, f.release());
+                f.check.serverFlags((byte) 2, null);
+                f.ticks(20);
+            }
+            assertEquals(0, f.check.violations);
+            verify(f.setbacks, never()).executeNonSimulatingSetback();
+        });
+    }
+
+    @Test
+    void aUseTheServerStartedIsFlaggedWhenItsTicksAreNeverClaimed() {
+        run(f -> {
+            f.inventory().inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, f.apple.copy());
+            f.check.serverFlags(USING_OFF_HAND, null);
+            f.now.addAndGet(32 * TICK);
+            f.check.serverComplete(null);
+            assertEquals(1, f.check.violations);
+            verify(f.setbacks).executeNonSimulatingSetback();
+        });
+    }
+
     private static final class Fixture {
         CultPlayer original;
         CultPlayer player;
@@ -141,6 +181,10 @@ class ItemUseBurstTest {
         /** MultiPlayerGameMode#handleContainerInput applies the click locally before sending it. */
         void clickAppleOut() {
             inventory().inventory.getInventoryStorage().setItem(HOTBAR_0, SimItemStack.EMPTY);
+        }
+
+        ServerboundPlayerAction release() {
+            return new ServerboundPlayerAction(PlayerAction.RELEASE_USE_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
         }
 
         InventoryClick click() {

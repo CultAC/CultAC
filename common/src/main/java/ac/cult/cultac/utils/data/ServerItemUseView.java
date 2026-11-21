@@ -41,6 +41,14 @@ import java.util.function.Supplier;
  * between that clear and the confirming flag; time past it is charged. A release during the pause,
  * which a vanilla client that is not using never sends, refutes it.
  *
+ * <p>A use the server starts without a use packet (a plugin) is charged from its flag's send, like any
+ * other server time. A client's own use starts in Minecraft#handleKeybinds, where a release also ends it,
+ * so it spans whole client ticks; this one starts wherever the flag lands between two ticks
+ * (LocalPlayer#onSyncedDataUpdated, while the client handles packets), and an unheld one is released by the
+ * next handleKeybinds before that tick travels. Its span is therefore whole ticks plus less than one period
+ * no tick could pay, so up to one period of such a use's unpaid time is not charged. That only lowers a
+ * debt; it never becomes credit.
+ *
  * <p>Owner-thread only. Times are local nanoseconds at this connection, never client claims.
  */
 public final class ServerItemUseView {
@@ -570,8 +578,14 @@ public final class ServerItemUseView {
             return;
         }
         int unslowed = finished.unslowed - (lastTickMayBeLocal && finished.lastUnslowed ? 1 : 0);
-        double expected = Math.max(0, finished.serverEnd - finished.start) * charge / finished.maxPeriod;
-        onFinished.accept(new Outcome(expected, finished.ticks, unslowed, false));
+        double charged = Math.max(0, finished.serverEnd - finished.start) * charge / finished.maxPeriod;
+        // The part of a server-started use that falls between two client ticks, at most one period.
+        double unaligned =
+                finished.clientStarted ? 0 : Math.min(Math.max(0, charged - (finished.ticks - unslowed)), charge);
+        if (unaligned > 0)
+            trace(() -> String.format(
+                    Locale.ROOT, "server-started use: %.3f of its unpaid time is not tick aligned", unaligned));
+        onFinished.accept(new Outcome(charged - unaligned, finished.ticks, unslowed, false));
     }
 
     private void trace(Supplier<String> message) {
