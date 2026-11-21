@@ -68,6 +68,7 @@ class SettledInterpolationParityTest {
     private static final Vec3 PLAYER_AT = new Vec3(0.5, JavaTickFixture.FLOOR_Y, 0.5);
     private static final Set<String> SKIP_BOOKKEEPING = Set.of(
             "settledInterpolation",
+            "settledFlag",
             "settledPhysicalPosition",
             "exactAfterClientTickBox",
             "tracker",
@@ -120,6 +121,7 @@ class SettledInterpolationParityTest {
                 old.apply(op);
                 observeSettled(current.entities);
                 current.apply(op);
+                assertMirror(current.entities);
                 assertEquals(
                         digest(old.entities, old.failure),
                         digest(current.entities, current.failure),
@@ -141,11 +143,25 @@ class SettledInterpolationParityTest {
                 old.apply(op);
                 observeSettled(current.entities);
                 current.apply(op);
+                assertMirror(current.entities);
                 assertEquals(
                         digest(old.entities, old.failure),
                         digest(current.entities, current.failure),
                         version + " seed=" + seed + " step=" + step);
             }
+        }
+    }
+
+    // The entity's settled flag may claim a settled state only while its settled interpolation is settled.
+    private static void assertMirror(CompensatedEntities entities) throws Exception {
+        Field flag = PacketEntity.class.getDeclaredField("settledFlag");
+        Field data = PacketEntity.class.getDeclaredField("settledInterpolation");
+        flag.setAccessible(true);
+        data.setAccessible(true);
+        for (PacketEntity entity : entities.entityMap.values()) {
+            if (!flag.getBoolean(entity)) continue;
+            ReachInterpolationData settled = (ReachInterpolationData) data.get(entity);
+            assertTrue(settled != null && settled.isSettled(), "entity " + entity.getEntityId());
         }
     }
 
@@ -522,7 +538,9 @@ class SettledInterpolationParityTest {
                     .append(entity.getClass().getSimpleName());
             for (Class<?> c = entity.getClass(); c != Object.class; c = c.getSuperclass()) {
                 for (Field field : c.getDeclaredFields()) {
-                    if (Modifier.isStatic(field.getModifiers()) || SKIP_BOOKKEEPING.contains(field.getName())) continue;
+                    if (Modifier.isStatic(field.getModifiers())
+                            || SKIP_BOOKKEEPING.contains(field.getName())
+                            || field.getName().startsWith("movementBounds")) continue;
                     field.setAccessible(true);
                     out.append(' ').append(field.getName()).append('=');
                     value(out, field.get(entity), 0);
@@ -537,7 +555,7 @@ class SettledInterpolationParityTest {
         for (Field field : ReachInterpolationData.class.getDeclaredFields()) {
             String name = field.getName();
             if (Modifier.isStatic(field.getModifiers())
-                    || name.equals("settled")
+                    || name.startsWith("settled")
                     || name.startsWith("probe")
                     || name.startsWith("bounds")) continue;
             field.setAccessible(true);

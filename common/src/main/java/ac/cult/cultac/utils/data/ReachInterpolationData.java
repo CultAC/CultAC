@@ -80,8 +80,13 @@ public class ReachInterpolationData {
     private boolean boundsValid;
     private double boundsMinX, boundsMinY, boundsMinZ, boundsMaxX, boundsMaxY, boundsMaxZ;
     private boolean boundsFullBlock;
+    // The entity whose movement bounds memo reads this state's bounds; told on every bounds invalidation.
+    private @Nullable PacketEntity boundsOwner;
+    private long boundsStamp;
 
     private boolean settled;
+    // The entity that mirrors settled; told on every write that clears it.
+    private @Nullable PacketEntity settledOwner;
     private Transform probeCurrent;
     private int probeYaw, probePitch, probeRemaining, probeSpeed;
     private long probeMinX, probeMinY, probeMinZ, probeMaxX, probeMaxY, probeMaxZ;
@@ -239,10 +244,10 @@ public class ReachInterpolationData {
         interpolationStepsLowBound = 0;
         interpolationStepsHighBound = 0;
         interpolationSteps = 1;
-        boundsValid = false;
+        invalidateBounds();
         boundsMinX = boundsMinY = boundsMinZ = boundsMaxX = boundsMaxY = boundsMaxZ = 0.0D;
         boundsFullBlock = false;
-        settled = false;
+        clearSettled();
         probeCurrent = null;
         probeYaw = probePitch = probeRemaining = probeSpeed = 0;
         probeMinX = probeMinY = probeMinZ = probeMaxX = probeMaxY = probeMaxZ = 0L;
@@ -318,7 +323,7 @@ public class ReachInterpolationData {
      * constructor may have started from it is dropped and the handler holds the exact spawn position.
      */
     public void finishInitialPlacement() {
-        boundsValid = false;
+        invalidateBounds();
         if (interpolationQueue != null) {
             // Nothing has moved the target since the constructor built it from the spawn position.
             steppedCurrent =
@@ -346,9 +351,9 @@ public class ReachInterpolationData {
 
     public void setPhysicalBeforePathAppend(
             EntityPositionPath path, float targetYaw, float targetPitch, Vec3 position, float yaw, float pitch) {
-        settled = false;
+        clearSettled();
         if (interpolationQueue != null && !matchesActiveSteppedTarget(path, targetYaw, targetPitch)) {
-            boundsValid = false;
+            invalidateBounds();
             steppedCurrent = new Transform(position, yaw, pitch);
             currentYaw = yaw;
             currentPitch = pitch;
@@ -356,10 +361,10 @@ public class ReachInterpolationData {
     }
 
     public void appendPath(EntityPositionPath path, float yaw, float pitch) {
-        settled = false;
+        clearSettled();
         if (interpolationQueue == null) throw new IllegalStateException("Not a stepped entity");
         appendSteppedPath(path, yaw, pitch);
-        boundsValid = false;
+        invalidateBounds();
         targetLocation.offset(path.endPosition().subtract(feet(targetLocation)));
         targetFeetKnown = false;
         targetYaw = yaw;
@@ -369,7 +374,7 @@ public class ReachInterpolationData {
     private void appendSteppedPath(EntityPositionPath path, float yaw, float pitch) {
         Transform end = new Transform(path.endPosition(), yaw, pitch);
         if (interpolationSteps == 0) {
-            boundsValid = false;
+            invalidateBounds();
             steppedCurrent = steppedTarget = end;
             cancelSteppedInterpolation();
             return;
@@ -422,7 +427,7 @@ public class ReachInterpolationData {
         }
         // Vanilla samples first, consumes completed steps, then advances tick progress.
         Transform sampled = sampleSteppedMovement();
-        boundsValid = false;
+        invalidateBounds();
         steppedCurrent = sampled;
         float targetSpeed = Math.max(remainingTicks / interpolationSteps, 1.0F);
         interpolationSpeed = CultMath.lerp(1.0F / interpolationSteps, interpolationSpeed, targetSpeed);
@@ -660,10 +665,10 @@ public class ReachInterpolationData {
         interpolationStepsHighBound = 0;
         interpolationSteps = 1;
         positionExact = true;
-        boundsValid = false;
+        invalidateBounds();
         boundsMinX = boundsMinY = boundsMinZ = boundsMaxX = boundsMaxY = boundsMaxZ = 0.0D;
         boundsFullBlock = false;
-        settled = false;
+        clearSettled();
         probeCurrent = null;
         probeYaw = probePitch = probeRemaining = probeSpeed = 0;
         probeMinX = probeMinY = probeMinZ = probeMaxX = probeMaxY = probeMaxZ = 0L;
@@ -708,6 +713,26 @@ public class ReachInterpolationData {
     // Designed around being unsure of minimum interp, maximum interp, and target location on 1.9 clients
     public SimpleCollisionBox getPossibleMovementLocationCombined() {
         return getPossibleMovementLocationCombined(new SimpleCollisionBox());
+    }
+
+    private void invalidateBounds() {
+        boundsValid = false;
+        PacketEntity owner = boundsOwner;
+        if (owner != null) owner.invalidateMovementBounds();
+    }
+
+    /** Makes {@code owner} the entity told when these bounds change, telling the previous one first. */
+    public void claimBoundsOwner(PacketEntity owner) {
+        PacketEntity previous = boundsOwner;
+        if (previous == owner) return;
+        if (previous != null) previous.invalidateMovementBounds();
+        boundsOwner = owner;
+        boundsStamp = owner.nextMovementBoundsStamp();
+    }
+
+    /** The stamp {@code owner} gave these bounds when it claimed them, else -1. */
+    public long boundsStamp(PacketEntity owner) {
+        return boundsOwner == owner ? boundsStamp : -1L;
     }
 
     public SimpleCollisionBox getPossibleMovementLocationCombined(SimpleCollisionBox out) {
@@ -924,8 +949,8 @@ public class ReachInterpolationData {
     }
 
     public void setExactMovementLocation(SimpleCollisionBox exactLocation) {
-        settled = false;
-        boundsValid = false;
+        clearSettled();
+        invalidateBounds();
         if (interpolationQueue != null) {
             if (!steppedCurrentIs(exactLocation, currentYaw, currentPitch)) {
                 steppedCurrent = new Transform(feet(exactLocation), currentYaw, currentPitch);
@@ -989,7 +1014,7 @@ public class ReachInterpolationData {
 
     /** Moves the start and the target each by the step {@code stepFrom} gives for its own position. */
     public void offset(UnaryOperator<Vec3> stepFrom) {
-        boundsValid = false;
+        invalidateBounds();
         startingLocation.offset(stepFrom.apply(feet(startingLocation)));
         targetLocation.offset(stepFrom.apply(feet(targetLocation)));
         if (targetFeetKnown) {
@@ -1003,7 +1028,7 @@ public class ReachInterpolationData {
 
     /** {@code Entity#reapplyPosition}: every box keeps its position and takes the new dimensions. */
     public void resize(float width, float height) {
-        boundsValid = false;
+        invalidateBounds();
         // A pending second transaction leaves the start a union of boxes the target's size; each keeps its feet.
         double widthChange = width - (targetLocation.maxX - targetLocation.minX);
         double heightChange = height - (targetLocation.maxY - targetLocation.minY);
@@ -1037,14 +1062,14 @@ public class ReachInterpolationData {
     }
 
     public void shiftTargetIfCollisionFree(CultPlayer player, Vec3 movement) {
-        settled = false;
+        clearSettled();
         if (movement.lengthSqr() == 0.0D) {
             return;
         }
 
         SimpleCollisionBox shiftedTarget = targetLocation.copy().offset(movement);
         if (Collisions.isEmpty(player, shiftedTarget, shiftedTarget.minY)) {
-            boundsValid = false;
+            invalidateBounds();
             targetLocation.offset(movement);
             if (targetFeetKnown) {
                 targetFeetX += movement.x;
@@ -1074,7 +1099,7 @@ public class ReachInterpolationData {
 
     private void shiftRootVehicleTargetIfCollisionFree(
             CultPlayer player, PacketEntity entity, Vec3 movement, Vec3 physicalPosition) {
-        settled = false;
+        clearSettled();
         if (movement.lengthSqr() == 0.0D) {
             return;
         }
@@ -1085,7 +1110,7 @@ public class ReachInterpolationData {
                 (targetLocation.minZ + targetLocation.maxZ) / 2.0D);
         if (RootVehicleInterpolationCollision.shouldShiftRootInterpolationTarget(
                 player, entity, targetPosition, movement, physicalPosition)) {
-            boundsValid = false;
+            invalidateBounds();
             targetLocation.offset(movement);
             if (targetFeetKnown) {
                 targetFeetX += movement.x;
@@ -1097,7 +1122,7 @@ public class ReachInterpolationData {
     }
 
     public void shiftTargetRotationByPhysical(float physicalYaw, float physicalPitch) {
-        settled = false;
+        clearSettled();
         if (interpolationStepsLowBound != interpolationStepsHighBound || !hasActiveInterpolationTarget()) {
             return;
         }
@@ -1135,9 +1160,9 @@ public class ReachInterpolationData {
     }
 
     public void setExactRotation(float yaw, float pitch) {
-        settled = false;
+        clearSettled();
         if (interpolationQueue != null) {
-            boundsValid = false;
+            invalidateBounds();
             steppedCurrent = new Transform(steppedCurrent.position(), yaw, pitch);
         }
         this.currentYaw = yaw;
@@ -1145,7 +1170,7 @@ public class ReachInterpolationData {
     }
 
     public void setCurrentAndTargetRotation(float yaw, float pitch) {
-        settled = false;
+        clearSettled();
         this.currentYaw = yaw;
         this.currentPitch = pitch;
         this.targetYaw = yaw;
@@ -1158,9 +1183,9 @@ public class ReachInterpolationData {
     }
 
     public void updatePossibleStartingLocation(SimpleCollisionBox possibleLocationCombined) {
-        settled = false;
+        clearSettled();
         if (interpolationQueue != null) return;
-        boundsValid = false;
+        invalidateBounds();
         // CultACBukkitLoaderPlugin.staticGetLogger().info(ChatColor.BLUE + "Updated new starting location as second
         // trans hasn't arrived " + startingLocation);
         combineCollisionBox(startingLocation, possibleLocationCombined, startingLocation);
@@ -1175,6 +1200,20 @@ public class ReachInterpolationData {
      */
     public boolean isSettled() {
         return settled;
+    }
+
+    private void clearSettled() {
+        settled = false;
+        PacketEntity owner = settledOwner;
+        if (owner != null) owner.settledCleared(this);
+    }
+
+    /** Makes {@code owner} the entity told when this state stops being settled, telling the previous one first. */
+    public void claimSettledOwner(PacketEntity owner) {
+        PacketEntity previous = settledOwner;
+        if (previous == owner) return;
+        if (previous != null) previous.settledCleared(this);
+        settledOwner = owner;
     }
 
     /**
@@ -1224,7 +1263,8 @@ public class ReachInterpolationData {
                     && Double.doubleToRawLongBits(startingLocation.maxZ) == probeMaxZ;
         }
         probeCurrent = null;
-        settled = unchanged;
+        if (unchanged) settled = true;
+        else clearSettled();
         return unchanged;
     }
 
@@ -1255,8 +1295,8 @@ public class ReachInterpolationData {
         if (heldLocation == null) heldLocation = new SimpleCollisionBox();
         heldLocation.set(shown);
         heldStep = interpolationStepsLowBound;
-        boundsValid = false;
-        settled = false;
+        invalidateBounds();
+        clearSettled();
     }
 
     /** The steps left after the last one, when the step count is exact; else -1. */
@@ -1289,15 +1329,15 @@ public class ReachInterpolationData {
         interpolationStepsLowBound = 0;
         interpolationStepsHighBound = 0;
         heldStep = -1;
-        boundsValid = false;
-        settled = false;
+        invalidateBounds();
+        clearSettled();
         return true;
     }
 
     /** One client tick: CLIENT_TICK_END proves each tick of every supported Java client. */
     public void tickMovement(boolean incrementLowBound) {
-        settled = false;
-        boundsValid = false;
+        clearSettled();
+        invalidateBounds();
         if (interpolationQueue != null) {
             Transform transform =
                     tickSteppedMovement(Math.max(interpolationPlayer.packetStateData.serverTickRate / 20.0F, 1.0F));

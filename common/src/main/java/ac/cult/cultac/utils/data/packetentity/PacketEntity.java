@@ -242,9 +242,20 @@ public class PacketEntity {
     private SimpleCollisionBox carryLocationBox;
     private SimpleCollisionBox oldLocationBox;
     private @Nullable ReachInterpolationData settledInterpolation;
+    // True only while settledInterpolation is settled; that state names this entity its settled owner.
+    private boolean settledFlag;
     private @Nullable Vec3 settledPhysicalPosition;
     private @Nullable ReachInterpolationData spareInterpolation;
     private @Nullable SimpleCollisionBox interpolationStart;
+    // Interpolation bounds of the snapshots holding the New/Old stamps (0 for none); either snapshot invalidates
+    // them on change or owner change.
+    private boolean movementBoundsValid;
+    private long movementBoundsNewStamp;
+    private long movementBoundsOldStamp;
+    private long movementBoundsStamps;
+    private double movementBoundsMinX, movementBoundsMinY, movementBoundsMinZ;
+    private double movementBoundsMaxX, movementBoundsMaxY, movementBoundsMaxZ;
+    private boolean movementBoundsFullBlock;
     // Valid while the position, the world and its chunk epoch are the ones it was computed for.
     private @Nullable Vec3 loadedChunkPosition;
     private @Nullable CompensatedWorld loadedChunkWorld;
@@ -1102,7 +1113,10 @@ public class PacketEntity {
         if (riderInterpolation != null) return;
         if (dropped == null || dropped.usesSteppedInterpolation()) return;
         if (dropped == newPacketLocation || dropped == oldPacketLocation) return;
-        if (dropped == settledInterpolation) settledInterpolation = null;
+        if (dropped == settledInterpolation) {
+            settledInterpolation = null;
+            settledFlag = false;
+        }
         spareInterpolation = dropped;
     }
 
@@ -1406,7 +1420,7 @@ public class PacketEntity {
             // A settled state with the inputs it settled on makes this tick a no-op.
             if (interpolation == settledInterpolation
                     && physicalBefore == settledPhysicalPosition
-                    && interpolation.isSettled()) return;
+                    && settledFlag) return;
             idleProbe = interpolation.beginIdleProbe();
         }
         // The local passenger's Entity#baseTick reads its boat's status after the boat's tick. Through 26.2
@@ -1435,9 +1449,16 @@ public class PacketEntity {
                 && clientPhysicalPosition == physicalBefore
                 && clientPhysicalPositionExact
                 && interpolation.settleIfIdleTickUnchanged()) {
+            interpolation.claimSettledOwner(this);
             settledInterpolation = interpolation;
+            settledFlag = true;
             settledPhysicalPosition = physicalBefore;
         }
+    }
+
+    /** {@code data} stopped being settled. */
+    public void settledCleared(ReachInterpolationData data) {
+        if (data == settledInterpolation) settledFlag = false;
     }
 
     private void stepInterpolation(CultPlayer player) {
@@ -2201,11 +2222,10 @@ public class PacketEntity {
             boolean movement, SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
         if (blockEntityPhysicalBox != null) return out.set(blockEntityPhysicalBox);
-        if (movement) newPacketLocation.getPossibleMovementLocationCombined(out);
-        else newPacketLocation.getPossibleLocationCombined(out);
+        if (movement) return interpolationMovementBounds(out, scratch);
+        newPacketLocation.getPossibleLocationCombined(out);
         if (oldPacketLocation == null) return out;
-        if (movement) oldPacketLocation.getPossibleMovementLocationCombined(scratch);
-        else oldPacketLocation.getPossibleLocationCombined(scratch);
+        oldPacketLocation.getPossibleLocationCombined(scratch);
         return ReachInterpolationData.combineCollisionBox(scratch, out, out);
     }
 
@@ -2283,6 +2303,51 @@ public class PacketEntity {
     /** The boxes {@link #recordRiderPushBox} recorded for block-entity pass {@code pass}, else null. Read only. */
     public @Nullable List<SimpleCollisionBox> riderPushBoxes(int pass) {
         return riderPushPass == pass && riderPushBoxes != null && !riderPushBoxes.isEmpty() ? riderPushBoxes : null;
+    }
+
+    /** {@code getPossibleMovementLocationCombined} of the new location, joined with the old one's when present. */
+    private SimpleCollisionBox interpolationMovementBounds(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        ReachInterpolationData current = newPacketLocation;
+        ReachInterpolationData old = oldPacketLocation;
+        if (movementBoundsValid
+                && current.boundsStamp(this) == movementBoundsNewStamp
+                && (old == null ? 0L : old.boundsStamp(this)) == movementBoundsOldStamp) {
+            return out.set(
+                    movementBoundsMinX,
+                    movementBoundsMinY,
+                    movementBoundsMinZ,
+                    movementBoundsMaxX,
+                    movementBoundsMaxY,
+                    movementBoundsMaxZ,
+                    movementBoundsFullBlock);
+        }
+        current.claimBoundsOwner(this);
+        if (old != null) old.claimBoundsOwner(this);
+        current.getPossibleMovementLocationCombined(out);
+        if (old != null) {
+            ReachInterpolationData.combineCollisionBox(old.getPossibleMovementLocationCombined(scratch), out, out);
+        }
+        movementBoundsMinX = out.minX;
+        movementBoundsMinY = out.minY;
+        movementBoundsMinZ = out.minZ;
+        movementBoundsMaxX = out.maxX;
+        movementBoundsMaxY = out.maxY;
+        movementBoundsMaxZ = out.maxZ;
+        movementBoundsFullBlock = out.isFullBlock();
+        movementBoundsNewStamp = current.boundsStamp(this);
+        movementBoundsOldStamp = old == null ? 0L : old.boundsStamp(this);
+        movementBoundsValid = true;
+        return out;
+    }
+
+    /** Drops the memo {@link #interpolationMovementBounds} keeps. */
+    public void invalidateMovementBounds() {
+        movementBoundsValid = false;
+    }
+
+    /** A stamp no snapshot this entity claimed before holds; never 0. */
+    public long nextMovementBoundsStamp() {
+        return ++movementBoundsStamps;
     }
 
     /**
@@ -2454,6 +2519,15 @@ public class PacketEntity {
 
     public long getClientTickOrder() {
         return clientTickOrder;
+    }
+
+    /** Reads the header and one field of each line an entity tick reads first, changing nothing. */
+    public int touchTickLines() {
+        return (getClass() == PacketEntity.class ? 1 : 0)
+                + (clientPhysicalPositionExact ? 2 : 0)
+                + (riding == null ? 4 : 0)
+                + (clientPhysicalPosition == null ? 8 : 0)
+                + (newPacketLocation == null ? 16 : 0);
     }
 
     /** Whether {@code world} holds the chunk column containing {@code position}. */

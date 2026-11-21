@@ -74,6 +74,8 @@ public class CompensatedEntities {
     // entityMap value at its id; every addOrder write unsets addOrderMapped.
     private boolean addOrderMapped;
     private int addOrderMappedAt;
+    // Keeps the reads of preloadTickLines live.
+    private int tickLineDigest;
     // The sum of passengers.size() over entityMap values.
     private int trackedPassengers;
     // Working space for committed passenger seat updates.
@@ -2061,6 +2063,7 @@ public class CompensatedEntities {
 
     /** Runs legacy client entity state ticks in entity-map order; Java remote riders retain lazy position storage. */
     public void forEachTrackedEntity(Consumer<PacketEntity> tick) {
+        preloadTickLines();
         PacketEntity selfRoot = selfRidingRoot();
         PacketEntity serverRoot = serverVehicleRoot();
         for (PacketEntity entity : entityMap.values()) {
@@ -2072,6 +2075,13 @@ public class CompensatedEntities {
             if (!player.isBedrockMovement() && isUntrackedRider(entity, selfRoot, serverRoot)) tickLazyRider(entity, tick);
             else tick.accept(entity);
         }
+    }
+
+    /** Reads the first tick lines of each add-order entry in one pass of independent loads, changing nothing. */
+    private void preloadTickLines() {
+        int digest = 0;
+        for (int i = 0, size = addOrder.size(); i < size; i++) digest += addOrder.get(i).touchTickLines();
+        tickLineDigest = digest;
     }
 
     /**
