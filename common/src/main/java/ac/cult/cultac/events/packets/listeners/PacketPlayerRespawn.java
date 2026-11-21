@@ -165,6 +165,7 @@ public class PacketPlayerRespawn {
                 player.checkManager.getListener(BadPacketsA.class).resetCarriedIndex();
                 player.checkManager.getListener(AirLiquidBreak.class).resetPending();
                 player.checkManager.getListener(FastBreak.class).resetDestroyDelay();
+                player.openWindow.closeFromLogin();
                 // ClientPacketListener#handleLogin runs MultiPlayerGameMode#setLocalMode on the local player.
                 PacketChangeGameState.applyGameModeAbilities(player, loginMode, newJavaLocalPlayer);
                 // ClientPacketListener#handleLogin gives the local player a new KeyboardInput, even one it keeps.

@@ -117,6 +117,19 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         onClose();
     }
 
+    /**
+     * Minecraft#clearClientLevel, run by ClientPacketListener#handleConfigurationStart, replaces any screen with
+     * ServerReconfigScreen and sends no container_close; ClientPacketListener#handleLogin then starts a new
+     * LocalPlayer whose only menu is its closed inventory.
+     */
+    public void closeFromLogin() {
+        possibleOpenWindows.clear();
+        possibleOpenWindows.add(null);
+        closeTransaction = player.lastTransactionReceived.get();
+        signEditorOpen = false;
+        onClose();
+    }
+
     // A closed screen lets the client change its selected slot again before its next tick.
     private void onClose() {
         ticksOpen = 0;

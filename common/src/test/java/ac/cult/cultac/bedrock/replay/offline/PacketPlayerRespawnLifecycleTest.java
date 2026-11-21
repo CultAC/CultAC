@@ -13,22 +13,29 @@ import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsG;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
+import ac.cult.cultac.checks.impl.chat.ChatE;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerWindow;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommand;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
@@ -570,6 +577,63 @@ public final class PacketPlayerRespawnLifecycleTest {
                 OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
             }
         }
+    }
+
+    @Test
+    public void aBackendSwitchClosesTheScreenOfTheOldLevelButNotOneOpenedAfterTheLogin() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = offlineJavaPlayer();
+        try {
+            player.user.bind(mock(PlatformPlayer.class));
+            openScreen(player, 7);
+            assertTrue(player.openWindow.mustBeOpen());
+
+            var listener = new PacketPlayerRespawn();
+            listener.onStartConfiguration(null, player, null);
+            ClientboundLogin login = loginPacket(true);
+            var loginEvent = sendEvent(player, ClientboundPackets.LOGIN, login);
+            int receipt = player.lastTransactionSent.get() + 1;
+            listener.onLogin(loginEvent, player, login);
+            loginEvent.tasksAfter().forEach(Runnable::run);
+            acknowledge(player, receipt);
+
+            ChatE chat = spy(new ChatE(player));
+            doReturn(true).when(chat).flag();
+            doReturn(true).when(chat).shouldModifyPackets();
+            var command = new ServerboundChatCommand("spawn");
+            chat.onCommand(
+                    new PacketReceiveEvent<>(
+                            player.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command),
+                    player,
+                    command);
+            verify(chat, never()).flag();
+            assertEquals(0, player.openWindow.getTicksOpen());
+
+            openScreen(player, 1);
+            chat.onCommand(
+                    new PacketReceiveEvent<>(
+                            player.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command),
+                    player,
+                    command);
+            verify(chat).flag();
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    private static void openScreen(CultPlayer player, int id) {
+        int sent = player.lastTransactionSent.get();
+        var packet = new ClientboundOpenScreen(id, "minecraft:generic_9x1");
+        var event = sendEvent(player, ClientboundPackets.OPEN_SCREEN, packet);
+        new PacketPlayerWindow().onOpenScreen(event, player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+        acknowledge(player, sent + 1);
+        acknowledge(player, sent + 2);
+    }
+
+    private static void acknowledge(CultPlayer player, int transaction) {
+        player.lastTransactionReceived.set(transaction);
+        player.latencyUtils.handleNettySyncTransaction(transaction);
     }
 
     private static ClientboundRespawn respawnPacket() {
