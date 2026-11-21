@@ -171,7 +171,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     } else {
                         connection.observePacket(
                                 PacketDirection.CLIENTBOUND, connection.phase(PacketDirection.CLIENTBOUND), frame);
-                        writeRaw(ctx, frame, promise);
+                        writeRaw(ctx, frame, promise, type);
                     }
                     return;
                 }
