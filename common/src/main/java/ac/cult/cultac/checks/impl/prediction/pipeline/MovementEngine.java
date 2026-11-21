@@ -80,6 +80,11 @@ public interface MovementEngine {
         return carry;
     }
 
+    /** Ages a carry over ticks its client sent no input for. */
+    default PredictionCarry applyUnsentTicksToCarry(PredictionCarry carry, long ticks) {
+        return carry;
+    }
+
     default PredictionCarry applyAcknowledgedPoseToCarry(
             PredictionCarry carry, Boolean crawling, Boolean swimming, Boolean spinning) {
         return carry;

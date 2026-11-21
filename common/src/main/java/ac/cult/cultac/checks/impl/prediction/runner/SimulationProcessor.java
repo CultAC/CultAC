@@ -1127,6 +1127,35 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return result;
     }
 
+    // The client tick of the last Bedrock input, and whether the player has died since one arrived.
+    private long lastBedrockClientTick = -1L;
+    private boolean bedrockDiedSinceInput;
+
+    /** The client handled its own death: it sends no input until it respawns, while its ticks run on. */
+    public void markBedrockDeath() {
+        this.bedrockDiedSinceInput = true;
+    }
+
+    /**
+     * An input of client tick {@code clientTick} arrived. The first one after a death ages the carry over the
+     * ticks the client sent none for.
+     */
+    public void observeBedrockClientTick(long clientTick) {
+        long unsent = this.lastBedrockClientTick < 0L ? 0L : clientTick - this.lastBedrockClientTick - 1L;
+        this.lastBedrockClientTick = clientTick;
+        if (!this.bedrockDiedSinceInput) return;
+        if (unsent <= 0L) {
+            // An input sent before the client handled the death; one after a respawn without a gap ends the wait.
+            if (!this.player.compensatedEntities.getSelf().isDead) this.bedrockDiedSinceInput = false;
+            return;
+        }
+        this.bedrockDiedSinceInput = false;
+        if (this.profileCarry != null) {
+            this.profileCarry = MovementEngines.requireForProfile(MovementProfiles.forPlayer(this.player))
+                    .applyUnsentTicksToCarry(this.profileCarry, unsent);
+        }
+    }
+
     @Nullable
     public PredictionResult processBedrockAuthInputFrame(
             BedrockAuthInputFrame frame, BedrockPredictionTrigger trigger) {

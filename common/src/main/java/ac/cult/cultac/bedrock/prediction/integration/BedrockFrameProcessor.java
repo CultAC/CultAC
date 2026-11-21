@@ -66,6 +66,7 @@ public final class BedrockFrameProcessor {
                 player.getSetbackTeleportUtil().bedrockTeleports().resolveBedrockCoordinates(original);
         if (frame == null) return null;
         var processor = player.checkManager.getSimulationProcessor();
+        processor.observeBedrockClientTick(frame.getClientTick());
         var teleport = player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(frame);
         if (teleport.isTeleport()) {
             player.checkManager

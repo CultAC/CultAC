@@ -572,6 +572,20 @@ public final class BedrockMovementEngine implements MovementEngine {
         return applyImmobileStateToCarry(states, input.inputFrame(), trustedMayFly(player), input.worldSnapshot());
     }
 
+    @Override
+    public PredictionCarry applyUnsentTicksToCarry(PredictionCarry carry, long ticks) {
+        // No jump is held over such ticks, so a jump delay ends with them.
+        return carry instanceof BedrockNextTickStates states
+                ? new BedrockNextTickStates(states.profileEntries().stream()
+                        .map(entry -> entry.state().isVehicle()
+                                ? entry
+                                : new Entry(
+                                        entry.state().afterUnsentTicks(ticks),
+                                        entry.mobJumpComponent().afterHeldTick(false)))
+                        .toList())
+                : carry;
+    }
+
     public PredictionCarry applyAcknowledgedGlidingToCarry(PredictionCarry carry, boolean actorGliding) {
         return carry instanceof BedrockNextTickStates states
                 ? new BedrockNextTickStates(states.profileEntries().stream()

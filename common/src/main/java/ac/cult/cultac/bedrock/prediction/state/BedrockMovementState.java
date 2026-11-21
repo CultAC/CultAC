@@ -674,6 +674,22 @@ public record BedrockMovementState(
                 : new BedrockMovementState(motion, actor, memory.withRiptideChargeTicks(ticks), tickStart, attributes);
     }
 
+    /**
+     * Ages the timers that keep running over ticks the client sent no input for, as a dead player's do. The actor
+     * swims no longer after the first of them, and a dolphin's boost wears off on each.
+     */
+    public BedrockMovementState afterUnsentTicks(long ticks) {
+        double swimAmount = swimAmount();
+        for (long tick = 1L; tick < ticks && swimAmount > 0.0D; tick++) {
+            swimAmount = BedrockSwimmingPoseProgress.nextSwimAmount(swimAmount, false);
+        }
+        BedrockDolphinBoost boost = dolphinBoost();
+        for (long tick = 0L; tick < ticks && boost.effectTicks() > 0; tick++) boost = boost.endTick();
+        if (swimAmount == swimAmount() && boost.equals(dolphinBoost())) return this;
+        return new BedrockMovementState(
+                motion, actor, memory.withSwimAmount(swimAmount).withDolphinBoost(boost), tickStart, attributes);
+    }
+
     public BedrockMovementState withPhysicalFeetPosition(Vec3d physicalFeetPosition, Vec3d lastPhysicalDisplacement) {
         Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(
                 physicalFeetPosition, coordinateFrame(), packetYOffset());
@@ -1230,6 +1246,26 @@ public record BedrockMovementState(
                     value,
                     fallDistance,
                     swimAmount,
+                    riptideChargeTicks,
+                    riptideSpinActive,
+                    riptideSpinTicks,
+                    sneakingTicks,
+                    itemUseSlowdownTicks,
+                    dolphinBoost,
+                    cameraWater,
+                    sneakMoveScale,
+                    penetratingMoves,
+                    geyserBoostTicks,
+                    oneWayBoxes);
+        }
+
+        TickMemory withSwimAmount(double value) {
+            return new TickMemory(
+                    simulationTick,
+                    powderSnowTicks,
+                    fallFlyTicks,
+                    fallDistance,
+                    value,
                     riptideChargeTicks,
                     riptideSpinActive,
                     riptideSpinTicks,

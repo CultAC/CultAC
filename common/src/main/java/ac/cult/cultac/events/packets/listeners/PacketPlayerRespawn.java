@@ -63,6 +63,9 @@ public class PacketPlayerRespawn {
             player.latencyUtils.addRealTimeTaskNow(() -> {
                 PacketEntitySelf self = healthTarget(player, level);
                 if (self != null) self.isDead = true;
+                if (self != null && player.isBedrockMovement()) {
+                    player.checkManager.getSimulationProcessor().markBedrockDeath();
+                }
                 player.checkManager.getListener(BadPacketsM.class).onDeath();
             });
         }
