@@ -337,7 +337,8 @@ public class Collisions {
                 desiredMovementCollisionBoxes,
                 order,
                 SimpleCollisionBox.AxisEpsilon.JAVA,
-                moved);
+                moved,
+                separateStepQuery);
 
         // While running up stairs and holding space, the player activates the "lastOnGround" part without otherwise
         // being able to step
@@ -377,7 +378,8 @@ public class Collisions {
                         stepCollisionBoxes,
                         order,
                         SimpleCollisionBox.AxisEpsilon.JAVA,
-                        moved);
+                        moved,
+                        separateStepQuery);
                 if (getHorizontalDistanceSqr(stepResult) > getHorizontalDistanceSqr(collisionResult)) {
                     double alreadyMovedDown = box.minY - stepStartBox.minY;
                     return stepResult.subtract(0.0D, alreadyMovedDown, 0.0D);
@@ -459,7 +461,18 @@ public class Collisions {
             List<SimpleCollisionBox> colliders,
             Axis axis,
             SimpleCollisionBox.AxisEpsilon epsilon) {
+        return collideAxis(distance, actor, colliders, axis, epsilon, false);
+    }
+
+    private static double collideAxis(
+            double distance,
+            SimpleCollisionBox actor,
+            List<SimpleCollisionBox> colliders,
+            Axis axis,
+            SimpleCollisionBox.AxisEpsilon epsilon,
+            boolean vanillaShapeIteration) {
         for (int i = 0; i < colliders.size(); i++) {
+            if (vanillaShapeIteration && Math.abs(distance) < COLLISION_EPSILON) return 0.0D;
             var collider = colliders.get(i);
             distance = switch (axis) {
                 case X -> collider.collideX(actor, distance, epsilon);
@@ -831,7 +844,8 @@ public class Collisions {
                 desiredMovementCollisionBoxes,
                 order,
                 epsilon,
-                new SimpleCollisionBox());
+                new SimpleCollisionBox(),
+                false);
     }
 
     /** Collides {@code (x, y, z)} from {@code box}, moving {@code setBB} as its working copy of {@code box}. */
@@ -843,24 +857,19 @@ public class Collisions {
             List<SimpleCollisionBox> desiredMovementCollisionBoxes,
             List<Axis> order,
             SimpleCollisionBox.AxisEpsilon epsilon,
-            SimpleCollisionBox setBB) {
+            SimpleCollisionBox setBB,
+            boolean vanillaShapeIteration) {
         setBB.set(box);
 
         for (Axis axis : order) {
             if (axis == Axis.X) {
-                for (SimpleCollisionBox bb : desiredMovementCollisionBoxes) {
-                    x = bb.collideX(setBB, x, epsilon);
-                }
+                x = collideAxis(x, setBB, desiredMovementCollisionBoxes, axis, epsilon, vanillaShapeIteration);
                 setBB.offset(x, 0.0D, 0.0D);
             } else if (axis == Axis.Y) {
-                for (SimpleCollisionBox bb : desiredMovementCollisionBoxes) {
-                    y = bb.collideY(setBB, y, epsilon);
-                }
+                y = collideAxis(y, setBB, desiredMovementCollisionBoxes, axis, epsilon, vanillaShapeIteration);
                 setBB.offset(0.0D, y, 0.0D);
             } else if (axis == Axis.Z) {
-                for (SimpleCollisionBox bb : desiredMovementCollisionBoxes) {
-                    z = bb.collideZ(setBB, z, epsilon);
-                }
+                z = collideAxis(z, setBB, desiredMovementCollisionBoxes, axis, epsilon, vanillaShapeIteration);
                 setBB.offset(0.0D, 0.0D, z);
             }
         }
