@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Test;
 class ItemUseBurstTest {
     private static final long TICK = 50_000_000L;
     private static final byte USING_MAIN_HAND = 1;
+    private static final byte USING_OFF_HAND = 3;
     private static final int HOTBAR_0 = Inventory.HOTBAR_OFFSET;
 
     @Test
@@ -176,6 +177,41 @@ class ItemUseBurstTest {
             f.clickAppleOut();
             f.serverSlot(f.apple.copy()).getTasksAfterSend().forEach(Runnable::run);
             verify(f.player).resyncItemUse();
+        });
+    }
+
+    @Test
+    void releasingUsesTheServerStartedNeverAddsUpToAFlag() {
+        // hoplite capture 01a1f48c (26.3): the release of an unheld server-started use arrives 146.977 ms
+        // after its flag with two tick ends between. Each was 0.793 ticks of debt, flagging the 14th.
+        run(f -> {
+            f.inventory().inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, f.apple.copy());
+            for (int i = 0; i < 40; i++) {
+                long flag = f.now.get();
+                f.check.serverFlags(USING_OFF_HAND, null);
+                f.now.set(flag + 48_354_000L);
+                f.check.onPlayerTickEnd(null);
+                f.now.set(flag + 98_796_000L);
+                f.check.onPlayerTickEnd(null);
+                f.now.set(flag + 146_977_000L);
+                f.check.onPlayerAction(null, f.player, f.release());
+                f.check.serverFlags((byte) 2, null);
+                f.ticks(20);
+            }
+            assertEquals(0, f.check.violations);
+            verify(f.setbacks, never()).executeNonSimulatingSetback();
+        });
+    }
+
+    @Test
+    void aUseTheServerStartedIsFlaggedWhenItsTicksAreNeverClaimed() {
+        run(f -> {
+            f.inventory().inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, f.apple.copy());
+            f.check.serverFlags(USING_OFF_HAND, null);
+            f.now.addAndGet(32 * TICK);
+            f.check.serverComplete(null);
+            assertEquals(1, f.check.violations);
+            verify(f.setbacks).executeNonSimulatingSetback();
         });
     }
 
