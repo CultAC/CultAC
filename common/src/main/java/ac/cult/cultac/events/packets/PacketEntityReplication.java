@@ -1410,6 +1410,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             // LivingEntity.handleEntityEvent sets non-player health to zero. Keep the action
             // predicate on the client-confirmed boundary; existing movement death handling stays below.
             whenHandled(event, Proof.BEFORE_NEXT_TICK, () -> {
+                // A Bedrock client dies on its own death event; a player who respawns at once is sent no health
+                // of zero.
+                if (entityId == player.entityID && player.isBedrockMovement()) {
+                    player.checkManager.getSimulationProcessor().markBedrockDeath();
+                }
                 var received = player.compensatedEntities.getEntity(entityId);
                 // LivingEntity#handleEntityEvent(3) only plays a Player's death sound; other living entities die.
                 if (received != null && received.isLivingEntity() && received.type != EntityTypeIds.PLAYER) {

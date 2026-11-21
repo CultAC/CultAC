@@ -1127,13 +1127,18 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return result;
     }
 
-    // The client tick of the last Bedrock input, and whether the player has died since one arrived.
+    // The client tick of the last Bedrock input, whether the player has died since one arrived, and whether a
+    // dolphin was in its reach as it died.
     private long lastBedrockClientTick = -1L;
     private boolean bedrockDiedSinceInput;
+    private boolean bedrockDolphinNearAtDeath;
 
     /** The client handled its own death: it sends no input until it respawns, while its ticks run on. */
     public void markBedrockDeath() {
         this.bedrockDiedSinceInput = true;
+        this.bedrockDolphinNearAtDeath = this.profileCarry != null
+                && MovementEngines.requireForProfile(MovementProfiles.forPlayer(this.player))
+                        .dolphinNearCarry(this.player, this.profileCarry);
     }
 
     /**
@@ -1152,7 +1157,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.bedrockDiedSinceInput = false;
         if (this.profileCarry != null) {
             this.profileCarry = MovementEngines.requireForProfile(MovementProfiles.forPlayer(this.player))
-                    .applyUnsentTicksToCarry(this.profileCarry, unsent);
+                    .applyUnsentTicksToCarry(this.profileCarry, unsent, this.bedrockDolphinNearAtDeath);
         }
     }
 

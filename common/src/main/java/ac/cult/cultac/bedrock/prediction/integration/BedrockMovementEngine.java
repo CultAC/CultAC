@@ -573,17 +573,30 @@ public final class BedrockMovementEngine implements MovementEngine {
     }
 
     @Override
-    public PredictionCarry applyUnsentTicksToCarry(PredictionCarry carry, long ticks) {
+    public PredictionCarry applyUnsentTicksToCarry(PredictionCarry carry, long ticks, boolean dolphinNearby) {
         // No jump is held over such ticks, so a jump delay ends with them.
         return carry instanceof BedrockNextTickStates states
                 ? new BedrockNextTickStates(states.profileEntries().stream()
                         .map(entry -> entry.state().isVehicle()
                                 ? entry
                                 : new Entry(
-                                        entry.state().afterUnsentTicks(ticks),
+                                        entry.state().afterUnsentTicks(ticks, dolphinNearby),
                                         entry.mobJumpComponent().afterHeldTick(false)))
                         .toList())
                 : carry;
+    }
+
+    @Override
+    public boolean dolphinNearCarry(CultPlayer player, PredictionCarry carry) {
+        return carry instanceof BedrockNextTickStates states
+                && states.profileEntries().stream()
+                        .map(Entry::state)
+                        .anyMatch(state -> !state.isVehicle()
+                                && BedrockEntityContactFactory.dolphinNear(
+                                        player.compensatedEntities,
+                                        state.physicalFeetPosition(),
+                                        state.playerDimensions(),
+                                        state.coordinateFrame()));
     }
 
     public PredictionCarry applyAcknowledgedGlidingToCarry(PredictionCarry carry, boolean actorGliding) {

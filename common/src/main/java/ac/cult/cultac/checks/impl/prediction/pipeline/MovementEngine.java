@@ -80,9 +80,14 @@ public interface MovementEngine {
         return carry;
     }
 
-    /** Ages a carry over ticks its client sent no input for. */
-    default PredictionCarry applyUnsentTicksToCarry(PredictionCarry carry, long ticks) {
+    /** Ages a carry over ticks its client sent no input for. {@code dolphinNearby}: as its actor stood before them. */
+    default PredictionCarry applyUnsentTicksToCarry(PredictionCarry carry, long ticks, boolean dolphinNearby) {
         return carry;
+    }
+
+    /** Whether a dolphin is in reach of the actor of {@code carry}. */
+    default boolean dolphinNearCarry(CultPlayer player, PredictionCarry carry) {
+        return false;
     }
 
     default PredictionCarry applyAcknowledgedPoseToCarry(

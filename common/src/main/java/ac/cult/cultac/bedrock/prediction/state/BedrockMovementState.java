@@ -676,15 +676,19 @@ public record BedrockMovementState(
 
     /**
      * Ages the timers that keep running over ticks the client sent no input for, as a dead player's do. The actor
-     * swims no longer after the first of them, and a dolphin's boost wears off on each.
+     * still swims on the first of them, so the scan for dolphins counts that one; a dolphin's boost wears off on each.
      */
-    public BedrockMovementState afterUnsentTicks(long ticks) {
+    public BedrockMovementState afterUnsentTicks(long ticks, boolean dolphinNearby) {
+        boolean swims = swimming();
         double swimAmount = swimAmount();
-        for (long tick = 1L; tick < ticks && swimAmount > 0.0D; tick++) {
-            swimAmount = BedrockSwimmingPoseProgress.nextSwimAmount(swimAmount, false);
-        }
         BedrockDolphinBoost boost = dolphinBoost();
-        for (long tick = 0L; tick < ticks && boost.effectTicks() > 0; tick++) boost = boost.endTick();
+        for (long tick = 0L;
+                tick < ticks && (swims || swimAmount > 0.0D || boost.effectTicks() > 0 || boost.boosted());
+                tick++) {
+            swimAmount = BedrockSwimmingPoseProgress.nextSwimAmount(swimAmount, swims);
+            boost = boost.tick(swims, dolphinNearby).endTick();
+            swims = false;
+        }
         if (swimAmount == swimAmount() && boost.equals(dolphinBoost())) return this;
         return new BedrockMovementState(
                 motion, actor, memory.withSwimAmount(swimAmount).withDolphinBoost(boost), tickStart, attributes);

@@ -157,6 +157,22 @@ final class BedrockEntityContactFactory {
         BedrockMovementState previous = BedrockProfileState.previousState(context);
         PlayerDimensionsState dimensions =
                 previous == null ? PlayerDimensionsState.DEFAULT : previous.playerDimensions();
+        return dolphinNear(
+                entities,
+                trustedPosition.get(),
+                dimensions,
+                context.getBedrockInput() == null
+                        ? BedrockCoordinateFrame.IDENTITY
+                        : context.getBedrockInput().getCoordinateFrame());
+    }
+
+    /** Whether a dolphin is in reach of a player of {@code dimensions} at {@code position}. */
+    static boolean dolphinNear(
+            CompensatedEntities entities,
+            Vec3d position,
+            PlayerDimensionsState dimensions,
+            BedrockCoordinateFrame frame) {
+        if (entities == null) return false;
         for (PacketEntity entity : entities.entityMap.values()) {
             if (entity == null
                     || entity.isDead
@@ -164,13 +180,7 @@ final class BedrockEntityContactFactory {
                     || entities.isUntrackedRider(entity)) {
                 continue;
             }
-            if (isWithinDolphinProximity(
-                    trustedPosition.get(),
-                    dimensions,
-                    entity.getPossibleMovementCollisionBoxes(),
-                    context.getBedrockInput() == null
-                            ? BedrockCoordinateFrame.IDENTITY
-                            : context.getBedrockInput().getCoordinateFrame())) {
+            if (isWithinDolphinProximity(position, dimensions, entity.getPossibleMovementCollisionBoxes(), frame)) {
                 return true;
             }
         }
