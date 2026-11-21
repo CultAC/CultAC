@@ -243,6 +243,7 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
      * client applied it after every tick at which it had not yet answered {@code appliedAfter}.
      */
     public void positionApplied(int entityID, int appliedAfter) {
+        if (rockets.isEmpty()) return;
         Rocket rocket = rockets.get(entityID);
         if (rocket != null && rocket.leftBehindAt < appliedAfter) rocket.mayBeLeftBehind = false;
     }

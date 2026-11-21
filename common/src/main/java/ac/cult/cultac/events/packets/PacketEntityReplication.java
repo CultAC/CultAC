@@ -1,6 +1,7 @@
 package ac.cult.cultac.events.packets;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.checks.CultProcessor;
@@ -79,6 +80,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private static final Vec3 SELF_DISMOUNT_VELOCITY = Vec3.ZERO;
     private static final double VEHICLE_MOVE_RESYNC_SNAP_EPSILON = 2.0E-5D;
     private static final int MOVEMENT_SLOTS = Long.SIZE;
+    // By model entity ID: whether the type is an item frame or a glow item frame.
+    private static final boolean[] ITEM_FRAME_TYPES = itemFrameTypes();
     private final PacketHandlerEntityTransform transformScratch = new PacketHandlerEntityTransform();
     // Client ticks ended; a TrackerData handler transform holds only in the tick it was written in.
     private long transformTick;
@@ -1831,12 +1834,25 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private boolean setsCodecBase(MovementKind kind, int entityType) {
         return switch (kind) {
             case RELATIVE_ENTITY, POSITION_SYNC -> true;
-            case TELEPORT_ENTITY ->
-                teleportsSetCodecBase()
-                        || EntityTypeUtil.isType(entityType, "item_frame")
-                        || EntityTypeUtil.isType(entityType, "glow_item_frame");
+            case TELEPORT_ENTITY -> teleportsSetCodecBase() || isItemFrame(entityType);
             case MINECART -> teleportsSetCodecBase();
         };
+    }
+
+    private static boolean isItemFrame(int entityType) {
+        if (entityType < 0) return false;
+        if (entityType >= ITEM_FRAME_TYPES.length)
+            return EntityTypeUtil.isType(entityType, "item_frame")
+                    || EntityTypeUtil.isType(entityType, "glow_item_frame");
+        return ITEM_FRAME_TYPES[entityType];
+    }
+
+    private static boolean[] itemFrameTypes() {
+        boolean[] types = new boolean[EntityTypes.defaults().types().size()];
+        for (int type = 0; type < types.length; type++) {
+            types[type] = EntityTypeUtil.isType(type, "item_frame") || EntityTypeUtil.isType(type, "glow_item_frame");
+        }
+        return types;
     }
 
     private boolean teleportsSetCodecBase() {

@@ -62,6 +62,8 @@ public class CompensatedEntities {
     // entityMap value at its id; every addOrder write unsets addOrderMapped.
     private boolean addOrderMapped;
     private int addOrderMappedAt;
+    // Keeps the reads of preloadTickLines live.
+    private int tickLineDigest;
     // The sum of passengers.size() over entityMap values.
     private int trackedPassengers;
     // Working space of one positionPassenger or recordRideTickSeat call.
@@ -1363,11 +1365,19 @@ public class CompensatedEntities {
 
     /** Runs {@code tick} for every entity this player tracks except untracked riders, in entity map order. */
     public void forEachTrackedEntity(Consumer<PacketEntity> tick) {
+        preloadTickLines();
         PacketEntity selfRoot = selfRidingRoot();
         PacketEntity serverRoot = serverVehicleRoot();
         for (PacketEntity entity : entityMap.values()) {
             if (!isUntrackedRider(entity, selfRoot, serverRoot)) tick.accept(entity);
         }
+    }
+
+    /** Reads the first tick lines of each add-order entry in one pass of independent loads, changing nothing. */
+    private void preloadTickLines() {
+        int digest = 0;
+        for (int i = 0, size = addOrder.size(); i < size; i++) digest += addOrder.get(i).touchTickLines();
+        tickLineDigest = digest;
     }
 
     /**
