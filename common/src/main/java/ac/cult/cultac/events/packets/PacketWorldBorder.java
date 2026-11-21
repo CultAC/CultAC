@@ -26,6 +26,7 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     long lerpDurationTicks;
     long lerpElapsedTicks;
     boolean tickBasedLerp;
+    int clockDependentReads;
 
     public PacketWorldBorder(CultPlayer playerData) {
         super(playerData);
@@ -54,12 +55,33 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             return CultMath.lerp(progress, oldDiameter, newDiameter);
         }
         double d0 = (double) (System.currentTimeMillis() - this.startTime) / ((double) this.endTime - this.startTime);
-        return d0 < 1.0D ? CultMath.lerp(d0, oldDiameter, newDiameter) : newDiameter;
+        double diameter = d0 < 1.0D ? CultMath.lerp(d0, oldDiameter, newDiameter) : newDiameter;
+        if (diameter != newDiameter) clockDependentReads++;
+        return diameter;
+    }
+
+    /**
+     * Counts clock reads of {@link #getCurrentDiameter} that return anything but {@code newDiameter}; a cache of a
+     * diameter-dependent result stores it only when this count is the same before and after computing it.
+     */
+    public int clockDependentReads() {
+        return clockDependentReads;
     }
 
     /** True when {@link #getCurrentDiameter} ignores the clock, unless it steps back before {@code startTime}. */
     public boolean hasClockIndependentDiameter() {
         return tickBasedLerp || oldDiameter == newDiameter && newDiameter != 0.0D;
+    }
+
+    /**
+     * True when {@link #getCurrentDiameter} gives the same value at this instant as at any other instant this returns
+     * true, whatever the clock reads; a cache of a diameter-dependent result checks it both when storing and reusing.
+     */
+    public boolean hasClockIndependentDiameterNow() {
+        if (tickBasedLerp) return true;
+        if (oldDiameter != newDiameter || newDiameter == 0.0D || !Double.isFinite(newDiameter)) return false;
+        // A zero lerp span gives newDiameter only while the clock is not behind startTime.
+        return (double) this.endTime - this.startTime != 0.0D || System.currentTimeMillis() >= this.startTime;
     }
 
     /** 26.3 WorldBorder.isWithinBounds calls getMin/Max(0.0F), using the previous world-tick size. */

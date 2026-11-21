@@ -1726,8 +1726,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             AuthoredMovementFrame authoredMovementFrame,
             MovementProfile movementProfile) {
         // A time-based border lerp makes every collision read the clock, so a memoised one could go stale.
-        stepCollisionMemo.open(!player.isBedrockMovement()
-                && player.checkManager.getWorldBorder().hasClockIndependentDiameter());
+        boolean memoise = !player.isBedrockMovement()
+                && player.checkManager.getWorldBorder().hasClockIndependentDiameter();
+        stepCollisionMemo.open(memoise);
+        collisionProbe.openGatherMemo(memoise);
+        scratch.openKeptHandlers();
         try {
             return predict(
                     player,
@@ -1744,6 +1747,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     movementProfile);
         } finally {
             stepCollisionMemo.close();
+            collisionProbe.closeGatherMemo();
+            scratch.closeKeptHandlers();
         }
     }
 

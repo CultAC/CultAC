@@ -138,6 +138,18 @@ public final class VoxelShapeCollisionBox extends SimpleCollisionBox {
         return result;
     }
 
+    /** Overwrites every field of this collider with {@code other}'s, leaving {@code other} unchanged. */
+    public VoxelShapeCollisionBox copyFrom(VoxelShapeCollisionBox other) {
+        set(other);
+        shape = other.shape;
+        fullBlock = other.fullBlock;
+        offsetX = other.offsetX;
+        offsetY = other.offsetY;
+        offsetZ = other.offsetZ;
+        translated = other.translated;
+        return this;
+    }
+
     public boolean usesStrictFullBlockIntersection() {
         return fullBlock;
     }

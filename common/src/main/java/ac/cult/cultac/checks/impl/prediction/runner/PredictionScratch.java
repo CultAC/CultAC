@@ -1,5 +1,7 @@
 package ac.cult.cultac.checks.impl.prediction.runner;
 
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.manager.player.CheckManager;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -40,6 +42,41 @@ public final class PredictionScratch {
     public final SimpleCollisionBox recountEntityScratch = new SimpleCollisionBox();
 
     private ReusableVelocitySet filteredVelocities = new ReusableVelocitySet();
+
+    private boolean keepsHandlers;
+    private SimulationContext keptContext;
+    private PredictionResult keptLast;
+    private long kept = -1L;
+
+    /**
+     * ValidMovements#computeAABB's mask of the pipeline handlers whose skipsContext is false for {@code context} and
+     * {@code lastResult}, or -1 when this holds none for them. Unlike the other members it outlives its call, from
+     * {@link #openKeptHandlers} to {@link #closeKeptHandlers} around one prediction: every skip predicate reads only
+     * the context, the last result and player state that the prediction does not write, so the candidates of one
+     * context share the mask.
+     */
+    public long keptHandlers(SimulationContext context, PredictionResult lastResult) {
+        return context == keptContext && lastResult == keptLast ? kept : -1L;
+    }
+
+    public void keepHandlers(SimulationContext context, PredictionResult lastResult, long kept) {
+        if (!keepsHandlers) return;
+        this.keptContext = context;
+        this.keptLast = lastResult;
+        this.kept = kept;
+    }
+
+    public void openKeptHandlers() {
+        closeKeptHandlers();
+        keepsHandlers = true;
+    }
+
+    public void closeKeptHandlers() {
+        keepsHandlers = false;
+        keptContext = null;
+        keptLast = null;
+        kept = -1L;
+    }
 
     /**
      * JavaMovementEngine#applyModifiers' carried velocities: a set that is empty between calls, since that call clears

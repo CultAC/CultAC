@@ -354,10 +354,15 @@ public class ValidMovements {
         int tail = count;
         PointThreeTesting last = null;
         if (handlers == MODIFIERS) {
-            kept = 0L;
             SimulationContext context = result.getSimulationContext();
-            for (int i = 0; i < count; i++) {
-                if (!handlers[i].skipsContext(player, context, lastResult)) kept |= 1L << i;
+            PredictionScratch scratch = PredictionScratch.of(player);
+            kept = scratch == null ? -1L : scratch.keptHandlers(context, lastResult);
+            if (kept == -1L) {
+                kept = 0L;
+                for (int i = 0; i < count; i++) {
+                    if (!handlers[i].skipsContext(player, context, lastResult)) kept |= 1L << i;
+                }
+                if (scratch != null) scratch.keepHandlers(context, lastResult, kept);
             }
             // PointThreeTesting runs last and has no side effect, and only one coordinate of its position is read.
             if (handlers[LAST_MODIFIER].getClass() == PointThreeTesting.class && (kept & (1L << LAST_MODIFIER)) != 0) {

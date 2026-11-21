@@ -127,6 +127,18 @@ class PredictionScratchReuseEquivalenceTest {
     }
 
     @Test
+    void emptyHandlerMemoHoldsNoMask() {
+        PredictionScratch scratch = new PredictionScratch();
+        assertEquals(-1L, scratch.keptHandlers(null, null), "fresh");
+        scratch.openKeptHandlers();
+        assertEquals(-1L, scratch.keptHandlers(null, null), "open");
+        scratch.keepHandlers(null, null, 5L);
+        assertEquals(5L, scratch.keptHandlers(null, null), "held");
+        scratch.closeKeptHandlers();
+        assertEquals(-1L, scratch.keptHandlers(null, null), "closed");
+    }
+
+    @Test
     void filterSetIteratesAsFreshSet() throws Exception {
         Method filtered = JavaMovementEngine.class.getDeclaredMethod("filteredVelocities", CultPlayer.class);
         filtered.setAccessible(true);

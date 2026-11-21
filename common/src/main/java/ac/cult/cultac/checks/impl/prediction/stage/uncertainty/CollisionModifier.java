@@ -6,9 +6,11 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.checks.ReportedKeyInput;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
+import ac.cult.cultac.events.packets.PacketWorldBorder;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBoxPool;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.PistonPushes;
@@ -52,6 +54,14 @@ public class CollisionModifier implements UncertaintyHandler {
     private final ResolvedSteps resolvedSteps = new ResolvedSteps();
     private final CollideAxisData.Reusable reusableResult = new CollideAxisData.Reusable();
     private boolean reuseNextResult;
+    private static final int GATHER_MEMO_LIMIT = 256;
+    // The last block gather while the memo is open: its arguments' raw bits and its colliders, voxels in owned copies.
+    private boolean gatherMemoOpen;
+    private boolean gatherMemoValid;
+    private final long[] gatherKey = new long[8];
+    private boolean gatherWalks, gatherDescending, gatherFallingBlock;
+    private final List<SimpleCollisionBox> gatherColliders = new ArrayList<>();
+    private VoxelShapeCollisionBox[] gatherVoxels = new VoxelShapeCollisionBox[16];
     private final boolean javaTravelInput;
 
     public CollisionModifier() {
@@ -576,6 +586,100 @@ public class CollisionModifier implements UncertaintyHandler {
     }
 
     /**
+     * With {@code enabled}, serves a probe whose block gather has the same raw arguments as the last one from that
+     * gather's colliders until {@link #closeGatherMemo}. A hit is exact only while the gather's other inputs (world,
+     * border, the player's last position, sneaking and held items) stay fixed, as they do within one Java prediction
+     * whose border diameter reads no clock.
+     */
+    public void openGatherMemo(boolean enabled) {
+        closeGatherMemo();
+        gatherMemoOpen = enabled;
+    }
+
+    public void closeGatherMemo() {
+        gatherMemoOpen = false;
+        gatherMemoValid = false;
+        gatherColliders.clear();
+    }
+
+    /**
+     * {@link Collisions#getCollisionBoxes} into {@code collisions}. No reader of a probe's colliders changes one, so a hit
+     * hands out the memo's own.
+     */
+    private void gatherBlocks(
+            CultPlayer player,
+            SimpleCollisionBox query,
+            List<SimpleCollisionBox> collisions,
+            double entityBottom,
+            JavaCollisionState actor,
+            CollisionBoxPool pool) {
+        if (!gatherMemoOpen || actor == null) {
+            Collisions.getCollisionBoxes(player, query, collisions, false, entityBottom, actor, pool);
+            return;
+        }
+        PacketWorldBorder border = player.checkManager.getWorldBorder();
+        if (!border.hasClockIndependentDiameterNow()) {
+            gatherMemoValid = false;
+            Collisions.getCollisionBoxes(player, query, collisions, false, entityBottom, actor, pool);
+            return;
+        }
+        long minX = Double.doubleToRawLongBits(query.minX);
+        long minY = Double.doubleToRawLongBits(query.minY);
+        long minZ = Double.doubleToRawLongBits(query.minZ);
+        long maxX = Double.doubleToRawLongBits(query.maxX);
+        long maxY = Double.doubleToRawLongBits(query.maxY);
+        long maxZ = Double.doubleToRawLongBits(query.maxZ);
+        long bottom = Double.doubleToRawLongBits(entityBottom);
+        long fall = Double.doubleToRawLongBits(actor.fallDistance());
+        long[] key = gatherKey;
+        if (gatherMemoValid
+                && key[0] == minX
+                && key[1] == minY
+                && key[2] == minZ
+                && key[3] == maxX
+                && key[4] == maxY
+                && key[5] == maxZ
+                && key[6] == bottom
+                && key[7] == fall
+                && gatherWalks == actor.walksOnPowderSnow()
+                && gatherDescending == actor.descending()
+                && gatherFallingBlock == actor.fallingBlock()) {
+            for (int i = 0, size = gatherColliders.size(); i < size; i++) collisions.add(gatherColliders.get(i));
+            return;
+        }
+        gatherMemoValid = false;
+        gatherColliders.clear();
+        int clockReads = border.clockDependentReads();
+        Collisions.getCollisionBoxes(player, query, collisions, false, entityBottom, actor, pool);
+        if (collisions.size() > GATHER_MEMO_LIMIT || border.clockDependentReads() != clockReads) return;
+        // Pooled voxels die with the probe's mark, so the memo holds copies; other colliders are the gather's own.
+        int voxels = 0;
+        for (int i = 0, size = collisions.size(); i < size; i++) {
+            SimpleCollisionBox collider = collisions.get(i);
+            if (collider instanceof VoxelShapeCollisionBox voxel) {
+                if (voxels == gatherVoxels.length) gatherVoxels = Arrays.copyOf(gatherVoxels, voxels * 2);
+                VoxelShapeCollisionBox copy = gatherVoxels[voxels];
+                if (copy == null) gatherVoxels[voxels] = copy = voxel.copy();
+                collider = copy.copyFrom(voxel);
+                voxels++;
+            }
+            gatherColliders.add(collider);
+        }
+        key[0] = minX;
+        key[1] = minY;
+        key[2] = minZ;
+        key[3] = maxX;
+        key[4] = maxY;
+        key[5] = maxZ;
+        key[6] = bottom;
+        key[7] = fall;
+        gatherWalks = actor.walksOnPowderSnow();
+        gatherDescending = actor.descending();
+        gatherFallingBlock = actor.fallingBlock();
+        gatherMemoValid = true;
+    }
+
+    /**
      * Native colliders come from {@code pool}; none of them outlives this call. With {@code reuse}, a plain block result
      * is {@link #reusableResult}.
      */
@@ -635,7 +739,7 @@ public class CollisionModifier implements UncertaintyHandler {
 
         List<SimpleCollisionBox> collisions = probeCollisions;
         collisions.clear();
-        Collisions.getCollisionBoxes(player, blockQuery, collisions, false, playerPos.y, actor, pool);
+        gatherBlocks(player, blockQuery, collisions, playerPos.y, actor, pool);
 
         List<SimpleCollisionBox> found = probeUnknown;
         found.clear();
