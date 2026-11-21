@@ -358,10 +358,15 @@ public final class PrivateCodecService implements WireValueDecoder {
 
     record MetadataTypes(int floatingPoint, int pose, int optionalInt, int painting, int particle, int particles) {}
 
-    private static final Map<ProtocolVersion, MetadataTypes> METADATA_TYPES = new ConcurrentHashMap<>();
+    private static final AtomicReferenceArray<MetadataTypes> METADATA_TYPES =
+            new AtomicReferenceArray<>(ProtocolVersion.values().length);
 
     private static MetadataTypes metadataTypes(ProtocolVersion version) {
-        return METADATA_TYPES.computeIfAbsent(version, value -> metadataTypes(types(value)));
+        int slot = version.ordinal();
+        var cached = METADATA_TYPES.get(slot);
+        if (cached != null) return cached;
+        var computed = metadataTypes(types(version));
+        return METADATA_TYPES.compareAndSet(slot, null, computed) ? computed : METADATA_TYPES.get(slot);
     }
 
     static MetadataTypes metadataTypes(VersionedTypesHolder types) {
@@ -471,10 +476,10 @@ public final class PrivateCodecService implements WireValueDecoder {
         int pose = serializers.pose(), optional = serializers.optionalInt();
         int painting = serializers.painting();
         int particle = serializers.particle(), particles = serializers.particles();
+        var values = types.entityDataTypes().values();
         for (int index; (index = input.readUnsignedByte()) != 255; ) {
             int start = input.readerIndex() - 1;
             int id = Types.VAR_INT.readPrimitive(input);
-            var values = types.entityDataTypes().values();
             if (id < 0 || id >= values.length) throw new MalformedPacketException("Unknown metadata serializer " + id);
             String kind = "unused";
             if (id == 0 || id == 1 || id == 2 || id == 3 || id == 8) kind = "value";
