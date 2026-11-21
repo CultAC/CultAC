@@ -40,14 +40,6 @@ cult:
       # Wird aus Gruppen von 50 berücksichtigten Armschwingungen berechnet.
       max-cps: 25
 
-    omni-sprint:
-      # Angesammelter OmniSprint-Puffer, ab dem eine Resynchronisierung erzwungen wird.
-      # Jede Erkennung erhöht den Puffer um 1.
-      buffer-threshold: 20
-
-      # Betrag, der nach jeder Vorhersage vom OmniSprint-Puffer abgezogen wird.
-      buffer-decay: 0.5
-
     explosion:
       # Positionskorrekturen wegen Explosionen erfordern außerdem, dass die für
       # Positionskorrekturen festgelegte Verstoßstufe der Prüfung überschritten wird.

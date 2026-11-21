@@ -40,14 +40,6 @@ cult:
       # Obliczana dla grup po 50 zamachów ręką uwzględnianych przez kontrolę.
       max-cps: 25
 
-    omni-sprint:
-      # Wartość bufora OmniSprint wymagana do wymuszenia ponownej synchronizacji.
-      # Każde wykrycie zwiększa bufor o 1.
-      buffer-threshold: 20
-
-      # Wartość odejmowana od bufora OmniSprint po każdej predykcji.
-      buffer-decay: 0.5
-
     explosion:
       # Korekty pozycji związane z eksplozjami wymagają również przekroczenia
       # poziomu naruszeń ustawionego dla korekt w tej kontroli.

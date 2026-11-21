@@ -40,14 +40,6 @@ cult:
       # 每组 50 次符合检测条件的挥手动作计算一次。
       max-cps: 25
 
-    omni-sprint:
-      # 触发强制重新同步所需的 OmniSprint 累计值。
-      # 每次检测到异常时增加 1。
-      buffer-threshold: 20
-
-      # 每次移动预测完成后，从 OmniSprint 累计值中扣除的数值。
-      buffer-decay: 0.5
-
     explosion:
       # 因爆炸进行位置纠正时，还必须超过该检测设置的位置纠正违规等级。
 

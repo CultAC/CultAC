@@ -183,6 +183,7 @@ class OmniSprintTest {
                 String where = medium + " " + version + ": " + describe(result);
                 assertTrue(result.hasFlag(OmniSprint.class), where);
                 assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), "not set back " + where);
+                assertEquals(1.0, f.player.checkManager.getCheck(OmniSprint.class).violations, "violations " + where);
             }
         }
     }

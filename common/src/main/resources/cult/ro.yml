@@ -40,14 +40,6 @@ cult:
       # Se calculează pe grupuri de 50 de mișcări ale brațului luate în considerare de verificare.
       max-cps: 25
 
-    omni-sprint:
-      # Valoarea acumulată de OmniSprint necesară pentru a forța resincronizarea.
-      # Fiecare detectare adaugă 1 la contor.
-      buffer-threshold: 20
-
-      # Cantitatea scăzută din contorul OmniSprint după fiecare predicție.
-      buffer-decay: 0.5
-
     explosion:
       # Corectările de poziție cauzate de explozii necesită și depășirea nivelului
       # de abateri stabilit pentru corectare de această verificare.

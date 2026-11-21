@@ -40,14 +40,6 @@ cult:
       # Calculated over batches of 50 eligible swings.
       max-cps: 25
 
-    omni-sprint:
-      # Accumulated OmniSprint buffer required to force a resynchronization.
-      # Each detection adds 1 to the buffer.
-      buffer-threshold: 20
-
-      # Amount removed from the OmniSprint buffer after each prediction.
-      buffer-decay: 0.5
-
     explosion:
       # Explosion setbacks also require the check's setback violation
       # level to be exceeded.

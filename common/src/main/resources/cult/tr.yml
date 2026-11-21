@@ -40,14 +40,6 @@ cult:
       # Kontrolün dikkate aldığı 50 kol sallama hareketinden oluşan gruplar üzerinden hesaplanır.
       max-cps: 25
 
-    omni-sprint:
-      # Yeniden eşitlemeyi zorlamak için gereken birikmiş OmniSprint değeri.
-      # Her tespit birikime 1 ekler.
-      buffer-threshold: 20
-
-      # Her tahminden sonra OmniSprint birikiminden çıkarılan miktar.
-      buffer-decay: 0.5
-
     explosion:
       # Patlamadan kaynaklanan konum düzeltmeleri için kontrolün konum düzeltme
       # amacıyla belirlenen ihlal seviyesinin de aşılması gerekir.

@@ -40,14 +40,6 @@ cult:
       # Calcolata su gruppi di 50 oscillazioni del braccio considerate valide dal controllo.
       max-cps: 25
 
-    omni-sprint:
-      # Valore accumulato di OmniSprint necessario per forzare una risincronizzazione.
-      # Ogni rilevamento aggiunge 1 all'accumulatore.
-      buffer-threshold: 20
-
-      # Quantità sottratta dall'accumulatore di OmniSprint dopo ogni previsione.
-      buffer-decay: 0.5
-
     explosion:
       # Le correzioni di posizione dovute alle esplosioni richiedono anche il superamento
       # del livello di violazioni previsto dal controllo per applicare una correzione.

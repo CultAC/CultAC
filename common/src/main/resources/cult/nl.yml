@@ -40,14 +40,6 @@ cult:
       # Berekend over groepen van 50 meegetelde armzwaaien.
       max-cps: 25
 
-    omni-sprint:
-      # Opgebouwde OmniSprint-buffer die nodig is om hersynchronisatie af te dwingen.
-      # Elke detectie verhoogt de buffer met 1.
-      buffer-threshold: 20
-
-      # Hoeveelheid die na elke voorspelling van de OmniSprint-buffer wordt afgetrokken.
-      buffer-decay: 0.5
-
     explosion:
       # Positiecorrecties door explosies vereisen ook dat het overtredingsniveau
       # voor positiecorrecties van deze controle wordt overschreden.
