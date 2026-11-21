@@ -1,28 +1,40 @@
 package ac.cult.cultac.utils.latency;
 
+import java.util.Arrays;
+
 /**
  * Tasks waiting for a transaction, in one list in insertion order. A task waits for the current transaction or the
  * next one (an update outside a bundle is proven by the next ping), so no task is more than one below a task before
  * it, and a drain stops at the first task two past the answered transaction. A task's continuation takes its place at
  * the next transaction once it runs. A task added further below, such as a Bedrock receipt callback for an earlier
  * Java proof, goes before the first task two or more above it, which keeps that true.
+ *
+ * <p>The list is a ring of parallel arrays: slot {@code (head + i) & mask} holds the i-th task.
  */
 final class LatencyTaskQueue {
-    private static final int MAX_RECYCLED_TASKS = 256;
-    private TaskNode head;
-    private TaskNode tail;
+    private static final int INITIAL_CAPACITY = 16;
+    private static final int MAX_RETAINED_CAPACITY = 256;
+    private static final Object TAKEN = new Object();
+
+    private int[] transactions = new int[INITIAL_CAPACITY];
+    /** A {@link Runnable}, or a packet queued with {@link #addPacket}. */
+    private Object[] tasks = new Object[INITIAL_CAPACITY];
+    /** Runs at the next transaction, in its task's place; null when there is none. */
+    private Runnable[] continuations = new Runnable[INITIAL_CAPACITY];
+    private int mask = INITIAL_CAPACITY - 1;
+    private int head;
+    private int size;
     /** The highest transaction added since the list was last empty. */
     private int highest = Integer.MIN_VALUE;
-    private TaskNode recycledTasks;
-    private int recycledTaskCount;
+    private Batch spareBatch = new Batch();
 
     synchronized void add(int transaction, Runnable runnable) {
-        insert(acquire(transaction, runnable, null));
+        insert(transaction, runnable, null);
     }
 
     /** Queues {@code packet} as a task that {@link LatencyUtils} runs by its type. */
     synchronized void addPacket(int transaction, Object packet) {
-        insert(acquire(transaction, packet, null));
+        insert(transaction, packet, null);
     }
 
     /**
@@ -30,137 +42,181 @@ final class LatencyTaskQueue {
      * right after it when both are ready, otherwise before the tasks added after it.
      */
     synchronized void addWithNextTransaction(int transaction, Runnable runnable, Runnable next) {
-        insert(acquire(transaction, runnable, next));
+        insert(transaction, runnable, next);
     }
 
-    private void insert(TaskNode task) {
-        int transaction = task.transaction;
-        if (head == null || transaction >= (long) highest - 1) {
-            if (tail == null) head = task;
-            else tail.next = task;
-            tail = task;
+    private void insert(int transaction, Object task, Runnable continuation) {
+        if (size == transactions.length) grow();
+        if (size == 0 || transaction >= (long) highest - 1) {
+            int slot = (head + size) & mask;
+            transactions[slot] = transaction;
+            tasks[slot] = task;
+            continuations[slot] = continuation;
+            size++;
             if (transaction > highest) highest = transaction;
             return;
         }
-        TaskNode previous = null;
-        TaskNode current = head;
-        while (current != null && current.transaction < (long) transaction + 2) {
-            previous = current;
-            current = current.next;
+        int index = 0;
+        while (index < size && transactions[(head + index) & mask] < (long) transaction + 2) index++;
+        if (index < size - index) {
+            head = (head - 1) & mask;
+            for (int i = 0; i < index; i++) {
+                int to = (head + i) & mask;
+                int from = (head + i + 1) & mask;
+                transactions[to] = transactions[from];
+                tasks[to] = tasks[from];
+                continuations[to] = continuations[from];
+            }
+        } else {
+            for (int i = size; i > index; i--) {
+                int to = (head + i) & mask;
+                int from = (head + i - 1) & mask;
+                transactions[to] = transactions[from];
+                tasks[to] = tasks[from];
+                continuations[to] = continuations[from];
+            }
         }
-        task.next = current;
-        if (previous == null) head = task;
-        else previous.next = task;
-        if (current == null) tail = task;
+        int slot = (head + index) & mask;
+        transactions[slot] = transaction;
+        tasks[slot] = task;
+        continuations[slot] = continuation;
+        size++;
     }
 
-    synchronized TaskNode drainReady(int transaction) {
-        TaskNode readyHead = null;
-        TaskNode readyTail = null;
-        TaskNode previous = null;
-        TaskNode current = head;
+    /**
+     * Takes every ready task in run order, each with the transaction it runs at; null when none is ready. The caller
+     * owns the batch until it hands it to {@link #release}, so a drain while it runs takes another.
+     */
+    synchronized Batch drainReady(int transaction) {
+        int[] transactions = this.transactions;
+        Object[] tasks = this.tasks;
+        Runnable[] continuations = this.continuations;
+        int mask = this.mask;
+        Batch batch = null;
+        int walked = 0;
+        int taken = 0;
         // No task behind one two past the answered transaction can be ready.
-        while (current != null && current.transaction <= (long) transaction + 1) {
-            TaskNode next = current.next;
-            if (current.transaction > transaction) {
-                previous = current;
-                current = next;
-                continue;
-            }
-            TaskNode continuation = current.continuation == null
-                    ? null
-                    : acquire(current.transaction + 1, current.continuation, null);
-            current.continuation = null;
-            if (continuation != null && continuation.transaction > transaction) {
+        while (walked < size) {
+            int slot = (head + walked) & mask;
+            int at = transactions[slot];
+            if (at > (long) transaction + 1) break;
+            walked++;
+            if (at > transaction) continue;
+            if (batch == null) batch = takeBatch();
+            batch.append(tasks[slot], at);
+            Runnable continuation = continuations[slot];
+            continuations[slot] = null;
+            int next = at + 1;
+            if (continuation != null && next > transaction) {
                 // Not ready yet: the continuation takes its task's place. Every task left before it is at its
                 // transaction, so the list stays in order.
-                continuation.next = next;
-                if (previous == null) head = continuation;
-                else previous.next = continuation;
-                if (tail == current) tail = continuation;
-                if (continuation.transaction > highest) highest = continuation.transaction;
-                previous = continuation;
+                transactions[slot] = next;
+                tasks[slot] = continuation;
+                if (next > highest) highest = next;
             } else {
-                if (previous == null) head = next;
-                else previous.next = next;
-                if (tail == current) tail = previous;
+                tasks[slot] = TAKEN;
+                taken++;
+                if (continuation != null) batch.append(continuation, next);
             }
-            current.next = null;
-            if (readyHead == null) readyHead = current;
-            else readyTail.next = current;
-            readyTail = current;
-            if (continuation != null && continuation.transaction <= transaction) {
-                readyTail.next = continuation;
-                readyTail = continuation;
+        }
+        if (taken > 0) {
+            // The tasks left in the walked window close up toward its end, keeping their order.
+            int write = walked;
+            for (int read = walked - 1; read >= 0; read--) {
+                int from = (head + read) & mask;
+                if (tasks[from] == TAKEN) continue;
+                int to = (head + --write) & mask;
+                if (to != from) {
+                    transactions[to] = transactions[from];
+                    tasks[to] = tasks[from];
+                    continuations[to] = continuations[from];
+                }
             }
-            current = next;
+            for (int i = 0; i < taken; i++) {
+                int slot = (head + i) & mask;
+                tasks[slot] = null;
+                continuations[slot] = null;
+            }
+            head = (head + taken) & mask;
+            size -= taken;
+            if (transactions.length > MAX_RETAINED_CAPACITY && size <= transactions.length >>> 2) {
+                int capacity = Math.max(MAX_RETAINED_CAPACITY, Integer.highestOneBit(Math.max(1, size)) << 2);
+                if (capacity < transactions.length) resize(capacity);
+            }
         }
-        if (head == null) highest = Integer.MIN_VALUE;
-        return readyHead;
+        if (size == 0) highest = Integer.MIN_VALUE;
+        return batch;
     }
 
-    private TaskNode acquire(int transaction, Object runnable, Runnable continuation) {
-        TaskNode task = recycledTasks;
-        if (task == null) return new TaskNode(transaction, runnable, continuation);
-        recycledTasks = task.next;
-        recycledTaskCount--;
-        task.transaction = transaction;
-        task.runnable = runnable;
-        task.continuation = continuation;
-        task.next = null;
-        return task;
+    private Batch takeBatch() {
+        Batch batch = spareBatch;
+        if (batch == null) return new Batch();
+        spareBatch = null;
+        return batch;
     }
 
-    // The caller must finish walking the drained batch before returning any of its nodes.
-    synchronized void recycle(TaskNode task) {
-        if (task == null || recycledTaskCount == MAX_RECYCLED_TASKS) return;
-        TaskNode tail = task;
-        int count = 1;
-        while (recycledTaskCount + count < MAX_RECYCLED_TASKS && tail.next != null) {
-            tail = tail.next;
-            count++;
-        }
-        tail.next = recycledTasks;
-        recycledTasks = task;
-        recycledTaskCount += count;
+    /** Returns a batch {@link #drainReady} gave once the caller has finished reading it. */
+    synchronized void release(Batch batch) {
+        if (batch == null || batch.tasks.length > MAX_RETAINED_CAPACITY) return;
+        batch.clear();
+        spareBatch = batch;
     }
 
-    static final class TaskNode {
-        private int transaction;
-        /** A {@link Runnable}, or a packet queued with {@link #addPacket}. */
-        private Object runnable;
-        /** Runs at the next transaction, in this task's place; null when there is none. */
-        private Runnable continuation;
-        private TaskNode next;
+    private void grow() {
+        resize(transactions.length * 2);
+    }
 
-        private TaskNode(int transaction, Object runnable, Runnable continuation) {
-            this.transaction = transaction;
-            this.runnable = runnable;
-            this.continuation = continuation;
+    private void resize(int capacity) {
+        int[] newTransactions = new int[capacity];
+        Object[] newTasks = new Object[capacity];
+        Runnable[] newContinuations = new Runnable[capacity];
+        for (int i = 0; i < size; i++) {
+            int slot = (head + i) & mask;
+            newTransactions[i] = transactions[slot];
+            newTasks[i] = tasks[slot];
+            newContinuations[i] = continuations[slot];
+        }
+        transactions = newTransactions;
+        tasks = newTasks;
+        continuations = newContinuations;
+        mask = capacity - 1;
+        head = 0;
+    }
+
+    /** Ready tasks in run order, each with the transaction it runs at. */
+    static final class Batch {
+        private Object[] tasks = new Object[INITIAL_CAPACITY];
+        private int[] transactions = new int[INITIAL_CAPACITY];
+        private int size;
+
+        int size() {
+            return size;
         }
 
-        Object task() {
-            return runnable;
+        /** Hands out a {@link Runnable}, or a packet queued with {@link #addPacket}, and lets go of it. */
+        Object take(int index) {
+            Object task = tasks[index];
+            tasks[index] = null;
+            return task;
         }
 
-        int transaction() {
-            return transaction;
+        int transaction(int index) {
+            return transactions[index];
         }
 
-        TaskNode next() {
-            return next;
+        private void append(Object task, int transaction) {
+            if (size == tasks.length) {
+                tasks = Arrays.copyOf(tasks, size * 2);
+                transactions = Arrays.copyOf(transactions, size * 2);
+            }
+            tasks[size] = task;
+            transactions[size] = transaction;
+            size++;
         }
 
-        void clear() {
-            runnable = null;
-            continuation = null;
-            next = null;
-        }
-
-        TaskNode clearAndLink(TaskNode released) {
-            clear();
-            next = released;
-            return this;
+        private void clear() {
+            Arrays.fill(tasks, 0, size, null);
+            size = 0;
         }
     }
 }

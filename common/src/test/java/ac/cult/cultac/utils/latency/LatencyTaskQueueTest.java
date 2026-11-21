@@ -2,8 +2,11 @@ package ac.cult.cultac.utils.latency;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -145,19 +148,59 @@ public class LatencyTaskQueueTest {
         for (boolean ran : applied) assertTrue(ran);
     }
 
-    private static void drain(LatencyTaskQueue queue, int transaction) {
-        var node = queue.drainReady(transaction);
-        LatencyTaskQueue.TaskNode released = null;
+    @Test
+    public void drainedBurstReleasesItsStorage() throws ReflectiveOperationException {
+        var queue = new LatencyTaskQueue();
+        Runnable task = () -> {};
+        for (int i = 0; i < 65_536; i++) queue.add(10, task);
+        queue.add(12, task);
+        drain(queue, 10);
+        assertTrue(retainedCapacity(queue) <= 256);
+        drain(queue, 12);
+        assertTrue(retainedCapacity(queue) <= 256);
+        for (int i = 0; i < 65_536; i++) queue.add(20, task);
+        drain(queue, 20);
+        assertTrue(retainedCapacity(queue) <= 256);
+    }
+
+    @Test
+    public void aBatchHoldsNoTaskItHandedOut() throws ReflectiveOperationException {
+        var queue = new LatencyTaskQueue();
+        queue.add(5, () -> {});
+        queue.add(5, () -> {});
+        var batch = queue.drainReady(5);
+        Field batchTasks = LatencyTaskQueue.Batch.class.getDeclaredField("tasks");
+        batchTasks.setAccessible(true);
         try {
-            while (node != null) {
-                var next = node.next();
-                var task = (Runnable) node.task();
-                released = node.clearAndLink(released);
-                task.run();
-                node = next;
-            }
+            batch.take(0);
+            Object[] held = (Object[]) batchTasks.get(batch);
+            assertNull(held[0]);
+            assertNotNull(held[1]);
         } finally {
-            queue.recycle(released);
+            queue.release(batch);
+        }
+    }
+
+    private static int retainedCapacity(LatencyTaskQueue queue) throws ReflectiveOperationException {
+        Field transactions = LatencyTaskQueue.class.getDeclaredField("transactions");
+        transactions.setAccessible(true);
+        Field spareBatch = LatencyTaskQueue.class.getDeclaredField("spareBatch");
+        spareBatch.setAccessible(true);
+        Field batchTasks = LatencyTaskQueue.Batch.class.getDeclaredField("tasks");
+        batchTasks.setAccessible(true);
+        int capacity = ((int[]) transactions.get(queue)).length;
+        Object batch = spareBatch.get(queue);
+        if (batch != null) capacity = Math.max(capacity, ((Object[]) batchTasks.get(batch)).length);
+        return capacity;
+    }
+
+    private static void drain(LatencyTaskQueue queue, int transaction) {
+        var batch = queue.drainReady(transaction);
+        if (batch == null) return;
+        try {
+            for (int i = 0; i < batch.size(); i++) ((Runnable) batch.take(i)).run();
+        } finally {
+            queue.release(batch);
         }
     }
 }

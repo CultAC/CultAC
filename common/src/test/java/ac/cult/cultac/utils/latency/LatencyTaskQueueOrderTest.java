@@ -44,6 +44,26 @@ class LatencyTaskQueueOrderTest {
     }
 
     @Test
+    void lateCallbacksNearTheFrontKeepTheirPlaceAcrossTheRingEdge() {
+        var queue = new LatencyTaskQueue();
+        var log = new ArrayList<String>();
+        queue.add(40, () -> log.add("A"));
+        queue.add(40, () -> log.add("B"));
+        for (int i = 0; i < 40; i++) {
+            int id = i;
+            queue.add(100, () -> log.add("F" + id));
+        }
+        queue.add(41, () -> log.add("C"));
+        queue.add(30, () -> log.add("D"));
+        queue.add(39, () -> log.add("E"));
+        drain(queue, 41);
+        assertEquals(List.of("D", "A", "B", "E", "C"), log);
+        drain(queue, 100);
+        assertEquals(45, log.size());
+        for (int i = 0; i < 40; i++) assertEquals("F" + i, log.get(5 + i));
+    }
+
+    @Test
     void aTaskOneBelowAQueuedTaskKeepsInsertionOrder() {
         var queue = new LatencyTaskQueue();
         var log = new ArrayList<String>();
@@ -92,6 +112,37 @@ class LatencyTaskQueueOrderTest {
         assertEquals(List.of("A", "A'", "C"), log);
         drain(queue, 100);
         assertEquals(List.of("A", "A'", "C", "B"), log);
+    }
+
+    @Test
+    void aDrainInsideARunningBatchLeavesThatBatchWhole() {
+        var queue = new LatencyTaskQueue();
+        var log = new ArrayList<String>();
+        queue.add(5, () -> {
+            log.add("A");
+            queue.add(5, () -> log.add("X"));
+            drainLogging(queue, 5, log);
+        });
+        queue.add(5, () -> log.add("B"));
+        queue.addWithNextTransaction(4, () -> log.add("C"), () -> log.add("C'"));
+        queue.add(6, () -> log.add("D"));
+        drainLogging(queue, 5, log);
+        assertEquals(List.of("5", "A", "5", "X", "5", "B", "4", "C", "5", "C'"), log);
+        drainLogging(queue, 6, log);
+        assertEquals(List.of("5", "A", "5", "X", "5", "B", "4", "C", "5", "C'", "6", "D"), log);
+    }
+
+    private static void drainLogging(LatencyTaskQueue queue, int transaction, List<String> log) {
+        var batch = queue.drainReady(transaction);
+        if (batch == null) return;
+        try {
+            for (int i = 0; i < batch.size(); i++) {
+                log.add(Integer.toString(batch.transaction(i)));
+                ((Runnable) batch.take(i)).run();
+            }
+        } finally {
+            queue.release(batch);
+        }
     }
 
     @Test
@@ -166,18 +217,12 @@ class LatencyTaskQueueOrderTest {
     }
 
     private static void drain(LatencyTaskQueue queue, int transaction) {
-        var node = queue.drainReady(transaction);
-        LatencyTaskQueue.TaskNode released = null;
+        var batch = queue.drainReady(transaction);
+        if (batch == null) return;
         try {
-            while (node != null) {
-                var next = node.next();
-                var task = (Runnable) node.task();
-                released = node.clearAndLink(released);
-                task.run();
-                node = next;
-            }
+            for (int i = 0; i < batch.size(); i++) ((Runnable) batch.take(i)).run();
         } finally {
-            queue.recycle(released);
+            queue.release(batch);
         }
     }
 
@@ -293,20 +338,14 @@ class LatencyTaskQueueOrderTest {
 
         @Override
         public void drain(int transaction, Driver driver) {
-            var node = queue.drainReady(transaction);
-            LatencyTaskQueue.TaskNode released = null;
+            var batch = queue.drainReady(transaction);
+            if (batch == null) return;
             try {
-                while (node != null) {
-                    var next = node.next();
-                    var task = (Runnable) node.task();
-                    released = node.clearAndLink(released);
-                    task.run();
-                    node = next;
-                }
+                for (int i = 0; i < batch.size(); i++) ((Runnable) batch.take(i)).run();
             } catch (IllegalStateException aborted) {
                 if (driver != null) driver.log.add(Integer.MIN_VALUE);
             } finally {
-                queue.recycle(released);
+                queue.release(batch);
             }
         }
     }

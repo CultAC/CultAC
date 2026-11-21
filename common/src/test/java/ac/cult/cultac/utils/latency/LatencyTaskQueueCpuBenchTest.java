@@ -178,16 +178,10 @@ class LatencyTaskQueueCpuBenchTest {
             } else if (kinds[i] == ADD_NEXT) {
                 queue.addWithNextTransaction(transactions[i], PARENT, CONTINUATION);
             } else {
-                LatencyTaskQueue.TaskNode node = queue.drainReady(transactions[i]);
-                LatencyTaskQueue.TaskNode released = null;
-                while (node != null) {
-                    LatencyTaskQueue.TaskNode next = node.next();
-                    Runnable task = (Runnable) node.task();
-                    released = node.clearAndLink(released);
-                    task.run();
-                    node = next;
-                }
-                queue.recycle(released);
+                LatencyTaskQueue.Batch batch = queue.drainReady(transactions[i]);
+                if (batch == null) continue;
+                for (int j = 0; j < batch.size(); j++) ((Runnable) batch.take(j)).run();
+                queue.release(batch);
             }
         }
     }
