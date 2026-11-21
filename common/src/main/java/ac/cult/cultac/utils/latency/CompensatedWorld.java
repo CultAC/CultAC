@@ -548,6 +548,13 @@ public class CompensatedWorld {
         this.isCurrentlyPredicting = true;
     }
 
+    /** Reopens the batch of the action predicted last, so an action predicted again ends with the same sequence. */
+    public void resumePredicting() {
+        this.isCurrentlyPredicting = true;
+        PredictionBatch batch = serverIsCurrentlyProcessingThesePredictions.remove(clientPredictionSequence);
+        if (batch != null) this.currentlyChangedBlocks = batch.blocks();
+    }
+
     /** Minecraft#pick precedes all local block predictions in handleKeybinds. */
     public void beginSelectionSnapshot() {
         if (!selectionSnapshotActive) {
@@ -1786,6 +1793,11 @@ public class CompensatedWorld {
             return original != null ? original : clientBlockEntities.prototype(getBlockStateIdAt(pos));
         }
         return clientBlockEntities.snapshot(pos, getBlockStateIdAt(pos));
+    }
+
+    /** The data held for the block entity at {@code pos}, or {@code null} when none is held. */
+    public ac.cult.blocksim.engine.BlockEntityData storedClientBlockEntityData(BlockPos pos) {
+        return clientBlockEntities.stored(pos);
     }
 
     public void applyPredictedBlockEntityData(BlockPos pos, ac.cult.blocksim.engine.BlockEntityData data) {

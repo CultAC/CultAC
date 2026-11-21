@@ -32,7 +32,7 @@ public final class BlockRaycast {
     }
     public static Vec3 viewVector(SimPlayer player, BlockSimClientVersion version) {
         float pitch = player.state().pitch() * (float) (Math.PI / 180.0);
-        float yaw = -player.state().yaw() * (float) (Math.PI / 180.0);
+        float yaw = -player.yaw() * (float) (Math.PI / 180.0);
         float yawCos = VanillaMath.cos(version, yaw), yawSin = VanillaMath.sin(version, yaw),
             pitchCos = VanillaMath.cos(version, pitch), pitchSin = VanillaMath.sin(version, pitch);
         return new Vec3(yawSin * pitchCos, -pitchSin, yawCos * pitchCos);

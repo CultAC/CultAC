@@ -219,6 +219,8 @@ public class CultPlayer implements GrimUser {
             new ac.cult.cultac.utils.latency.InteractionPause(this);
     public final ac.cult.cultac.utils.latency.BlockActionReconciler blockActionReconciler =
             new ac.cult.cultac.utils.latency.BlockActionReconciler(this);
+    public final ac.cult.cultac.utils.blockplace.LookPlaceRecheck lookPlaceRecheck =
+            new ac.cult.cultac.utils.blockplace.LookPlaceRecheck(this);
     public long rawTransactionPing = 0;
     public long lastTransSent = 0;
 

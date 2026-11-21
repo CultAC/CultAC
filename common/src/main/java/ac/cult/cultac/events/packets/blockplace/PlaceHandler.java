@@ -60,6 +60,19 @@ public class PlaceHandler {
         });
     }
 
+    /** Predicts a use-on again inside its own prediction batch, at the position its client clicked from. */
+    public static ClientBlockActions.Prediction redoQueuedUseItemOn(
+            CultPlayer player, int sequence, Supplier<ClientBlockActions.Prediction> action) {
+        return atClientPosition(player, false, 0, 0, () -> {
+            player.compensatedWorld.resumePredicting();
+            try (SmoketestPredictionSafety.Scope ignored = SmoketestPredictionSafety.enter(player, "use-item-on")) {
+                return action.get();
+            } finally {
+                player.compensatedWorld.stopPredicting(sequence);
+            }
+        });
+    }
+
     private static <T> T atClientPosition(
             CultPlayer player, boolean updateRotation, float yaw, float pitch, Supplier<T> action) {
         double lastX = player.x;

@@ -37,7 +37,7 @@ public final class PlacementContext extends UseContext {
     public boolean replacingClicked() { return replaceClicked; }
     public Direction nearestLookingDirection() { return lookingDirections()[0]; }
     public Direction nearestLookingVerticalDirection() { return player().state().pitch() < 0.0F ? Direction.UP : Direction.DOWN; }
-    private Direction[] lookingDirections() { return Direction.orderedByNearest(level().clientVersion(), player().state().yaw(), player().state().pitch()); }
+    private Direction[] lookingDirections() { return Direction.orderedByNearest(level().clientVersion(), player().yaw(), player().state().pitch()); }
     public Direction[] nearestLookingDirections() {
         Direction[] directions = lookingDirections();
         if (replaceClicked) return directions;

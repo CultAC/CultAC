@@ -31,6 +31,7 @@ public final class SimPlayer {
     private float saturationLevel;
     public record ActiveUse(Hand hand, SimItemStack stack, int remainingTicks) { }
     private ActiveUse activeUse;
+    private boolean yawRead;
 
     public SimPlayer(State state, SimItemStack mainHand, SimItemStack offHand) {
         this(state, mainHand, offHand, null);
@@ -64,6 +65,16 @@ public final class SimPlayer {
         this.tridentUse = tridentUse;
     }
     public State state() { return state; }
+    /** The yaw an action reads. Reading it marks the action's effects as depending on it. */
+    public float yaw() { yawRead = true; return state.yaw(); }
+    /** Whether the action simulated on this player read its yaw. */
+    public boolean yawRead() { return yawRead; }
+    /** This unsimulated snapshot looking along another yaw. */
+    public SimPlayer withYaw(float yaw) {
+        var turned = new State(state.position(), yaw, state.pitch(), state.secondaryUseActive(), state.infiniteMaterials(),
+            state.mayBuild(), state.gameMaster(), state.gameMode(), state.invulnerable(), state.foodLevel(), state.saturationLevel());
+        return new SimPlayer(turned, inventory, activeUse, sight, collision, movement, tridentUse);
+    }
     public Sight sight() { return java.util.Objects.requireNonNull(sight, "Item raycast requires compensated eye position and interaction range"); }
     public EntityCollisionContext collision() { return java.util.Objects.requireNonNull(collision, "Collision raycast requires compensated entity facts"); }
     public Movement movement() { return java.util.Objects.requireNonNull(movement, "Firework use requires compensated gliding state"); }

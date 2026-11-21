@@ -42,7 +42,7 @@ public class UseContext {
     public Direction clickedFace() { return hit.face(); }
     public Vec3 clickLocation() { return hit.location(); }
     public boolean inside() { return hit.inside(); }
-    public Direction horizontalDirection() { return player == null ? Direction.NORTH : Direction.fromYRot(player.state().yaw()); }
+    public Direction horizontalDirection() { return player == null ? Direction.NORTH : Direction.fromYRot(player.yaw()); }
     public boolean secondaryUseActive() { return player != null && player.state().secondaryUseActive(); }
-    public float rotation() { return player == null ? 0.0F : player.state().yaw(); }
+    public float rotation() { return player == null ? 0.0F : player.yaw(); }
 }

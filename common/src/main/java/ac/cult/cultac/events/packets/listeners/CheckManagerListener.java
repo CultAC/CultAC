@@ -285,6 +285,10 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         boolean laterMovementThisClientTick = false;
         // A teleport acknowledgement is not LocalPlayer#tick movement.
         if (!teleport.isTeleport()) {
+            // LocalPlayer#sendPosition follows the client tick's use-ons with the yaw they were made with. A rider's
+            // Rot follows Entity#positionRider, which may have turned it since.
+            if (packet.hasRotation() && !passengerRotation) player.lookPlaceRecheck.yawKnown(packet.yaw());
+            player.lookPlaceRecheck.tickEnded();
             laterMovementThisClientTick = state.sentPositionCache.tickSentMovement()
                     && player.user.getCultConnection().runtime().supports(ServerboundPackets.CLIENT_TICK_END);
             // Before the pre-prediction checks: a setback they raise rejects this movement.
@@ -1155,7 +1159,10 @@ public class CheckManagerListener implements OpaqueReceiveListener {
 
             player.checkManager.dispatchReceiveHandlers(event);
             if (reachesServer(event)) player.blockActionReconciler.forwarded(packet.sequence());
-            else if (applied != null) player.blockActionReconciler.rejectPlace(packet, applied);
+            else if (applied != null) {
+                player.blockActionReconciler.rejectPlace(packet, applied);
+                player.lookPlaceRecheck.withheld(packet);
+            }
         } finally {
             endPacket(player);
         }
@@ -1164,6 +1171,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     @CultPacketHandler
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
         if (event.getPhase() != ConnectionPhase.PLAY) return;
+        // MultiPlayerGameMode#useItem sends the rotation the use-ons of this click were made with.
+        player.lookPlaceRecheck.yawKnown(packet.yaw());
         player.compensatedWorld.advanceClientPredictionSequence(packet.sequence());
         breakPassengerRotationPair(event, player);
         try {
@@ -1195,6 +1204,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     /** Minecraft#tick ends every client tick with this packet; ClientTickEndTimeout also closes a stalled one. */
     public static void processClientTickEndReceive(PacketReceiveEvent<?> event, CultPlayer player) {
         if (event.getPhase() != ConnectionPhase.PLAY) return;
+        player.lookPlaceRecheck.tickEnded();
         if (!event.isSynthetic()) {
             player.clientTickEndTimeout.onTickEnd(System.nanoTime());
             player.lastClientTickArrivedAt = System.nanoTime();
