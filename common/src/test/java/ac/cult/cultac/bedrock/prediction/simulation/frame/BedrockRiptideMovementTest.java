@@ -279,6 +279,67 @@ public final class BedrockRiptideMovementTest {
         assertFalse(collided.step().spinActive());
     }
 
+    @Test
+    public void aSpinTurnsBackAtAFifthOfItsSpeedOffEachMobItMeets() {
+        Vec3d velocity = new Vec3d(1.5018492937088013D, 0.3400899257308381D, 1.568947672843933D);
+        BedrockMovementState spinning = state(0L, true, 3L, BedrockCollisionFlags.AIR);
+
+        var one = BedrockRiptideMovement.tickActorNormal(
+                spinning, frame("STOP_SPIN_ATTACK"), frame("STOP_SPIN_ATTACK").intent(), meeting(1), velocity);
+        assertEquals((float) velocity.x() * -0.2F, one.velocity().x(), 0.0D);
+        assertEquals((float) velocity.y() * -0.2F, one.velocity().y(), 0.0D);
+        assertEquals((float) velocity.z() * -0.2F, one.velocity().z(), 0.0D);
+        assertFalse(one.step().spinActive());
+        assertTrue(one.step().mobRebound());
+
+        // Two mobs leave the spin moving forward at a twenty-fifth of its speed.
+        var two = BedrockRiptideMovement.tickActorNormal(spinning, frame(), frame().intent(), meeting(2), velocity);
+        assertEquals(0.0600739D, two.velocity().x(), 5.0E-7D);
+        assertEquals(0.0136036D, two.velocity().y(), 5.0E-7D);
+        assertEquals(0.0627579D, two.velocity().z(), 5.0E-7D);
+        assertFalse(two.step().spinActive());
+        assertEquals(0L, two.step().spinTicks());
+    }
+
+    @Test
+    public void onlyASpinReboundsOffTheMobsAroundThePlayer() {
+        Vec3d velocity = new Vec3d(0.3D, -0.1D, 0.2D);
+
+        var walking = BedrockRiptideMovement.tickActorNormal(
+                state(0L, false, 0L, BedrockCollisionFlags.AIR), frame(), frame().intent(), meeting(2), velocity);
+        assertEquals(velocity, walking.velocity());
+        assertFalse(walking.step().mobRebound());
+
+        var clear = BedrockRiptideMovement.tickActorNormal(
+                state(0L, true, 3L, BedrockCollisionFlags.AIR), frame(), frame().intent(), meeting(0), velocity);
+        assertEquals(velocity, clear.velocity());
+        assertTrue(clear.step().spinActive());
+        assertEquals(4L, clear.step().spinTicks());
+    }
+
+    @Test
+    public void aLaunchBesideAMobReboundsOnItsOwnTick() {
+        BedrockInputFrame release = frame("RELEASE_USING_ITEM", "START_SPIN_ATTACK");
+        Vec3d impulse = BedrockAerialMovement.riptideImpulse(release, 3, false, true, false);
+
+        var launch = BedrockRiptideMovement.tickActorNormal(
+                state(10L, false, 0L, BedrockCollisionFlags.AIR).withWasInWaterFlag(true),
+                release,
+                release.intent(),
+                meeting(1),
+                Vec3d.ZERO);
+
+        assertTrue(launch.spinAttackStarted());
+        assertFalse(launch.step().spinActive());
+        assertEquals((float) impulse.x() * -0.2F, launch.velocity().x(), 0.0D);
+        assertEquals((float) impulse.y() * -0.2F, launch.velocity().y(), 0.0D);
+        assertEquals((float) impulse.z() * -0.2F, launch.velocity().z(), 0.0D);
+    }
+
+    private static BedrockMovementContext meeting(int mobs) {
+        return context(true, false, 3).withSpinHits(mobs);
+    }
+
     private static BedrockRiptideMovement.ActorNormalTick tick(
             BedrockMovementState state, BedrockInputFrame frame, BedrockMovementContext context) {
         if (context.inWater()) {

@@ -123,6 +123,22 @@ public record BedrockMovementContext(
         return modifierState.itemUseSlowdownDurationTicks();
     }
 
+    /** The mobs this tick's riptide spin rebounds off. */
+    public int spinHits() {
+        return entityContactState.spinContact().hits();
+    }
+
+    public BedrockMovementContext withSpinHits(int hits) {
+        return new BedrockMovementContext(
+                effectState,
+                attributeState,
+                worldState,
+                equipmentState,
+                entityContactState.withSpinContact(entityContactState.spinContact().withHits(hits)),
+                modifierState,
+                playerDimensionsState);
+    }
+
     public BedrockMovementContext withPlayerDimensions(PlayerDimensionsState dimensions) {
         return new BedrockMovementContext(
                 effectState, attributeState, worldState, equipmentState, entityContactState, modifierState, dimensions);

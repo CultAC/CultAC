@@ -269,6 +269,23 @@ final class BedrockMovementInputFactory {
                     sampledRegion);
         }
 
+        /** The tick with its riptide spin rebounding off {@code hits} mobs. */
+        public Input withSpinHits(int hits) {
+            if (movementContext().spinHits() == hits) return this;
+            return new Input(
+                    authFrame,
+                    previousState,
+                    tickInput,
+                    inputIntent,
+                    worldSnapshot.withMovementContext(movementContext().withSpinHits(hits)),
+                    maxUpStep,
+                    mobJumpComponent,
+                    actorMovementTick,
+                    heldByChunkView,
+                    chunkHoldUnproven,
+                    sampledRegion);
+        }
+
         /** The tick as the hold of a chunk view that may not have committed the column under the actor yet. */
         public Input heldByUncommittedChunk() {
             return new Input(

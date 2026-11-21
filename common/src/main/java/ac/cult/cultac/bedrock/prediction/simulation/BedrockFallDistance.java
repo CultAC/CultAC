@@ -58,7 +58,7 @@ final class BedrockFallDistance {
                         current.physicalFeetPosition(),
                         facts.movementDimensions());
         return update(
-                current.fallDistance(),
+                plan.frame().riptide().mobRebound() ? 0.0F : current.fallDistance(),
                 resolvedY,
                 reset,
                 postMove.postMoveContext().inLava());

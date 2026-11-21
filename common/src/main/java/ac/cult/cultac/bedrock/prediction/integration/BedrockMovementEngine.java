@@ -50,6 +50,7 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 public final class BedrockMovementEngine implements MovementEngine {
     private static final boolean[] MOVE_ONLY = {false};
     private static final boolean[] HOLD_VARIANTS = {false, true};
+    private static final int SPIN_REBOUND_VARIANTS = 8;
 
     public static final BedrockMovementEngine INSTANCE = new BedrockMovementEngine();
     private final BedrockMovementInputFactory inputFactory = new BedrockMovementInputFactory();
@@ -137,6 +138,7 @@ public final class BedrockMovementEngine implements MovementEngine {
                     }
                 }
                 addShownElsewhere(output, player, context, bedrockInput, previousEntry, vector);
+                addSpinRebounds(output, player, context, bedrockInput, previousEntry, vector);
             }
         }
         return output.isEmpty()
@@ -152,6 +154,8 @@ public final class BedrockMovementEngine implements MovementEngine {
                         : player.bedrockState.applyConfirmedBoundingBoxSize(
                                 previousEntry.state(), bedrockInput.inputFrame(), context.getScale());
         if (context.isBedrockLerpStep()) boundingBoxState = boundingBoxState.withLerpStep();
+        // A tick that does not move the actor does not run its spin either.
+        if (!bedrockInput.actorMovementTick()) bedrockInput = bedrockInput.withSpinHits(0);
         // A tick the chunk view holds takes a teleport without moving and leaves the actor off the ground, so the
         // next tick moves normally from the air. It does not move, so it keeps the collisions its last move reported.
         if (bedrockInput.heldByChunkView()) {
@@ -232,6 +236,31 @@ public final class BedrockMovementEngine implements MovementEngine {
             }
         } finally {
             context.cacheHardCollidingEntityCollisionsForMovementTick(actors);
+        }
+    }
+
+    /**
+     * A spin that ends on this tick may have met more mobs than Cult's boxes prove: the tick is also its move off each
+     * count up to every mob that may stand within its reach. A count past {@link #SPIN_REBOUND_VARIANTS} more leaves
+     * no velocity a move could tell from the last one tried.
+     */
+    private void addSpinRebounds(
+            LinkedHashMap<CandidateKey, PredVector> output,
+            CultPlayer player,
+            SimulationContext context,
+            Input bedrockInput,
+            Entry previousEntry,
+            PredVector vector) {
+        var contact = bedrockInput.movementContext().entityContactState().spinContact();
+        if (contact.possible() == contact.hits()
+                || !bedrockInput.actorMovementTick()
+                || !bedrockInput.inputIntent().riptide().stopSpinAttack()) return;
+        int most = Math.min(contact.possible(), contact.hits() + SPIN_REBOUND_VARIANTS);
+        for (int hits = contact.hits() + 1; hits <= most; hits++) {
+            SimulatedEntry simulated = simulate(player, context, bedrockInput.withSpinHits(hits), previousEntry);
+            for (Candidate movementCandidate : simulated.candidates()) {
+                addCandidate(output, simulated.input(), simulated.simulationInput(), movementCandidate, vector);
+            }
         }
     }
 

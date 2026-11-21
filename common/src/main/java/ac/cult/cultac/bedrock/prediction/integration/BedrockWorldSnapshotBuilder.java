@@ -74,7 +74,7 @@ final class BedrockWorldSnapshotBuilder {
                                 sourceLavaContact(context),
                                 blockWorld),
                         EquipmentState.NONE,
-                        entityContacts.create(player, context),
+                        entityContacts.create(player, context, playerContext.pose().spinning()),
                         MovementModifierState.NONE,
                         PlayerDimensionsState.DEFAULT),
                 player,

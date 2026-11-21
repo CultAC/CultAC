@@ -63,8 +63,9 @@ public final class BedrockActorDimensions {
             };
             return new Resolved(mode, new PlayerDimensionsState(definition.width(), height));
         }
-        // A local launch requests a resize; synchronized spin metadata alone does not.
-        if (spinAttackStarted) {
+        // A local launch requests a resize; synchronized spin metadata alone does not. A launch a mob ends at once
+        // resizes to the pose it leaves.
+        if (spinAttackStarted && spinActive) {
             return horizontalPoseDimensions(currentDimensions);
         }
         // Geyser supplies collision dimensions separately from pose flags.
