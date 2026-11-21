@@ -154,8 +154,25 @@ public final class VelocityCandidates {
     private static List<Moved> afterMove(
             PredictionResult result, Vec3 velocity, Vec3 input, boolean cleared, JavaHiddenTravelInput.Variant hidden) {
         CultPlayer player = result.getPlayer();
-        Vec3 beforeCurrent = velocity;
-        if (player != null) velocity = applyPostMoveLivingFluidCurrent(player, result, velocity);
+        if (player == null) return afterMove(result, velocity, velocity, input, cleared, hidden);
+        Vec3 pushed = applyPostMoveLivingFluidCurrent(player, result, velocity);
+        List<Moved> moves = afterMove(result, velocity, pushed, input, cleared, hidden);
+        if (pushed.equals(velocity) || !JavaLoaderFluids.mayRefreshWithoutCurrent(player)) return moves;
+        // The claimed loader's checkFallDamage may have refreshed the contact alone: the same move, without the push.
+        List<Moved> either = new ArrayList<>(moves);
+        for (Moved dry : afterMove(result, velocity, velocity, input, cleared, hidden))
+            if (!either.contains(dry)) either.add(dry);
+        return either;
+    }
+
+    /** {@link #afterMove} for the deltaMovement checkFallDamage left {@code velocity}, from {@code beforeCurrent}. */
+    private static List<Moved> afterMove(
+            PredictionResult result,
+            Vec3 beforeCurrent,
+            Vec3 velocity,
+            Vec3 input,
+            boolean cleared,
+            JavaHiddenTravelInput.Variant hidden) {
         Vec3 current = velocity.subtract(beforeCurrent);
         JavaMoveCollision forward = forwardMove(result);
         if (forward != null) return List.of(afterForwardMove(result, forward, velocity));
