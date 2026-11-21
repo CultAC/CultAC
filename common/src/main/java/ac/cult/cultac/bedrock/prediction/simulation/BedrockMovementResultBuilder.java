@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionOu
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockEntityMove;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameFacts;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameState;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockRiptideMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInputControl;
 import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockPostMoveResult;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockMoveRequest;
@@ -28,6 +29,10 @@ final class BedrockMovementResultBuilder {
             boolean canStep,
             double maxUpStep) {
         BedrockMovementState next = current.withoutActorMovementTick(frame);
+        if (!current.isVehicle()) {
+            next = next.withRiptideChargeTicks(BedrockRiptideMovement.chargeTicksWithoutActorTick(
+                    current, frame.intent(), snapshot.movementContext()));
+        }
         return new BedrockMovementResult(
                 current,
                 snapshot.movementContext(),

@@ -336,6 +336,51 @@ public final class BedrockRiptideMovementTest {
         assertEquals((float) impulse.z() * -0.2F, launch.velocity().z(), 0.0D);
     }
 
+    @Test
+    public void aDimensionChangeStartsTheChargeOver() {
+        BedrockMovementState charged =
+                state(13L, false, 0L, BedrockCollisionFlags.AIR).withWasInWaterFlag(true);
+
+        BedrockMovementState placed = charged.afterDimensionChange(new Vec3d(0.0D, 32767.0D, 0.0D));
+
+        assertEquals(0L, placed.riptideChargeTicks());
+        // A release right after the change has no charge to launch from.
+        BedrockRiptideMovement.ActorNormalTick release =
+                tick(placed, frame("RELEASE_USING_ITEM", "START_SPIN_ATTACK"), context(true, false, 3));
+        assertFalse(release.step().spinActive());
+        assertEquals(0.0D, release.velocity().length(), 0.0D);
+    }
+
+    @Test
+    public void anItemUseStartsRunsAndEndsOnTicksTheActorDoesNotMoveIn() {
+        // Captured hop with the use key held: the client starts a new use on the first tick under the loading
+        // screen and releases it on the next.
+        BedrockMovementContext held = context(false, false, 3);
+        BedrockMovementState placed =
+                state(0L, false, 0L, BedrockCollisionFlags.AIR).withWasInWaterFlag(true);
+
+        long started = BedrockRiptideMovement.chargeTicksWithoutActorTick(
+                placed, frame("RIPTIDE_CHARGE_START").intent(), held);
+        assertEquals(1L, started);
+        BedrockMovementState charging = placed.withRiptideChargeTicks(started);
+        assertEquals(2L, BedrockRiptideMovement.chargeTicksWithoutActorTick(charging, frame().intent(), held));
+        assertEquals(
+                0L,
+                BedrockRiptideMovement.chargeTicksWithoutActorTick(
+                        charging, frame("RELEASE_USING_ITEM").intent(), held));
+        // No use starts dry, and none without a riptide trident in hand.
+        assertEquals(
+                0L,
+                BedrockRiptideMovement.chargeTicksWithoutActorTick(
+                        state(0L, false, 0L, BedrockCollisionFlags.AIR),
+                        frame("RIPTIDE_CHARGE_START").intent(),
+                        held));
+        assertEquals(
+                0L,
+                BedrockRiptideMovement.chargeTicksWithoutActorTick(
+                        charging, frame().intent(), context(false, false, 0)));
+    }
+
     private static BedrockMovementContext meeting(int mobs) {
         return context(true, false, 3).withSpinHits(mobs);
     }

@@ -663,7 +663,15 @@ public record BedrockMovementState(
     /** A dimension change puts the actor at its position at rest; unlike a teleport, its next actor tick travels. */
     public BedrockMovementState afterDimensionChange(Vec3d physicalFeetPosition) {
         BedrockMovementState placed = afterServerTeleport(physicalFeetPosition, Vec3d.ZERO);
-        return new BedrockMovementState(placed.motion, placed.actor, placed.memory, tickStart, placed.attributes);
+        // The change ends the item use in progress: a riptide charge starts over.
+        return new BedrockMovementState(
+                placed.motion, placed.actor, placed.memory.withRiptideChargeTicks(0L), tickStart, placed.attributes);
+    }
+
+    public BedrockMovementState withRiptideChargeTicks(long ticks) {
+        return ticks == riptideChargeTicks()
+                ? this
+                : new BedrockMovementState(motion, actor, memory.withRiptideChargeTicks(ticks), tickStart, attributes);
     }
 
     public BedrockMovementState withPhysicalFeetPosition(Vec3d physicalFeetPosition, Vec3d lastPhysicalDisplacement) {
@@ -1223,6 +1231,26 @@ public record BedrockMovementState(
                     fallDistance,
                     swimAmount,
                     riptideChargeTicks,
+                    riptideSpinActive,
+                    riptideSpinTicks,
+                    sneakingTicks,
+                    itemUseSlowdownTicks,
+                    dolphinBoost,
+                    cameraWater,
+                    sneakMoveScale,
+                    penetratingMoves,
+                    geyserBoostTicks,
+                    oneWayBoxes);
+        }
+
+        TickMemory withRiptideChargeTicks(long value) {
+            return new TickMemory(
+                    simulationTick,
+                    powderSnowTicks,
+                    fallFlyTicks,
+                    fallDistance,
+                    swimAmount,
+                    value,
                     riptideSpinActive,
                     riptideSpinTicks,
                     sneakingTicks,

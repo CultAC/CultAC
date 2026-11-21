@@ -64,6 +64,14 @@ public final class BedrockRiptideMovement {
                 releaseStartsSpinAttack);
     }
 
+    /** The charge after a tick the actor does not move in: an item use still starts, runs on and ends in it. */
+    public static long chargeTicksWithoutActorTick(
+            BedrockMovementState current, BedrockInputIntent intent, BedrockMovementContext context) {
+        boolean usable = context.riptideAvailable() && context.equipmentState().riptideLevel() > 0;
+        boolean wet = current.wasInWaterFlag() || context.rainContact();
+        return nextChargeTicks(current, intent, usable, wet, usable && intent.itemUse().release());
+    }
+
     private static long nextChargeTicks(
             BedrockMovementState current,
             BedrockInputIntent intent,
