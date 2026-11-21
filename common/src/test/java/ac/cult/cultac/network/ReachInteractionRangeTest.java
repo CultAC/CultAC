@@ -15,7 +15,7 @@ import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
-import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.AttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
@@ -204,7 +204,7 @@ class ReachInteractionRangeTest {
     @Test
     void aJavaClientsBoatBeyondReachInPlainSightIsEntityReachsToFlag() throws Exception {
         try (var setup = new Setup()) {
-            Check visibility = setup.player.checkManager.getCheck(AttackMobVisibility.class);
+            Check visibility = setup.player.checkManager.getCheck(AttackEntityVisibility.class);
             visibility.setEnabled(true);
             // The boat's near face 3.7 blocks ahead at the eye's height.
             var ahead = new Vec3(setup.player.x, setup.player.y + 1.62 - .3, setup.player.z + 3.7 + 1.375 / 2);

@@ -88,6 +88,9 @@ public final class ConfigUpdater {
         public final boolean inPlace;
         /** Whether keys the operator added, absent from the bundled default, survive an upgrade. */
         public final boolean keepsOperatorKeys;
+        /** Keys only the operator moves, each with the value a file without the key stands for. */
+        public final @NotNull Map<String, Object> operatorStamps;
+
         public final @NotNull ConfigFlavor flavor;
         /** Keyed by the version this migration upgrades TO. */
         public final @NotNull Map<Integer, Migration> migrations;
@@ -99,13 +102,15 @@ public final class ConfigUpdater {
                 @NotNull Map<Integer, Migration> migrations,
                 String versionKey,
                 boolean inPlace,
-                boolean keepsOperatorKeys) {
+                boolean keepsOperatorKeys,
+                @NotNull Map<String, Object> operatorStamps) {
             Objects.requireNonNull(resourceDirectory, "resourceDirectory");
             this.resourceDirectory = resourceDirectory.endsWith("/") ? resourceDirectory : resourceDirectory + "/";
             this.latestVersion = latestVersion;
             this.versionKey = versionKey;
             this.inPlace = inPlace;
             this.keepsOperatorKeys = keepsOperatorKeys;
+            this.operatorStamps = Map.copyOf(operatorStamps);
             this.flavor = Objects.requireNonNull(flavor, "flavor");
             this.migrations = Map.copyOf(migrations);
         }
@@ -123,6 +128,7 @@ public final class ConfigUpdater {
             private String versionKey = "config-version";
             private boolean inPlace;
             private boolean keepsOperatorKeys;
+            private final Map<String, Object> operatorStamps = new LinkedHashMap<>();
 
             private Builder(String resourceDirectory, int latestVersion, ConfigFlavor flavor) {
                 this.resourceDirectory = resourceDirectory;
@@ -149,9 +155,26 @@ public final class ConfigUpdater {
                 return this;
             }
 
+            /**
+             * {@code key} stamps the file with something only its operator moves. A file without the key stands for
+             * {@code absent}, so an upgrade that copies the bundled default writes {@code absent}, not the default's
+             * value.
+             */
+            public @NotNull Builder operatorStamp(@NotNull String key, @NotNull Object absent) {
+                operatorStamps.put(key, absent);
+                return this;
+            }
+
             public @NotNull Spec build() {
                 return new Spec(
-                        resourceDirectory, latestVersion, flavor, migrations, versionKey, inPlace, keepsOperatorKeys);
+                        resourceDirectory,
+                        latestVersion,
+                        flavor,
+                        migrations,
+                        versionKey,
+                        inPlace,
+                        keepsOperatorKeys,
+                        operatorStamps);
             }
         }
     }
@@ -355,6 +378,12 @@ public final class ConfigUpdater {
             // Copying today's defaults must not mark Cult migrations as already applied.
             if (newData.containsKey("cult-config-version")) {
                 outputView.put("cult-config-version", parseVersion(oldData.get("cult-config-version")));
+            }
+        }
+        // Copying today's defaults must not stamp a file its operator never stamped.
+        for (Map.Entry<String, Object> stamp : spec.operatorStamps.entrySet()) {
+            if (newData.containsKey(stamp.getKey()) && !oldData.containsKey(stamp.getKey())) {
+                outputView.put(stamp.getKey(), stamp.getValue());
             }
         }
 

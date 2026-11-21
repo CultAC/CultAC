@@ -2,6 +2,7 @@ package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.player.CultPlayer;
@@ -57,8 +58,10 @@ public class PunishmentManager implements ConfigReloadable {
         AbstractCheck[] known = player.getChecks().toArray(new AbstractCheck[0]);
         String[] names = new String[known.length];
         String[] alternativeNames = new String[known.length];
+        // The groups name checks as the name version of punishments.yml has them.
+        int nameVersion = CheckNames.version(config, CheckNames.PUNISHMENTS_KEY);
         for (int i = 0; i < known.length; i++) {
-            names[i] = lowerCase(known[i].getCheckName());
+            names[i] = lowerCase(known[i] instanceof Check check ? check.nameIn(nameVersion) : known[i].getCheckName());
             alternativeNames[i] = lowerCase(known[i].getAlternativeName());
         }
         for (PunishmentRules.Group rule : rules.groups()) {

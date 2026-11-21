@@ -53,7 +53,7 @@ content = jar.read_bytes()
 with zipfile.ZipFile(io.BytesIO(content)) as archive:
     if archive.testzip() is not None:
         raise SystemExit('Plugin archive failed its CRC check; rebuild before validation')
-    for check in ('PlaceVisibility', 'BreakVisibility', 'AttackPlayerVisibility', 'AttackMobVisibility', 'InteractEntityVisibility'):
+    for check in ('PlaceVisibility', 'BreakVisibility', 'AttackPlayerVisibility', 'AttackEntityVisibility', 'InteractEntityVisibility', 'InteractPlayerVisibility'):
         if not any(name.endswith(f'/{check}.class') for name in archive.namelist()):
             raise SystemExit(f'Plugin does not contain {check}; rebuild before validation')
 # The shared workspace may be rebuilding this same filename. The server must
@@ -120,7 +120,7 @@ if not transcripts:
 failures = []
 verified = 0
 connection_retries = 0
-visibility_checks = ('PlaceVisibility', 'BreakVisibility', 'AttackPlayerVisibility', 'AttackMobVisibility', 'InteractEntityVisibility')
+visibility_checks = ('PlaceVisibility', 'BreakVisibility', 'AttackPlayerVisibility', 'AttackEntityVisibility', 'InteractEntityVisibility', 'InteractPlayerVisibility')
 for transcript in transcripts:
     content = transcript.read_text()
     header = dict(line.split('=', 1) for line in content.split('--- ticks ---', 1)[0].splitlines() if '=' in line)
@@ -145,7 +145,7 @@ for transcript in transcripts:
     if name.startswith(('visibility-blocked-', 'visibility-impossible-face-')):
         expected_check = (
             'InteractEntityVisibility' if name.startswith('visibility-blocked-interact-') else
-            'AttackMobVisibility' if name.startswith('visibility-blocked-attack-') else
+            'AttackEntityVisibility' if name.startswith('visibility-blocked-attack-') else
             'BreakVisibility' if name.startswith(('visibility-blocked-start_destroy_block-', 'visibility-blocked-stop_destroy_block-')) else
             'PlaceVisibility'
         )

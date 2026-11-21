@@ -22,7 +22,8 @@ final class CheckNameLink {
 
     /** {@code alert} with the check's shown name, wherever it stands as a word, linked to its explanation. */
     static Component link(Component alert, Check check) {
-        String name = check.getCheckName();
+        // Two checks an older name version names alike still each link to their own explanation.
+        String name = check.getLatestName();
         String shown = check.getDisplayName();
         if (name == null || shown == null || shown.isBlank()) return alert;
         Key key = new Key(name, shown, CloudCommandService.command("info check " + name));

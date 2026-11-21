@@ -20,7 +20,7 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
-import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockAttackVisibility;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -258,7 +258,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         if (pick != null && isEnforced(entity)) {
             boolean avatar = entity.type == EntityTypeIds.PLAYER;
             Class<? extends BedrockAttackVisibility> owner =
-                    avatar ? BedrockAttackPlayerVisibility.class : BedrockAttackMobVisibility.class;
+                    avatar ? BedrockAttackPlayerVisibility.class : BedrockAttackEntityVisibility.class;
             String detail = avatar ? "" : "type=" + EntityTypeUtil.getKey(entity.type);
             if (player.checkManager.getCheck(owner).dropsAttack(hit, hitPrecision, detail)) return true;
         }

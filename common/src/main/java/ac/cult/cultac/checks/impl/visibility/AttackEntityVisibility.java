@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.visibility;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
@@ -10,11 +11,12 @@ import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 
 @CheckData(
-        name = "AttackMobVisibility",
+        name = "AttackEntityVisibility",
+        formerNames = @FormerName(name = "AttackMobVisibility", until = 1),
         stableKey = "cult.attack.mob.visibility",
         description = "Attacked a non-player entity through blocks")
-public final class AttackMobVisibility extends VisibilityCheck {
-    public AttackMobVisibility(CultPlayer player, ClientVisibilityProcessor visibility) {
+public final class AttackEntityVisibility extends VisibilityCheck {
+    public AttackEntityVisibility(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player, visibility);
     }
 

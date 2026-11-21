@@ -1,6 +1,7 @@
 package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.checks.info.CheckCategory;
 import ac.cult.cultac.checks.info.CheckPolicy;
@@ -70,10 +71,12 @@ public class CultInfo implements BuildableCommand {
 
     static List<String> checkNames() {
         ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
+        int nameVersion = CheckNames.version(config, CheckNames.CONFIG_KEY);
         Set<String> names = new LinkedHashSet<>();
         for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
-            names.add(entry.name());
-            names.add(config.getStringElse(entry.configName() + ".displayname", entry.name()));
+            String name = entry.name(nameVersion);
+            names.add(name);
+            names.add(config.getStringElse(entry.configName(nameVersion) + ".displayname", name));
         }
         return new ArrayList<>(names);
     }

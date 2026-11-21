@@ -23,4 +23,9 @@ public final class StampedConfig {
                     return null;
                 });
     }
+
+    /** A config whose {@code config.yml} and {@code punishments.yml} are both written in {@code nameVersion}. */
+    public static ConfigManager nameVersion(int nameVersion) {
+        return of(Map.of(CheckNames.CONFIG_KEY, nameVersion, CheckNames.PUNISHMENTS_KEY, nameVersion));
+    }
 }

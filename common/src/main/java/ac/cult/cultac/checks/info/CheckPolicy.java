@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.info;
 
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.manager.PunishmentRules;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
@@ -59,17 +60,26 @@ public final class CheckPolicy {
     }
 
     private final List<Group> groups;
+    private final int nameVersion;
 
-    private CheckPolicy(List<Group> groups) {
+    private CheckPolicy(List<Group> groups, int nameVersion) {
         this.groups = groups;
+        this.nameVersion = nameVersion;
     }
 
     public static CheckPolicy of(ConfigManager config) {
-        return parse(config.getStringListElse("Punishments", new ArrayList<>()));
+        return parse(
+                config.getStringListElse("Punishments", new ArrayList<>()),
+                CheckNames.version(config, CheckNames.PUNISHMENTS_KEY));
     }
 
-    /** The {@code Punishments} groups {@link PunishmentRules} reads. */
+    /** The {@code Punishments} groups {@link PunishmentRules} reads, naming checks as the newest name version does. */
     public static CheckPolicy parse(List<?> punishments) {
+        return parse(punishments, CheckNames.LATEST);
+    }
+
+    /** The {@code Punishments} groups {@link PunishmentRules} reads, naming checks as {@code nameVersion} does. */
+    public static CheckPolicy parse(List<?> punishments, int nameVersion) {
         List<Group> groups = new ArrayList<>();
         for (PunishmentRules.Group rule : PunishmentRules.parse(punishments).groups()) {
             Integer alertAt = null;
@@ -89,7 +99,7 @@ public final class CheckPolicy {
             }
             groups.add(new Group(rule.selectors(), alertAt, recorded, webhook, List.copyOf(actions)));
         }
-        return new CheckPolicy(List.copyOf(groups));
+        return new CheckPolicy(List.copyOf(groups), nameVersion);
     }
 
     // The word lands in a MiniMessage template: strip anything that could be a tag, color code or placeholder.
@@ -102,7 +112,7 @@ public final class CheckPolicy {
     }
 
     public Status status(CheckCatalog.Entry entry) {
-        String name = entry.name().toLowerCase(Locale.ROOT);
+        String name = entry.name(nameVersion).toLowerCase(Locale.ROOT);
         String altName = entry.altName();
         if (altName != null) altName = altName.toLowerCase(Locale.ROOT);
         List<Group> matched = new ArrayList<>();

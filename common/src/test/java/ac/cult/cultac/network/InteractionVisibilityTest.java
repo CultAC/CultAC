@@ -37,10 +37,11 @@ import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
-import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.AttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
+import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -95,7 +96,7 @@ class InteractionVisibilityTest {
             try (var setup = new Setup()) {
                 setup.wall("stone");
                 var players = setup.check(AttackPlayerVisibility.class);
-                var mobs = setup.check(AttackMobVisibility.class);
+                var mobs = setup.check(AttackEntityVisibility.class);
                 var placing = setup.check(PlaceVisibility.class);
                 var breaking = setup.check(BreakVisibility.class);
                 setup.fixture.player.compensatedEntities.addEntity(42, type, new Vec3(.5, 64, 1.5), 0, 0, 0);
@@ -116,7 +117,7 @@ class InteractionVisibilityTest {
         try (var setup = new Setup()) {
             setup.wall("stone");
             var players = setup.check(AttackPlayerVisibility.class);
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             setup.fixture.player.compensatedEntities.addEntity(42, EntityTypeIds.COW, new Vec3(.5, 64, 1.5), 0, 0, 0);
             var interaction =
                     new ServerboundInteract(42, InteractAction.INTERACT, Hand.MAIN_HAND, Optional.empty(), false);
@@ -151,7 +152,7 @@ class InteractionVisibilityTest {
         try (var setup = new Setup()) {
             setup.wall("stone");
             var players = setup.check(AttackPlayerVisibility.class);
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             var entities = setup.fixture.player.compensatedEntities;
             entities.addEntity(42, EntityTypeIds.PLAYER, new Vec3(.5, 64, 1.5), 0, 0, 0);
             entities.addEntity(43, EntityTypeIds.COW, new Vec3(.5, 64, 1.5), 0, 0, 0);
@@ -171,7 +172,7 @@ class InteractionVisibilityTest {
             setup.check(PlaceVisibility.class);
             setup.check(BreakVisibility.class);
             setup.check(AttackPlayerVisibility.class);
-            setup.check(AttackMobVisibility.class);
+            setup.check(AttackEntityVisibility.class);
             var player = setup.fixture.player;
             player.compensatedEntities.addEntity(42, EntityTypeIds.PLAYER, new Vec3(.5, 64, 1.5), 0, 0, 0);
             player.compensatedEntities.addEntity(43, EntityTypeIds.COW, new Vec3(.5, 64, 1.5), 0, 0, 0);
@@ -230,8 +231,9 @@ class InteractionVisibilityTest {
         try (var setup = new Setup()) {
             setup.wall("stone");
             setup.check(AttackPlayerVisibility.class);
-            setup.check(AttackMobVisibility.class);
+            setup.check(AttackEntityVisibility.class);
             setup.check(InteractEntityVisibility.class);
+            setup.check(InteractPlayerVisibility.class);
             setup.check(PlaceVisibility.class);
             setup.check(BreakVisibility.class);
             var entities = setup.fixture.player.compensatedEntities;
@@ -261,7 +263,8 @@ class InteractionVisibilityTest {
                     List.of(
                             "AttackPlayerVisibility: ",
                             "AttackMobVisibility: type=minecraft:cow",
-                            "InteractEntityVisibility: action=INTERACT_AT, type=minecraft:player",
+                            // The player half of the split check, under the one name both have in name version 1.
+                            "InteractEntityVisibility: action=INTERACT_AT",
                             "InteractEntityVisibility: action=INTERACT_AT, type=minecraft:cow",
                             "PlaceVisibility: block=minecraft:stone, pos=0, 64, 2, face=NORTH",
                             "BreakVisibility: action=START_DESTROY_BLOCK, block=minecraft:stone, pos=0, 64, 2, face=NORTH"),
@@ -275,7 +278,7 @@ class InteractionVisibilityTest {
         try (var setup = new Setup()) {
             var player = setup.fixture.player;
             for (int x = 5; x <= 8; x++) for (int y = 64; y <= 67; y++) setup.block(x, y, 5, "stone");
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             var interact = setup.check(InteractEntityVisibility.class);
             var painting = EntityTypes.defaults().byKey("minecraft:painting").id();
             // Painting#getAddEntityPacket sends the block position with SOUTH's 3D data value.
@@ -314,7 +317,7 @@ class InteractionVisibilityTest {
                 setup.block(x, 64, 0, "stone");
                 setup.block(x, 65, 0, "smooth_stone_slab");
             }
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             var interact = setup.check(InteractEntityVisibility.class);
             player.compensatedEntities.addEntity(42, EntityTypeIds.SHULKER, new Vec3(.5, 64, -.5), 0, 0, 0);
             player.x = .5;
@@ -352,7 +355,7 @@ class InteractionVisibilityTest {
                 setup.block(x, 65, 0, "stone");
             }
             setup.block(2, 64, 1, "smooth_stone_slab");
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             var interact = setup.check(InteractEntityVisibility.class);
             var type = EntityTypes.defaults().byKey("minecraft:polar_bear").id();
             player.compensatedEntities.addEntity(42, type, new Vec3(2.5, 64, -.7), 0, 0, 0);
@@ -529,7 +532,7 @@ class InteractionVisibilityTest {
         for (int type : new int[] {EntityTypeIds.PLAYER, EntityTypeIds.COW, EntityTypeIds.OAK_BOAT}) {
             try (var setup = new Setup()) {
                 var players = setup.check(AttackPlayerVisibility.class);
-                var mobs = setup.check(AttackMobVisibility.class);
+                var mobs = setup.check(AttackEntityVisibility.class);
                 setup.check(PlayerReach.class);
                 setup.check(EntityReach.class);
                 setup.block(0, 64, 2, "air");
@@ -545,7 +548,7 @@ class InteractionVisibilityTest {
     void targetsReachDoesNotEnforceStayHiddenBeyondRange() throws Exception {
         for (int type : new int[] {EntityTypeIds.SHULKER, EntityTypeIds.ARMOR_STAND}) {
             try (var setup = new Setup()) {
-                var mobs = setup.check(AttackMobVisibility.class);
+                var mobs = setup.check(AttackEntityVisibility.class);
                 setup.check(EntityReach.class);
                 setup.block(0, 64, 2, "air");
                 setup.fixture.player.compensatedEntities.addEntity(42, type, new Vec3(.5, 64, 2.5), 0, 0, 0);
@@ -960,7 +963,7 @@ class InteractionVisibilityTest {
     @Test
     void anOccludedEyeInRangeIsNotRescuedByAnotherEyeBeyondRange() throws Exception {
         try (var setup = new Setup()) {
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             // Standing and crouching eyes are within 2.95 blocks; the crawling eye is 3.08 blocks away.
             setup.fixture.player.compensatedEntities.addEntity(
                     42, EntityTypeIds.SILVERFISH, new Vec3(.5, 65.3, 1.65), 0, 0, 0);
@@ -1113,7 +1116,7 @@ class InteractionVisibilityTest {
                 }
                 Check check = type == EntityTypeIds.PLAYER
                         ? setup.check(AttackPlayerVisibility.class)
-                        : setup.check(AttackMobVisibility.class);
+                        : setup.check(AttackEntityVisibility.class);
                 assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
                 assertEquals(1, check.violations);
             }

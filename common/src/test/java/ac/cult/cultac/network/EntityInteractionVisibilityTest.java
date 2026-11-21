@@ -9,7 +9,9 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
+import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -89,20 +91,20 @@ class EntityInteractionVisibilityTest {
                 setup.wall(wall);
                 for (var action : actions) {
                     for (var hand : Hand.values()) {
-                        double before = setup.check.violations;
+                        double before = setup.owner(type).violations;
                         assertFalse(setup.fixture.channel.writeInbound(setup.encode(42, action, hand)));
                         assertNull(setup.fixture.channel.readInbound());
-                        assertEquals(before + 1, setup.check.violations);
+                        assertEquals(before + 1, setup.owner(type).violations);
                     }
                 }
             }
             setup.tickEnd();
             setup.wall("air");
-            double before = setup.check.violations;
+            double before = setup.check.violations + setup.players.violations;
             for (var action : actions) {
                 for (var hand : Hand.values()) setup.fixture.forward(setup.encode(42, action, hand));
             }
-            assertEquals(before, setup.check.violations);
+            assertEquals(before, setup.check.violations + setup.players.violations);
         }
     }
 
@@ -671,6 +673,7 @@ class EntityInteractionVisibilityTest {
         final CultPlayer player;
         final ProtocolVersion version;
         final InteractEntityVisibility check;
+        final InteractPlayerVisibility players;
 
         Setup(ProtocolVersion version) throws Exception {
             this.version = version;
@@ -683,6 +686,8 @@ class EntityInteractionVisibilityTest {
             player.checkManager.allChecks.values().forEach(check -> check.setEnabled(false));
             check = player.checkManager.getCheck(InteractEntityVisibility.class);
             check.setEnabled(true);
+            players = player.checkManager.getCheck(InteractPlayerVisibility.class);
+            players.setEnabled(true);
             player.gamemode = GameMode.SURVIVAL;
             player.x = .5;
             player.y = 64;
@@ -696,6 +701,11 @@ class EntityInteractionVisibilityTest {
             world.ensureValidationChunkLoaded(0, -1);
             fixture.registrar.register(routes -> new CheckManagerListener()
                     .registerForwardingEarlyReceivePackets(routes, PacketListenerPriority.LOW));
+        }
+
+        /** The check a right-click on an entity of {@code type} belongs to. */
+        Check owner(int type) {
+            return type == EntityTypeIds.PLAYER ? players : check;
         }
 
         void entity(int id, int type, double z) {

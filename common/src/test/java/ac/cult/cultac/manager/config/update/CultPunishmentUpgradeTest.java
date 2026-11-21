@@ -187,7 +187,7 @@ class CultPunishmentUpgradeTest {
             Map<String, Object> data = new Yaml().load(source);
             assertEquals(5, data.get("cult-config-version"));
             assertTrue(checks(data, "Knockback").contains("KeepSprint"));
-            assertTrue(checks(data, "Combat").containsAll(List.of("AttackPlayerVisibility", "AttackMobVisibility")));
+            assertTrue(checks(data, "Combat").containsAll(List.of("AttackPlayerVisibility", "AttackEntityVisibility")));
             List<?> misc = checks(data, "Misc");
             assertEquals("NoSneakSlow", misc.get(misc.indexOf("NoSlow") + 1));
             assertEquals("SkinBlinker", misc.get(misc.indexOf("Exploit") + 1));
