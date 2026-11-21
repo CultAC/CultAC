@@ -11,6 +11,7 @@ public final class WireRegistryState implements WireValueDecoder.Registries {
     private final Map<String, List<String>> received = new HashMap<>();
     private boolean awaitingRegistryData;
     private Object generation = new Object();
+    private Object emptied = new Object();
 
     public WireRegistryState(ProtocolVersion version, java.util.function.Supplier<RegistryNames> model) {
         this.source = ModelRegistryData.load(version);
@@ -27,6 +28,7 @@ public final class WireRegistryState implements WireValueDecoder.Registries {
         if (awaitingRegistryData) {
             received.clear();
             awaitingRegistryData = false;
+            emptied = new Object();
         }
         var entries = new ArrayList<>(received.getOrDefault(packet.registry(), List.of()));
         packet.entries().forEach(entry -> entries.add(entry.name()));
@@ -37,6 +39,11 @@ public final class WireRegistryState implements WireValueDecoder.Registries {
     /** Replaced whenever {@link #name} or {@link #id} can answer differently. */
     Object generation() {
         return generation;
+    }
+
+    /** Replaced whenever {@link #append} clears the received registries, which a failing append does alone. */
+    Object emptied() {
+        return emptied;
     }
 
     @Override
@@ -73,5 +80,10 @@ public final class WireRegistryState implements WireValueDecoder.Registries {
 
     public int modelId(String registry, String name) {
         return model.get().id(registry, name);
+    }
+
+    /** The model names {@link #modelId} reads; a fallback replaces them without a new {@link #generation}. */
+    RegistryNames modelNames() {
+        return model.get();
     }
 }

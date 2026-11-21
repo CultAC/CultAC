@@ -3,6 +3,7 @@ package ac.cult.cultac.network.codec;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
+import ac.cult.cultac.protocol.data.RegistryNames;
 import io.netty.buffer.ByteBuf;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
@@ -13,6 +14,7 @@ final class ObservedWorldValues {
     private final ObservedPacketValues values;
     private final Supplier<int[]> dimension;
     private final Supplier<String> poolDimension;
+    private BiomeIds biomeIds;
 
     ObservedWorldValues(ObservedPacketValues values, Supplier<int[]> dimension, Supplier<String> poolDimension) {
         this.values = values;
@@ -61,10 +63,29 @@ final class ObservedWorldValues {
                 names.modelSize(BIOME),
                 values.mappings()::blockState,
                 id -> {
-                    int mapped = names.modelId(BIOME, names.name(BIOME, id));
+                    String name = names.name(BIOME, id);
+                    var table = biomeIds(names);
+                    int[] known = table.ids();
+                    boolean inRange = id >= 0 && id < known.length;
+                    if (inRange && known[id] != 0) return known[id] - 1;
+                    int mapped = table.model().id(BIOME, name);
                     if (mapped < 0)
                         throw new ProtocolResolutionException("Unavailable older biome " + names.name(BIOME, id));
+                    if (inRange) known[id] = mapped + 1;
                     return mapped;
                 });
     }
+
+    /** Resolved model biome IDs plus one by wire ID, 0 where unresolved, for the names' current answers. */
+    private BiomeIds biomeIds(WireRegistryState names) {
+        var table = biomeIds;
+        Object generation = names.generation();
+        Object emptied = names.emptied();
+        RegistryNames model = names.modelNames();
+        if (table == null || table.generation != generation || table.emptied != emptied || table.model != model)
+            biomeIds = table = new BiomeIds(generation, emptied, model, new int[names.size(BIOME)]);
+        return table;
+    }
+
+    private record BiomeIds(Object generation, Object emptied, RegistryNames model, int[] ids) {}
 }
