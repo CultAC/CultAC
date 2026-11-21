@@ -2609,6 +2609,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         stepCollisionMemo.open(!player.isBedrockMovement()
                 && player.checkManager.getWorldBorder().hasClockIndependentDiameter());
         player.compensatedEntities.beginMovementPositionReads();
+        scratch.openKeptHandlers();
         try {
             return predict(
                     player,
@@ -2625,6 +2626,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         } finally {
             player.compensatedEntities.endMovementPositionReads();
             stepCollisionMemo.close();
+            scratch.closeKeptHandlers();
             player.clientFluidTagOrder = previousFluidOrder;
         }
     }

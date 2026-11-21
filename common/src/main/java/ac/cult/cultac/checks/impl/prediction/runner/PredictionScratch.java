@@ -1,5 +1,8 @@
 package ac.cult.cultac.checks.impl.prediction.runner;
 
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.manager.player.CheckManager;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -40,6 +43,48 @@ public final class PredictionScratch {
     public final SimpleCollisionBox recountEntityScratch = new SimpleCollisionBox();
 
     private ReusableVelocitySet filteredVelocities = new ReusableVelocitySet();
+
+    private boolean keepsHandlers;
+    private SimulationContext keptContext;
+    private PredictionResult keptLast;
+    private UncertaintyHandler[] kept;
+    private int keptCount;
+
+    /**
+     * ValidMovements#computeAABB's pipeline handlers whose skipsContext is false for {@code context} and
+     * {@code lastResult}, in order and {@link #keptHandlerCount} long, or null when this holds none for them. Unlike
+     * the other members it outlives its call, from {@link #openKeptHandlers} to {@link #closeKeptHandlers} around one
+     * prediction: every skip predicate reads only the context, the last result and player state that the prediction
+     * does not write, so the candidates of one context share the handlers. Callers only read the array.
+     */
+    public UncertaintyHandler[] keptHandlers(SimulationContext context, PredictionResult lastResult) {
+        return kept != null && context == keptContext && lastResult == keptLast ? kept : null;
+    }
+
+    public int keptHandlerCount() {
+        return keptCount;
+    }
+
+    public void keepHandlers(
+            SimulationContext context, PredictionResult lastResult, UncertaintyHandler[] kept, int count) {
+        if (!keepsHandlers) return;
+        this.keptContext = context;
+        this.keptLast = lastResult;
+        this.kept = kept;
+        this.keptCount = count;
+    }
+
+    public void openKeptHandlers() {
+        closeKeptHandlers();
+        keepsHandlers = true;
+    }
+
+    public void closeKeptHandlers() {
+        keepsHandlers = false;
+        keptContext = null;
+        keptLast = null;
+        kept = null;
+    }
 
     /**
      * JavaMovementEngine#applyModifiers' carried velocities: a set that is empty between calls, since that call clears

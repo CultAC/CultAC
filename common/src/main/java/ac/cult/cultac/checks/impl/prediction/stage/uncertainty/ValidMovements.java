@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaForwardMove;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementMath;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -615,11 +616,18 @@ public class ValidMovements {
         UncertaintyHandler[] kept = handlers;
         int count = kept.length;
         if (handlers == MODIFIERS) {
-            kept = new UncertaintyHandler[handlers.length];
-            count = 0;
             SimulationContext context = result.getSimulationContext();
-            for (UncertaintyHandler handler : handlers) {
-                if (!handler.skipsContext(player, context, lastResult)) kept[count++] = handler;
+            PredictionScratch scratch = PredictionScratch.of(player);
+            kept = scratch == null ? null : scratch.keptHandlers(context, lastResult);
+            if (kept != null) {
+                count = scratch.keptHandlerCount();
+            } else {
+                kept = new UncertaintyHandler[handlers.length];
+                count = 0;
+                for (UncertaintyHandler handler : handlers) {
+                    if (!handler.skipsContext(player, context, lastResult)) kept[count++] = handler;
+                }
+                if (scratch != null) scratch.keepHandlers(context, lastResult, kept, count);
             }
         }
         double posX = transformTraceTowards(kept, count, initialStartingVel.withX(LARGE_MOVEMENT), lastResult)
