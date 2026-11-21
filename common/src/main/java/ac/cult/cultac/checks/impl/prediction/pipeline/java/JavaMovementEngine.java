@@ -296,7 +296,7 @@ public final class JavaMovementEngine implements MovementEngine {
         if (failedChecks(result) || !VelocityCandidates.hasEngineTrace(result)) return selected;
         List<PredictionResult> collisionAlternatives =
                 new ArrayList<>(result.getValidMovements().collisionVelocityAlternatives(lastPrediction));
-        addMathSiblings(result, collisionAlternatives);
+        List<PredictionResult> tied = addTiedRealities(result, collisionAlternatives);
         addCompatiblePatchCandidate(result, collisionAlternatives);
         boolean ranged = addRangeSiblings(result, collisionAlternatives);
         var pinned = debugAllowanceSet(player) ? pinnedMovedRange(result) : null;
@@ -313,6 +313,8 @@ public final class JavaMovementEngine implements MovementEngine {
         if (!replacePartialWater) states.addAll(withTable(commitStates(selected), result, bothTables));
         // Which spin outcomes each committed candidate reached; -1 once two disagree.
         int spinOutcomes = spinOutcomes(commitStates(selected));
+        // Whether a reality of the selected table left a state the selected candidate did not.
+        boolean tiedApart = false;
         if (!family.isEmpty()) {
             // The debug allowance's gap was position or deltaMovement, or part of each, and a collision or a pass can
             // hide deltaMovement: carry every velocity its readings leave possible, with each one's block effects.
@@ -342,7 +344,8 @@ public final class JavaMovementEngine implements MovementEngine {
                                         .getEnd()
                                         .subtract(other.getSimulationContext().getStart());
                 PredictionCommit alternative = commitCandidate(player, other, lastPrediction, otherDiff, nested);
-                states.addAll(withTable(commitStates(alternative), other, bothTables));
+                boolean added = states.addAll(withTable(commitStates(alternative), other, bothTables));
+                tiedApart |= added && tied.contains(other);
                 spinOutcomes = agreed(spinOutcomes, commitStates(alternative));
             } finally {
                 nested.release();
@@ -352,8 +355,9 @@ public final class JavaMovementEngine implements MovementEngine {
         // starts somewhere inside their range, and the hull spans both.
         boolean reboundApart = spinOutcomes != -1;
         if (ranged || boxed) states = withCarriedRange(states, boxed ? movedRange(result) : pinned, reboundApart);
-        // The allowance leaves many readings: merge them, with every other alternative, into one state per class.
-        if (!family.isEmpty()) states = mergedByVelocity(states, reboundApart);
+        // The allowance leaves many readings, and an edge that hid the travel's input one per input: merge them, with
+        // every other alternative, into one state per class.
+        if (!family.isEmpty() || tiedApart) states = mergedByVelocity(states, reboundApart);
         var velocities = new LinkedHashSet<Vec3>();
         for (var state : states) velocities.add(state.velocity());
         JavaPredictionCarry carry = (JavaPredictionCarry) selected.carry();
@@ -538,10 +542,11 @@ public final class JavaMovementEngine implements MovementEngine {
     }
 
     /**
-     * The debug readings' states, one per state other than velocity and fall distance (stuck speed, piston start...).
-     * Each carries the hull of the readings' velocities and the range of their fall distances: the readings sample a
-     * continuous range, so values between them stay possible. LivingEntity#checkAutoSpinAttack's rebound scales a
-     * velocity by -0.2: when {@code reboundApart}, velocities with and without it never share a hull.
+     * The states of readings the report could not tell apart, one per state other than velocity and fall distance
+     * (stuck speed, piston start...). Each carries the hull of the readings' velocities and the range of their fall
+     * distances, so the state count stays the classes' however long the report hides them; values between the readings
+     * stay possible. LivingEntity#checkAutoSpinAttack's rebound scales a velocity by -0.2: when {@code reboundApart},
+     * velocities with and without it never share a hull.
      */
     private static LinkedHashSet<JavaPredictionCarry.State> mergedByVelocity(
             LinkedHashSet<JavaPredictionCarry.State> states, boolean reboundApart) {
@@ -609,20 +614,24 @@ public final class JavaMovementEngine implements MovementEngine {
     }
 
     /**
-     * A wall can hide which table travelled, while a later rocket or swimming update keeps different velocity. The
-     * other table keeps one sibling: its travel from the selected travel's carried start, else the best by candidate
-     * order, so the carried states stay bounded.
+     * The realities the report cannot tell apart from the selected one keep their own velocity. A wall can hide which
+     * trig table travelled, while a later rocket or swimming update keeps different velocity. The other table keeps one
+     * sibling: its travel from the selected travel's carried start, else the best by candidate order, so the carried
+     * states stay bounded. Player#maybeBackOffFromEdge can hide the travel's whole LivingEntity#moveRelative input, and
+     * with it which LivingEntity#getSpeed or LocalPlayer#modifyInput multiplier the client moved with. Returns those of
+     * the selected candidate's own table.
      */
-    private static void addMathSiblings(PredictionResult selected, List<PredictionResult> alternatives) {
+    private static List<PredictionResult> addTiedRealities(
+            PredictionResult selected, List<PredictionResult> alternatives) {
         var choice = selected.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
-        if (choice == null) return;
+        if (choice == null) return List.of();
+        List<PredictionResult> sameTable = List.of();
         PredictionResult ownStart = null;
         PredictionResult best = null;
         for (PredictionResult other : selected.getRealities()) {
             var math = other.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
             if (other == selected
                     || math == null
-                    || math.vanilla() == choice.vanilla()
                     || failedChecks(other)
                     || alternatives.contains(other)
                     || !other.getSimulationContext()
@@ -637,7 +646,11 @@ public final class JavaMovementEngine implements MovementEngine {
                             > Math.max(
                                     selected.selectionOffset(),
                                     JavaMathRouter.reportRounding(selected.getSimulationContext()))) continue;
-            if (other.getInitialStartingVel()
+            if (math.vanilla() == choice.vanilla()) {
+                alternatives.add(other);
+                if (sameTable.isEmpty()) sameTable = new ArrayList<>(1);
+                sameTable.add(other);
+            } else if (other.getInitialStartingVel()
                     .carriedVelocity()
                     .equals(selected.getInitialStartingVel().carriedVelocity())) {
                 if (INSTANCE.isBetterCandidate(other, ownStart)) ownStart = other;
@@ -645,6 +658,7 @@ public final class JavaMovementEngine implements MovementEngine {
         }
         if (ownStart != null) alternatives.add(ownStart);
         else if (best != null) alternatives.add(best);
+        return sameTable;
     }
 
     private static void addCompatiblePatchCandidate(PredictionResult selected, List<PredictionResult> alternatives) {
