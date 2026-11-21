@@ -334,5 +334,16 @@ update:
   # URL that receives each update result line. CULTAC_UPDATE_WEBHOOK.
   webhook: ""
 
+# The version of the check names this server uses outside punishments.yml: the names each check's
+# own settings are written under in this file (AttackEntityVisibility.setbackvl), the names in its
+# permission nodes (cult.exempt.attackentityvisibility), and the names alerts, logs, placeholders
+# and the API show.
+# Cult never changes it. Raise it yourself, after you have renamed those settings and permission nodes:
+#   1: AttackMobVisibility, bAttackMobVisibility. InteractEntityVisibility covers players too.
+#   2: AttackEntityVisibility, bAttackEntityVisibility. InteractPlayerVisibility covers players,
+#      InteractEntityVisibility everything else.
+# A file without this line is read as version 1.
+check-name-version: 2
+
 config-flavor: V2
 config-version: 20

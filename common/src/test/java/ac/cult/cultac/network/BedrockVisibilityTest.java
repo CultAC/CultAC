@@ -11,7 +11,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
 import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
-import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
@@ -42,7 +42,7 @@ class BedrockVisibilityTest {
     @Test
     void anAttackThroughAWallIsFlaggedAndOneInTheOpenIsNot() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
 
@@ -58,7 +58,7 @@ class BedrockVisibilityTest {
     @Test
     void anOlderClientsAttackThroughAWallIsJudgedOnPlayers() throws Exception {
         try (var setup = new Setup(OLDER_CLIENT)) {
-            var mob = setup.check(BedrockAttackMobVisibility.class);
+            var mob = setup.check(BedrockAttackEntityVisibility.class);
             var avatar = setup.check(BedrockAttackPlayerVisibility.class);
             var mobReach = setup.check(BedrockEntityReach.class);
             var playerReach = setup.check(BedrockPlayerReach.class);
@@ -81,7 +81,7 @@ class BedrockVisibilityTest {
     @Test
     void aStairBlocksOnlyWithItsSlabHalf() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
             // Only a stair's slab half is certain to block a Bedrock pick.
@@ -98,7 +98,7 @@ class BedrockVisibilityTest {
     @Test
     void aClosedDoorBlocksWithItsThinnerBedrockPlateAndAnOpenOneDoesNot() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
             setup.row(64, "oak_door[facing=north,half=lower,open=false,hinge=left]");
@@ -116,7 +116,7 @@ class BedrockVisibilityTest {
     @Test
     void blocksTheClientMayNotHoldDoNotBlock() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
             var world = setup.player().compensatedWorld;
@@ -148,7 +148,7 @@ class BedrockVisibilityTest {
     @Test
     void anEyeInsideABlockIsNotJudged() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
             setup.wall("stone");

@@ -3,7 +3,7 @@ package ac.cult.cultac.network;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.AttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
@@ -66,7 +66,7 @@ class ResizedInteractionVisibilityTest {
         final RecordReceiveFixture fixture = new RecordReceiveFixture(VERSION, false);
         final CultPlayer player;
         final InteractEntityVisibility interact;
-        final AttackMobVisibility attackCheck;
+        final AttackEntityVisibility attackCheck;
 
         Setup() throws Exception {
             services.useNetwork(fixture.manager);
@@ -80,7 +80,7 @@ class ResizedInteractionVisibilityTest {
             player.checkManager.allChecks.values().forEach(check -> check.setEnabled(false));
             interact = player.checkManager.getCheck(InteractEntityVisibility.class);
             interact.setEnabled(true);
-            attackCheck = player.checkManager.getCheck(AttackMobVisibility.class);
+            attackCheck = player.checkManager.getCheck(AttackEntityVisibility.class);
             attackCheck.setEnabled(true);
             player.gamemode = GameMode.SURVIVAL;
             // Loaded and ticked since the teleport, as the clicks in the report are.

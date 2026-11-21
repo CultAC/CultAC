@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager.config;
 
 import ac.cult.cultac.bridge.protocol.CommandRoots;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
@@ -118,6 +119,7 @@ public class BaseConfigManager {
 
     // initialize the config
     public void load(ConfigManager config) {
+        CheckNames.validate(config);
         boolean reloading = this.config != null;
         boolean wasObserveOnly = observeOnly;
         this.config = config;

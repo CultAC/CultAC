@@ -64,7 +64,7 @@ class CheckNameLinkTest {
 
     private static Check check(String name, String displayName) {
         Check check = Mockito.mock(Check.class);
-        Mockito.when(check.getCheckName()).thenReturn(name);
+        Mockito.when(check.getLatestName()).thenReturn(name);
         Mockito.when(check.getDisplayName()).thenReturn(displayName);
         return check;
     }

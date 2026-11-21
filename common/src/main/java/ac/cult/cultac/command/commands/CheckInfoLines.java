@@ -1,5 +1,6 @@
 package ac.cult.cultac.command.commands;
 
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.checks.info.CheckCategory;
 import ac.cult.cultac.checks.info.CheckPolicy;
@@ -31,8 +32,14 @@ final class CheckInfoLines {
     private static final int MAX_MATCHES = 10;
 
     record View(ConfigManager config, CheckPolicy policy, CheckTexts texts, boolean experimentalChecks) {
+        /** The name version {@code config.yml} is written in, which the shown names follow. */
+        int nameVersion() {
+            return CheckNames.version(config, CheckNames.CONFIG_KEY);
+        }
+
         String displayName(CheckCatalog.Entry entry) {
-            return config.getStringElse(entry.configName() + ".displayname", entry.name());
+            int nameVersion = nameVersion();
+            return config.getStringElse(entry.configName(nameVersion) + ".displayname", entry.name(nameVersion));
         }
 
         Handling handling(CheckCatalog.Entry entry) {
@@ -165,7 +172,7 @@ final class CheckInfoLines {
         List<Component> lines = new ArrayList<>();
         lines.add(render(
                 sender, view.template("info-unknown"), Map.of("query", query)));
-        List<CheckCatalog.Entry> matches = CheckCatalog.containing(query);
+        List<CheckCatalog.Entry> matches = CheckCatalog.containing(query, view.nameVersion());
         if (matches.isEmpty()) {
             lines.add(render(
                     sender, view.template("info-see-all")));

@@ -6,13 +6,18 @@ import java.util.List;
 
 /** The per-check permission nodes, registered when the runtime starts rather than when a player joins. */
 public final class CheckPermissions {
-    /** The lower-case config name of every check a player's {@code CheckManager} builds. */
+    /**
+     * The lower-case config name, in every name version, of every check a player's {@code CheckManager} builds. A
+     * node of a version the server's files are not written in is never read, but must already be denied by default
+     * when a reload moves to that version.
+     */
     public static final List<String> IDS = List.of(
             "aimduplicatelook",
             "aimmodulo360",
             "airliquidbreak",
             "airliquidplace",
             "angle",
+            "attackentityvisibility",
             "attackmobvisibility",
             "attackplayervisibility",
             "autoclickerlimit",
@@ -44,6 +49,7 @@ public final class CheckPermissions {
             "badpacketsx",
             "badpacketsy",
             "badpacketsz",
+            "battackentityvisibility",
             "battackmobvisibility",
             "battackplayervisibility",
             "bbreakvisibility",
@@ -110,6 +116,7 @@ public final class CheckPermissions {
             "happyghastoffset",
             "inputkeys",
             "interactentityvisibility",
+            "interactplayervisibility",
             "invalidbreak",
             "invalidplacea",
             "invalidplaceb",

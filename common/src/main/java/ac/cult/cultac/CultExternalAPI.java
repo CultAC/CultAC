@@ -1,5 +1,6 @@
 package ac.cult.cultac;
 
+import ac.cult.cultac.checks.info.CheckNameAudit;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.manager.PunishmentManager;
 import ac.cult.cultac.manager.config.ConfigManagerFileImpl;
@@ -240,6 +241,7 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         }
         updateVariables();
         for (String warning : PunishmentManager.unknownAlertFormats(configManager)) LogUtil.warn(warning);
+        for (String warning : CheckNameAudit.warnings(configManager)) LogUtil.warn(warning);
         CultAPI.INSTANCE.getAlertManager().reload(configManager);
         CultAPI.INSTANCE.getDiscordManager().reload();
         CultAPI.INSTANCE.getSpectateManager().reload();

@@ -7,8 +7,10 @@ import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.common.BasicReloadable;
 import ac.grim.grimac.api.config.ConfigManager;
+import alexh.weak.Dynamic;
 import github.scarsz.configuralize.DynamicConfig;
 import github.scarsz.configuralize.Language;
+import github.scarsz.configuralize.Provider;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -37,6 +40,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         final Map<String, LongLookup> longs = new ConcurrentHashMap<>();
         final Map<String, DoubleLookup> doubles = new ConcurrentHashMap<>();
         final Map<String, BooleanLookup> booleans = new ConcurrentHashMap<>();
+        final Map<String, Optional<Object>> written = new ConcurrentHashMap<>();
     }
 
     private record StringLookup(String otherwise, String value) {}
@@ -199,6 +203,28 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
             if (Files.exists(path)) files.put(name, Files.readAllBytes(path));
         }
         return files;
+    }
+
+    /**
+     * The operator's own value of {@code key}, or null when no file has the key. Every getter answers a key the files
+     * lack from the bundled default; this never does.
+     */
+    public @Nullable Object written(String key) {
+        Map<String, Optional<Object>> cache = lookups.written;
+        Optional<Object> cached = cache.get(key);
+        if (cached != null) return cached.orElse(null);
+        Object value = null;
+        for (Provider provider : config.getSources().values()) {
+            Dynamic values = provider.getValues();
+            if (values == null) continue;
+            Dynamic found = values.dget(key);
+            if (found.isPresent()) {
+                value = found.asObject();
+                break;
+            }
+        }
+        cache.put(key, Optional.ofNullable(value));
+        return value;
     }
 
     @Override

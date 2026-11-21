@@ -14,6 +14,7 @@ import static ac.cult.cultac.checks.info.CheckCategory.VEHICLES;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.CheckInfo;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.impl.aim.AimDuplicateLook;
 import ac.cult.cultac.checks.impl.aim.AimModulo360;
 import ac.cult.cultac.checks.impl.autoclicker.AutoclickerLimit;
@@ -196,14 +197,15 @@ import ac.cult.cultac.checks.impl.vehicle.VehicleD;
 import ac.cult.cultac.checks.impl.vehicle.VehicleE;
 import ac.cult.cultac.checks.impl.vehicle.VehicleF;
 import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
-import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.AttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
-import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
+import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import java.util.ArrayList;
 import java.util.List;
@@ -218,23 +220,46 @@ public final class CheckCatalog {
     /**
      * One check's identity as the running check reports it.
      *
-     * @param name the check name punishments match and alerts show by default
-     * @param configName the prefix of the check's own config keys
+     * @param names the check's name in each name version; punishments match the name and alerts show it by default
+     * @param declaredConfigName the prefix of the check's own config keys where it is not the check's name; else
+     *     {@code null} or {@code "DEFAULT"}
      * @param altName the second name punishments match; {@link CheckData#NO_ALTERNATIVE_NAME} for a {@code @CheckData}
      *     check without one, {@code null} for a {@code CheckInfo} check without one
      */
     public record Entry(
-            String name, String configName, @Nullable String altName, boolean experimental, CheckCategory category) {}
+            CheckNames names,
+            @Nullable String declaredConfigName,
+            @Nullable String altName,
+            boolean experimental,
+            CheckCategory category) {
+        /** The check's name in the newest name version; {@code check-info/en.yml} explains the check under it. */
+        public String name() {
+            return names.latest();
+        }
+
+        public String name(int nameVersion) {
+            return names.in(nameVersion);
+        }
+
+        /** The prefix of the check's own config keys in the newest name version. */
+        public String configName() {
+            return configName(CheckNames.LATEST);
+        }
+
+        public String configName(int nameVersion) {
+            return Check.configName(names.in(nameVersion), declaredConfigName);
+        }
+    }
 
     public static final List<Entry> ENTRIES = List.of(
             check(AimDuplicateLook.class, COMBAT),
             check(AimModulo360.class, COMBAT),
             check(ExplosionHandler.INFO, COMBAT),
             check(KnockbackHandler.INFO, COMBAT),
-            check(AttackMobVisibility.class, COMBAT),
+            check(AttackEntityVisibility.class, COMBAT),
             check(AttackPlayerVisibility.class, COMBAT),
             check(AutoclickerLimit.INFO, COMBAT),
-            check(BedrockAttackMobVisibility.class, COMBAT),
+            check(BedrockAttackEntityVisibility.class, COMBAT),
             check(BedrockAttackPlayerVisibility.class, COMBAT),
             check(BedrockEntityHitboxes.class, COMBAT),
             check(BedrockEntityReach.INFO, COMBAT),
@@ -244,6 +269,7 @@ public final class CheckCatalog {
             check(EntityReach.INFO, COMBAT),
             check(FairReach.INFO, COMBAT),
             check(InteractEntityVisibility.class, COMBAT),
+            check(InteractPlayerVisibility.class, COMBAT),
             check(KeepSprint.INFO, COMBAT),
             check(MultiActionsA.class, COMBAT),
             check(MultiActionsE.class, COMBAT),
@@ -425,27 +451,28 @@ public final class CheckCatalog {
         CheckData data = type.getAnnotation(CheckData.class);
         if (data == null) throw new IllegalArgumentException(type.getName() + " has no @CheckData");
         return new Entry(
-                data.name(),
-                Check.configName(data.name(), data.configName()),
-                data.alternativeName(),
-                data.experimental(),
-                category);
+                CheckNames.of(data), data.configName(), data.alternativeName(), data.experimental(), category);
     }
 
     private static Entry check(CheckInfo info, CheckCategory category) {
-        return new Entry(
-                info.getName(),
-                Check.configName(info.getName(), info.getConfigName()),
-                info.getAltName(),
-                info.isExperimental(),
-                category);
+        return new Entry(info.getNames(), info.getConfigName(), info.getAltName(), info.isExperimental(), category);
     }
 
+    /**
+     * The check {@code query} names, whatever its case: by its name, config name or alternative name in the newest
+     * name version, else by a name it had in an older one.
+     */
     public static @Nullable Entry find(String query) {
         for (Entry entry : ENTRIES) {
             if (entry.name().equalsIgnoreCase(query)
                     || entry.configName().equalsIgnoreCase(query)
                     || (hasAltName(entry) && entry.altName().equalsIgnoreCase(query))) return entry;
+        }
+        for (Entry entry : ENTRIES) {
+            for (int version = CheckNames.FIRST; version < CheckNames.LATEST; version++) {
+                if (entry.name(version).equalsIgnoreCase(query)
+                        || entry.configName(version).equalsIgnoreCase(query)) return entry;
+            }
         }
         return null;
     }
@@ -462,11 +489,17 @@ public final class CheckCatalog {
         return entries;
     }
 
+    /** The checks whose name in the newest name version contains {@code query}. */
     public static List<Entry> containing(String query) {
+        return containing(query, CheckNames.LATEST);
+    }
+
+    /** The checks whose name in {@code nameVersion} contains {@code query}. */
+    public static List<Entry> containing(String query, int nameVersion) {
         String lower = query.toLowerCase(Locale.ROOT);
         List<Entry> entries = new ArrayList<>();
         for (Entry entry : ENTRIES) {
-            if (entry.name().toLowerCase(Locale.ROOT).contains(lower)) entries.add(entry);
+            if (entry.name(nameVersion).toLowerCase(Locale.ROOT).contains(lower)) entries.add(entry);
         }
         return entries;
     }

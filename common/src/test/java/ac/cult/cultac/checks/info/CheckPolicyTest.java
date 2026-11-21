@@ -31,6 +31,30 @@ class CheckPolicyTest {
     }
 
     @Test
+    void aSelectorMatchesTheNamesOfTheVersionPunishmentsYmlIsWrittenIn() {
+        CheckCatalog.Entry attack = CheckCatalog.find("AttackEntityVisibility");
+        CheckCatalog.Entry players = CheckCatalog.find("InteractPlayerVisibility");
+        CheckCatalog.Entry entities = CheckCatalog.find("InteractEntityVisibility");
+        List<Object> written =
+                List.of(group(List.of("AttackMobVisibility", "InteractEntityVisibility"), "5:5 [alert]"));
+        List<Object> rewritten =
+                List.of(group(List.of("AttackEntityVisibility", "InteractEntityVisibility"), "5:5 [alert]"));
+
+        CheckPolicy first = CheckPolicy.parse(written, 1);
+        assertEquals(Handling.ALERTS, handling(first, attack));
+        // One check up to name version 1: its old name still selects both halves.
+        assertEquals(Handling.ALERTS, handling(first, players));
+        assertEquals(Handling.ALERTS, handling(first, entities));
+        assertEquals(Handling.NONE, handling(CheckPolicy.parse(rewritten, 1), attack));
+
+        CheckPolicy second = CheckPolicy.parse(rewritten, 2);
+        assertEquals(Handling.ALERTS, handling(second, attack));
+        assertEquals(Handling.NONE, handling(second, players));
+        assertEquals(Handling.ALERTS, handling(second, entities));
+        assertEquals(Handling.NONE, handling(CheckPolicy.parse(written, 2), attack));
+    }
+
+    @Test
     void aSelectorMatchesTheAltNameToo() {
         assertEquals(Handling.ALERTS, handling(policy(group(List.of("AntiKnockback"), "5:5 [alert]")), ANTI_KB));
     }

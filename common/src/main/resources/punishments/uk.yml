@@ -114,7 +114,7 @@ Punishments:
     checks:
       - "Interact"
       - "AttackPlayerVisibility"
-      - "AttackMobVisibility"
+      - "AttackEntityVisibility"
       - "Aim"
     commands:
       - "20:40 [alert]"
@@ -137,5 +137,13 @@ Punishments:
       - "1:1 [log]"
       - "3:3 [webhook]"
       - "3:3 [proxy]"
+
+# The version of the check names this file's "checks" lists are written in.
+# Cult never changes it. Raise it yourself, after you have rewritten every name a newer version changed:
+#   1: AttackMobVisibility, bAttackMobVisibility. InteractEntityVisibility covers players too.
+#   2: AttackEntityVisibility, bAttackEntityVisibility. InteractPlayerVisibility covers players,
+#      InteractEntityVisibility everything else.
+# A file without this line is read as version 1.
+punishment-check-name-version: 2
 
 cult-config-version: 6

@@ -382,8 +382,9 @@ public final class CloudCapture implements PlayerObserver {
         };
     }
 
+    // The cloud reads one name per check from every server, whichever name version a server's files are written in.
     private static String checkName(Check check) {
-        String name = check.getCheckName();
+        String name = check.getLatestName();
         return name == null || name.isEmpty() ? check.getClass().getSimpleName() : name;
     }
 

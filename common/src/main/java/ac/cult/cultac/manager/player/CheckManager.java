@@ -75,14 +75,15 @@ import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.scaffolding.*;
 import ac.cult.cultac.checks.impl.sprint.*;
 import ac.cult.cultac.checks.impl.vehicle.*;
-import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.AttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
-import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
+import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.checks.type.*;
 import ac.cult.cultac.events.packets.*;
@@ -338,14 +339,15 @@ public class CheckManager {
                 new PlaceVisibility(player, visibility),
                 new BreakVisibility(player, visibility),
                 new AttackPlayerVisibility(player, visibility),
-                new AttackMobVisibility(player, visibility),
+                new AttackEntityVisibility(player, visibility),
                 new InteractEntityVisibility(player, visibility),
+                new InteractPlayerVisibility(player, visibility),
                 new PlayerHitboxes(player),
                 new EntityHitboxes(player),
                 new BedrockPlayerHitboxes(player),
                 new BedrockEntityHitboxes(player),
                 new BedrockAttackPlayerVisibility(player),
-                new BedrockAttackMobVisibility(player),
+                new BedrockAttackEntityVisibility(player),
                 new BedrockPlaceVisibility(player),
                 new BedrockBreakVisibility(player),
                 new FairReach(player, visibility),
@@ -650,8 +652,9 @@ public class CheckManager {
         registerEarlyReceive(registrations, packetChecks.get(PlaceVisibility.class));
         registerEarlyReceive(registrations, packetChecks.get(BreakVisibility.class));
         registerEarlyReceive(registrations, packetChecks.get(AttackPlayerVisibility.class));
-        registerEarlyReceive(registrations, packetChecks.get(AttackMobVisibility.class));
+        registerEarlyReceive(registrations, packetChecks.get(AttackEntityVisibility.class));
         registerEarlyReceive(registrations, packetChecks.get(InteractEntityVisibility.class));
+        registerEarlyReceive(registrations, packetChecks.get(InteractPlayerVisibility.class));
 
         registerReceive(registrations, packetChecks.get(SimulationProcessor.class));
         registerReceive(registrations, packetChecks.get(ActionManager.class));

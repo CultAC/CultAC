@@ -16,6 +16,9 @@ public @interface CheckData {
 
     String name();
 
+    /** The names the check had in older name versions; see {@link CheckNames}. */
+    FormerName[] formerNames() default {};
+
     String alternativeName() default NO_ALTERNATIVE_NAME;
 
     String configName() default "DEFAULT";

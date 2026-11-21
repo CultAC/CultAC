@@ -35,7 +35,7 @@ checks:
   AntiKB:
     summary: "Ignored or reduced knockback"
     details: "Getting hit or shot knocks you back, and so do server pushes like launch pads. Velocity (also called AntiKB) cheats shrink that knockback or cancel it, so the player barely moves when hit."
-  AttackMobVisibility:
+  AttackEntityVisibility:
     summary: "Attacked a mob through blocks"
     details: "Blocks between you and a mob stop your hits. KillAura and other cheats that attack through walls ignore that."
   AttackPlayerVisibility:
@@ -44,7 +44,7 @@ checks:
   AutoClickerLimit:
     summary: "Clicked too fast"
     details: "Their clicking was too fast for normal play. Autoclickers and click macros do this, including the macro tools that come with some gaming mice."
-  bAttackMobVisibility:
+  bAttackEntityVisibility:
     summary: "Attacked a mob through blocks on Bedrock Edition"
     details: "Blocks between you and a mob stop your hits. KillAura and other cheats on a modified Bedrock client attack through walls anyway."
   bAttackPlayerVisibility:
@@ -72,8 +72,11 @@ checks:
     summary: "Hit a player who was out of reach"
     details: "Some reach cheats fake lag so other players seem closer to them than they really are. Hits like that are blocked."
   InteractEntityVisibility:
-    summary: "Right-clicked a mob or player through blocks or from too far"
-    details: "You can only right-click a mob or player you can see and reach, like when you trade with a villager. Cheat clients can do it through walls or from too far away."
+    summary: "Right-clicked a mob through blocks or from too far"
+    details: "You can only right-click a mob you can see and reach, like when you trade with a villager. Cheat clients can do it through walls or from too far away."
+  InteractPlayerVisibility:
+    summary: "Right-clicked a player through blocks or from too far"
+    details: "You can only right-click a player you can see and reach. Cheat clients can do it through walls or from too far away."
   KeepSprint:
     summary: "Kept full speed after a sprinting hit"
     details: "Hitting something while sprinting slows you down. KeepSprint cheats skip that, so the player keeps chasing and hitting at full speed."

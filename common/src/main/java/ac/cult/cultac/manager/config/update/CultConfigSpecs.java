@@ -1,5 +1,6 @@
 package ac.cult.cultac.manager.config.update;
 
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -110,6 +111,7 @@ public final class CultConfigSpecs {
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
         return ConfigUpdater.Spec.builder("/config/", 20, ConfigUpdater.ConfigFlavor.V2)
+                .operatorStamp(CheckNames.CONFIG_KEY, CheckNames.FIRST)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);

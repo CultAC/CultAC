@@ -39,8 +39,16 @@ public class Check extends CultProcessor implements AbstractCheck {
     private int deferredFlags;
 
     // check data
-    private final @Nullable String checkName;
-    private final @Nullable String configName;
+    @Getter(AccessLevel.NONE)
+    private final @Nullable CheckNames names;
+
+    @Getter(AccessLevel.NONE)
+    private final @Nullable String declaredConfigName;
+
+    // The check's name and the prefix of its config keys, as the name version of config.yml has them: reload sets
+    // both, first from the constructor.
+    private @Nullable String checkName;
+    private @Nullable String configName;
     private final @Nullable String alternativeName;
     private final @NotNull String stableKey;
     private final boolean experimental;
@@ -67,23 +75,22 @@ public class Check extends CultProcessor implements AbstractCheck {
 
         final CheckData checkData = this.getClass().getAnnotation(CheckData.class);
         if (checkData != null) {
-            this.checkName = checkData.name();
-            this.configName = configName(this.checkName, checkData.configName());
+            this.names = CheckNames.of(checkData);
+            this.declaredConfigName = checkData.configName();
             this.defaultDecay = checkData.decay();
             this.defaultSetbackVL = checkData.setback();
             this.alternativeName = checkData.alternativeName();
             this.experimental = checkData.experimental();
             this.defaultDescription = checkData.description();
             this.stableKey = checkData.stableKey();
-            this.displayName = this.checkName;
         } else {
             this.defaultDescription = CheckData.DEFAULT_DESCRIPTION;
             this.defaultDecay = CheckData.DEFAULT_DECAY;
             this.defaultSetbackVL = CheckData.DEFAULT_SETBACK;
             this.stableKey = "";
             this.alternativeName = null;
-            this.checkName = null;
-            this.configName = null;
+            this.names = null;
+            this.declaredConfigName = null;
             this.experimental = false;
         }
 
@@ -95,15 +102,14 @@ public class Check extends CultProcessor implements AbstractCheck {
         super(Objects.requireNonNull(player, "player"));
         Objects.requireNonNull(checkInfo, "checkInfo");
 
-        this.checkName = checkInfo.getName();
-        this.configName = configName(this.checkName, checkInfo.getConfigName());
+        this.names = checkInfo.getNames();
+        this.declaredConfigName = checkInfo.getConfigName();
         this.defaultDecay = checkInfo.getDecay();
         this.defaultSetbackVL = checkInfo.getSetback();
         this.alternativeName = checkInfo.getAltName();
         this.experimental = checkInfo.isExperimental();
         this.defaultDescription = checkInfo.getDescription();
         this.stableKey = Objects.requireNonNull(checkInfo.getStableKey(), "checkInfo.stableKey");
-        this.displayName = this.checkName;
 
         reload();
     }
@@ -111,6 +117,21 @@ public class Check extends CultProcessor implements AbstractCheck {
     /** The prefix of a check's config keys: the declared config name, or the check name when it declares none. */
     public static @NotNull String configName(@NotNull String checkName, @Nullable String declared) {
         return declared == null || declared.equals("DEFAULT") ? checkName : declared;
+    }
+
+    /** The check's name as name version {@code version} has it, or null for a check without a name. */
+    public @Nullable String nameIn(int version) {
+        return names == null ? null : names.in(version);
+    }
+
+    /** The prefix of the check's config keys and its permission id as name version {@code version} has them. */
+    public @Nullable String configNameIn(int version) {
+        return names == null ? null : configName(names.in(version), declaredConfigName);
+    }
+
+    /** The check's name in the newest name version, whichever version this server's files are written in. */
+    public @Nullable String getLatestName() {
+        return names == null ? null : names.latest();
     }
 
     /** Whether this check may run for Bedrock-platform players. */
@@ -338,7 +359,13 @@ public class Check extends CultProcessor implements AbstractCheck {
 
     @Override
     public final void reload(@NotNull ConfigManager configuration) {
-        if (configName != null) {
+        if (names != null) {
+            String previous = configName;
+            int nameVersion = CheckNames.version(configuration, CheckNames.CONFIG_KEY);
+            checkName = names.in(nameVersion);
+            configName = configName(checkName, declaredConfigName);
+            // The permission nodes carry the config name.
+            if (previous != null && !previous.equals(configName)) updatePermissions();
             decay = configuration.getDoubleElse(configName + ".decay", defaultDecay);
             setbackVL = configuration.getDoubleElse(configName + ".setbackvl", defaultSetbackVL);
             displayName = configuration.getStringElse(configName + ".displayname", checkName);
