@@ -606,6 +606,42 @@ class OlderBackendRegistriesTest {
     }
 
     @Test
+    void aFailedTagsOnlyGenerationStopsResolvingABiomeItResolvedBefore() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = RecordReceiveFixture.olderHost(HOST)) {
+            listen(fixture);
+            fixture.phase(ConnectionPhase.CONFIGURATION);
+            send(fixture, coldBiomes(fixture));
+            finishConfiguration(fixture);
+            var player = fixture.player;
+            var registries = player.getWorldRegistries();
+            var overworld = registries.dimension("minecraft:overworld");
+            player.compensatedWorld.setLastClientboundDimension("minecraft:overworld", overworld.dimension());
+            int sections = player.compensatedWorld.getLastClientboundSectionCount();
+            var updates = new ArrayList<Object>();
+            fixture.registrar.register(routes -> routes.sendRoute(
+                    fixture.registrar.runtime().typeForKey("clientbound.chunks_biomes"),
+                    PacketListenerPriority.NORMAL,
+                    (event, ignored, packet) -> updates.add(packet)));
+            send(fixture, biomeUpdate(fixture, sections, 1));
+            assertEquals(1, updates.size());
+
+            reconfigure(fixture);
+            send(fixture, tags(fixture, ClientWorldRegistries.TIMELINES, "example:any", 0));
+            var failures =
+                    sendReporting(fixture, frame(fixture, ConnectionPhase.CONFIGURATION, "finish_configuration"));
+            fixture.phase(ConnectionPhase.PLAY);
+            assertEquals(1, failures.size(), failures.toString());
+            assertTrue(fixture.connection.require(RegistryNames.class).id(BIOME, COLD) < 0);
+
+            failures = sendReporting(fixture, biomeUpdate(fixture, sections, 1));
+            assertEquals(1, failures.size(), failures.toString());
+            assertTrue(failures.getFirst().contains("Unavailable older biome " + COLD), failures.toString());
+            assertEquals(1, updates.size());
+        }
+    }
+
+    @Test
     void failedGenerationBindsDimensionTypesByName() throws Exception {
         try (var services = new RecordConsumerServices();
                 var fixture = RecordReceiveFixture.olderHost(HOST)) {
