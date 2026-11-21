@@ -21,7 +21,6 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
-import ac.cult.cultac.utils.nmsutil.JavaLoaderFluids;
 import ac.cult.cultac.utils.nmsutil.WaterCurrent;
 import java.util.ArrayList;
 import java.util.List;
@@ -231,15 +230,10 @@ public class VelocityTransformer {
         }
 
         var currents = new BaseTickCurrents(player);
-        boolean currentless = JavaLoaderFluids.mayApplyNoCurrent(player);
         List<PredVector> transformed = new ArrayList<>(input.size());
         for (PredVector vector : input) {
-            int first = transformed.size();
             for (PredVector wet : withCurrent(currents, vector, false))
                 transformed.addAll(withCurrent(currents, wet, true));
-            // The claimed loader may have added neither current: the velocity as it entered baseTick.
-            if (currentless && (transformed.size() != first + 1 || transformed.get(first) != vector))
-                transformed.add(vector);
         }
         return transformed;
     }

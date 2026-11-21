@@ -310,6 +310,8 @@ public class CultPlayer implements GrimUser {
     public final @NotNull KeepAliveProcessor keepAliveProcessor;
     public final @NotNull NettyScheduler nettyScheduler;
     public @NotNull TrigHandler trigHandler;
+    public final ac.cult.cultac.utils.nmsutil.JavaLoaderFluids loaderFluids =
+            new ac.cult.cultac.utils.nmsutil.JavaLoaderFluids(this);
     /** Scoped to one complete Java simulation state; null before a fluid-tag order is needed. */
     public ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder clientFluidTagOrder;
     /** The client's JVM order, once an accepted movement distinguishes it; survives world/vehicle changes. */

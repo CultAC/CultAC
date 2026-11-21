@@ -262,6 +262,8 @@ public final class JavaMovementEngine implements MovementEngine {
         NextTickVelocityDeriver.Scratch scratch =
                 player.checkManager.getSimulationProcessor().velocityScratch().take();
         player.compensatedEntities.beginMovementPositionReads();
+        // Every candidate committed with this result simulated its mod loader build.
+        boolean simulatedBuild = player.loaderFluids.select(result.getSimulationContext().isLoaderWithoutCurrent());
         try {
             var commit = commitNextTick(player, result, lastPrediction, acceptedDiff, scratch);
             if (!failedChecks(result)) proveMovementPatch(player, result);
@@ -275,6 +277,7 @@ public final class JavaMovementEngine implements MovementEngine {
             }
             return commit;
         } finally {
+            player.loaderFluids.restore(simulatedBuild);
             player.compensatedEntities.endMovementPositionReads();
             scratch.release();
         }
@@ -809,6 +812,16 @@ public final class JavaMovementEngine implements MovementEngine {
                 var pass = passAfterTravel(result);
                 if (pass != null) effects = afterPass(player, result, pass, end, effects);
                 states.add(carriedState(result, moved, end, effects, outcome.spinRebound(), fallRange, tick));
+                if (pass == null || !player.loaderFluids.buildsApart()) continue;
+                // The pass moves the actor alike on either build of a claimed mod loader, so the report cannot tell
+                // them apart: carry what the other build's checkFallDamage leaves too.
+                boolean simulated = player.loaderFluids.select(!player.loaderFluids.simulatesWithoutCurrent());
+                try {
+                    var other = afterPass(player, result, pass, end, outcome.effects());
+                    states.add(carriedState(result, moved, end, other, outcome.spinRebound(), fallRange, tick));
+                } finally {
+                    player.loaderFluids.restore(simulated);
+                }
             }
         }
         return states;

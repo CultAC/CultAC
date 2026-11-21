@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -135,8 +136,31 @@ class JavaSneakEdgeWaterTest {
      */
     @Test
     void theCurrentTheEdgeHidesIsReleasedWithShift() throws Exception {
+        releaseTheEdgesCurrent(null, 0.014D);
+    }
+
+    /**
+     * Forge 26.3 before 66.0.5 pushes no entity by a fluid. The held position is the same on either build of a client
+     * claiming Forge, so the edge hides the deltaMovement of the build its last telling move followed: the keys'
+     * alone once it waded without the current, the current too as on vanilla otherwise.
+     */
+    @Test
+    void aClaimedForgeHidesItsOwnBuildsDeltaMovementAtTheEdge() throws Exception {
+        releaseTheEdgesCurrent("forge", 0.0D);
+        releaseTheEdgesCurrent("forge", 0.014D);
+    }
+
+    private static void releaseTheEdgesCurrent(String brand, double current) throws Exception {
         try (var f = new JavaTickFixture()) {
+            if (brand != null) f.player.checkManager.getCheck(ClientBrand.class).restore(brand);
             flowingTowardTheEdge(f);
+            if (brand != null && current == 0.0D) {
+                // One step in the source at x = 8, which flows +x, that only the build without the current explains.
+                Vec3 wading = new Vec3(8.5, FLOOR_Y, 0.5);
+                f.place(wading, new Vec3(0.05, -0.005, 0.0));
+                assertTrue(exact(f.tick(wading.add(0.05, 0.0, 0.0), true)));
+                assertTrue(f.player.loaderFluids.prefersWithoutCurrent());
+            }
             float yaw = 0.0F;
             rotate(f, yaw, 20.0F);
             double z = 0.5;
@@ -144,13 +168,13 @@ class JavaSneakEdgeWaterTest {
             // The source at x = 8 and the level-1 water at x = 9 both flow +x: the player current is 0.014 along x.
             f.input(SHIFT);
             assertTrue(exact(f.tick(new Vec3(EDGE_X, FLOOR_Y, z), true)));
-            double velocityX = 0.014D * 0.8F;
+            double velocityX = current * 0.8F;
 
             f.input(SNEAK_IN_WATER);
             Vec3 input = ClientMoveInput.of(f, SNEAK_IN_WATER, 0.3F, 0.02F, yaw);
             double velocityZ = 0.0;
             for (int tick = 0; tick < 6; tick++) {
-                velocityX += 0.014D + input.x;
+                velocityX += current + input.x;
                 velocityZ += input.z;
                 z += velocityZ;
                 PredictionResult result = f.tick(new Vec3(EDGE_X, FLOOR_Y, z), true);
@@ -163,7 +187,7 @@ class JavaSneakEdgeWaterTest {
             Vec3 release = ClientMoveInput.of(f, WADE, 0.3F, 0.02F, yaw);
             f.input(WADE);
             PredictionResult result = f.tick(
-                    new Vec3(EDGE_X + velocityX + 0.014D + release.x, FLOOR_Y, z + velocityZ + release.z), true);
+                    new Vec3(EDGE_X + velocityX + current + release.x, FLOOR_Y, z + velocityZ + release.z), true);
             assertTrue(exact(result), describe(result));
         }
     }

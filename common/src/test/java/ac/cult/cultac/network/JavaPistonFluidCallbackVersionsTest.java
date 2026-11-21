@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
@@ -23,6 +24,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.List;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /** LivingEntity's virtual fall callback runs once per reached Entity#move, before collision response. */
@@ -55,6 +57,46 @@ class JavaPistonFluidCallbackVersionsTest {
             assertEquals(8.1, after.position().x, 1e-13);
             assertEquals(version == ClientVersion.V_1_21_4 ? 0 : .014D, after.velocity().z, 1e-13);
             assertEquals(version == ClientVersion.V_1_21_4 ? 1 : 0, after.fallDistance(), 0);
+        }
+    }
+
+    /**
+     * NeoForge 21.10.31 through 21.11.x passes false to the callback's water refresh, and Forge 26.3 before 66.0.5
+     * applies no current: on that build of a claimed loader the move resets the fall and leaves deltaMovement alone.
+     */
+    @ParameterizedTest
+    @CsvSource({"neoforge,V_1_21_9", "neoforge,V_1_21_11", "forge,V_26_3"})
+    void aClaimedLoadersBuildWithoutTheCurrentRefreshesTheContactAlone(String brand, ClientVersion version)
+            throws Exception {
+        try (var f = flowing(version, false)) {
+            f.player.checkManager.getCheck(ClientBrand.class).restore(brand);
+            var travel = travel(f);
+            boolean simulated = f.player.loaderFluids.select(true);
+            try {
+                var after = run(f, travel, List.of(move(new Vec3(.5, 0, 0))));
+                assertEquals(0, after.velocity().z, 0);
+                assertEquals(0, after.fallDistance(), 0);
+                assertTrue(after.inWater());
+            } finally {
+                f.player.loaderFluids.restore(simulated);
+            }
+            assertEquals(.014D, run(f, travel, List.of(move(new Vec3(.5, 0, 0)))).velocity().z, 1e-13);
+        }
+    }
+
+    /** A loader the client does not claim, or one whose patch leaves this protocol alone, keeps the current. */
+    @ParameterizedTest
+    @CsvSource({"fabric,V_1_21_11", "neoforge,V_26_3", "forge,V_1_21_11"})
+    void anotherLoaderKeepsTheCallbacksCurrent(String brand, ClientVersion version) throws Exception {
+        try (var f = flowing(version, false)) {
+            f.player.checkManager.getCheck(ClientBrand.class).restore(brand);
+            var travel = travel(f);
+            boolean simulated = f.player.loaderFluids.select(true);
+            try {
+                assertEquals(.014D, run(f, travel, List.of(move(new Vec3(.5, 0, 0)))).velocity().z, 1e-13);
+            } finally {
+                f.player.loaderFluids.restore(simulated);
+            }
         }
     }
 

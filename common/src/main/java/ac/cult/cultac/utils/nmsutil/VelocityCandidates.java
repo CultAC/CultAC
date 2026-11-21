@@ -155,13 +155,24 @@ public final class VelocityCandidates {
             PredictionResult result, Vec3 velocity, Vec3 input, boolean cleared, JavaHiddenTravelInput.Variant hidden) {
         CultPlayer player = result.getPlayer();
         if (player == null) return afterMove(result, velocity, velocity, input, cleared, hidden);
-        Vec3 pushed = applyPostMoveLivingFluidCurrent(player, result, velocity);
-        List<Moved> moves = afterMove(result, velocity, pushed, input, cleared, hidden);
-        if (pushed.equals(velocity) || !JavaLoaderFluids.mayRefreshWithoutCurrent(player)) return moves;
-        // The claimed loader's checkFallDamage may have refreshed the contact alone: the same move, without the push.
-        List<Moved> either = new ArrayList<>(moves);
-        for (Moved dry : afterMove(result, velocity, velocity, input, cleared, hidden))
-            if (!either.contains(dry)) either.add(dry);
+        JavaLoaderFluids fluids = player.loaderFluids;
+        if (!fluids.buildsApart())
+            return afterMove(
+                    result, velocity, applyPostMoveLivingFluidCurrent(player, result, velocity), input, cleared, hidden);
+        // The move ends where it does on either build of the claimed loader, so no report has told them apart when
+        // checkFallDamage refreshes the fluids: carry what each leaves, the simulated build's first.
+        boolean simulated = fluids.select(false);
+        Vec3 pushed;
+        try {
+            pushed = applyPostMoveLivingFluidCurrent(player, result, velocity);
+        } finally {
+            fluids.restore(simulated);
+        }
+        List<Moved> wet = afterMove(result, velocity, pushed, input, cleared, hidden);
+        if (pushed.equals(velocity)) return wet;
+        List<Moved> dry = afterMove(result, velocity, velocity, input, cleared, hidden);
+        List<Moved> either = new ArrayList<>(simulated ? dry : wet);
+        for (Moved other : simulated ? wet : dry) if (!either.contains(other)) either.add(other);
         return either;
     }
 

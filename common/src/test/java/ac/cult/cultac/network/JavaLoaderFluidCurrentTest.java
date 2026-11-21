@@ -137,6 +137,62 @@ class JavaLoaderFluidCurrentTest {
         }
     }
 
+    @Test
+    void forgeSimulatesTheBuildItsLastMovementFollowedFirst() throws Exception {
+        try (var f = channel()) {
+            brand(f, "forge");
+            f.place(WADING, WADING_VELOCITY);
+            double dx = WADING_VELOCITY.x;
+            Vec3 position = WADING.add(dx, 0.0, 0.0);
+            assertExact(f.tick(position, true));
+            assertTrue(f.player.loaderFluids.prefersWithoutCurrent());
+
+            dx *= 0.8F;
+            position = position.add(dx, 0.0, 0.0);
+            assertExact(f.tick(position, true));
+            assertTrue(f.player.loaderFluids.prefersWithoutCurrent());
+
+            // The same client cannot gain the current later, but the engine follows whichever build explains a move.
+            dx = dx * 0.8F + CURRENT;
+            assertExact(f.tick(position.add(dx, 0.0, 0.0), true));
+            assertFalse(f.player.loaderFluids.prefersWithoutCurrent());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aReportedForgeBuildIsTheOnlyOneSimulated(boolean withoutCurrent) throws Exception {
+        try (var f = channel()) {
+            brand(f, "forge");
+            f.player.loaderFluids.know(withoutCurrent);
+            f.place(WADING, WADING_VELOCITY);
+            assertFlagged(f.tick(WADING.add(WADING_VELOCITY.x + (withoutCurrent ? CURRENT : 0.0), 0.0, 0.0), true));
+        }
+        try (var f = channel()) {
+            brand(f, "forge");
+            f.player.loaderFluids.know(withoutCurrent);
+            f.place(WADING, WADING_VELOCITY);
+            assertExact(f.tick(WADING.add(WADING_VELOCITY.x + (withoutCurrent ? 0.0 : CURRENT), 0.0, 0.0), true));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aReportedNeoForgeBuildCarriesOnlyItsOwnEntryVelocity(boolean contactOnly) throws Exception {
+        try (var f = stream(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
+            brand(f, "neoforge");
+            f.player.loaderFluids.know(contactOnly);
+            enterStream(f);
+            assertFlagged(f.tick(afterEntry(!contactOnly), false));
+        }
+        try (var f = stream(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
+            brand(f, "neoforge");
+            f.player.loaderFluids.know(contactOnly);
+            enterStream(f);
+            assertExact(f.tick(afterEntry(contactOnly), false));
+        }
+    }
+
     private static void brand(JavaTickFixture f, String brand) {
         f.player.checkManager.getCheck(ClientBrand.class).restore(brand);
     }

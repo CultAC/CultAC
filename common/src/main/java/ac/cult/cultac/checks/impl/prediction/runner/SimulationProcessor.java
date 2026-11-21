@@ -322,6 +322,15 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
      * the player. {@code sneaking} is the shift key Player#isSuppressingBounce reads during the pass.
      */
     private void replayPassBeforeTravel(ClientBlockEntityPass pass, boolean sneaking) {
+        boolean simulatedBuild = this.player.loaderFluids.simulatesWithoutCurrent();
+        try {
+            this.replayPassBeforeTravel(pass, sneaking, simulatedBuild);
+        } finally {
+            this.player.loaderFluids.restore(simulatedBuild);
+        }
+    }
+
+    private void replayPassBeforeTravel(ClientBlockEntityPass pass, boolean sneaking, boolean simulatedBuild) {
         if (this.player.gamemode == GameMode.SPECTATOR
                 || this.lastPrediction == null
                 || this.lastPrediction.getSimulationContext() == null
@@ -384,7 +393,16 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         DesyncStatus passHard = null;
         boolean movedSelf = false;
         List<JavaPredictionCarry.State> after = new ArrayList<>(starts.size());
-        for (JavaPredictionCarry.State state : starts) {
+        var fluids = this.player.loaderFluids;
+        fluids.watch();
+        for (int index = 0; index < starts.size() * 2; index++) {
+            if (index == starts.size()) {
+                // No report tells the builds of a claimed mod loader apart inside the pass: the other build replays
+                // it too, once checkFallDamage reached a current they disagree on.
+                if (!fluids.buildsApart() || !fluids.decided()) break;
+                fluids.select(!simulatedBuild);
+            }
+            JavaPredictionCarry.State state = starts.get(index % starts.size());
             JavaPredictionCarry.PistonStart anchored = state.pistonStart();
             var start = new JavaPassState(
                     anchored == null ? position : anchored.position(),
@@ -2717,7 +2735,66 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return this.debugUncertaintyOnTick;
     }
 
+    /**
+     * The prediction on the claimed mod loader's build the player last followed, and on its other build when that one
+     * fails over a fluid current the two disagree on. An accepted movement keeps its build for the next ticks.
+     */
     private PredictionResult predict(
+            CultPlayer player,
+            Set<Vec3> startingVel,
+            PredictionResult lastPrediction,
+            Vec3 target,
+            Vec3 start,
+            Vec3 end,
+            boolean testing,
+            float xRot,
+            float yRot,
+            AuthoredMovementFrame authoredMovementFrame,
+            MovementProfile movementProfile) {
+        var fluids = player.loaderFluids;
+        boolean preferred = fluids.prefersWithoutCurrent();
+        try {
+            fluids.select(preferred);
+            fluids.watch();
+            PredictionResult selected = predictTables(
+                    player,
+                    startingVel,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile);
+            if (!fluids.decided() || !fluids.buildsApart() || selected.isExempt()) return selected;
+            if (!selected.getFlags().isEmpty()) {
+                fluids.select(!preferred);
+                PredictionResult other = predictTables(
+                        player,
+                        startingVel,
+                        lastPrediction,
+                        target,
+                        start,
+                        end,
+                        testing,
+                        xRot,
+                        yRot,
+                        authoredMovementFrame,
+                        movementProfile);
+                if (JavaMovementEngine.INSTANCE.isBetterCandidate(other, selected)) selected = other;
+            }
+            if (!testing && selected.getFlags().isEmpty())
+                fluids.prefer(selected.getSimulationContext().isLoaderWithoutCurrent());
+            return selected;
+        } finally {
+            // Outside a prediction the player's own build is the one simulated.
+            fluids.select(fluids.prefersWithoutCurrent());
+        }
+    }
+
+    private PredictionResult predictTables(
             CultPlayer player,
             Set<Vec3> startingVel,
             PredictionResult lastPrediction,
@@ -3574,6 +3651,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                         : lastTickSupport,
                 player.pose,
                 player.dimensionScale);
+        context.setLoaderWithoutCurrent(player.loaderFluids.simulatesWithoutCurrent());
         // Player#tick assigns noPhysics and clears onGround before its travel.
         context.setNoPhysics(!player.isBedrockMovement() && riding == null && player.gamemode == GameMode.SPECTATOR);
         if (context.isNoPhysics() && context.getVersion().isOlderThan(ClientVersion.V_1_21_9)) {

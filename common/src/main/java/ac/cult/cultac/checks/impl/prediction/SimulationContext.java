@@ -130,6 +130,10 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     @Setter
     ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder;
 
+    /** Whether this candidate simulated the claimed mod loader's build that leaves a fluid current out. */
+    @Setter
+    boolean loaderWithoutCurrent;
+
     @Setter
     JavaPredictionCarry.PistonStart pistonStartState;
 
@@ -979,6 +983,7 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         sb.append(", worldData=").append(worldData);
         sb.append(", movementPatch=").append(movementPatch);
         sb.append(", fluidTagOrder=").append(fluidTagOrder);
+        sb.append(", loaderWithoutCurrent=").append(loaderWithoutCurrent);
         sb.append(", pistonStartState=").append(pistonStartState);
         sb.append(", riptideLevel=").append(riptideLevel);
         sb.append(", riptideReleaseCertain=").append(riptideReleaseCertain);

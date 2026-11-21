@@ -161,6 +161,8 @@ public final class FluidCurrent {
                 currentZ = currentZ / length * 0.0045000000000000005;
             }
         }
+        // The contact stands; the claimed loader's build under simulation may apply no current to it.
+        if (player.loaderFluids.omitsCurrent()) return false;
         this.x = currentX;
         this.y = currentY;
         this.z = currentZ;

@@ -56,7 +56,8 @@ public final class JavaLivingMoveFluids {
             Vec3 feet = new Vec3((box.minX + box.maxX) / 2, box.minY, (box.minZ + box.maxZ) / 2);
             // Through 1.21.11 this callback pushes the passenger by water only, as below.
             var sampled = JavaPassengerFluids.sample(player, box, feet, velocity, passengerVehicleBox,
-                    feet.y + eyeHeight, !player.isFlying, version.isNewerThanOrEquals(ClientVersion.V_26_1));
+                    feet.y + eyeHeight, !player.isFlying && !player.loaderFluids.omitsRefreshCurrent(),
+                    version.isNewerThanOrEquals(ClientVersion.V_26_1));
             return new Result(sampled.velocity(), sampled.water(),
                     version.isNewerThanOrEquals(ClientVersion.V_26_1) ? sampled.lava() : inLava,
                     sampled.water(), true, version.isNewerThanOrEquals(ClientVersion.V_26_1) ? sampled.eye() : -1);
@@ -67,7 +68,9 @@ public final class JavaLivingMoveFluids {
         boolean waterCurrent =
                 current.compute(player, box, playerEntity, velocity.x, velocity.z, FluidTags.WATER, .014D);
         inWater = current.touching;
-        if (pushed && waterCurrent) velocity = velocity.add(current.x, current.y, current.z);
+        // The claimed loader's build under simulation may refresh the contact alone.
+        if (pushed && waterCurrent && !player.loaderFluids.omitsRefreshCurrent())
+            velocity = velocity.add(current.x, current.y, current.z);
 
         // Through 1.21.11 this callback refreshes only water. The combined interaction refresh
         // starts in 26.1 and applies water first, then lava using the resulting deltaMovement.
