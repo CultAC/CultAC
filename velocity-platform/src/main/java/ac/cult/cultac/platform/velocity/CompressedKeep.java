@@ -22,6 +22,7 @@ import java.lang.invoke.VarHandle;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.zip.Adler32;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -75,6 +76,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     private static final int ADD_PENDING = contextConstant("ADD_PENDING");
     private static final InternalLogger CONTEXT_LOGGER =
             InternalLoggerFactory.getInstance("io.netty.channel.AbstractChannelHandlerContext");
+    private static final int NOT_INFLATED = 0, INFLATED = 1, HELD = 2;
+    // A zlib stream's two-byte header and four-byte checksum.
+    private static final int ZLIB_WRAPPER = 6;
 
     /**
      * The backend decoder's threshold and limiter getters and its compressor's {@code inflate(ByteBuf, ByteBuf, int)},
@@ -92,6 +96,7 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     private final CompressedForwarder forwarder;
     private final Predicate<ByteBufAllocator> trustedAllocators;
     private final Runnable untrusted;
+    private final Adler32 checksum = new Adler32();
     private @Nullable ChannelHandlerContext keepContext, decoderContext;
     private @Nullable MessageToMessageDecoder<?> decoder;
     private @Nullable Codec codec;
@@ -353,7 +358,8 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         int start = frame.readerIndex();
         int end = frame.writerIndex();
         int n = claimed(frame, codec, start, end);
-        if (n <= 0) {
+        // The private frame is sent to the client, whose encoder allocates its frame from the client's allocator.
+        if (n <= 0 || alloc != forwarder.clientAllocator()) {
             ctx.fireChannelRead(msg);
             return;
         }
@@ -421,12 +427,13 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
                     client = forwarder.frameBuffer(alloc, CompressedForwarder.varIntSize(n) + end - body);
                     if (client != null) copy = allocate(alloc, n);
                     boolean forwardable = forwardable(alloc, frame, codec, body, end);
-                    held = forwardable
-                            && copy != null
-                            && heldInflate(codec, frame, body, end - body, n, client, uncompressed, copy);
                     refusedTrust = distrusted;
                     distrusted = false;
-                    if (!held) {
+                    int outcome = forwardable && copy != null
+                            ? heldInflate(codec, frame, body, end - body, n, client, uncompressed, copy)
+                            : NOT_INFLATED;
+                    held = outcome == HELD;
+                    if (outcome == NOT_INFLATED) {
                         uncompressed.clear();
                         inflate(codec, frame, uncompressed, n);
                     }
@@ -593,23 +600,48 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
 
     /**
      * Frames the claim {@code n} and the {@code length} body bytes of {@code frame} at {@code body} into {@code client},
-     * inflates that copy of the body into {@code inflated} with the decoder's compressor, copies the result into
-     * {@code copy} and moves {@code frame}'s reader as the compressor moves its source; false when a step fails or the
-     * compressor reports part of the body unread.
+     * inflates that copy of the body into {@code inflated} with the decoder's compressor, raising what the compressor
+     * raises, moves {@code frame}'s reader as the compressor moves its source and copies the result into {@code copy}.
+     * Returns {@link #NOT_INFLATED} when the copy cannot be made in the shape the compressor reads, {@link #INFLATED}
+     * when the inflate returned but the frame cannot be forwarded, else {@link #HELD}.
      */
-    private static boolean heldInflate(
-            Codec codec, ByteBuf frame, int body, int length, int n, ByteBuf client, ByteBuf inflated, ByteBuf copy) {
+    private int heldInflate(
+            Codec codec, ByteBuf frame, int body, int length, int n, ByteBuf client, ByteBuf inflated, ByteBuf copy)
+            throws Exception {
         // From the first read of the frame's body to the publish only netty's buffers and Velocity's compressor run.
+        ByteBuf source;
         try {
             CompressedForwarder.fillFrame(client, n, frame, body, length);
-            ByteBuf source = client.slice(client.writerIndex() - length, length);
-            codec.inflate().invokeExact(source, inflated, n);
-            if (inflated.writerIndex() != n) return false;
-            // Velocity's Java compressor advances its source past the stream it read; libdeflate never moves it.
-            if (!codec.address() && source.isReadable()) return false;
+            source = client.slice(client.writerIndex() - length, length);
+            if (source.nioBufferCount() != 1 || (codec.address() && !source.hasMemoryAddress())) return NOT_INFLATED;
+        } catch (Throwable failure) {
+            return NOT_INFLATED;
+        }
+        inflate(codec, source, inflated, n);
+        // Velocity's Java compressor advances its source past the stream it read; libdeflate never moves it.
+        frame.readerIndex(Math.min(body + source.readerIndex(), frame.writerIndex()));
+        if (inflated.writerIndex() != n) return INFLATED;
+        if (codec.address() ? !endsWithChecksum(source, inflated, n) : source.isReadable()) return INFLATED;
+        try {
             copy.writeBytes(inflated, inflated.readerIndex(), n);
-            frame.readerIndex(Math.min(body + source.readerIndex(), frame.writerIndex()));
-            return true;
+        } catch (Throwable failure) {
+            return INFLATED;
+        }
+        return HELD;
+    }
+
+    /**
+     * Whether the last four bytes of {@code source} are the big-endian Adler-32 of the {@code n} bytes of
+     * {@code inflated}, which libdeflate reads directly after the deflate stream it decoded; false when the inspection
+     * throws, which leaves {@code inflated} to the decoder's ordinary path.
+     */
+    private boolean endsWithChecksum(ByteBuf source, ByteBuf inflated, int n) {
+        try {
+            if (source.readableBytes() < ZLIB_WRAPPER || inflated.nioBufferCount() != 1) return false;
+            Adler32 adler = checksum;
+            adler.reset();
+            adler.update(inflated.internalNioBuffer(inflated.readerIndex(), n));
+            return source.getInt(source.writerIndex() - 4) == (int) adler.getValue();
         } catch (Throwable failure) {
             return false;
         }

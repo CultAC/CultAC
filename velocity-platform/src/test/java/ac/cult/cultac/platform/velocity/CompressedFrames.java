@@ -165,9 +165,14 @@ final class CompressedFrames {
         }
     }
 
-    /** The stand-in compressor classes, in the roles of Velocity's Java and libdeflate compressors. */
-    static final VelocityCompressedForward.Compressors COMPRESSORS =
-            new VelocityCompressedForward.Compressors(SharedCompressor.class, AddressCompressor.class);
+    /** The stand-in compressor classes, in the roles of Velocity's Java and libdeflate compressors, both forwarded. */
+    static final VelocityCompressedForward.Compressors COMPRESSORS = new VelocityCompressedForward.Compressors(
+            SharedCompressor.class, AddressCompressor.class, VelocityCompressedForward.Mode.TRUSTED_BACKENDS);
+
+    /** As {@link #COMPRESSORS}, under the mode that forwards only the Java compressor's frames. */
+    static final VelocityCompressedForward.Compressors ONE_STREAM_COMPRESSORS =
+            new VelocityCompressedForward.Compressors(
+                    SharedCompressor.class, AddressCompressor.class, VelocityCompressedForward.Mode.ONE_STREAM);
 
     /**
      * A compressor in the role of Velocity's Java one, which a client's two codecs share and a decoder closes when it

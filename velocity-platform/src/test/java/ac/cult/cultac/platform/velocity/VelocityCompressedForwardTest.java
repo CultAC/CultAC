@@ -5,13 +5,19 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.PacketDispatcher;
+import ac.cult.cultac.network.event.PacketListenerPriority;
+import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ProtocolData;
 import ac.cult.cultac.protocol.netty.CultEncoder;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.velocitypowered.api.event.EventHandler;
@@ -62,6 +68,7 @@ import java.io.InputStream;
 import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.nio.ByteBuffer;
@@ -75,6 +82,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -83,6 +91,7 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.zip.Adler32;
 import java.util.zip.DataFormatException;
@@ -1322,7 +1331,8 @@ class VelocityCompressedForwardTest {
                     allocator.beforeDirect = atDirectAllocation(at, () -> {
                         throw new OutOfMemoryError("direct memory");
                     });
-                    f.backend.config().setAllocator(allocator);
+                    if (forward) f.allocator(allocator);
+                    else f.backend.config().setAllocator(allocator);
                     Throwable thrown = null;
                     try {
                         f.read(read.clone());
@@ -1414,8 +1424,10 @@ class VelocityCompressedForwardTest {
             assertEquals(1, f.forwarder.notMarked(), "the decoded packet reaches the encoder unpublished");
             assertEquals("linked", f.forwarder.linkStatus());
         }
-        // libdeflate reports no consumed length, so its frame keeps the backend's bytes, the unread one included.
+        // libdeflate reports no consumed length; a body that does not end with the stream's checksum is recompressed.
         Options libdeflate = Options.forwarding().consume(false);
+        byte[] libdeflateToday = today(libdeflate, read);
+        assertPackets(List.of(packet), read(libdeflateToday, THRESHOLD));
         try (var f = new Fixture(libdeflate)) {
             replaceFrames(
                     f,
@@ -1423,12 +1435,9 @@ class VelocityCompressedForwardTest {
                             .directBuffer(frame.readableBytes())
                             .writeBytes(frame, frame.readerIndex(), frame.readableBytes()));
             f.read(read);
-            byte[] wire = f.wire();
-            var frames = read(wire, THRESHOLD, true);
-            assertPackets(List.of(packet), frames);
-            assertArrayEquals(body, frames.getFirst().body(), "the backend's frame, its last byte included");
-            assertEquals(1, f.forwarder.forwarded());
-            assertThrows(DecoderException.class, () -> read(wire, THRESHOLD), "a reader that wants an exact stream");
+            assertSameBytes(libdeflateToday, f.wire());
+            assertEquals(0, f.forwarder.forwarded());
+            assertEquals(1, f.forwarder.notMarked(), "the decoded packet reaches the encoder unpublished");
         }
     }
 
@@ -1508,7 +1517,7 @@ class VelocityCompressedForwardTest {
         try (var f = new Fixture(Options.forwarding())) {
             var allocator = new RecordingAllocator();
             allocator.failingSlices = true;
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             f.read(read);
             assertSameBytes(today(Options.forwarding(), read), f.wire());
             assertEquals(0, f.forwarder.forwarded());
@@ -1584,7 +1593,7 @@ class VelocityCompressedForwardTest {
             try (var f = new Fixture(Options.forwarding())) {
                 var allocator = new RecordingAllocator();
                 allocator.beforeDirect = once(() -> f.decoder.packetLimiter = limiter(limiter.apply(f)));
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 assertSameBytes(today, f.wire());
                 assertEquals(0, f.forwarder.forwarded(), label);
@@ -1654,7 +1663,7 @@ class VelocityCompressedForwardTest {
             var allocator = new RecordingAllocator();
             allocator.beforeDirect =
                     atDirectAllocation(n, () -> f.decoder.packetLimiter = selfClearingLimiter(f, other));
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             f.read(read.clone());
             assertSameBytes(today, f.wire());
             assertEquals(0, f.forwarder.forwarded());
@@ -1909,7 +1918,7 @@ class VelocityCompressedForwardTest {
                 });
                 try (var f = new Fixture(options)) {
                     var allocator = new RecordingAllocator();
-                    f.backend.config().setAllocator(allocator);
+                    f.allocator(allocator);
                     f.read(read.clone());
                     ByteBuf buf = held.getFirst();
                     seen.add(sent(f.wire()) + ", promise "
@@ -2013,7 +2022,7 @@ class VelocityCompressedForwardTest {
             });
             var allocator = new RecordingAllocator();
             allocator.beforeHeap = once(() -> own[0].release());
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             f.backend.pipeline().addLast("last", catching("last", caught));
             var thrown = assertThrows(DecoderException.class, () -> f.read(frame(body(packet, THRESHOLD))));
             assertInstanceOf(IllegalReferenceCountException.class, thrown.getCause());
@@ -2054,7 +2063,7 @@ class VelocityCompressedForwardTest {
         try (var f = new Fixture(Options.today())) {
             var allocator = new RecordingAllocator();
             allocator.beforeDirect = once(() -> f.decoder.packetLimiter = recording(f, true));
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             f.read(read.clone());
             today = f.wire();
             accounted = List.copyOf(f.accounted);
@@ -2071,7 +2080,7 @@ class VelocityCompressedForwardTest {
                 };
                 if (copy) allocator.beforeHeap = once(fail);
                 else allocator.beforeDirect = atDirectAllocation(2, fail);
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 assertSameBytes(today, f.wire());
                 assertEquals(accounted, f.accounted, label);
@@ -2511,6 +2520,8 @@ class VelocityCompressedForwardTest {
         final List<ByteBuf> allocated = new ArrayList<>();
         int failing;
         boolean failingSlices;
+        // The next this many direct buffers fail the first NIO view the keep's checksum inspection takes.
+        int failingViews;
         // Runs before each direct allocation.
         Runnable beforeDirect;
         // Runs before each heap allocation.
@@ -2531,6 +2542,11 @@ class VelocityCompressedForwardTest {
                 failing--;
                 throw new OutOfMemoryError("direct memory");
             }
+            if (failingViews > 0) {
+                ByteBuf buf = failingView(initialCapacity, maxCapacity);
+                allocated.add(buf);
+                return buf;
+            }
             ByteBuf buf = failingSlices
                     ? new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity) {
                         @Override
@@ -2541,6 +2557,27 @@ class VelocityCompressedForwardTest {
                     : new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity);
             allocated.add(buf);
             return buf;
+        }
+
+        private ByteBuf failingView(int initialCapacity, int maxCapacity) {
+            failingViews--;
+            return new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity) {
+                boolean failed;
+
+                @Override
+                public ByteBuffer internalNioBuffer(int index, int length) {
+                    if (failed || !inChecksumInspection()) return super.internalNioBuffer(index, length);
+                    failed = true;
+                    // An Error the test runner does not treat as fatal, as OutOfMemoryError is.
+                    throw new InternalError("view");
+                }
+            };
+        }
+
+        private static boolean inChecksumInspection() {
+            return StackWalker.getInstance()
+                    .walk(frames ->
+                            frames.anyMatch(frame -> frame.getMethodName().equals("endsWithChecksum")));
         }
 
         @Override
@@ -2876,7 +2913,7 @@ class VelocityCompressedForwardTest {
                     () -> f.backend
                             .pipeline()
                             .addBefore(VelocityCompressedForward.COMPRESSION_DECODER, "swap", swap(f, other)));
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             f.read(read.clone());
             today = f.wire();
         }
@@ -2888,7 +2925,7 @@ class VelocityCompressedForwardTest {
                     () -> f.backend
                             .pipeline()
                             .addBefore(VelocityCompressedForward.COMPRESSION_DECODER, "swap", swap(f, other)));
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             f.read(read.clone());
             assertSameBytes(today, f.wire());
             assertPackets(published, read(today, THRESHOLD));
@@ -2940,7 +2977,7 @@ class VelocityCompressedForwardTest {
                                     VelocityCompressedForward.COMPRESSION_DECODER,
                                     "between",
                                     catching("between", caught)));
-                    f.backend.config().setAllocator(allocator);
+                    f.allocator(allocator);
                     rejecting[0] = true;
                     try {
                         f.read(read.clone());
@@ -2978,7 +3015,7 @@ class VelocityCompressedForwardTest {
                     set[0] = true;
                     f.decoder.packetLimiter = limiter(() -> {});
                 });
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 assertTrue(set[0], label);
                 assertSameBytes(today, f.wire());
@@ -3285,7 +3322,7 @@ class VelocityCompressedForwardTest {
             foreign.onHeap = () -> heap[0] = true;
             allocator.beforeDirect =
                     atDirectAllocation(1, () -> f.backend.config().setAllocator(foreign));
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             f.read(frame(body));
             var frames = read(f.wire(), THRESHOLD);
             assertPackets(List.of(packet), frames);
@@ -3303,6 +3340,36 @@ class VelocityCompressedForwardTest {
     }
 
     @Test
+    void clientAllocatorOtherThanTheBackendsGetsTheEncodersFrame() {
+        byte[] packet = packet(3000, 115);
+        byte[] read = frame(body(packet, THRESHOLD));
+        byte[] today = today(Options.today(), read);
+        for (boolean swappedAtTheWrite : new boolean[] {false, true}) {
+            String label = swappedAtTheWrite ? "client allocator set before the write" : "distinct from the read";
+            var backend = new RecordingAllocator();
+            var client = new RecordingAllocator();
+            Options options = Options.forwarding().onFrame((fixture, buf) -> {
+                if (swappedAtTheWrite) fixture.client.config().setAllocator(client);
+                fixture.client.write(buf);
+            });
+            try (var f = new Fixture(options)) {
+                if (swappedAtTheWrite) f.allocator(backend);
+                else {
+                    f.backend.config().setAllocator(backend);
+                    f.client.config().setAllocator(client);
+                }
+                f.read(read.clone());
+                assertSameBytes(today, f.wire());
+                assertEquals(0, f.forwarder.forwarded(), label);
+                assertEquals("linked", f.forwarder.linkStatus(), label);
+                assertEquals(swappedAtTheWrite ? 3 : 1, backend.allocated.size(), "the keep's allocations, " + label);
+                for (ByteBuf buf : backend.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
+                assertEquals(1, client.allocated.size(), "the encoder's frame, " + label);
+            }
+        }
+    }
+
+    @Test
     void failingReleaseOfAHeldPooledSliceSurfacesAfterItsPacket() {
         byte[] packet = packet(3000, 115);
         byte[] read = frame(body(packet, THRESHOLD));
@@ -3313,7 +3380,7 @@ class VelocityCompressedForwardTest {
             var slices = new ArrayList<ByteBuf>();
             var allocator = new RecordingAllocator();
             try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 // The slice's release releases its released duplicate, which throws.
                 replaceFrames(f, frame -> {
                     ResourceLeakDetector.Level level = ResourceLeakDetector.getLevel();
@@ -3489,7 +3556,7 @@ class VelocityCompressedForwardTest {
                 var allocator = new RecordingAllocator();
                 allocator.beforeDirect =
                         atDirectAllocation(1, () -> f.backend.pipeline().addAfter(name, "rewrite", rewrite.apply(f)));
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 today = f.wire();
             }
@@ -3503,7 +3570,7 @@ class VelocityCompressedForwardTest {
                         added[0] = true;
                         f.backend.pipeline().addAfter(name, "rewrite", rewrite.apply(f));
                     });
-                    f.backend.config().setAllocator(allocator);
+                    f.allocator(allocator);
                     f.read(read.clone());
                     assertTrue(added[0], label);
                     assertSameBytes(today, f.wire());
@@ -3524,7 +3591,7 @@ class VelocityCompressedForwardTest {
         for (boolean forward : new boolean[] {false, true}) {
             var allocator = new RecordingAllocator();
             try (var f = new Fixture(forward ? options : options.withoutForwarding())) {
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 setup.accept(f);
                 var failure = assertThrows(DecoderException.class, () -> f.read(read.clone()), label);
                 Throwable cause = failure.getCause();
@@ -3642,14 +3709,16 @@ class VelocityCompressedForwardTest {
         byte[] packet = packet(3000, 124);
         byte[] whole = frame(body(packet, THRESHOLD));
         byte[] trailing = frame(concat(body(packet, THRESHOLD), new byte[] {1, 2, 3}));
-        for (boolean consume : new boolean[] {true, false}) {
-            // The keep holds a Java frame only when read whole, and a direct libdeflate frame with trailing bytes.
-            byte[] read = consume ? whole : trailing;
+        for (int run = 0; run < 4; run++) {
+            boolean consume = run < 2;
+            boolean suffixed = run % 2 == 1;
+            // Held: a Java frame read to its end; a direct libdeflate frame ending in its packet's checksum.
+            byte[] read = suffixed ? trailing : whole;
             for (boolean direct : new boolean[] {false, true}) {
                 List<String> seen = new ArrayList<>();
                 for (boolean forward : new boolean[] {false, true}) {
-                    String label =
-                            "compressor consumes " + consume + ", direct frame " + direct + ", forward " + forward;
+                    String label = "compressor consumes " + consume + ", direct frame " + direct + ", trailing bytes "
+                            + suffixed + ", forward " + forward;
                     var options = Options.forwarding().consume(consume);
                     try (var f = new Fixture(forward ? options : options.withoutForwarding())) {
                         var held = new ArrayList<ByteBuf>();
@@ -3681,7 +3750,8 @@ class VelocityCompressedForwardTest {
                                         });
                         f.read(read.clone());
                         assertPackets(List.of(packet), read(f.wire(), THRESHOLD, true));
-                        if (forward) assertEquals(consume || direct ? 1 : 0, f.forwarder.forwarded(), label);
+                        if (forward)
+                            assertEquals(!suffixed && (consume || direct) ? 1 : 0, f.forwarder.forwarded(), label);
                         ByteBuf frame = held.getFirst();
                         assertEquals(direct, frame.hasMemoryAddress(), label);
                         seen.add("reader " + frame.readerIndex() + ", writer " + frame.writerIndex() + ", count "
@@ -3689,7 +3759,10 @@ class VelocityCompressedForwardTest {
                         assertTrue(frame.release(), label);
                     }
                 }
-                assertEquals(seen.get(0), seen.get(1), "consume " + consume + ", direct " + direct);
+                assertEquals(
+                        seen.get(0),
+                        seen.get(1),
+                        "consume " + consume + ", direct " + direct + ", trailing bytes " + suffixed);
             }
         }
     }
@@ -3708,7 +3781,7 @@ class VelocityCompressedForwardTest {
                 };
                 if (copy) allocator.beforeHeap = atDirectAllocation(1, overflow);
                 else allocator.beforeDirect = atDirectAllocation(2, overflow);
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read);
                 assertEquals(List.of(), f.decoder.inflated, "the keep finishes the decode, " + label);
                 assertEquals(1, f.decoder.compressor.destinations.size(), "one inflate, of the frame, " + label);
@@ -3762,7 +3835,7 @@ class VelocityCompressedForwardTest {
                 });
                 if (k == 3) allocator.beforeHeap = overwrite;
                 else allocator.beforeDirect = atDirectAllocation(Math.max(k, 1), overwrite);
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 var frames = read(f.wire(), THRESHOLD);
                 assertPackets(List.of(other), frames);
@@ -3794,7 +3867,7 @@ class VelocityCompressedForwardTest {
                 });
                 if (k == 3) allocator.beforeHeap = trim;
                 else allocator.beforeDirect = atDirectAllocation(Math.max(k, 1), trim);
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 byte[] wire = f.wire();
                 assertPackets(List.of(packet), read(wire, THRESHOLD));
@@ -3843,7 +3916,7 @@ class VelocityCompressedForwardTest {
                 // The decoder's one allocation is direct; the keep's last is its comparison copy, on the heap.
                 if (forward) allocator.beforeHeap = nested;
                 else allocator.beforeDirect = nested;
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 assertPackets(List.of(inner, outer), read(f.wire(), THRESHOLD, true));
                 // An outer frame with bytes the Java compressor leaves unread is recompressed.
@@ -3880,7 +3953,7 @@ class VelocityCompressedForwardTest {
                     seen.add("reader " + frame.readerIndex() + ", readable " + frame.readableBytes() + ", count "
                             + frame.refCnt());
                 }));
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 if (k > 0) assertEquals(1, f.forwarder.forwarded(), label);
                 assertTrue(held.getFirst().release(), label);
@@ -3902,7 +3975,7 @@ class VelocityCompressedForwardTest {
                 var allocator = new RecordingAllocator();
                 // 3000 is 0xB8 0x17; the bump makes the frame claim 3001.
                 atAllocation(allocator, k, once(() -> held.getFirst().setByte(0, 0xB9)));
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 var frames = read(f.wire(), THRESHOLD);
                 assertPackets(List.of(packet), frames);
@@ -3926,7 +3999,7 @@ class VelocityCompressedForwardTest {
                 hold(f, held);
                 var allocator = new RecordingAllocator();
                 atAllocation(allocator, k, once(() -> held.getFirst().skipBytes(1)));
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 var failure = assertThrows(DecoderException.class, () -> f.read(read.clone()), label);
                 assertEquals(DecoderException.class, failure.getClass(), label);
                 assertInstanceOf(DataFormatException.class, failure.getCause(), label);
@@ -3952,7 +4025,7 @@ class VelocityCompressedForwardTest {
                     var allocator = new RecordingAllocator();
                     int count = releases;
                     atAllocation(allocator, k, once(() -> held.getFirst().release(count)));
-                    f.backend.config().setAllocator(allocator);
+                    f.allocator(allocator);
                     Throwable thrown = null;
                     try {
                         f.read(read.clone());
@@ -4037,7 +4110,8 @@ class VelocityCompressedForwardTest {
 
     @Test
     void velocityClassesThatCannotBeResolvedInstallNothing() {
-        assertNull(VelocityCompressedForward.Codecs.resolve(VelocityCompressedForwardTest.class.getClassLoader()));
+        assertNull(VelocityCompressedForward.Codecs.resolve(
+                VelocityCompressedForwardTest.class.getClassLoader(), VelocityCompressedForward.Mode.ONE_STREAM));
         String property = VelocityCompressedForward.ENABLED_PROPERTY;
         String previous = System.getProperty(property);
         System.setProperty(property, "true");
@@ -4053,6 +4127,265 @@ class VelocityCompressedForwardTest {
             if (previous == null) System.clearProperty(property);
             else System.setProperty(property, previous);
         }
+    }
+
+    @Test
+    void unknownPropertyValueIsOff() {
+        String property = VelocityCompressedForward.ENABLED_PROPERTY;
+        String previous = System.getProperty(property);
+        ProxyServer proxy = mock(ProxyServer.class);
+        try (var log = mockStatic(LogUtil.class)) {
+            System.setProperty(property, "false");
+            assertNull(VelocityCompressedForward.fromSystemProperties(proxy, new Object(), p -> null));
+            log.verify(() -> LogUtil.warn(anyString()), never());
+            System.setProperty(property, "yes");
+            assertNull(VelocityCompressedForward.fromSystemProperties(proxy, new Object(), p -> null));
+            log.verify(
+                    () -> LogUtil.warn("Unknown value 'yes' of " + property + "; compressed frames are not forwarded"),
+                    times(1));
+            log.verify(() -> LogUtil.warn(anyString()), times(1));
+            verifyNoInteractions(proxy);
+        } finally {
+            if (previous == null) System.clearProperty(property);
+            else System.setProperty(property, previous);
+        }
+    }
+
+    @Test
+    void oneStreamModeStartsOnlyOnTheJavaFactory() {
+        String property = VelocityCompressedForward.ENABLED_PROPERTY;
+        String previous = System.getProperty(property);
+        var codecs = new VelocityCompressedForward.Codecs(CompressEncoder.class, DECODER, ONE_STREAM_COMPRESSORS);
+        String libdeflate = "Velocity compresses with libdeflate, whose frames " + property + "=true does not forward;"
+                + " compressed frames are not forwarded";
+        String unknown = "Cannot tell which compressor Velocity selected, and " + property + "=true forwards only its"
+                + " Java compressor's frames; compressed frames are not forwarded";
+        System.setProperty(property, "true");
+        try {
+            for (var selected : VelocityCompressedForward.Selection.values()) {
+                ProxyServer proxy = mock(ProxyServer.class);
+                try (var log = mockStatic(LogUtil.class)) {
+                    var forward = VelocityCompressedForward.fromSystemProperties(
+                            proxy, new Object(), p -> null, mode -> codecs, () -> selected);
+                    switch (selected) {
+                        case JAVA -> {
+                            assertNotNull(forward, selected.name());
+                            log.verify(() -> LogUtil.warn(anyString()), never());
+                        }
+                        case LIBDEFLATE -> {
+                            assertNull(forward, selected.name());
+                            log.verify(() -> LogUtil.warn(libdeflate), times(1));
+                            log.verify(() -> LogUtil.warn(anyString()), times(1));
+                        }
+                        case UNKNOWN -> {
+                            assertNull(forward, selected.name());
+                            log.verify(() -> LogUtil.warn(unknown), times(1));
+                            log.verify(() -> LogUtil.warn(anyString()), times(1));
+                        }
+                        default -> fail("no expectation for " + selected);
+                    }
+                    verifyNoInteractions(proxy);
+                }
+            }
+        } finally {
+            if (previous == null) System.clearProperty(property);
+            else System.setProperty(property, previous);
+        }
+    }
+
+    @Test
+    void oneStreamModeProbesTheFactoryOfTheProxysVelocity() throws Exception {
+        String property = VelocityCompressedForward.ENABLED_PROPERTY;
+        String previous = System.getProperty(property);
+        String libdeflate = "Velocity compresses with libdeflate, whose frames " + property + "=true does not forward;"
+                + " compressed frames are not forwarded";
+        String unknown = "Cannot tell which compressor Velocity selected, and " + property + "=true forwards only its"
+                + " Java compressor's frames; compressed frames are not forwarded";
+        System.setProperty(property, "true");
+        try {
+            for (var selected : VelocityCompressedForward.Selection.values()) {
+                ProxyServer proxy = velocityProxy(selected);
+                try (var log = mockStatic(LogUtil.class)) {
+                    var forward = VelocityCompressedForward.fromSystemProperties(proxy, new Object(), p -> null);
+                    switch (selected) {
+                        case JAVA -> {
+                            assertNotNull(forward, selected.name());
+                            log.verify(() -> LogUtil.warn(anyString()), never());
+                        }
+                        case LIBDEFLATE -> {
+                            assertNull(forward, selected.name());
+                            log.verify(() -> LogUtil.warn(libdeflate), times(1));
+                            log.verify(() -> LogUtil.warn(anyString()), times(1));
+                        }
+                        case UNKNOWN -> {
+                            assertNull(forward, selected.name());
+                            log.verify(() -> LogUtil.warn(unknown), times(1));
+                            log.verify(() -> LogUtil.warn(anyString()), times(1));
+                        }
+                        default -> fail("no expectation for " + selected);
+                    }
+                }
+            }
+        } finally {
+            if (previous == null) System.clearProperty(property);
+            else System.setProperty(property, previous);
+        }
+    }
+
+    @Test
+    void oneStreamModeStaysOffWhenTheFactoryProbeThrowsAnError() throws Exception {
+        String property = VelocityCompressedForward.ENABLED_PROPERTY;
+        String previous = System.getProperty(property);
+        ProxyServer proxy = velocityProxy(VelocityCompressedForward.Selection.JAVA);
+        Supplier<Object> throwing = () -> {
+            throw new AssertionError("probe");
+        };
+        Class.forName(
+                        VelocityCompressedForward.VELOCITY_NATIVES,
+                        true,
+                        proxy.getClass().getClassLoader())
+                .getField("compress")
+                .set(null, throwing);
+        System.setProperty(property, "true");
+        try (var log = mockStatic(LogUtil.class)) {
+            assertNull(VelocityCompressedForward.fromSystemProperties(proxy, new Object(), p -> null));
+            log.verify(() -> LogUtil.warn(anyString()), times(1));
+        } finally {
+            if (previous == null) System.clearProperty(property);
+            else System.setProperty(property, previous);
+        }
+    }
+
+    /**
+     * A proxy whose class loader defines Velocity's compression classes, with {@code Natives.compress} supplying the
+     * {@code selected} compressor's factory, or a third factory for {@code UNKNOWN}; any proxy method call throws.
+     */
+    private static ProxyServer velocityProxy(VelocityCompressedForward.Selection selected) throws Exception {
+        int field = Modifier.PUBLIC | Modifier.STATIC;
+        Class<?> type = new ByteBuddy()
+                .subclass(Object.class)
+                .implement(ProxyServer.class)
+                .name(VelocityCompressedForwardTest.class.getPackageName() + ".StandInProxy")
+                .make()
+                .include(
+                        new ByteBuddy()
+                                .subclass(Object.class)
+                                .name(VelocityCompressedForward.VELOCITY_ENCODER)
+                                .make(),
+                        new ByteBuddy()
+                                .subclass(Object.class)
+                                .name(VelocityCompressedForward.VELOCITY_DECODER)
+                                .make(),
+                        new ByteBuddy()
+                                .subclass(Object.class)
+                                .name(VelocityCompressedForward.VELOCITY_JAVA_COMPRESSOR)
+                                .defineField("FACTORY", Object.class, field)
+                                .make(),
+                        new ByteBuddy()
+                                .subclass(Object.class)
+                                .name(VelocityCompressedForward.VELOCITY_LIBDEFLATE_COMPRESSOR)
+                                .defineField("FACTORY", Object.class, field)
+                                .make(),
+                        new ByteBuddy()
+                                .subclass(Object.class)
+                                .name(VelocityCompressedForward.VELOCITY_NATIVES)
+                                .defineField("compress", Supplier.class, field)
+                                .make())
+                .load(VelocityCompressedForwardTest.class.getClassLoader(), ClassLoadingStrategy.Default.WRAPPER)
+                .getLoaded();
+        ClassLoader loader = type.getClassLoader();
+        Object java = new Object();
+        Object libdeflate = new Object();
+        Class.forName(VelocityCompressedForward.VELOCITY_JAVA_COMPRESSOR, true, loader)
+                .getField("FACTORY")
+                .set(null, java);
+        Class.forName(VelocityCompressedForward.VELOCITY_LIBDEFLATE_COMPRESSOR, true, loader)
+                .getField("FACTORY")
+                .set(null, libdeflate);
+        Object factory =
+                switch (selected) {
+                    case JAVA -> java;
+                    case LIBDEFLATE -> libdeflate;
+                    default -> new Object();
+                };
+        Supplier<Object> compress = () -> factory;
+        Class.forName(VelocityCompressedForward.VELOCITY_NATIVES, true, loader)
+                .getField("compress")
+                .set(null, compress);
+        return (ProxyServer) type.getConstructor().newInstance();
+    }
+
+    @Test
+    void factorySelectionIsKnownOnlyByIdentity() {
+        Object java = new Object();
+        Object libdeflate = new Object();
+        assertEquals(
+                VelocityCompressedForward.Selection.JAVA,
+                VelocityCompressedForward.Selection.of((Supplier<Object>) () -> java, java, libdeflate));
+        assertEquals(
+                VelocityCompressedForward.Selection.LIBDEFLATE,
+                VelocityCompressedForward.Selection.of((Supplier<Object>) () -> libdeflate, java, libdeflate));
+        List<Object> inconclusive = List.of(
+                (Supplier<Object>) Object::new,
+                (Supplier<Object>) () -> null,
+                (Supplier<Object>) () -> {
+                    throw new IllegalStateException("wrapped");
+                },
+                java);
+        for (Object factories : inconclusive)
+            assertEquals(
+                    VelocityCompressedForward.Selection.UNKNOWN,
+                    VelocityCompressedForward.Selection.of(factories, java, libdeflate));
+        assertEquals(
+                VelocityCompressedForward.Selection.UNKNOWN,
+                VelocityCompressedForward.Selection.of((Supplier<Object>) () -> null, null, libdeflate));
+        assertEquals(
+                VelocityCompressedForward.Selection.UNKNOWN,
+                VelocityCompressedForward.Selection.of(VelocityCompressedForwardTest.class.getClassLoader()));
+    }
+
+    @Test
+    void oneStreamModeUnderTheLibdeflateCompressorInstallsNothingAndSendsAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 130);
+        byte[] body = body(packet, THRESHOLD);
+        byte[] suffixed = concat(body, Arrays.copyOfRange(body, body.length - 4, body.length));
+        Options options = Options.forwarding().consume(false);
+        for (byte[] sent : List.of(body, suffixed)) {
+            byte[] read = frame(sent);
+            byte[] today = today(options, read);
+            assertPackets(List.of(packet), read(today, THRESHOLD));
+            for (boolean direct : new boolean[] {false, true}) {
+                String label = "direct frame " + direct + ", body " + sent.length;
+                try (var f = new Fixture(options, ONE_STREAM_COMPRESSORS)) {
+                    if (direct)
+                        replaceFrames(
+                                f,
+                                frame -> PooledByteBufAllocator.DEFAULT
+                                        .directBuffer(frame.readableBytes())
+                                        .writeBytes(frame, frame.readerIndex(), frame.readableBytes()));
+                    f.read(read.clone());
+                    assertSameBytes(today, f.wire());
+                    assertNull(f.forwarder, label);
+                    assertNull(f.client.pipeline().get(CompressedForwarder.NAME), label);
+                    assertNull(f.backend.pipeline().get(CompressedKeep.NAME), label);
+                    var refusals = new ArrayList<VelocityCompressedForward.Refusal>();
+                    assertNull(VelocityCompressedForward.install(
+                            f.client.pipeline(),
+                            CompressEncoder.class,
+                            DECODER,
+                            ONE_STREAM_COMPRESSORS,
+                            refusals::add));
+                    assertEquals(List.of(VelocityCompressedForward.Refusal.LIBDEFLATE), refusals, label);
+                }
+            }
+        }
+        var decoder = new CompressDecoder(THRESHOLD, new AddressCompressor());
+        MethodHandle limiter = VelocityCompressedForward.limiterReader(decoder);
+        var decode = VelocityCompressedForward.decode(DECODER);
+        assertNotNull(VelocityCompressedForward.codec(decoder, limiter, COMPRESSORS, decode));
+        assertNull(
+                VelocityCompressedForward.codec(decoder, limiter, ONE_STREAM_COMPRESSORS, decode),
+                "a libdeflate decoder links no keep");
     }
 
     @Test
@@ -4079,6 +4412,37 @@ class VelocityCompressedForwardTest {
                 assertSameBytes(today, wire);
                 assertEquals(1, f.forwarder.notMarked(), label);
                 assertEquals(1, f.decoder.inflated.size(), "the decoder decodes the backend's frame");
+            }
+        }
+    }
+
+    @Test
+    void failedChecksumInspectionDeliversThePacketAsWithTheSwitchOff() {
+        byte[] packet = packet(3000, 142);
+        byte[] read = frame(body(packet, THRESHOLD));
+        Options options = Options.forwarding().consume(false);
+        byte[] today = today(options, read);
+        for (boolean failing : new boolean[] {false, true}) {
+            String label = "failing view " + failing;
+            try (var f = new Fixture(options)) {
+                replaceFrames(
+                        f,
+                        frame -> PooledByteBufAllocator.DEFAULT
+                                .directBuffer(frame.readableBytes())
+                                .writeBytes(frame, frame.readerIndex(), frame.readableBytes()));
+                var allocator = new RecordingAllocator();
+                // The keep's first direct allocation is the inflated packet's destination.
+                if (failing) allocator.failingViews = 1;
+                f.allocator(allocator);
+                f.read(read.clone());
+                byte[] wire = f.wire();
+                assertPackets(List.of(packet), read(wire, THRESHOLD));
+                assertEquals(failing ? 0 : 1, f.forwarder.forwarded(), label);
+                if (failing) {
+                    assertSameBytes(today, wire);
+                    assertEquals(1, f.forwarder.notMarked(), label);
+                }
+                for (ByteBuf buf : allocator.allocated) assertEquals(0, buf.refCnt(), "an allocation, " + label);
             }
         }
     }
@@ -4186,7 +4550,7 @@ class VelocityCompressedForwardTest {
             try (var f = new Fixture(k == 0 ? Options.today() : Options.forwarding())) {
                 var allocator = new RecordingAllocator();
                 atAllocation(allocator, k, once(() -> f.decoder.threshold = 3001));
-                f.backend.config().setAllocator(allocator);
+                f.allocator(allocator);
                 f.read(read.clone());
                 assertPackets(List.of(packet), read(f.wire(), THRESHOLD));
                 assertEquals(3001, f.decoder.threshold, label);
@@ -4421,14 +4785,14 @@ class VelocityCompressedForwardTest {
                         assertEquals("linked", forwarder.linkStatus(), side);
                     }
                     if (client) {
-                        f.client.config().setAllocator(new RecordingAllocator());
+                        f.allocator(new RecordingAllocator());
                     } else if (afterAllocations) {
                         var allocator = new RecordingAllocator();
                         atAllocation(
                                 allocator,
                                 1,
                                 once(() -> ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID)));
-                        f.backend.config().setAllocator(allocator);
+                        f.allocator(allocator);
                         ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
                     } else {
                         f.backend.config().setAllocator(new ForeignAllocator());
@@ -4500,9 +4864,9 @@ class VelocityCompressedForwardTest {
     }
 
     /**
-     * The packets sent and the promise's outcome for one write of {@code read}'s packet through a fixture whose client
-     * allocator (another than the backend's) {@code hook} arms; {@code clientTrust} null is the switch off. Adds the
-     * forwarder's status and counters to {@code statuses}.
+     * The packets sent and the promise's outcome for one write of {@code read}'s packet through a fixture whose
+     * allocator, the backend's and the client's, {@code hook} arms after the decode; {@code clientTrust} null is the
+     * switch off. Adds the forwarder's status and counters to {@code statuses}.
      */
     private static String clientWrite(
             byte[] read, Predicate<ByteBufAllocator> clientTrust, WriteHook hook, List<String> statuses) {
@@ -4516,7 +4880,7 @@ class VelocityCompressedForwardTest {
         });
         try (var f =
                 clientTrust == null ? new Fixture(options.withoutForwarding()) : new Fixture(options, clientTrust)) {
-            f.client.config().setAllocator(allocator);
+            f.allocator(allocator);
             f.read(read.clone());
             assertEquals(1, writes.size());
             String outcome =
@@ -4637,7 +5001,7 @@ class VelocityCompressedForwardTest {
                 if (!finalTrust) ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
                 change.accept(f, held.getFirst());
             }));
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             Throwable thrown = null;
             try {
                 f.read(read.clone());
@@ -4778,7 +5142,7 @@ class VelocityCompressedForwardTest {
                                 allocator,
                                 1,
                                 once(() -> ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID)));
-                        f.backend.config().setAllocator(allocator);
+                        f.allocator(allocator);
                     }
                     Throwable thrown = null;
                     try {
@@ -4822,7 +5186,7 @@ class VelocityCompressedForwardTest {
                             forwarder, f.client.pipeline(), f.backend, DECODER, COMPRESSORS, TRUSTED);
                     assertEquals("linked", forwarder.linkStatus());
                 }
-                f.client.config().setAllocator(new RecordingAllocator());
+                f.allocator(new RecordingAllocator());
                 f.read(read.clone());
                 assertEquals(1, writes.size());
                 seen.add(sent(f.wire()) + ", promise "
@@ -4872,7 +5236,7 @@ class VelocityCompressedForwardTest {
                     assertEquals("linked", forwarder.linkStatus());
                 }
                 rejecting[0] = true;
-                f.client.config().setAllocator(new RecordingAllocator());
+                f.allocator(new RecordingAllocator());
                 f.read(read.clone());
                 f.client.runPendingTasks();
                 assertEquals(1, writes.size());
@@ -5013,14 +5377,14 @@ class VelocityCompressedForwardTest {
                             assertEquals("linked", forwarder.linkStatus(), side);
                         }
                         if (client) {
-                            f.client.config().setAllocator(new RecordingAllocator());
+                            f.allocator(new RecordingAllocator());
                         } else if (afterAllocations) {
                             var allocator = new RecordingAllocator();
                             atAllocation(
                                     allocator,
                                     1,
                                     once(() -> ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID)));
-                            f.backend.config().setAllocator(allocator);
+                            f.allocator(allocator);
                             ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
                         } else {
                             f.backend.config().setAllocator(new ForeignAllocator());
@@ -5148,7 +5512,7 @@ class VelocityCompressedForwardTest {
                 allocator.allocated.getLast().release();
                 ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
             });
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.DISABLED);
             Throwable thrown;
             try {
@@ -5329,7 +5693,7 @@ class VelocityCompressedForwardTest {
             };
             VelocityCompressedForward.place(f.forwarder, f.client.pipeline(), f.backend, DECODER, COMPRESSORS, trust);
             assertEquals("linked", f.forwarder.linkStatus());
-            f.backend.config().setAllocator(trusted);
+            f.allocator(trusted);
             f.read(read.clone());
             assertEquals(off, sent(f.wire()));
             assertEquals(2, checks[0], "the keep's two trust checks");
@@ -5431,7 +5795,7 @@ class VelocityCompressedForwardTest {
             var allocator = new RecordingAllocator();
             if (remove)
                 atAllocation(allocator, k, once(() -> f.backend.pipeline().remove(name)));
-            f.backend.config().setAllocator(allocator);
+            f.allocator(allocator);
             Throwable thrown = null;
             try {
                 f.read(read.clone());
@@ -5519,6 +5883,136 @@ class VelocityCompressedForwardTest {
         OtherEncoder(int threshold) {
             this.threshold = threshold;
         }
+    }
+
+    @Test
+    void reconfigurationSeesAndSendsAsWithTheSwitchOff() {
+        List<byte[]> reads = List.of(
+                frame(body(payloadPacket(ConnectionPhase.PLAY, 160), THRESHOLD)),
+                frame(body(clientbound(ConnectionPhase.PLAY, "start_configuration"), THRESHOLD)),
+                frame(body(payloadPacket(ConnectionPhase.CONFIGURATION, 161), THRESHOLD)),
+                frame(body(clientbound(ConnectionPhase.CONFIGURATION, "finish_configuration"), THRESHOLD)),
+                frame(body(payloadPacket(ConnectionPhase.PLAY, 162), THRESHOLD)));
+        var off = differential(false, (event, index) -> {}, reads);
+        var on = differential(true, (event, index) -> {}, reads);
+        assertEquals(off.seen(), on.seen());
+        assertEquals(List.of("PLAY", "CONFIGURATION", "PLAY"), on.phases());
+        assertEquals(3, on.forwarded());
+    }
+
+    @Test
+    void bundleWithItsMiddlePacketCancelledOrRewrittenIsSentAsWithTheSwitchOff() {
+        byte[] delimiter = frame(body(clientbound(ConnectionPhase.PLAY, "bundle_delimiter"), THRESHOLD));
+        byte[] bundle = concat(
+                delimiter,
+                frame(body(payloadPacket(ConnectionPhase.PLAY, 163), THRESHOLD)),
+                frame(body(payloadPacket(ConnectionPhase.PLAY, 164), THRESHOLD)),
+                frame(body(payloadPacket(ConnectionPhase.PLAY, 165), THRESHOLD)),
+                delimiter);
+        byte[] rewritten = packet(3000, 166);
+        for (boolean cancel : new boolean[] {true, false}) {
+            Decision middle = (event, index) -> {
+                if (index != 1) return;
+                if (cancel) event.setCancelled(true);
+                else event.replace(new ClientboundCustomPayload(ClientboundPackets.BRIDGE_CHANNEL, rewritten.clone()));
+            };
+            var off = differential(false, middle, List.of(bundle));
+            var on = differential(true, middle, List.of(bundle));
+            String label = cancel ? "cancelled" : "rewritten";
+            assertEquals(off.seen(), on.seen(), label);
+            assertEquals(cancel ? 4 : 5, on.packets(), label);
+            assertEquals(2, on.forwarded(), label);
+        }
+    }
+
+    @Test
+    void packetInjectedBetweenForwardedFramesKeepsItsPlaceAsWithTheSwitchOff() {
+        byte[] read = concat(
+                frame(body(payloadPacket(ConnectionPhase.PLAY, 167), THRESHOLD)),
+                frame(body(payloadPacket(ConnectionPhase.PLAY, 168), THRESHOLD)));
+        byte[] injected = packet(3000, 169);
+        Decision inject = (event, index) -> {
+            if (index == 0)
+                event.getWritesAfterSend()
+                        .add(new CultWrite(
+                                new ClientboundCustomPayload(ClientboundPackets.BRIDGE_CHANNEL, injected.clone()),
+                                false));
+        };
+        var off = differential(false, inject, List.of(read));
+        var on = differential(true, inject, List.of(read));
+        assertEquals(off.seen(), on.seen());
+        assertEquals(5, on.packets(), "the first packet and the injected one in a bundle, then the second");
+        assertEquals(2, on.forwarded());
+    }
+
+    /** What a handler of the anticheat does with the {@code index}th custom payload it decodes. */
+    private interface Decision {
+        void decide(PacketSendEvent<ClientboundCustomPayload> event, int index);
+    }
+
+    /**
+     * One run's comparable record ({@code seen}: the payloads the anticheat decoded, the packets the client inflates
+     * and the writes and flushes that reach the client's socket), the phases of the decoded payloads, the client's
+     * packet count and the frames forwarded.
+     */
+    private record Differential(String seen, List<String> phases, int packets, long forwarded) {}
+
+    /** {@code reads}, each one backend read, with forwarding on or off, and {@code decision} in the anticheat. */
+    private static Differential differential(boolean forward, Decision decision, List<byte[]> reads) {
+        var observed = new ArrayList<String>();
+        var phases = new ArrayList<String>();
+        var socket = new ArrayList<String>();
+        try (var f = new Fixture(forward ? Options.forwarding() : Options.today())) {
+            new User(new User.Profile(UUID.randomUUID(), "Forwarded"), f.connection);
+            f.connection.dispatcher().register(routes -> routes.sendConnection(
+                    ClientboundPackets.CUSTOM_PAYLOAD, PacketListenerPriority.NORMAL, (event, packet) -> {
+                        phases.add(event.getPhase().name());
+                        observed.add(event.getPhase() + " " + Arrays.hashCode(packet.data()));
+                        decision.decide(event, observed.size() - 1);
+                    }));
+            f.client.pipeline().addFirst("socket", new ChannelOutboundHandlerAdapter() {
+                @Override
+                public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
+                    socket.add("write");
+                    ctx.write(msg, promise);
+                }
+
+                @Override
+                public void flush(ChannelHandlerContext ctx) {
+                    socket.add("flush");
+                    ctx.flush();
+                }
+            });
+            for (byte[] read : reads) f.read(read.clone());
+            var packets = packets(read(f.wire(), THRESHOLD)).stream()
+                    .map(packet -> packet.length + ":" + Arrays.hashCode(packet))
+                    .toList();
+            return new Differential(
+                    "seen " + observed + ", client " + packets + ", socket " + socket,
+                    phases,
+                    packets.size(),
+                    forward ? f.forwarder.forwarded() : 0);
+        }
+    }
+
+    /** A clientbound packet of {@code phase} with no fields. */
+    private static byte[] clientbound(ConnectionPhase phase, String name) {
+        ByteBuf out = Unpooled.buffer();
+        Wire.writeVarInt(out, RUNTIME.data().packets(phase, PacketDirection.CLIENTBOUND).id("minecraft:" + name));
+        byte[] bytes = ByteBufUtil.getBytes(out);
+        out.release();
+        return bytes;
+    }
+
+    /** A custom payload of {@code phase} on the channel the anticheat decodes, with 3,000 compressible bytes. */
+    private static byte[] payloadPacket(ConnectionPhase phase, int seed) {
+        ByteBuf out = Unpooled.buffer();
+        out.writeBytes(clientbound(phase, "custom_payload"));
+        Wire.writeString(out, ClientboundPackets.BRIDGE_CHANNEL, 32767);
+        out.writeBytes(packet(3000, seed));
+        byte[] bytes = ByteBufUtil.getBytes(out);
+        out.release();
+        return bytes;
     }
 
     /** The switch-off path sends another body for the same packet, so only a forwarded frame carries {@code body}. */
@@ -5609,6 +6103,18 @@ class VelocityCompressedForwardTest {
 
         /** As the one-argument fixture; the forwarder forwards only under a client allocator {@code clientTrust} accepts. */
         Fixture(Options options, Predicate<ByteBufAllocator> clientTrust) {
+            this(options, clientTrust, COMPRESSORS);
+        }
+
+        /** As the one-argument fixture, with the forwarding handlers under {@code compressors}' mode. */
+        Fixture(Options options, VelocityCompressedForward.Compressors compressors) {
+            this(options, TRUSTED, compressors);
+        }
+
+        private Fixture(
+                Options options,
+                Predicate<ByteBufAllocator> clientTrust,
+                VelocityCompressedForward.Compressors compressors) {
             this.options = options;
             compressor = options.consume() ? new SharedCompressor() : new AddressCompressor();
             encoder = new CompressEncoder(THRESHOLD, options.consume(), compressor);
@@ -5629,14 +6135,14 @@ class VelocityCompressedForwardTest {
             VelocityPacketPipeline.install(connection);
             forwarder = options.forward()
                     ? VelocityCompressedForward.install(
-                            pipeline, CompressEncoder.class, DECODER, COMPRESSORS, clientTrust, refusal -> {})
+                            pipeline, CompressEncoder.class, DECODER, compressors, clientTrust, refusal -> {})
                     : null;
             var first = backend(options);
             backend = first.channel;
             frameDecoder = first.frames;
             decoder = first.decoder;
-            if (options.link())
-                VelocityCompressedForward.place(forwarder, pipeline, backend, DECODER, COMPRESSORS, TRUSTED);
+            if (options.link() && (forwarder != null || compressors != ONE_STREAM_COMPRESSORS))
+                VelocityCompressedForward.place(forwarder, pipeline, backend, DECODER, compressors, TRUSTED);
         }
 
         /** A backend channel with the stand-in handlers, writing to this client. */
@@ -5689,6 +6195,12 @@ class VelocityCompressedForwardTest {
             var created = new Backend(channel, frames, decoder);
             backends.add(created);
             return created;
+        }
+
+        /** Sets {@code alloc} on the backend and the client, which a frame is held only under. */
+        void allocator(ByteBufAllocator alloc) {
+            backend.config().setAllocator(alloc);
+            client.config().setAllocator(alloc);
         }
 
         /** Velocity's delayed write: written while the client is active, else released. */

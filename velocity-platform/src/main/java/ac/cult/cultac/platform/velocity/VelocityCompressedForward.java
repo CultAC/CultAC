@@ -29,7 +29,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Forwards a backend's compressed frames to its client without compressing them again, when {@value
- * #ENABLED_PROPERTY} is true: a {@link CompressedForwarder} per Java client, a {@link CompressedKeep} on its backend.
+ * #ENABLED_PROPERTY} names a {@link Mode} other than off: a {@link CompressedForwarder} per Java client, a {@link
+ * CompressedKeep} on its backend.
  */
 final class VelocityCompressedForward {
     static final String ENABLED_PROPERTY = "cult.velocity.forwardCompressed";
@@ -40,6 +41,7 @@ final class VelocityCompressedForward {
     static final String VELOCITY_JAVA_COMPRESSOR = "com.velocitypowered.natives.compression.JavaVelocityCompressor";
     static final String VELOCITY_LIBDEFLATE_COMPRESSOR =
             "com.velocitypowered.natives.compression.LibdeflateVelocityCompressor";
+    static final String VELOCITY_NATIVES = "com.velocitypowered.natives.util.Natives";
     static final String VELOCITY_PRECONDITIONS = "com.velocitypowered.proxy.protocol.util.NettyPreconditions";
     static final String VELOCITY_QUIET_EXCEPTION = "com.velocitypowered.proxy.util.except.QuietDecoderException";
 
@@ -75,35 +77,139 @@ final class VelocityCompressedForward {
         for (int i = 0; i < warned.length; i++) warned[i] = new AtomicBoolean();
     }
 
-    /** Null unless {@value #ENABLED_PROPERTY} is true; nothing is registered or installed then. */
+    /**
+     * Null unless {@value #ENABLED_PROPERTY} is {@code true} or {@code trusted-backends}; nothing is installed then.
+     * {@code trusted-backends} assumes each backend sends exactly one zlib stream per compressed frame; on a libdeflate
+     * frame whose body ends in the packet's Adler-32, bytes a backend sends after the stream may reach the client,
+     * where a strict reader rejects the frame.
+     */
     static @Nullable VelocityCompressedForward fromSystemProperties(
             ProxyServer proxy, Object plugin, Function<Player, Channel> channels) {
-        if (!Boolean.getBoolean(ENABLED_PROPERTY)) return null;
+        ClassLoader loader = proxy.getClass().getClassLoader();
+        return fromSystemProperties(
+                proxy, plugin, channels, mode -> Codecs.resolve(loader, mode), () -> Selection.of(loader));
+    }
+
+    /**
+     * {@link #fromSystemProperties(ProxyServer, Object, Function)} over {@code resolver} and the compressor factory
+     * {@code selection} reports; {@code true} forwards only when that is Velocity's Java compressor's.
+     */
+    static @Nullable VelocityCompressedForward fromSystemProperties(
+            ProxyServer proxy,
+            Object plugin,
+            Function<Player, Channel> channels,
+            Function<Mode, @Nullable Codecs> resolver,
+            Supplier<Selection> selection) {
+        String value = System.getProperty(ENABLED_PROPERTY);
+        Mode mode = Mode.of(value);
+        if (mode == Mode.OFF) return null;
+        if (mode == null) {
+            LogUtil.warn("Unknown value '" + value + "' of " + ENABLED_PROPERTY + "; compressed frames are not"
+                    + " forwarded");
+            return null;
+        }
         if (!CompressedForwarder.supported()) {
             LogUtil.warn("Cannot read the handler order, the pipelines' leak detection or the executor a handler was"
                     + " added with of this netty; compressed frames are not forwarded");
             return null;
         }
-        ClassLoader loader = proxy.getClass().getClassLoader();
-        Codecs codecs = Codecs.resolve(loader);
+        Codecs codecs = resolver.apply(mode);
         if (codecs == null) {
             LogUtil.warn("Cannot find Velocity's compression classes; compressed frames are not forwarded");
             return null;
         }
+        if (mode == Mode.ONE_STREAM) {
+            Selection selected = selection.get();
+            if (selected == Selection.LIBDEFLATE) {
+                LogUtil.warn("Velocity compresses with libdeflate, whose frames " + ENABLED_PROPERTY + "=true does not"
+                        + " forward; compressed frames are not forwarded");
+                return null;
+            }
+            if (selected != Selection.JAVA) {
+                LogUtil.warn("Cannot tell which compressor Velocity selected, and " + ENABLED_PROPERTY + "=true"
+                        + " forwards only its Java compressor's frames; compressed frames are not forwarded");
+                return null;
+            }
+        }
         return new VelocityCompressedForward(proxy, plugin, channels, codecs);
+    }
+
+    /** The compressor factory Velocity selected, by identity with each compressor's {@code FACTORY}. */
+    enum Selection {
+        JAVA,
+        LIBDEFLATE,
+        /** Neither factory, or one that cannot be read. */
+        UNKNOWN;
+
+        /** The selection {@code loader}'s Velocity reports, or {@link #UNKNOWN} when any part cannot be read. */
+        static Selection of(@Nullable ClassLoader loader) {
+            try {
+                return of(
+                        Class.forName(VELOCITY_NATIVES, true, loader)
+                                .getField("compress")
+                                .get(null),
+                        Class.forName(VELOCITY_JAVA_COMPRESSOR, true, loader)
+                                .getField("FACTORY")
+                                .get(null),
+                        Class.forName(VELOCITY_LIBDEFLATE_COMPRESSOR, true, loader)
+                                .getField("FACTORY")
+                                .get(null));
+            } catch (Throwable failure) {
+                return UNKNOWN;
+            }
+        }
+
+        /** Which of {@code java} and {@code libdeflate} the supplier {@code factories} returns, by identity. */
+        static Selection of(@Nullable Object factories, @Nullable Object java, @Nullable Object libdeflate) {
+            if (!(factories instanceof Supplier<?> supplier)) return UNKNOWN;
+            Object selected;
+            try {
+                selected = supplier.get();
+            } catch (Throwable failure) {
+                return UNKNOWN;
+            }
+            if (selected == null) return UNKNOWN;
+            if (selected == java) return JAVA;
+            if (selected == libdeflate) return LIBDEFLATE;
+            return UNKNOWN;
+        }
+    }
+
+    /** The values of {@value #ENABLED_PROPERTY}, ignoring case; any other value is off. */
+    enum Mode {
+        /** Unset or {@code false}. */
+        OFF("false"),
+        /** {@code true}: frames whose body Velocity's Java compressor reads to its end. */
+        ONE_STREAM("true"),
+        /** {@code trusted-backends}: those, and frames libdeflate inflates whose body ends in the packet's Adler-32. */
+        TRUSTED_BACKENDS("trusted-backends");
+
+        final String value;
+
+        Mode(String value) {
+            this.value = value;
+        }
+
+        /** The mode {@code value} names, {@link #OFF} when it is null, or null when it names none. */
+        static @Nullable Mode of(@Nullable String value) {
+            if (value == null) return OFF;
+            for (Mode mode : values()) if (mode.value.equalsIgnoreCase(value)) return mode;
+            return null;
+        }
     }
 
     /** The compression encoder, decoder and compressor classes the forwarding handlers accept, by identity. */
     record Codecs(Class<?> encoder, Class<?> decoder, Compressors compressors) {
-        /** Velocity's four classes as {@code loader} resolves them, or null when one cannot be resolved. */
-        static @Nullable Codecs resolve(@Nullable ClassLoader loader) {
+        /** Velocity's four classes as {@code loader} resolves them, under {@code mode}, or null when one cannot be. */
+        static @Nullable Codecs resolve(@Nullable ClassLoader loader, Mode mode) {
             try {
                 return new Codecs(
                         Class.forName(VELOCITY_ENCODER, false, loader),
                         Class.forName(VELOCITY_DECODER, false, loader),
                         new Compressors(
                                 Class.forName(VELOCITY_JAVA_COMPRESSOR, false, loader),
-                                Class.forName(VELOCITY_LIBDEFLATE_COMPRESSOR, false, loader)));
+                                Class.forName(VELOCITY_LIBDEFLATE_COMPRESSOR, false, loader),
+                                mode));
             } catch (ClassNotFoundException | LinkageError failure) {
                 return null;
             }
@@ -112,12 +218,17 @@ final class VelocityCompressedForward {
 
     /**
      * Velocity's two compressor classes: {@code java} consumes the input it inflates and deflates, {@code libdeflate}
-     * reads and writes through memory addresses.
+     * reads and writes through memory addresses; {@code mode} says whose frames are forwarded.
      */
-    record Compressors(Class<?> java, Class<?> libdeflate) {
+    record Compressors(Class<?> java, Class<?> libdeflate, Mode mode) {
         /** Whether {@code compressor}'s class is exactly one of the two classes. */
         boolean accepts(@Nullable Object compressor) {
             return is(compressor, java) || is(compressor, libdeflate);
+        }
+
+        /** Whether {@code mode} forwards frames that {@code compressor} inflates and encodes. */
+        boolean forwards(@Nullable Object compressor) {
+            return is(compressor, java) || (mode == Mode.TRUSTED_BACKENDS && is(compressor, libdeflate));
         }
 
         /** Whether {@code compressor}'s class is exactly {@code type}. */
@@ -134,7 +245,8 @@ final class VelocityCompressedForward {
     }
 
     String describe() {
-        return "Forwarding backends' compressed frames to clients";
+        return "Forwarding backends' compressed frames to clients (" + ENABLED_PROPERTY + "=" + compressors.mode().value
+                + ")";
     }
 
     synchronized void close() {
@@ -275,7 +387,7 @@ final class VelocityCompressedForward {
 
     /**
      * The keep's handles for {@code decoder}, whose limiter {@code limiter} reads, with its class's {@link #decode}
-     * handles {@code decode}, when its compressor is exactly one of {@code compressors}' classes, or null.
+     * handles {@code decode}, when its compressor is of a class whose frames {@code compressors} forwards, or null.
      */
     static CompressedKeep.Codec codec(
             Object decoder,
@@ -287,7 +399,7 @@ final class VelocityCompressedForward {
         if (limiter == null || compressorReader == null || threshold == null || decode == null) return null;
         try {
             Object compressor = (Object) compressorReader.invokeExact();
-            if (!compressors.accepts(compressor)) return null;
+            if (!compressors.forwards(compressor)) return null;
             Class<?> type = compressor.getClass();
             MethodHandle inflate = inflateMethod;
             if (inflate == null || inflate.type().parameterType(0) != type) {
@@ -308,7 +420,7 @@ final class VelocityCompressedForward {
     /**
      * The forwarder installed from its loop on a registered channel, in a pipeline that touches no message, directly
      * after an encoder exactly of {@code encoderClass} on the channel's loop, with a decoder exactly of {@code
-     * decoderClass} sharing an open compressor of one of {@code compressors}' classes, or null.
+     * decoderClass} sharing an open compressor of a class whose frames {@code compressors} forwards, or null.
      */
     static @Nullable CompressedForwarder install(
             ChannelPipeline pipeline, Class<?> encoderClass, Class<?> decoderClass, Compressors compressors) {
@@ -370,12 +482,18 @@ final class VelocityCompressedForward {
             refused.accept(Refusal.COMPRESSOR);
             return null;
         }
+        // Velocity creates every connection's compressor from one factory, so a backend's is of the client's class.
+        if (!compressors.forwards(compressor)) {
+            refused.accept(Refusal.LIBDEFLATE);
+            return null;
+        }
         boolean consume = Compressors.is(compressor, compressors.java());
         var forwarder = new CompressedForwarder(
                 threshold,
                 encoder,
                 decoder,
                 consume,
+                compressors.mode().value,
                 disposed,
                 trustedAllocators,
                 deferred(pipeline.channel(), () -> refused.accept(Refusal.CLIENT_UNTRUSTED)));
@@ -489,6 +607,9 @@ final class VelocityCompressedForward {
          */
         COMPRESSOR("A client's compression encoder and decoder do not share one open Velocity compressor; its frames"
                 + " are compressed by Velocity"),
+        /** The shared compressor is libdeflate's and the mode forwards only Java compressors' frames. */
+        LIBDEFLATE("Velocity compresses with libdeflate, whose frames are forwarded only when " + ENABLED_PROPERTY
+                + " is trusted-backends; frames are compressed by Velocity"),
         /** After the insert, the encoder is not the validated one or the forwarder does not directly follow it. */
         CHANGED("A client's compression encoder is not where the forwarder expects it after the insert; its frames are"
                 + " compressed by Velocity"),

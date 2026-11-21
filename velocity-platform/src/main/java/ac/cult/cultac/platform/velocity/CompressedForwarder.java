@@ -53,6 +53,7 @@ final class CompressedForwarder extends ChannelDuplexHandler {
     private final MethodHandle encoderThreshold;
     private final int threshold;
     private final boolean consume;
+    private final String mode;
     private final MethodHandle disposed;
     private final Predicate<ByteBufAllocator> trustedAllocators;
     private final Runnable untrusted;
@@ -82,13 +83,14 @@ final class CompressedForwarder extends ChannelDuplexHandler {
      * {@code encoderThreshold} reads {@code compression}'s threshold as {@code ()int}; {@code inbound} is the client's
      * compression decoder, which shares the encoder's compressor; {@code disposed} reads that compressor's closed flag
      * as {@code ()boolean}; a marked buffer is forwarded only while {@code trustedAllocators} accepts the client
-     * channel's allocator, and {@code untrusted} runs when it refuses.
+     * channel's allocator, and {@code untrusted} runs when it refuses; the status names {@code mode}.
      */
     CompressedForwarder(
             MethodHandle encoderThreshold,
             ChannelHandlerContext compression,
             ChannelHandlerContext inbound,
             boolean consume,
+            String mode,
             MethodHandle disposed,
             Predicate<ByteBufAllocator> trustedAllocators,
             Runnable untrusted) {
@@ -100,6 +102,7 @@ final class CompressedForwarder extends ChannelDuplexHandler {
         this.inbound = inbound;
         this.loop = inbound.channel().eventLoop();
         this.consume = consume;
+        this.mode = mode;
         this.disposed = disposed;
     }
 
@@ -199,6 +202,11 @@ final class CompressedForwarder extends ChannelDuplexHandler {
         return threshold;
     }
 
+    /** The client channel's allocator. */
+    ByteBufAllocator clientAllocator() {
+        return inbound.channel().alloc();
+    }
+
     private int encoderThreshold() {
         try {
             return (int) encoderThreshold.invokeExact();
@@ -286,6 +294,12 @@ final class CompressedForwarder extends ChannelDuplexHandler {
             return;
         }
         if (b.refCnt() >= MAX_REFERENCES) {
+            ctx.write(msg, promise);
+            return;
+        }
+        // The encoder's frame comes from the client's allocator.
+        ByteBuf marked = markFrame;
+        if (marked != null && marked.alloc() != ctx.alloc()) {
             ctx.write(msg, promise);
             return;
         }
@@ -600,7 +614,7 @@ final class CompressedForwarder extends ChannelDuplexHandler {
     }
 
     /**
-     * The status, link and counters; a link whose backend channel is inactive reads {@code backend-closed}. The hit
+     * The mode, status, link and counters; an inactive backend channel's link reads {@code backend-closed}. The hit
      * rate is forwarded frames (hand-offs to the encoder's context that returned normally) over those plus the marked
      * buffer's writes passed to the encoder for changed indices, changed content or a failed comparison, each counted
      * when it is passed on; a write that fails at the forwarder's own release of its input, or whose hand-off throws,
@@ -614,7 +628,7 @@ final class CompressedForwarder extends ChannelDuplexHandler {
         String hit = eligible == 0 ? "n/a" : String.format(Locale.ROOT, "%.2f%%", 100.0 * forwarded / eligible);
         Channel backend = linkChannel;
         String link = backend != null && !backend.isActive() ? "backend-closed" : linkStatus;
-        return "status=" + status + ", link=" + link + ", threshold=" + threshold + ", hit=" + hit
+        return "mode=" + mode + ", status=" + status + ", link=" + link + ", threshold=" + threshold + ", hit=" + hit
                 + ", forwarded=" + forwarded + " (" + forwardedWireBytes
                 + " B sent, " + forwardedInflatedBytes + " B inflated), recompressed: not marked=" + notMarked
                 + ", indices changed=" + indicesChanged + ", guard mismatch=" + guardMismatch
