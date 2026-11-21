@@ -2125,8 +2125,9 @@ public class PacketEntity {
      * Entity#snapTo (Entity#moveTo before 1.21.5), which leaves the running interpolation in place: the entity sits at
      * {@code box} and its next step lerps on from there. From 1.21.5, InterpolationHandler#interpolate first shifts the
      * path it still follows by the jump from where its last step left the entity, where the shifted target is collision
-     * free; before it, LivingEntity#aiStep lerps toward the unshifted lerp target. A path whose current location is not
-     * exact is replaced by {@code box}.
+     * free; a changed target arriving before that tick takes the snapped position as that reference, so nothing
+     * shifts. Before 1.21.5, LivingEntity#aiStep lerps toward the unshifted lerp target. A path whose current location
+     * is not exact is replaced by {@code box}.
      */
     public void snapTo(CultPlayer player, SimpleCollisionBox box, float yaw, float pitch) {
         if (runPhysicsPaths(() -> snapTo(player, box, yaw, pitch))) return;
@@ -2141,10 +2142,12 @@ public class PacketEntity {
         clientPhysicalPositionExact = true;
         setClientPhysicalRotation(yaw, pitch);
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
-            carryInterpolationTargetByLocalPhysics(player);
+            // The path keeps the transform its last step left; the entity shows the snapped box until it next ticks.
+            blockEntityPhysicalBox = box.copy();
+        } else {
+            newPacketLocation.setExactMovementLocation(box);
+            newPacketLocation.setExactRotation(yaw, pitch);
         }
-        newPacketLocation.setExactMovementLocation(box);
-        newPacketLocation.setExactRotation(yaw, pitch);
         desyncClientPos = snappedPosition;
         clientPositionChanged();
     }

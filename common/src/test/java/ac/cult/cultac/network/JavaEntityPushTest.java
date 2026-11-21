@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
@@ -54,6 +55,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** ClientLevel#tickEntities order: an entity ticking before the player pushes this travel, one after it the next. */
 class JavaEntityPushTest {
@@ -1306,6 +1308,106 @@ class JavaEntityPushTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aChangedSyncBeforeTheEntityTickKeepsOnlyTheOtherPlayersPush(boolean claimExtraPush) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(STANDING, Vec3.ZERO);
+            f.input(NONE);
+            assertExact(f.tick(STANDING, true));
+            Vec3 synced = STANDING.add(0.45, 0, 0);
+            PacketEntity moving = startRemotePlayerPath(f, synced);
+            f.addRemotePlayer(101, STANDING.add(0, 0, 0.5), GameMode.SURVIVAL);
+
+            steppedPositionSync(f, synced, -90.0F, 0.0F, true);
+            steppedPositionSync(f, synced, -146.38482666015625F, 13.008872985839844F, false);
+            assertExact(f.tick(STANDING, true));
+            assertTrue(moving.clientPhysicalPosition.z > 64.0, () -> moving.clientPhysicalPosition.toString());
+
+            // The old step is still 80 blocks away. Only the second player's late push is in the next travel.
+            double extraPush = claimExtraPush ? -pushFrom(0.45 + 0.125) : 0.0;
+            PredictionResult next = f.tick(STANDING.add(extraPush, 0, PUSH), true);
+            if (claimExtraPush) JavaTickFixture.assertRejected(next, "Speed");
+            else assertTrue(exact(next), () -> describe(next) + ", accepted " + next.getAcceptedClosestToTarget());
+        }
+    }
+
+    @Test
+    void aDuplicateRotationUpdateKeepsTheSnapDeltaThroughTheEntityTick() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(STANDING, Vec3.ZERO);
+            f.input(NONE);
+            Vec3 synced = STANDING.add(0.95, 0, 0);
+            PacketEntity moving = startRemotePlayerPath(f, synced);
+            Vec3 previousTarget = moving.newPacketLocation.targetPosition();
+            Vec3 previousPhysical = moving.clientPhysicalPosition;
+
+            steppedPositionSync(f, synced, 30.0F, 0.0F, true);
+            assertEquals(synced, moving.clientPhysicalPosition);
+            assertEquals(previousTarget, moving.newPacketLocation.targetPosition());
+            moving.onPositionPath(EntityPositionPath.linear(Vec3.ZERO), false, 0.0F, 0.0F, f.player);
+            var entities = f.player.compensatedEntities;
+            SimpleCollisionBox preview;
+            entities.setPassTickedThroughOrder(entities.clientTickOrder(moving));
+            try {
+                preview = moving.getPositionCollisionBoxCandidates().getFirst();
+            } finally {
+                entities.setPassTickedThroughOrder(Long.MIN_VALUE);
+            }
+            assertEquals(previousTarget, moving.newPacketLocation.targetPosition());
+
+            moving.onMovement(f.player);
+            // The wire step spans three ticks and the player's interpolation interval is two. The first advance
+            // is 1.25 ticks, so this tick samples at 2.25 / 3 of the translated step.
+            double translatedStartX = synced.x - (previousPhysical.x - synced.x);
+            double translatedTargetX = previousTarget.x + (synced.x - previousPhysical.x);
+            assertEquals(translatedStartX + 0.3 * (2.25F / 3.0F), moving.clientPhysicalPosition.x, 1.0E-12);
+            assertEquals(synced.z, moving.clientPhysicalPosition.z, 1.0E-12);
+            assertEquals(moving.clientPhysicalPosition.x, (preview.minX + preview.maxX) / 2.0D, 1.0E-12);
+            assertEquals(moving.clientPhysicalPosition.z, (preview.minZ + preview.maxZ) / 2.0D, 1.0E-12);
+            assertEquals(previousTarget.add(synced.subtract(previousPhysical)), moving.newPacketLocation.targetPosition());
+            assertEquals(30.0F, moving.newPacketLocation.getCurrentYaw());
+
+            // A changed sync arriving after that tick appends to the path already translated by the first tick.
+            steppedPositionSync(f, synced, 60.0F, 0.0F, true);
+            moving.onMovement(f.player);
+            // The previous step advanced 1.125 more ticks, so the appended step begins with 0.375 ticks elapsed.
+            assertEquals(
+                    translatedTargetX + (synced.x - translatedTargetX) * (0.375F / 3.0F),
+                    moving.clientPhysicalPosition.x,
+                    1.0E-12);
+            assertEquals(synced.z, moving.clientPhysicalPosition.z, 1.0E-12);
+        }
+    }
+
+    @Test
+    void aBlockAtTheTranslatedTargetPreventsPositionCarryButKeepsRotationCarry() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(STANDING, Vec3.ZERO);
+            f.input(NONE);
+            Vec3 synced = STANDING.add(2.08, 0, 0);
+            PacketEntity moving = startRemotePlayerPath(f, synced);
+            Vec3 originalTarget = moving.newPacketLocation.targetPosition();
+
+            steppedPositionSync(f, synced, 30.0F, 0.0F, true);
+            f.player.compensatedWorld.updateBlock(new BlockPos(3, FLOOR_Y, 0), BlockIds.STONE.defaultState());
+            moving.onMovement(f.player);
+
+            assertEquals(synced.z + 80.0, moving.clientPhysicalPosition.z, 1.0E-12);
+            assertEquals(originalTarget, moving.newPacketLocation.targetPosition());
+            assertEquals(30.0F, moving.newPacketLocation.getCurrentYaw());
+        }
+    }
+
+    private static PacketEntity startRemotePlayerPath(JavaTickFixture f, Vec3 synced) {
+        Vec3 from = synced.add(0, 0, 80);
+        f.addRemotePlayer(100, from, GameMode.SURVIVAL);
+        PacketEntity entity = f.player.compensatedEntities.getEntity(100);
+        steppedPositionSync(f, from.add(0.3, 0, 0), 0.0F, 0.0F, false);
+        assertExact(f.tick(STANDING, true));
+        return entity;
+    }
+
     @Test
     void anEntityKeptThroughARespawnPushesThePlayerOnFirstContact() throws Exception {
         try (var f = new JavaTickFixture()) {
@@ -1665,8 +1767,17 @@ class JavaEntityPushTest {
 
     /** An entity_position_sync of entity {@code id} to {@code position}, answered through its pings. */
     private static void positionSync(JavaTickFixture f, int id, Vec3 position) {
-        var sync = new ClientboundEntityPositionSync(
-                id, new PositionPath.Linear(new Vec3d(position.x, position.y, position.z)), 0.0F, 0.0F, true);
+        var path = new PositionPath.Linear(new Vec3d(position.x, position.y, position.z));
+        positionSync(f, new ClientboundEntityPositionSync(id, path, 0.0F, 0.0F, true));
+    }
+
+    private static void steppedPositionSync(JavaTickFixture f, Vec3 position, float yaw, float pitch, boolean onGround) {
+        var step = new PositionPath.Step(new Vec3d(position.x, position.y, position.z), 3);
+        var path = new PositionPath.Stepped(List.of(step));
+        positionSync(f, new ClientboundEntityPositionSync(100, path, yaw, pitch, onGround));
+    }
+
+    private static void positionSync(JavaTickFixture f, ClientboundEntityPositionSync sync) {
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_POSITION_SYNC, sync, false);
         f.player.packetEntityReplication.onEntityPositionSync(event, f.player, sync);

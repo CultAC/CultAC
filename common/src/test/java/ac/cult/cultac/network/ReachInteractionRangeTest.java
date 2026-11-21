@@ -953,9 +953,12 @@ class ReachInteractionRangeTest {
         assertEquals(
                 List.of(),
                 teleportThenMoveFlags(
-                        new Vec3(.5, 64, 21.3),
+                        new Vec3(.5, 64, 5.3),
                         (setup, id) -> {
-                            setup.teleport(id, new Vec3(.5, 64, 31.3));
+                            setup.teleport(id, new Vec3(.5, 64, 8.3));
+                            // The teleport's steps end first; a sync landing on steps still owed would send the
+                            // zombie back along them.
+                            for (int tick = 0; tick < 6; tick++) setup.tickEnd();
                             setup.sendPositionSync(id, new Vec3(.5, 64, 1.3));
                             setup.pongThrough(setup.player.lastTransactionSent.get() + 1);
                         },
