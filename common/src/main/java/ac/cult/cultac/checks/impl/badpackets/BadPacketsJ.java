@@ -2,8 +2,8 @@ package ac.cult.cultac.checks.impl.badpackets;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.type.CameraDetachListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
-import ac.cult.cultac.checks.type.DecodedPacketReceiveListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -17,7 +17,7 @@ import ac.cult.cultac.utils.nmsutil.BoatRiderYaw;
         name = "BadPacketsJ",
         stableKey = "cult.badpackets.use_item_rotation_mismatch",
         description = "Rotation in use item packet did not match tick rotation")
-public class BadPacketsJ extends Check implements DecodedPacketReceiveListener, ClientTickEndListener {
+public class BadPacketsJ extends Check implements CameraDetachListener, ClientTickEndListener {
     private float yaw;
     private float pitch;
     private int rotations;
@@ -27,10 +27,8 @@ public class BadPacketsJ extends Check implements DecodedPacketReceiveListener, 
     }
 
     @Override
-    public void onDecodedPacketReceive(PacketReceiveEvent event) {
-        if (!player.cameraEntity.isSelf()) {
-            this.rotations = 0;
-        }
+    public void onCameraDetached() {
+        this.rotations = 0;
     }
 
     @CultPacketHandler

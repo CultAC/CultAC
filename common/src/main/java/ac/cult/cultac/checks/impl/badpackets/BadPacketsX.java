@@ -2,7 +2,7 @@ package ac.cult.cultac.checks.impl.badpackets;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
-import ac.cult.cultac.checks.type.DecodedPacketReceiveListener;
+import ac.cult.cultac.checks.type.CameraDetachListener;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -18,7 +18,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
         stableKey = "cult.badpackets.extra_input_actions",
         description = "Sent duplicate sneak or sprint input actions before the next movement packet",
         experimental = true)
-public class BadPacketsX extends Check implements PostPredictionListener, DecodedPacketReceiveListener {
+public class BadPacketsX extends Check implements PostPredictionListener, CameraDetachListener {
     private boolean sprint;
     private boolean sneak;
     private int flags;
@@ -28,10 +28,8 @@ public class BadPacketsX extends Check implements PostPredictionListener, Decode
     }
 
     @Override
-    public void onDecodedPacketReceive(PacketReceiveEvent event) {
-        if (!player.cameraEntity.isSelf()) {
-            sprint = sneak = false;
-        }
+    public void onCameraDetached() {
+        sprint = sneak = false;
     }
 
     @Override

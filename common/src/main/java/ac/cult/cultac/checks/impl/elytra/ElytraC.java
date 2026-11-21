@@ -2,7 +2,7 @@ package ac.cult.cultac.checks.impl.elytra;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
-import ac.cult.cultac.checks.type.DecodedPacketReceiveListener;
+import ac.cult.cultac.checks.type.CameraDetachListener;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -14,7 +14,7 @@ import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 
 @CheckData(name = "ElytraC", stableKey = "cult.elytra.too_frequent", description = "Started gliding too frequently")
-public class ElytraC extends Check implements PostPredictionListener, DecodedPacketReceiveListener {
+public class ElytraC extends Check implements PostPredictionListener, CameraDetachListener {
     private boolean glideThisTick, glideLastTick, setback;
     public boolean exempt;
 
@@ -23,10 +23,8 @@ public class ElytraC extends Check implements PostPredictionListener, DecodedPac
     }
 
     @Override
-    public void onDecodedPacketReceive(PacketReceiveEvent event) {
-        if (!player.cameraEntity.isSelf()) {
-            glideThisTick = glideLastTick = false;
-        }
+    public void onCameraDetached() {
+        glideThisTick = glideLastTick = false;
     }
 
     @CultPacketHandler

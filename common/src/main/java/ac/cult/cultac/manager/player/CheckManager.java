@@ -200,6 +200,7 @@ public class CheckManager {
 
     private PacketTypeTable<PacketReceiveRoute<Object>> earlyReceiveRoutes = PacketTypeTable.empty();
     private final List<DecodedPacketReceiveListener> decodedReceiveListeners = new ArrayList<>();
+    private final List<CameraDetachListener> cameraDetachListeners = new ArrayList<>();
     private final List<PacketReceiveHandler<ServerboundPacket>> nonAsyncReceiveHandlers = new ArrayList<>();
     private PacketTypeTable<PacketReceiveRoute<Object>> prePredictionReceiveRoutes = PacketTypeTable.empty();
     private PacketTypeTable<PacketReceiveRoute<Object>> receiveRoutes = PacketTypeTable.empty();
@@ -277,7 +278,11 @@ public class CheckManager {
             if (overridesPredictionComplete(check)) predictions.add(check);
         }
         predictionListeners = predictions.toArray(PostPredictionListener[]::new);
-        pseudoListeners = pseudoCheck.values().toArray(PostPredictionListener[]::new);
+        List<PostPredictionListener> pseudos = new ArrayList<>();
+        for (PostPredictionListener check : pseudoCheck.values()) {
+            if (overridesPredictionComplete(check)) pseudos.add(check);
+        }
+        pseudoListeners = pseudos.toArray(PostPredictionListener[]::new);
 
         for (CheckListener listener : allCheckListeners.values()) {
             if (listener instanceof BlockBreakListener) {
@@ -626,10 +631,10 @@ public class CheckManager {
         var packetOrder = packetChecks.getInstance(PacketOrderO.class);
         registerNonAsyncReceive(packetOrder, packetOrder::onNonAsyncPacket);
         registerDecodedReceive(packetChecks.get(MultiActionsS.class));
-        registerDecodedReceive(packetChecks.get(BadPacketsJ.class));
+        registerCameraDetach(packetChecks.get(BadPacketsJ.class));
         registerDecodedReceive(packetChecks.get(PacketOrderProcessor.class));
-        registerDecodedReceive(postPredictionCheck.get(BadPacketsX.class));
-        registerDecodedReceive(postPredictionCheck.get(ElytraC.class));
+        registerCameraDetach(postPredictionCheck.get(BadPacketsX.class));
+        registerCameraDetach(postPredictionCheck.get(ElytraC.class));
 
         registerPreReceive(registrations, prePredictionChecks.get(TimerCheck.class));
         registerPreReceive(registrations, prePredictionChecks.get(TickTimer.class));
@@ -810,6 +815,16 @@ public class CheckManager {
                     listener.getClass().getName() + " is not a decoded packet receive listener");
         }
         decodedReceiveListeners.add(decodedListener);
+    }
+
+    private void registerCameraDetach(CheckListener listener) {
+        if (listener == null || !shouldRegister(listener)) {
+            return;
+        }
+        if (!(listener instanceof CameraDetachListener cameraListener)) {
+            throw new IllegalStateException(listener.getClass().getName() + " is not a camera detach listener");
+        }
+        cameraDetachListeners.add(cameraListener);
     }
 
     private void registerReceive(PacketRegistrations registrations, CheckListener listener) {
@@ -1064,6 +1079,13 @@ public class CheckManager {
             if (!bedrock || dispatchesOnBedrock(listener)) {
                 listener.onDecodedPacketReceive(event);
             }
+        }
+        // No decoded observer writes camera state.
+        for (int i = 0, n = cameraDetachListeners.size(); i < n; i++) {
+            CameraDetachListener listener = cameraDetachListeners.get(i);
+            if (bedrock && !dispatchesOnBedrock(listener)) continue;
+            if (player.cameraEntity.isSelf()) break;
+            listener.onCameraDetached();
         }
     }
 

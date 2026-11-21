@@ -24,9 +24,9 @@ public final class BrandSpoofA extends Check implements CheckListener {
     public void onMove(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         if (reported || player.isBedrockMovement()) return;
-        if (!"vanilla".equals(player.getBrand())) return;
         var channel = player.pluginChannelManager.getChannelType();
         if (channel != ClientClassification.Type.FABRIC) return;
+        if (!"vanilla".equals(player.getBrand())) return;
         var identity = player.getClientClassification();
         if (!player.checkManager.getCheck(ClientBrand.class).isHasBrand() || !identity.contradictsVanilla()) return;
         reported = true;
