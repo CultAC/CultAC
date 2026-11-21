@@ -18,7 +18,7 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.Optional;
 
 final class BedrockEntityContactFactory {
-    private static final float DOLPHIN_PROXIMITY_RANGE = 10.0F;
+    private static final float DOLPHIN_PROXIMITY_RANGE = 5.0F;
     private static final float SPIN_RANGE = 1.0F;
 
     BedrockEntityContactFactory() {}
