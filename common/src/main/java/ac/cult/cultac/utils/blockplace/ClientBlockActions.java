@@ -65,10 +65,12 @@ public final class ClientBlockActions {
         var hit = new Vec3(pos.getX() + cursor.x, pos.getY() + cursor.y, pos.getZ() + cursor.z);
         // UseItemOn supplies a hit position. Match the existing queued-action camera reconstruction.
         double dx = hit.x() - player.x, dy = hit.y() - (player.y + player.getEyeHeight()), dz = hit.z() - player.z;
+        double horizontal = Math.hypot(dx, dz);
         float yaw = player.xRot, pitch = player.yRot;
-        if (Math.hypot(dx, dz) >= 1e-7 || Math.abs(dy) >= 1e-7) {
-            yaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90);
-            pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)));
+        // A hit straight above or below the eye has no yaw: only the cursor's float rounding is left of it.
+        if (horizontal >= 1e-7) yaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90);
+        if (horizontal >= 1e-7 || Math.abs(dy) >= 1e-7) {
+            pitch = (float) -Math.toDegrees(Math.atan2(dy, horizontal));
         }
         var action = new SimAction.UseOn(
                 hand(place.getHand()),
