@@ -9,20 +9,27 @@ import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.interaction.BlockHit;
 import ac.cult.blocksim.interaction.InteractionKind;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.blockplace.ClientBlockActions;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 
 /** Tests the versioned actions through their real compensated world/inventory consumers. */
@@ -136,6 +143,57 @@ class VersionedBlockActionConsumerTest {
                         1e-12,
                         "Sign collision: " + protocol);
             }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"78.73174, 0.4386616, true", "-90, 0.4386616, false", "78.73174, 0.6, false"})
+    void doorPlacementUsesTrackedYawOnlyWhenTheHorizontalCursorCannotResolveIt(
+            float trackedYaw, float cursorX, boolean westDoorFits) throws Exception {
+        try (var setup = new Setup(774)) {
+            int water = state("water");
+            setup.block(3, 64, 3, water);
+            setup.block(3, 65, 3, water);
+            var player = setup.fixture.player;
+            // Use the captured fractional position in this fixture's loaded chunk.
+            player.x = 3.4386616011393;
+            player.z = 3.300000011920929;
+            player.packetStateData.clientSidePosition = new Vec3(player.x, player.y, player.z);
+            player.boundingBox =
+                    new SimpleCollisionBox(player.x - .3, 64, player.z - .3, player.x + .3, 64.6, player.z + .3);
+            player.xRot = trackedYaw;
+            player.yRot = 89.84897F;
+            player.isSneaking = true;
+            player.getInventory()
+                    .inventory
+                    .getInventoryStorage()
+                    .setItem(Inventory.SLOT_OFFHAND, OfflineCultTestBootstrap.item("minecraft:cherry_door", 5));
+
+            // The model packet carries the widened wire floats. Neither the tiny decoded X delta
+            // nor the vertical component supplies an azimuth in the first two cases.
+            var packet = new ServerboundUseItemOn(
+                    Hand.OFF_HAND, new BlockPos(3, 63, 3), Direction.UP, new Vec3d(cursorX, 1, .3F), false, false, 1);
+            player.compensatedWorld.advanceClientPredictionSequence();
+            PlaceHandler.handleQueuedUseItemOn(player, packet);
+
+            assertEquals(
+                    westDoorFits ? 4 : 5,
+                    player.getInventory().getHandItem(Hand.OFF_HAND).count());
+            int lower = setup.state(3, 64, 3);
+            int upper = setup.state(3, 65, 3);
+            if (westDoorFits) {
+                assertEquals("minecraft:cherry_door", REGISTRY.block(lower).key());
+                assertEquals("minecraft:cherry_door", REGISTRY.block(upper).key());
+                assertEquals("lower", REGISTRY.value(lower, "half"));
+                assertEquals("upper", REGISTRY.value(upper, "half"));
+                assertEquals("west", REGISTRY.value(lower, "facing"));
+                assertEquals("west", REGISTRY.value(upper, "facing"));
+                assertEquals(0, player.compensatedWorld.getWaterFluidLevelAt(3, 64, 3));
+                assertEquals(0, player.compensatedWorld.getWaterFluidLevelAt(3, 65, 3));
+            } else {
+                assertEquals(water, lower);
+                assertEquals(water, upper);
+            }
+        }
     }
 
     @Test
