@@ -316,6 +316,57 @@ class ServerItemUseViewTest {
     }
 
     @Test
+    void theItemReturnedToAHandTheServerEmptiedAsksForTheUseFlagsOnce() {
+        var h = new Harness();
+        h.start(1);
+        ticks(h, 2, true, SLOWED);
+        // A kit reload: the hand is emptied and refilled between two server entity ticks.
+        h.view.serverTookItem("server sent slot");
+        assertTrue(h.view.serverReturnedItem("server sent slot"));
+        assertFalse(h.view.serverReturnedItem("server sent slot"));
+        h.view.serverTookItem("server sent slot");
+        assertTrue(h.view.serverReturnedItem("server sent slot"));
+        assertTrue(h.traced("server sent slot: the used hand no longer holds minecraft:golden_apple"));
+    }
+
+    @Test
+    void theItemReturnedAfterALocalStopAsksForTheUseFlags() {
+        var h = new Harness();
+        h.start(1);
+        ticks(h, 2, true, SLOWED);
+        ticks(h, 1, false, UNSLOWED);
+        assertTrue(h.view.serverReturnedItem("server sent slot"));
+        assertTrue(h.traced("server sent slot: server keeps minecraft:golden_apple, local stop refuted"));
+    }
+
+    @Test
+    void anUndisturbedHandNeedsNoUseFlags() {
+        var h = new Harness();
+        // Without a use, and for a slot that only repeats the held item.
+        assertFalse(h.view.serverReturnedItem("server sent slot"));
+        h.view.serverTookItem("server sent slot");
+        h.start(1);
+        ticks(h, 2, true, SLOWED);
+        assertFalse(h.view.serverReturnedItem("server sent slot"));
+    }
+
+    @Test
+    void aUseTheServerKeptThroughAnEmptiedHandStaysCharged() {
+        var h = new Harness();
+        h.start(1);
+        ticks(h, 2, true, SLOWED);
+        h.view.serverTookItem("server sent slot");
+        assertTrue(h.view.serverReturnedItem("server sent slot"));
+        // The client stopped on the emptied hand and ignores the resent flags.
+        ticks(h, 30, false, UNSLOWED);
+        h.view.serverComplete(2, h.now, TICK);
+        h.view.acknowledge(2, h.now);
+        assertEquals(32, h.last().ticks());
+        assertEquals(30, h.last().unslowed());
+        assertEquals(30, h.last().debt(), 1e-9);
+    }
+
+    @Test
     void aRefutedLocalStopCannotBeConfirmedByALaterStop() {
         var h = new Harness();
         h.profile = new ServerItemUseView.Profile(0.2F, 72000, "minecraft:shield");

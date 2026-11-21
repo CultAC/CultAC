@@ -148,10 +148,11 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     /** A slot value the server itself sent, as opposed to a click claim it accepted silently. */
-    private void observeSentServerSlot(boolean container, int index, Slot slot, SimItemStack item) {
+    private void observeSentServerSlot(
+            PacketSendEvent<?> event, boolean container, int index, Slot slot, SimItemStack item) {
         observeServerSlot(container, index, slot, item);
         if (slot != null && slot.isBackedBy(inventory.getInventoryStorage()))
-            player.itemUseBurst.serverSlotSent(slot.getContainerSlot(), item);
+            player.itemUseBurst.serverSlotSent(slot.getContainerSlot(), item, event);
     }
 
     private SimItemStack serverMenuSlot(boolean container, int index, Slot slot) {
@@ -1293,7 +1294,8 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         AbstractContainerMenu contentMenu = items.windowId() == 0 ? inventory : menuFromContentSlots(slots.size());
         if (items.windowId() == 0) {
             serverView.playerStateId(items.stateId());
-            for (int i = 0; i < slots.size(); i++) observeSentServerSlot(false, i, inventory.getSlot(i), slots.get(i));
+            for (int i = 0; i < slots.size(); i++)
+                observeSentServerSlot(event, false, i, inventory.getSlot(i), slots.get(i));
             if (observedWindowId == 0) serverView.carried(items.carriedItem());
         } else if (items.windowId() == observedWindowId) {
             if (observedMenu.getSlots().size() != slots.size()) {
@@ -1302,7 +1304,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             }
             serverView.containerStateId(items.stateId());
             for (int i = 0; i < slots.size(); i++)
-                observeSentServerSlot(true, i, observedMenu.getSlot(i), slots.get(i));
+                observeSentServerSlot(event, true, i, observedMenu.getSlot(i), slots.get(i));
             serverView.carried(items.carriedItem());
         }
 
@@ -1348,7 +1350,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         int storageSlot = directPlayerInventorySlotToStorageSlot(packet.slot());
         if (storageSlot != -1) {
             serverView.playerSlot(storageSlot, packet.item());
-            player.itemUseBurst.serverSlotSent(storageSlot, packet.item());
+            player.itemUseBurst.serverSlotSent(storageSlot, packet.item(), event);
             deferServerInventoryTask(event, () -> {
                 inventory.getInventoryStorage().setItem(storageSlot, packet.item());
                 player.attackStrength.confirmHotbarSlot(storageSlot - Inventory.HOTBAR_OFFSET);
@@ -1387,10 +1389,10 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             PacketSendEvent<InventoryPackets.Slot> event, CultPlayer player, InventoryPackets.Slot slotData) {
         if (slotData.windowId() == 0) {
             serverView.playerStateId(slotData.stateId());
-            observeSentServerSlot(false, slotData.slot(), inventory.getSlot(slotData.slot()), slotData.item());
+            observeSentServerSlot(event, false, slotData.slot(), inventory.getSlot(slotData.slot()), slotData.item());
         } else if (slotData.windowId() == observedWindowId) {
             serverView.containerStateId(slotData.stateId());
-            observeSentServerSlot(true, slotData.slot(), observedMenu.getSlot(slotData.slot()), slotData.item());
+            observeSentServerSlot(event, true, slotData.slot(), observedMenu.getSlot(slotData.slot()), slotData.item());
         }
         Runnable task = () -> {
             if (!isApplicableContainerMirror(slotData.windowId())) {

@@ -31,7 +31,9 @@ import java.util.function.Supplier;
  * with its flag clear, or refutes it by sending the used item back into that hand.
  * ServerGamePacketListenerImpl#handleContainerClick corrects a rejected click claim before its
  * next tick, and the client does not resume using a returned item, so a refuted stop leaves the
- * server using an item the client is not slowed by: those ticks are charged.
+ * server using an item the client is not slowed by: those ticks are charged. The caller resends the
+ * server's use flag behind the returned item ({@link #serverReturnedItem}), which restarts the client's
+ * use (LocalPlayer#onSyncedDataUpdated), so that state lasts only until the client handles the flag.
  *
  * <p>LocalPlayer#onSyncedDataUpdated stops a started use when it processes a flag clear, so a clear
  * acknowledged after the next use packet arrived stops the client's new use while the server, already
@@ -112,6 +114,8 @@ public final class ServerItemUseView {
         int proof = NO_PROOF;
         // The client-view hand held the used item; only then can it stop by losing it.
         boolean clientHeld;
+        // The used hand held or was sent another item, so the client may have stopped while the server uses on.
+        boolean handDisturbed;
         // Tentative local stop, after the client's last tick that could still be using.
         long stopTime = Long.MIN_VALUE;
         int stopTicks;
@@ -423,6 +427,7 @@ public final class ServerItemUseView {
             session.stopTime = Math.max(session.start, lastTickEnd);
             session.stopTicks = session.ticks;
             session.stopUnslowed = session.unslowed;
+            session.handDisturbed = true;
             trace(() -> "client view lost " + item(session.profile) + ": tentative local stop at "
                     + at(session.stopTime) + " after ticks=" + session.stopTicks);
         }
@@ -440,6 +445,28 @@ public final class ServerItemUseView {
         // Until the client view holds the item again (the correction at its proof), it cannot
         // claim another local stop; withholding that proof keeps every tick charged.
         session.clientHeld = false;
+    }
+
+    /**
+     * The server sent another item into the used hand. The client stops at its next entity tick that still
+     * sees it there (LivingEntity#updatingUsingItem); the server stops only if its own tick does.
+     */
+    public void serverTookItem(String cause) {
+        if (session == null || !session.serverActive() || session.handDisturbed) return;
+        trace(() -> cause + ": the used hand no longer holds " + item(session.profile));
+        session.handDisturbed = true;
+    }
+
+    /**
+     * {@link #serverKeepsItem} for a slot the server sent. Returns whether the used hand was disturbed since
+     * the use began or the item was last returned: the client may have stopped, and does not resume by itself.
+     */
+    public boolean serverReturnedItem(String cause) {
+        if (session == null || !session.serverActive()) return false;
+        serverKeepsItem(cause);
+        boolean disturbed = session.handDisturbed;
+        session.handDisturbed = false;
+        return disturbed;
     }
 
     /** A transaction the client acknowledged, in client order, at its arrival. */

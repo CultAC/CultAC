@@ -9,6 +9,7 @@ import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
@@ -136,14 +137,26 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
     /**
      * A player slot the server sent (never a click claim it accepted). The server still holding
      * the used item in the used hand refutes a tentative local stop.
+     *
+     * <p>When that hand held another item meanwhile, the client stopped using it if it ticked, and only the
+     * server's use flags restart it (LocalPlayer#onSyncedDataUpdated). They need the item in the hand, so they
+     * follow {@code event}'s packet; a write from its handler would precede it. The use is charged throughout.
      */
-    public void serverSlotSent(int storageSlot, SimItemStack item) {
+    public void serverSlotSent(int storageSlot, SimItemStack item, PacketSendEvent<?> event) {
         if (!player.usesModernJavaItemUse() || item == null) return;
+        boolean resync = false;
         for (Hand hand : HANDS) {
             String used = view.activeItem(hand == Hand.OFF_HAND);
-            if (used != null && storageSlot == storageSlot(hand) && used.equals(item.itemKey()))
-                view.serverKeepsItem("server sent slot " + storageSlot);
+            if (used == null || storageSlot != storageSlot(hand)) continue;
+            if (!used.equals(item.itemKey())) {
+                view.serverTookItem("server sent slot " + storageSlot);
+                continue;
+            }
+            // A click the client applied and the server refused empties the client's hand before any tick end.
+            boolean clientLost = !used.equals(player.getInventory().getHandItem(hand).itemKey());
+            resync |= view.serverReturnedItem("server sent slot " + storageSlot) | clientLost;
         }
+        if (resync) event.getTasksAfterSend().add(player::resyncItemUse);
     }
 
     /** A click Cult cancelled: the server never saw it, so it cannot have stopped the use. */

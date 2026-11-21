@@ -14,8 +14,12 @@ import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.ItemUtil;
@@ -114,6 +118,67 @@ class ItemUseBurstTest {
         });
     }
 
+    @Test
+    void theServerRefillingAHandItEmptiedResendsItsUseFlagsBehindTheRefill() {
+        run(f -> {
+            f.start();
+            f.ticks(2);
+            // A kit reload empties and refills the used hand between two server entity
+            // ticks. The refill is sent before the client's empty-handed tick reaches the server.
+            f.serverSlot(SimItemStack.EMPTY);
+            var refill = f.serverSlot(f.apple.copy());
+            // The flags restart the use only once the client holds the item again.
+            verify(f.player, never()).resyncItemUse();
+            refill.getTasksAfterSend().forEach(Runnable::run);
+            verify(f.player).resyncItemUse();
+            // LivingEntity#updatingUsingItem stopped the client on the emptied hand.
+            f.clickAppleOut();
+            f.ticks(1);
+            // It restarts on the flags and Minecraft#handleKeybinds releases an unheld use on its next tick.
+            f.check.onPlayerAction(null, f.player, f.release());
+            f.ticks(30);
+            assertEquals(0, f.check.violations);
+            assertFalse(f.check.tracking());
+        });
+    }
+
+    @Test
+    void aClientThatIgnoresTheResentUseFlagsStillOwesTheUse() {
+        run(f -> {
+            f.start();
+            f.ticks(2);
+            f.serverSlot(SimItemStack.EMPTY);
+            f.serverSlot(f.apple.copy()).getTasksAfterSend().forEach(Runnable::run);
+            verify(f.player).resyncItemUse();
+            f.clickAppleOut();
+            f.now.addAndGet(30 * TICK);
+            f.check.serverComplete(null);
+            assertEquals(1, f.check.violations);
+        });
+    }
+
+    @Test
+    void aSlotRepeatingTheHeldItemResendsNoUseFlags() {
+        run(f -> {
+            f.start();
+            f.ticks(2);
+            f.serverSlot(f.apple.copy()).getTasksAfterSend().forEach(Runnable::run);
+            verify(f.player, never()).resyncItemUse();
+        });
+    }
+
+    @Test
+    void theServerCorrectingARefusedClickResendsItsUseFlags() {
+        run(f -> {
+            f.start();
+            f.ticks(2);
+            // No tick end has shown the emptied hand yet.
+            f.clickAppleOut();
+            f.serverSlot(f.apple.copy()).getTasksAfterSend().forEach(Runnable::run);
+            verify(f.player).resyncItemUse();
+        });
+    }
+
     private static final class Fixture {
         CultPlayer original;
         CultPlayer player;
@@ -141,6 +206,18 @@ class ItemUseBurstTest {
         /** MultiPlayerGameMode#handleContainerInput applies the click locally before sending it. */
         void clickAppleOut() {
             inventory().inventory.getInventoryStorage().setItem(HOTBAR_0, SimItemStack.EMPTY);
+        }
+
+        /** A player-inventory slot of the used hand as the server sends it. */
+        PacketSendEvent<InventoryPackets.Slot> serverSlot(SimItemStack item) {
+            var slot = new InventoryPackets.Slot(0, 1, HOTBAR_0, item);
+            var event = send(slot);
+            inventory().onContainerSetSlot(event, original, slot);
+            return event;
+        }
+
+        ServerboundPlayerAction release() {
+            return new ServerboundPlayerAction(PlayerAction.RELEASE_USE_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
         }
 
         InventoryClick click() {
@@ -172,6 +249,7 @@ class ItemUseBurstTest {
             f.setbacks = mock(SetbackTeleportUtil.class);
             doReturn(f.setbacks).when(f.player).getSetbackTeleportUtil();
             doReturn(true).when(f.player).usesModernJavaItemUse();
+            doNothing().when(f.player).resyncItemUse();
             // No transaction is acknowledged, so no client time is proven while using.
             doReturn(0L).when(f.player).playerClockAtLeast();
             f.player.packetStateData.lastSlotSelected = 0;
