@@ -169,12 +169,9 @@ public final class JavaEntityVelocityTicks {
                             position.x,
                             position.y,
                             position.z);
+            float scale = targetScale(player, context, before, passengerPose);
             SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                    position.x,
-                    position.y,
-                    position.z,
-                    pose.width * context.getScale(),
-                    pose.height * context.getScale());
+                    position.x, position.y, position.z, pose.width * scale, pose.height * scale);
             SimpleCollisionBox rootBox = new SimpleCollisionBox(), scratch = new SimpleCollisionBox();
             SimpleCollisionBox candidateBox = new SimpleCollisionBox(), physicalBox = new SimpleCollisionBox();
             boolean pushedByLiving = JavaLivingEntityPushes.pushedByLiving(player);
@@ -273,13 +270,14 @@ public final class JavaEntityVelocityTicks {
                         position.x,
                         position.y,
                         position.z);
+        float scale = targetScale(player, context, before, passengerPose);
         SimpleCollisionBox target = GetBoundingBox.getBoundingBoxFromPosAndSize(
                 position.x,
                 position.y,
                 position.z,
-                context.getVehicle() == null ? pose.width * context.getScale() : context.getMaxWidth(),
+                context.getVehicle() == null ? pose.width * scale : context.getMaxWidth(),
                 context.getVehicle() == null
-                        ? pose.height * context.getScale()
+                        ? pose.height * scale
                         : before ? context.getHeightBeforeTravel() : context.getMaxHeight());
         entities.beginMovementPositionReads();
         long phase = entities.passTickedThroughOrder();
@@ -298,6 +296,19 @@ public final class JavaEntityVelocityTicks {
             entities.setPassTickedThroughOrder(phase);
             entities.endMovementPositionReads();
         }
+    }
+
+    /**
+     * The local player's dimension scale an entity's push or roar meets. LivingEntity#tick refreshes a dirty SCALE
+     * after aiStep, so entities ticking after the player meet the box its acknowledged scale gives, while the travel
+     * and earlier entities meet the one it travelled with.
+     */
+    private static float targetScale(
+            CultPlayer player,
+            SimulationContext context,
+            boolean before,
+            ac.cult.cultac.utils.enums.Pose passengerPose) {
+        return before || passengerPose != null ? context.getScale() : player.getScale();
     }
 
     private static boolean anyRoarsThisTick(CultPlayer player, List<PacketEntityRavager> ravagers) {

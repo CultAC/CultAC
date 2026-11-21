@@ -6,9 +6,16 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushe
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
+import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
@@ -16,10 +23,81 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.List;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
 class JavaLivingPushCarryRegressionTest {
+    @ParameterizedTest
+    @CsvSource({"2, 1, false", "1, 2, false", "2, 1, true", "1, 2, true"})
+    void lateRemotePlayerReadsTheRefreshedLocalScale(float oldScale, float newScale, boolean reportAfterPass)
+            throws Exception {
+        try (var f = reportAfterPass
+                ? new JavaTickFixture(ProtocolVersion.V26_3, ClientVersion.V_26_3)
+                : new JavaTickFixture(ProtocolVersion.V26_2, ClientVersion.V_26_2)) {
+            Vec3 start = new Vec3(0.5, 80, 0.5);
+            f.place(start, Vec3.ZERO);
+            updateLocalScale(f, oldScale);
+            assertTrue(JavaTickFixture.exact(f.tick(start, false)));
+
+            Vec3 startingVelocity = new Vec3(-0.04, 0.12, 0.03);
+            f.place(start, startingVelocity);
+            f.input(new ServerboundPlayerInput(true, false, false, false, false, false, false));
+            Vec3 travel = startingVelocity.add(0, 0, (double) 0.98F * 0.02F);
+            Vec3 end = start.add(travel);
+            // A scale-1 remote player reaches a scale-2 local box from 0.75 away.
+            double distance = 0.75;
+            f.addRemotePlayer(100, end.add(distance, 0, 0), GameMode.SURVIVAL);
+            updateLocalScale(f, newScale);
+
+            var result = f.tick(end, false);
+            assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
+            assertEquals(oldScale, result.getSimulationContext().getScale());
+            assertEquals(newScale, f.player.dimensionScale);
+
+            double pushX = newScale > oldScale ? -distance / Math.sqrt(distance) * 0.05F : 0;
+            Vec3 carry = new Vec3(travel.x * 0.91F + pushX, (travel.y - 0.08) * 0.98F, travel.z * 0.91F);
+            f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
+            result = f.tick(end.add(carry), false);
+            assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
+            assertEquals(0.0, result.getOffset(), 1e-13, JavaTickFixture.describe(result));
+        }
+    }
+
+    @Test
+    void idleTickRefreshesLocalScaleBeforeTheLatePush() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_2, ClientVersion.V_26_2)) {
+            Vec3 at = new Vec3(0.5, JavaTickFixture.FLOOR_Y, 0.5);
+            f.place(at, Vec3.ZERO);
+            updateLocalScale(f, 2);
+            assertTrue(JavaTickFixture.exact(f.tick(at, true)));
+            f.addRemotePlayer(100, at.add(0.75, 0, 0), GameMode.SURVIVAL);
+            updateLocalScale(f, 1);
+
+            f.tickEnd();
+            assertEquals(1.0F, f.player.dimensionScale);
+            var carry = assertInstanceOf(
+                    JavaPredictionCarry.class,
+                    f.player.checkManager.getSimulationProcessor().getCurrentPredictionCarry());
+            assertTrue(
+                    carry.states().stream().allMatch(state -> state.velocity().x == 0 && state.velocity().z == 0),
+                    () -> "unexpected push in " + carry.states());
+            var result = f.tick(at, true);
+            assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
+        }
+    }
+
+    private static void updateLocalScale(JavaTickFixture f, float scale) {
+        var packet = new ClientboundUpdateAttributes(
+                f.player.entityID, List.of(new AttributeSnapshot("minecraft:scale", scale, List.of())));
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.UPDATE_ATTRIBUTES, packet, false);
+        f.player.packetEntityReplication.onUpdateAttributes(event, f.player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+    }
+
     @ParameterizedTest
     @EnumSource(
             value = ClientVersion.class,
