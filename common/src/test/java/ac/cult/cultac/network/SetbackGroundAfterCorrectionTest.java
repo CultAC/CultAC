@@ -168,6 +168,48 @@ class SetbackGroundAfterCorrectionTest {
     }
 
     /**
+     * The client handles its teleports in the order they were sent, so until it answers a correction it still moves
+     * from the state the correction rejected. A server teleport sent before that answer replaces the setback the client
+     * must accept; the movements sent ahead of the correction's answer stay unchecked and withheld from the server.
+     */
+    @Test
+    void aServerTeleportBeforeTheAnswerKeepsTheCorrectionPending() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+            settle(f, STANDING);
+            SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
+            written(f);
+
+            // A glide start without a glider, then the tick it rejects.
+            f.command(PlayerCommandAction.START_FLYING_WITH_ELYTRA);
+            assertTrue(teleports.isPendingSetback(), "the glide start without a glider was not set back");
+            f.move(STANDING, true);
+            f.tickEnd();
+            SetBackData correction = teleports.getRequiredSetBack();
+            written(f);
+
+            serverTeleport(f, SERVER_TELEPORT, ACROSS_THE_FLOOR);
+            SetBackData server = teleports.getRequiredSetBack();
+            assertNotSame(correction, server, "the server teleport did not replace the required correction");
+            assertTrue(teleports.isPendingSetback(), "the server teleport ended the wait for the correction's answer");
+
+            // A tick the client ran before it handled either teleport, a block from where the engine has it.
+            var early = f.move(STANDING.add(1, 0, 0), true);
+            f.tickEnd();
+            PredictionResult unchecked =
+                    f.player.checkManager.getSimulationProcessor().getLastPrediction();
+            assertTrue(unchecked.isExempt(), "a movement ahead of the correction's answer: " + describe(unchecked));
+            assertTrue(early.isCancelled(), "a movement ahead of the correction's answer reached the server");
+
+            accept(f, correction);
+            assertFalse(teleports.isPendingSetback(), "the answered correction still blocks movement");
+            accept(f, server);
+            assertFalse(teleports.isPendingSetback());
+            assertFalse(teleports.javaTeleports().hasPendingPlayerPositionTeleport());
+        }
+    }
+
+    /**
      * A correction onto the floor leaves the client on the ground, on the block under the correction: its next tick
      * jumps, and it starts from the stone there, not from the ice six blocks away that the rejected movement claimed.
      */

@@ -33,7 +33,7 @@ public class SetbackTeleportUtil extends CultProcessor
     // Sync to netty
     public final ConcurrentLinkedDeque<TeleportData> pendingTeleports = new ConcurrentLinkedDeque<>();
 
-    private final CorrectionState corrections = new CorrectionState();
+    private final CorrectionState corrections = new CorrectionState(pendingTeleports);
     private final SafePositionTracker safePositions = new SafePositionTracker(player, this);
     private final MovementGate gate = new MovementGate(player, corrections, this);
     private final CorrectionBuilder builder = new CorrectionBuilder(player);
