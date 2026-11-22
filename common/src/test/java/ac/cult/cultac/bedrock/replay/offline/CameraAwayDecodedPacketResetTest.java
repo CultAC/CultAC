@@ -9,10 +9,12 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsJ;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsX;
 import ac.cult.cultac.checks.impl.elytra.ElytraC;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
@@ -101,7 +103,7 @@ public final class CameraAwayDecodedPacketResetTest {
             setBooleanField(elytraC, "glideThisTick", true);
             setBooleanField(elytraC, "glideLastTick", true);
 
-            var packet = ac.cult.cultac.protocol.packet.ServerboundPackets.SIGN_UPDATE.opaqueValue();
+            var packet = ServerboundPackets.SIGN_UPDATE.opaqueValue();
             CheckManagerListener.receiveGeneric(RecordReceiveTestEvents.signUpdate(player), player);
 
             assertEquals(0, intField(badPacketsJ, "rotations"));
@@ -154,8 +156,7 @@ public final class CameraAwayDecodedPacketResetTest {
         return RecordReceiveTestEvents.playerCommand(player, packet);
     }
 
-    private static PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundPong> receiveEvent(
-            CultPlayer player, ServerboundPong packet) {
+    private static PacketReceiveEvent<ServerboundPong> receiveEvent(CultPlayer player, ServerboundPong packet) {
         return RecordReceiveTestEvents.pong(player, packet.id());
     }
 
@@ -184,8 +185,7 @@ public final class CameraAwayDecodedPacketResetTest {
     private static CultPlayer offlineJavaPlayer() {
         OfflineCultTestBootstrap.installConfig();
         UUID playerId = UUID.randomUUID();
-        User user = ac.cult.cultac.network.TestUsers.create(
-                new User.Profile(playerId, ".Camera_Away_Reset_Test"), new EmbeddedChannel());
+        User user = TestUsers.create(new User.Profile(playerId, ".Camera_Away_Reset_Test"), new EmbeddedChannel());
         return new CultPlayer(user);
     }
 }

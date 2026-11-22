@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
 import static org.junit.Assert.*;
 
+import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
@@ -191,7 +192,7 @@ public final class BedrockSolidActorStepStateTest {
         assertTrue("a boat that cannot be stepped onto must stop the move", stopped);
     }
 
-    private static void assertSteppedAtSpeed(ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult result) {
+    private static void assertSteppedAtSpeed(BedrockMovementResult result) {
         assertEquals(0.0D, result.predictedPosition().subtract(STEPPED).length(), 1.0E-7);
         assertEquals(STEPPED_SPEED_Z, result.predictedVelocity().z(), 1.0E-8);
         assertNotNull(result.solidActorOrderRange());

@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
@@ -16,11 +17,14 @@ import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
+import java.util.List;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -28,20 +32,17 @@ public final class BedrockMoveVehicleTransportTest {
     @Test
     public void equineVariantsRequireSaddleAndValidatedMovement() {
         OfflineCultTestBootstrap.installConfig();
-        for (var type : java.util.List.of(
+        for (var type : List.of(
                 EntityTypeIds.DONKEY, EntityTypeIds.MULE, EntityTypeIds.SKELETON_HORSE, EntityTypeIds.ZOMBIE_HORSE)) {
             CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
             try {
                 mountHorse(player, 71, type);
                 var horse = (PacketEntityHorse) player.compensatedEntities.getEntity(71);
-                assertEquals(
-                        horse,
-                        ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(player));
-                assertEquals(1.3965F, ac.cult.cultac.utils.nmsutil.BoundingBoxSize.getWidth(player, horse), 0);
-                assertEquals(1.6F, ac.cult.cultac.utils.nmsutil.BoundingBoxSize.getHeight(player, horse), 0);
+                assertEquals(horse, BedrockVehicleControl.controlledVehicle(player));
+                assertEquals(1.3965F, BoundingBoxSize.getWidth(player, horse), 0);
+                assertEquals(1.6F, BoundingBoxSize.getHeight(player, horse), 0);
                 horse.hasSaddle = false;
-                assertNull(
-                        ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(player));
+                assertNull(BedrockVehicleControl.controlledVehicle(player));
                 horse.hasSaddle = true;
 
                 var listener = new CheckManagerListener();
@@ -107,7 +108,7 @@ public final class BedrockMoveVehicleTransportTest {
             Vec3 position = new Vec3(2.0F, 64.0F, 3.0F);
             var packet = vehiclePacket(position);
             player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
-            var tickEnd = ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END.opaqueValue();
+            var tickEnd = ServerboundPackets.CLIENT_TICK_END.opaqueValue();
             listener.processClientTickEndReceive(RecordReceiveTestEvents.tickEnd(player), player);
             var nextTick = receiveEvent(player, packet);
             listener.onMoveVehicle(nextTick, player, packet);
@@ -371,7 +372,7 @@ public final class BedrockMoveVehicleTransportTest {
                     vehicleId, new int[] {player.entityID}, player.lastTransactionSent.get());
             SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             assertNull(player.compensatedEntities.getSelf().getRiding());
-            assertNull(ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(player));
+            assertNull(BedrockVehicleControl.controlledVehicle(player));
             ServerboundMoveVehicle packet = vehiclePacket(new Vec3(2.0D, 80.0D, 3.0D));
             PacketReceiveEvent event = receiveEvent(player, packet);
 

@@ -57,25 +57,4 @@ public final class BedrockLiquidSensing {
                         BedrockLiquidGeometry.playerLiquidBox(physicalFeetPosition, dimensions, BedrockLiquidKind.LAVA),
                         BedrockLiquidKind.LAVA);
     }
-
-    public static boolean inWaterFlag(BedrockMovementContext context, Vec3d physicalFeetPosition) {
-        return inWaterFlag(context, physicalFeetPosition, context.playerDimensionsState());
-    }
-
-    public static boolean liquidGravityApplies(BedrockMovementContext context, Vec3d physicalFeetPosition) {
-        return liquidGravityApplies(context, physicalFeetPosition, context.playerDimensionsState());
-    }
-
-    public static boolean liquidGravityApplies(
-            BedrockMovementContext context, Vec3d physicalFeetPosition, PlayerDimensionsState sensingDimensions) {
-        Objects.requireNonNull(context, "context");
-        Objects.requireNonNull(physicalFeetPosition, "physicalFeetPosition");
-        Objects.requireNonNull(sensingDimensions, "sensingDimensions");
-        Vec3d stateVectorPosition = new Vec3d(
-                physicalFeetPosition.x(),
-                physicalFeetPosition.y() + sensingDimensions.height() * 0.5D,
-                physicalFeetPosition.z());
-        return !BedrockLiquidGeometry.centerTopAndBottomNotInAir(
-                context.worldState().blockCollisionWorld(), stateVectorPosition, sensingDimensions);
-    }
 }

@@ -4,12 +4,16 @@ import static org.junit.Assert.assertTrue;
 
 import ac.cult.cultac.checks.impl.chat.ChatD;
 import ac.cult.cultac.events.packets.listeners.PacketConfigurationListener;
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientInformation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.protocol.value.ChatVisibility;
 import ac.cult.cultac.protocol.value.ClientInformation;
+import ac.cult.cultac.protocol.value.MainHand;
+import ac.cult.cultac.protocol.value.ParticleStatus;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.UUID;
 import org.junit.Test;
@@ -48,8 +52,7 @@ public final class PacketConfigurationParityTest {
                     defaults.allowsListing(),
                     defaults.particleStatus());
             ServerboundClientInformation packet = new ServerboundClientInformation(hidden);
-            var event = RecordReceiveTestEvents.clientInformation(
-                    player, packet, ac.cult.cultac.protocol.ConnectionPhase.CONFIGURATION);
+            var event = RecordReceiveTestEvents.clientInformation(player, packet, ConnectionPhase.CONFIGURATION);
 
             new PacketConfigurationListener().onClientInformation(event, player, packet);
 
@@ -76,8 +79,7 @@ public final class PacketConfigurationParityTest {
                     defaults.allowsListing(),
                     defaults.particleStatus());
             ServerboundClientInformation packet = new ServerboundClientInformation(lowDistance);
-            var event = RecordReceiveTestEvents.clientInformation(
-                    player, packet, ac.cult.cultac.protocol.ConnectionPhase.CONFIGURATION);
+            var event = RecordReceiveTestEvents.clientInformation(player, packet, ConnectionPhase.CONFIGURATION);
 
             new PacketConfigurationListener().onClientInformation(event, player, packet);
 
@@ -90,21 +92,12 @@ public final class PacketConfigurationParityTest {
 
     private static ClientInformation defaults() {
         return new ClientInformation(
-                "en_us",
-                2,
-                ChatVisibility.FULL,
-                true,
-                0,
-                ac.cult.cultac.protocol.value.MainHand.RIGHT,
-                false,
-                false,
-                ac.cult.cultac.protocol.value.ParticleStatus.ALL);
+                "en_us", 2, ChatVisibility.FULL, true, 0, MainHand.RIGHT, false, false, ParticleStatus.ALL);
     }
 
     private static CultPlayer offlineJavaPlayer() {
         UUID playerId = UUID.fromString("244cd32d-3e42-4ec0-b22c-c95be54d1c58");
-        User user = ac.cult.cultac.network.TestUsers.create(
-                new User.Profile(playerId, ".Configuration_Test"), new EmbeddedChannel());
+        User user = TestUsers.create(new User.Profile(playerId, ".Configuration_Test"), new EmbeddedChannel());
         return new CultPlayer(user);
     }
 }

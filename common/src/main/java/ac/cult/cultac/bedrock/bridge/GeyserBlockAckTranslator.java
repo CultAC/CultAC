@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.reload.integrations.GeyserTranslatorRouter;
 import java.util.function.Predicate;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
@@ -22,10 +24,9 @@ final class GeyserBlockAckTranslator extends PacketTranslator<ClientboundBlockCh
     @SuppressWarnings("unchecked")
     GeyserBlockAckTranslator(Predicate<GeyserSession> attached) {
         this.attached = attached;
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            delegate = ac.cult.reload.integrations.GeyserTranslatorRouter.install(
-                    ClientboundBlockChangedAckPacket.class, host, this);
+            delegate = GeyserTranslatorRouter.install(ClientboundBlockChangedAckPacket.class, host, this);
             return;
         }
         delegate = (PacketTranslator<ClientboundBlockChangedAckPacket>)
@@ -68,18 +69,15 @@ final class GeyserBlockAckTranslator extends PacketTranslator<ClientboundBlockCh
     }
 
     boolean isInstalled() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
-        if (host != null)
-            return ac.cult.reload.integrations.GeyserTranslatorRouter.installed(
-                    ClientboundBlockChangedAckPacket.class, host, this);
+        var host = RuntimeEnvironment.host();
+        if (host != null) return GeyserTranslatorRouter.installed(ClientboundBlockChangedAckPacket.class, host, this);
         return Registries.JAVA_PACKET_TRANSLATORS.get(ClientboundBlockChangedAckPacket.class) == this;
     }
 
     void close() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            ac.cult.reload.integrations.GeyserTranslatorRouter.remove(
-                    ClientboundBlockChangedAckPacket.class, host, this);
+            GeyserTranslatorRouter.remove(ClientboundBlockChangedAckPacket.class, host, this);
             return;
         }
         if (isInstalled())

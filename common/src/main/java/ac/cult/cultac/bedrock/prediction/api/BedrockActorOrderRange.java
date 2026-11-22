@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.api;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import java.util.Locale;
 
 /**
  * Where, axis by axis, a move may end other than at its own end because of its solid actors: from {@code min} to
@@ -112,7 +113,7 @@ public record BedrockActorOrderRange(
     private static void append(StringBuilder text, char axis, double width, boolean buffered) {
         if (width <= 0.0D) return;
         if (!text.isEmpty()) text.append(',');
-        text.append(axis).append(buffered ? '~' : ':').append(String.format(java.util.Locale.ROOT, "%.3f", width));
+        text.append(axis).append(buffered ? '~' : ':').append(String.format(Locale.ROOT, "%.3f", width));
     }
 
     private static double clamp(double value, double min, double max) {

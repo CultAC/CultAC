@@ -6,6 +6,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
+import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SuperDebug;
@@ -86,9 +87,7 @@ public final class BedrockMovementCorrections {
             int transaction) {
         var vehicle = BedrockVehicleControl.controlledVehicle(player);
         if (vehicle == null || vehicle.getEntityId() != vehicleId) return;
-        player.checkManager
-                .getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class)
-                .onVehicleTeleport();
+        player.checkManager.getListener(BedrockMovement.class).onVehicleTeleport();
         clear();
         placement = new Placement(vehicleId, transaction, position, velocity, yaw, pitch, onGround);
     }

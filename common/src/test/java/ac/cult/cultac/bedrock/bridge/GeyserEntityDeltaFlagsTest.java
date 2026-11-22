@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.bridge;
 
 import static org.junit.Assert.*;
 
+import java.util.EnumSet;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityDeltaPacket;
 import org.junit.Test;
 
@@ -13,7 +14,7 @@ public class GeyserEntityDeltaFlagsTest {
         assertEquals(new GeyserEntityDeltaFlags(true, true, true, true), GeyserEntityDeltaFlags.read(packet, 2168));
         assertEquals(new GeyserEntityDeltaFlags(false, false, false, false), GeyserEntityDeltaFlags.read(packet, 1001));
         packet.getFlags()
-                .addAll(java.util.EnumSet.of(
+                .addAll(EnumSet.of(
                         MoveEntityDeltaPacket.Flag.ON_GROUND,
                         MoveEntityDeltaPacket.Flag.TELEPORTING,
                         MoveEntityDeltaPacket.Flag.FORCE_MOVE_LOCAL_ENTITY,

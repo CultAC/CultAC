@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
@@ -17,6 +18,7 @@ import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockUnderwaterSensing;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementUpdate;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
@@ -236,9 +238,8 @@ public final class BedrockSimulationStructureTest {
                 PlayerDimensionsState.DEFAULT);
         // This fixture begins after ten completed charge ticks in standing,
         // submerged water. Carry the preceding tick's producer result.
-        charged = charged.withCameraWater(
-                ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockUnderwaterSensing.update(
-                        charged.cameraWater(), context, charged.physicalFeetPosition(), charged.playerDimensions()));
+        charged = charged.withCameraWater(BedrockUnderwaterSensing.update(
+                charged.cameraWater(), context, charged.physicalFeetPosition(), charged.playerDimensions()));
         BedrockWorldSnapshot snapshot =
                 BedrockSnapshotResolver.forState(BedrockWorldSnapshot.fromContext(context), charged, release);
 
@@ -523,7 +524,7 @@ public final class BedrockSimulationStructureTest {
         assertFalse(state.riptideSpinActive());
     }
 
-    private static ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult teleportResult(
+    private static BedrockMovementResult teleportResult(
             Vec3d position, Vec3d velocity, BlockCollisionWorld world, Set<String> inputs) {
         BedrockInputFrame frame = new BedrockInputFrame(42L, 0F, 0F, false, false, false, inputs);
         var state = BedrockMovementState.fromPhysicalFeet(

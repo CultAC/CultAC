@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
 import java.util.Set;
+import org.junit.Assert;
 import org.junit.Test;
 
 public final class BedrockSwimmingMovementTest {
@@ -45,7 +46,7 @@ public final class BedrockSwimmingMovementTest {
         BedrockSwimmingMovement.SwimmingState result =
                 initial.afterActions(intent("START_SWIMMING", "STOP_SWIMMING"), true);
 
-        org.junit.Assert.assertFalse(result.actorStateAfterActions());
+        Assert.assertFalse(result.actorStateAfterActions());
     }
 
     @Test
@@ -55,7 +56,7 @@ public final class BedrockSwimmingMovementTest {
 
         BedrockSwimmingMovement.SwimmingState result = initial.afterActions(intent("STOP_SWIMMING"), true);
 
-        org.junit.Assert.assertEquals((double) 0.2F, result.swimAmount(), 0.0D);
+        Assert.assertEquals((double) 0.2F, result.swimAmount(), 0.0D);
     }
 
     private static BedrockInputIntent intent(String... inputData) {

@@ -23,6 +23,7 @@ import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
 import ac.cult.cultac.bedrock.prediction.world.FluidState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.Test;
@@ -213,7 +214,7 @@ public final class BedrockEffectVerticalVelocityTest {
     }
 
     private static List<PlacedBlockCollision> blocks(PlacedBlockCollision floor, PlacedBlockCollision... extra) {
-        List<PlacedBlockCollision> blocks = new java.util.ArrayList<>(List.of(extra));
+        List<PlacedBlockCollision> blocks = new ArrayList<>(List.of(extra));
         blocks.add(floor);
         return blocks;
     }

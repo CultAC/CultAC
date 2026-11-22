@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +63,7 @@ final class OfflineBedrockReplayFixtureExporter {
 
         var paletteValues = new LinkedHashMap<String, NbtValue>();
         palette.forEach((state, id) -> paletteValues.put(state, new NbtValue.Numeric(NbtValue.Kind.INT, id)));
-        var blockData = new java.util.ArrayList<Long>();
+        var blockData = new ArrayList<Long>();
         for (byte value : data.toByteArray()) blockData.add((long) value);
         var blocks = new NbtValue.Compound(Map.of(
                 "Palette", new NbtValue.Compound(paletteValues),

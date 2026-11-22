@@ -13,6 +13,17 @@ public record WorldCollisionBox(double minX, double minY, double minZ, double ma
         }
     }
 
+    /** The unit cube of the block at {@code position}. */
+    public static WorldCollisionBox fullBlock(BlockPosition position) {
+        return new WorldCollisionBox(
+                position.x(),
+                position.y(),
+                position.z(),
+                position.x() + 1.0D,
+                position.y() + 1.0D,
+                position.z() + 1.0D);
+    }
+
     public WorldCollisionBox move(double x, double y, double z) {
         return new WorldCollisionBox(minX + x, minY + y, minZ + z, maxX + x, maxY + y, maxZ + z);
     }

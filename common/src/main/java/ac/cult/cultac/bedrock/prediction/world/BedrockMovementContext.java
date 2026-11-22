@@ -34,10 +34,6 @@ public record BedrockMovementContext(
         return worldState.lavaContact();
     }
 
-    public boolean inAir() {
-        return !worldState.waterContact() && !worldState.lavaContact();
-    }
-
     public Medium liquidMovementMedium() {
         return worldState.liquidMovementMedium();
     }
@@ -76,10 +72,6 @@ public record BedrockMovementContext(
 
     public boolean elytraGlideAvailable() {
         return modifierState.elytraGlideAvailable();
-    }
-
-    public boolean movementAbilityMayFly() {
-        return modifierState.movementAbilityMayFly();
     }
 
     public boolean movementAbilityFlying() {

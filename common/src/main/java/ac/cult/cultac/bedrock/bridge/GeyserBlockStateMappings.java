@@ -11,6 +11,7 @@ import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ModelBlockStates;
 import ac.cult.cultac.protocol.value.Direction;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -18,6 +19,7 @@ import java.util.function.IntUnaryOperator;
 import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition;
 import org.geysermc.geyser.registry.BlockRegistries;
 import org.geysermc.geyser.registry.type.BlockMappings;
+import org.geysermc.geyser.registry.type.GeyserBedrockBlock;
 
 /** Inverts the session palette through the same server-to-Geyser protocol mappings as collision shapes. */
 final class GeyserBlockStateMappings {
@@ -65,11 +67,11 @@ final class GeyserBlockStateMappings {
             BlockMappings mappings, int count, IntUnaryOperator javaIdOf, IntUnaryOperator serverIdOf) {
         var states = new HashMap<Integer, Integer>();
         int[] sentDefinitions = new int[DataTables.defaults().registry().stateCount()];
-        java.util.Arrays.fill(sentDefinitions, -1);
+        Arrays.fill(sentDefinitions, -1);
         int[] connectionRules = new int[sentDefinitions.length];
         byte[] connectors = new byte[sentDefinitions.length];
-        java.util.Arrays.fill(connectionRules, BedrockBlockConnections.NO_RULE);
-        java.util.Arrays.fill(connectors, (byte) BedrockBlockConnections.NO_CONNECTOR);
+        Arrays.fill(connectionRules, BedrockBlockConnections.NO_RULE);
+        Arrays.fill(connectors, (byte) BedrockBlockConnections.NO_CONNECTOR);
         for (int index = 0; index < count; index++) {
             int javaId = javaIdOf.applyAsInt(index);
             var definition = mappings.getBedrockBlock(javaId);
@@ -79,8 +81,7 @@ final class GeyserBlockStateMappings {
                 stateId = BlockIds.AIR.defaultState();
             else if (sentDefinitions[stateId] < 0) {
                 sentDefinitions[stateId] = definition.getRuntimeId();
-                if (definition instanceof org.geysermc.geyser.registry.type.GeyserBedrockBlock bedrock
-                        && bedrock.getState() != null) {
+                if (definition instanceof GeyserBedrockBlock bedrock && bedrock.getState() != null) {
                     String name = bedrock.getState().getString("name");
                     var blockStates = bedrock.getState().getCompound("states");
                     connectionRules[stateId] = BedrockBlockConnections.rule(name, blockStates);

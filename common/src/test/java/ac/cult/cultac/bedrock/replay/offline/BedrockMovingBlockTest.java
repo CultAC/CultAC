@@ -23,6 +23,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.ToIntFunction;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Before;
@@ -205,7 +206,7 @@ public class BedrockMovingBlockTest {
         player.bedrockState.pistonBlocks.tick(player.compensatedWorld::getBlockStateIdAt);
     }
 
-    private static void run(java.util.function.Consumer<CultPlayer> body) {
+    private static void run(Consumer<CultPlayer> body) {
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             int stone = state("minecraft:stone");

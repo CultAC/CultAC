@@ -2,9 +2,11 @@ package ac.cult.cultac.bedrock.bridge;
 
 import static org.junit.Assert.*;
 
+import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import java.util.HashMap;
 import java.util.List;
 import org.cloudburstmc.nbt.NbtMap;
@@ -41,12 +43,10 @@ public class GeyserItemComponentsTest {
 
     @Test
     public void itemTypeAndCountUseGeysersProtocolIds() {
-        var captured = GeyserItemStacks.decode(
-                source("minecraft:iron_axe", 3, null), names(), ac.cult.cultac.utils.inventory.ItemUtil.modelItems());
+        var captured = GeyserItemStacks.decode(source("minecraft:iron_axe", 3, null), names(), ItemUtil.modelItems());
         assertEquals("minecraft:iron_axe", captured.itemKey());
         assertEquals(3, captured.count());
-        assertTrue(GeyserItemStacks.decode(null, names(), ac.cult.cultac.utils.inventory.ItemUtil.modelItems())
-                .isEmpty());
+        assertTrue(GeyserItemStacks.decode(null, names(), ItemUtil.modelItems()).isEmpty());
     }
 
     @Test
@@ -54,11 +54,10 @@ public class GeyserItemComponentsTest {
         var patch = new DataComponents(new HashMap<>());
         patch.put(DataComponentTypes.USE_EFFECTS, new UseEffects(true, false, 0.35f));
         patch.put(DataComponentTypes.MAX_STACK_SIZE, null);
-        var captured = GeyserItemStacks.decode(
-                source("minecraft:stone", 7, patch), names(), ac.cult.cultac.utils.inventory.ItemUtil.modelItems());
+        var captured = GeyserItemStacks.decode(source("minecraft:stone", 7, patch), names(), ItemUtil.modelItems());
         var effects = captured.components().get("minecraft:use_effects").getAsJsonObject();
-        assertTrue(ac.cult.blocksim.data.nbt.NbtJson.booleanValue(effects.get("can_sprint")));
-        assertFalse(ac.cult.blocksim.data.nbt.NbtJson.booleanValue(effects.get("interact_vibrations")));
+        assertTrue(NbtJson.booleanValue(effects.get("can_sprint")));
+        assertFalse(NbtJson.booleanValue(effects.get("interact_vibrations")));
         assertEquals(0.35f, effects.get("speed_multiplier").getAsFloat(), 0);
         assertFalse(captured.components().has("minecraft:max_stack_size"));
         assertEquals(7, captured.count());
@@ -73,8 +72,7 @@ public class GeyserItemComponentsTest {
                 NbtMap.builder().putIntArray("indices", values).build());
         var patch = new DataComponents(new HashMap<>());
         patch.put(DataComponentTypes.BUNDLE_CONTENTS, List.of(source("minecraft:stone", 3, childPatch)));
-        var captured = GeyserItemStacks.decode(
-                source("minecraft:bundle", 1, patch), names(), ac.cult.cultac.utils.inventory.ItemUtil.modelItems());
+        var captured = GeyserItemStacks.decode(source("minecraft:bundle", 1, patch), names(), ItemUtil.modelItems());
         values[0] = 99;
         childPatch.put(DataComponentTypes.CUSTOM_DATA, NbtMap.EMPTY);
         patch.put(DataComponentTypes.BUNDLE_CONTENTS, List.of());

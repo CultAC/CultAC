@@ -15,6 +15,7 @@ import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataMap;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
 import org.cloudburstmc.protocol.bedrock.packet.AddEntityPacket;
+import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityDeltaPacket;
 import org.cloudburstmc.protocol.bedrock.packet.RemoveEntityPacket;
@@ -207,7 +208,7 @@ public class GeyserClientActorsTest {
                     .addBedrockTransactionTask(any(), any());
         }
 
-        void capture(org.cloudburstmc.protocol.bedrock.packet.BedrockPacket packet) {
+        void capture(BedrockPacket packet) {
             actors.capture(session, packet, ORIGIN);
         }
 

@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -64,10 +65,7 @@ public class GeyserEntityAttributesTest {
         assertFalse(harness.self.bedrockAttributes.values().containsKey("minecraft:horse.jump_strength"));
         assertEquals(
                 0.42F,
-                harness.self
-                        .bedrockAttributes
-                        .apply(ac.cult.cultac.bedrock.prediction.model.AttributeState.DEFAULT)
-                        .jumpStrength(),
+                harness.self.bedrockAttributes.apply(AttributeState.DEFAULT).jumpStrength(),
                 0);
         assertEquals(0.8F, harness.horse.bedrockAttributes.current("minecraft:horse.jump_strength", 0), 0);
     }

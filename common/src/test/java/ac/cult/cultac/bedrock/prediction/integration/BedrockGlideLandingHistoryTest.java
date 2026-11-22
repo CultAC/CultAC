@@ -5,10 +5,12 @@ import static org.junit.Assert.*;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
+import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import java.util.List;
 import java.util.Set;
 import org.junit.Test;
@@ -146,14 +148,13 @@ public final class BedrockGlideLandingHistoryTest {
         var frame = BedrockInputFrame.idle(tick);
         var ground = BedrockActorHistoryTest.ground();
         var context = ground.movementContext();
-        ground = ground.withMovementContext(new ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext(
+        ground = ground.withMovementContext(new BedrockMovementContext(
                 context.effectState(),
                 context.attributeState(),
                 context.worldState(),
                 context.equipmentState(),
                 context.entityContactState(),
-                new ac.cult.cultac.bedrock.prediction.model.MovementModifierState(
-                        true, false, false, false, .05, false, false, false, false, .35, 0),
+                new MovementModifierState(true, false, false, false, .05, false, false, false, false, .35, 0),
                 context.playerDimensionsState()));
         var input = new BedrockSimulation.Input(
                 previous,

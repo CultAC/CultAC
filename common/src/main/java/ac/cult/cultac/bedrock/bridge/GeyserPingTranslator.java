@@ -2,6 +2,8 @@ package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.reload.integrations.GeyserTranslatorRouter;
 import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
@@ -15,10 +17,9 @@ final class GeyserPingTranslator extends PacketTranslator<ClientboundPingPacket>
 
     @SuppressWarnings("unchecked")
     GeyserPingTranslator() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            delegate =
-                    ac.cult.reload.integrations.GeyserTranslatorRouter.install(ClientboundPingPacket.class, host, this);
+            delegate = GeyserTranslatorRouter.install(ClientboundPingPacket.class, host, this);
             return;
         }
         delegate = (PacketTranslator<ClientboundPingPacket>)
@@ -59,17 +60,15 @@ final class GeyserPingTranslator extends PacketTranslator<ClientboundPingPacket>
     }
 
     boolean isInstalled() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
-        if (host != null)
-            return ac.cult.reload.integrations.GeyserTranslatorRouter.installed(
-                    ClientboundPingPacket.class, host, this);
+        var host = RuntimeEnvironment.host();
+        if (host != null) return GeyserTranslatorRouter.installed(ClientboundPingPacket.class, host, this);
         return Registries.JAVA_PACKET_TRANSLATORS.get(ClientboundPingPacket.class) == this;
     }
 
     void close() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            ac.cult.reload.integrations.GeyserTranslatorRouter.remove(ClientboundPingPacket.class, host, this);
+            GeyserTranslatorRouter.remove(ClientboundPingPacket.class, host, this);
             return;
         }
         if (isInstalled()) Registries.JAVA_PACKET_TRANSLATORS.register(ClientboundPingPacket.class, delegate);

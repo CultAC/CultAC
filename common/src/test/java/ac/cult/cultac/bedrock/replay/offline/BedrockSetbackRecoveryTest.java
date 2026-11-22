@@ -3,6 +3,11 @@ package ac.cult.cultac.bedrock.replay.offline;
 import static org.junit.Assert.*;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementEngine;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties;
 import ac.cult.cultac.bedrock.protocol.*;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
@@ -306,8 +311,7 @@ public class BedrockSetbackRecoveryTest {
                     .build();
             assertNull(player.checkManager
                     .getSimulationProcessor()
-                    .processBedrockAuthInputFrame(
-                            forged, ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger.OFFLINE_REPLAY));
+                    .processBedrockAuthInputFrame(forged, BedrockPredictionTrigger.OFFLINE_REPLAY));
             assertTrue(player.packetStateData.bedrockTranslatedMovement.isRejected());
             assertSame(original, teleports.getRequiredSetBack());
             assertTrue(teleports.isPendingSetback());
@@ -339,17 +343,12 @@ public class BedrockSetbackRecoveryTest {
             Vec3 target = new Vec3(4, 64, 2);
             player.compensatedEntities.addEntity(71, EntityTypeIds.OAK_BOAT, target, 0, 0, 0);
             var boat = player.compensatedEntities.getEntity(71);
-            boat.bedrockBoat = ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties.initial(171);
-            ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.initializeBoat(
-                    boat,
-                    new ac.cult.cultac.bedrock.prediction.geometry.Vec3d(4, 64, 2),
-                    ac.cult.cultac.bedrock.prediction.geometry.Vec3d.ZERO,
-                    90,
-                    BedrockCoordinateFrame.IDENTITY);
+            boat.bedrockBoat = BedrockBoatProperties.initial(171);
+            BedrockVehiclePredictionState.initializeBoat(
+                    boat, new Vec3d(4, 64, 2), Vec3d.ZERO, 90, BedrockCoordinateFrame.IDENTITY);
             player.compensatedEntities.vehicles.setServerVehicle(71, new int[] {player.entityID}, 0);
             player.compensatedEntities.vehicles.applyVehiclePassengers(71, new int[] {player.entityID});
-            var safe = ac.cult.cultac.bedrock.prediction.integration.BedrockMovementEngine.INSTANCE.captureSetbackState(
-                    boat.bedrockPrediction.commit());
+            var safe = BedrockMovementEngine.INSTANCE.captureSetbackState(boat.bedrockPrediction.commit());
             var teleports = player.getSetbackTeleportUtil();
             SetbackFixtures.seedSafePosition(teleports, new SetbackPosWithVector(target, Vec3.ZERO, safe));
             SetbackFixtures.setLoaded(teleports, true);

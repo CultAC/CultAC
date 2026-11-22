@@ -10,6 +10,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidMovementSo
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidStateResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockPowderSnowContactResolver;
 import ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes;
+import ac.cult.cultac.bedrock.prediction.state.BedrockBoatState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
@@ -72,8 +73,7 @@ final class BedrockInitialStateFactory {
                         movementContext.playerDimensionsState().height(),
                         movementContext.equipmentState().leatherBoots()));
         if (context.getVehicle() != null && context.getVehicle().isBoat()) {
-            state = state.withBoat(
-                            ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.initial(context.getVehicle()))
+            state = state.withBoat(BedrockBoatState.initial(context.getVehicle()))
                     .withPhysicalFeetPosition(start, 0)
                     .withRotation(context.getVehicle().clientPhysicalYaw + 90.0F, 0)
                     .withClimbableContact(BedrockClimbableContact.NONE);

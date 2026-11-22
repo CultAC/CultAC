@@ -10,10 +10,12 @@ import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.List;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.ItemUseTransaction;
 import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.WorldCache;
 import org.geysermc.geyser.util.BlockUtils;
 
 final class GeyserItemUse {
@@ -21,7 +23,7 @@ final class GeyserItemUse {
 
     static int sequence(GeyserSession session) {
         try {
-            var field = org.geysermc.geyser.session.cache.WorldCache.class.getDeclaredField("currentSequence");
+            var field = WorldCache.class.getDeclaredField("currentSequence");
             field.setAccessible(true);
             return field.getInt(session.getWorldCache());
         } catch (ReflectiveOperationException failure) {
@@ -109,12 +111,12 @@ final class GeyserItemUse {
                     // belong in the host block-action runtime (buckets and water plants).
                     var held = player.getInventory().getHandItem(Hand.MAIN_HAND);
                     if (!failedUseOn
-                            && (java.util.List.of(held.definition()
+                            && (List.of(held.definition()
                                                     .bindings()
                                                     .get("classHierarchy")
                                                     .split(","))
                                             .contains("net.minecraft.world.item.BucketItem")
-                                    || java.util.List.of(held.definition()
+                                    || List.of(held.definition()
                                                     .bindings()
                                                     .get("classHierarchy")
                                                     .split(","))

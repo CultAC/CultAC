@@ -5,6 +5,7 @@ import static org.junit.Assert.*;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
@@ -100,13 +101,11 @@ public class BedrockSandPushTest {
                             player.checkManager.getListener(BedrockMovement.class).violations,
                             0);
                     assertTrue(state.physicalFeetPosition()
-                                    .subtract(new ac.cult.cultac.bedrock.prediction.geometry.Vec3d(
-                                            feet.x, feet.y, feet.z))
+                                    .subtract(new Vec3d(feet.x, feet.y, feet.z))
                                     .length()
                             <= 0.001);
                     assertTrue(state.velocity()
-                                    .subtract(new ac.cult.cultac.bedrock.prediction.geometry.Vec3d(
-                                            velocity.x, velocity.y, velocity.z))
+                                    .subtract(new Vec3d(velocity.x, velocity.y, velocity.z))
                                     .length()
                             <= 0.001);
                 }

@@ -23,6 +23,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import org.junit.Test;
@@ -172,7 +173,7 @@ public final class BedrockMovementEngineTest {
     }
 
     private static PredictionCommit commit(BedrockMovementState... states) {
-        List<BedrockProfileState.Entry> entries = java.util.Arrays.stream(states)
+        List<BedrockProfileState.Entry> entries = Arrays.stream(states)
                 .map(state -> new BedrockProfileState.Entry(state, BedrockMobJumpComponentState.DEFAULT))
                 .toList();
         return new PredictionCommit(

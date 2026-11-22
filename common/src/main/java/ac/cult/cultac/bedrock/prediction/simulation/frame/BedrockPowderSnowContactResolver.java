@@ -15,17 +15,6 @@ public final class BedrockPowderSnowContactResolver {
 
     private BedrockPowderSnowContactResolver() {}
 
-    public static boolean inPowderSnow(BedrockMovementContext context, Vec3d physicalFeetPosition) {
-        Objects.requireNonNull(context, "context");
-        return fromBlockWorld(
-                        context.playerDimensionsState().width(),
-                        context.playerDimensionsState().height(),
-                        physicalFeetPosition,
-                        context.worldState().blockCollisionWorld(),
-                        context.equipmentState().leatherBoots())
-                .actorIntersection();
-    }
-
     public static boolean surfaceSink(
             BedrockMovementContext context, Vec3d physicalFeetPosition, boolean previousSurfaceSink) {
         Objects.requireNonNull(context, "context");
@@ -39,11 +28,6 @@ public final class BedrockPowderSnowContactResolver {
                 context.worldState().blockCollisionWorld(),
                 false);
         return contact.feetSurface() || (previousSurfaceSink && contact.actorIntersection());
-    }
-
-    public static PowderSnowContactState fromBlockWorld(
-            double actorWidth, double actorHeight, Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld) {
-        return fromBlockWorld(actorWidth, actorHeight, physicalFeetPosition, blockWorld, false);
     }
 
     public static PowderSnowContactState fromBlockWorld(

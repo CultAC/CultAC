@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 public final class BedrockPredictionDebug {
 
@@ -231,11 +232,7 @@ public final class BedrockPredictionDebug {
 
         CultAPI.INSTANCE
                 .getAlertManager()
-                .sendVerbose(
-                        player,
-                        net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacyAmpersand()
-                                .deserialize(message.toString()),
-                        null);
+                .sendVerbose(player, LegacyComponentSerializer.legacyAmpersand().deserialize(message.toString()), null);
     }
 
     public static boolean shouldRecordMovementDebug(CultPlayer player, PredictionResult result) {

@@ -19,16 +19,6 @@ public record BedrockEffectState(
             int jumpBoostLevel,
             int levitationLevel,
             boolean blindness,
-            boolean slowFalling) {
-        this(slownessLevel, speedLevel, jumpBoostLevel, levitationLevel, blindness, slowFalling, false);
-    }
-
-    public BedrockEffectState(
-            int slownessLevel,
-            int speedLevel,
-            int jumpBoostLevel,
-            int levitationLevel,
-            boolean blindness,
             boolean slowFalling,
             boolean weaving) {
         this(

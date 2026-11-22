@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.reload.integrations.GeyserTranslatorRouter;
 import java.util.ArrayList;
 import java.util.function.Predicate;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
@@ -19,10 +21,9 @@ final class GeyserClientPoseTranslator extends PacketTranslator<ClientboundSetEn
     @SuppressWarnings("unchecked")
     GeyserClientPoseTranslator(Predicate<GeyserSession> attached) {
         this.attached = attached;
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            delegate = ac.cult.reload.integrations.GeyserTranslatorRouter.install(
-                    ClientboundSetEntityDataPacket.class, host, this);
+            delegate = GeyserTranslatorRouter.install(ClientboundSetEntityDataPacket.class, host, this);
             return;
         }
         delegate = (PacketTranslator<ClientboundSetEntityDataPacket>)
@@ -69,17 +70,15 @@ final class GeyserClientPoseTranslator extends PacketTranslator<ClientboundSetEn
     }
 
     boolean isInstalled() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
-        if (host != null)
-            return ac.cult.reload.integrations.GeyserTranslatorRouter.installed(
-                    ClientboundSetEntityDataPacket.class, host, this);
+        var host = RuntimeEnvironment.host();
+        if (host != null) return GeyserTranslatorRouter.installed(ClientboundSetEntityDataPacket.class, host, this);
         return Registries.JAVA_PACKET_TRANSLATORS.get(ClientboundSetEntityDataPacket.class) == this;
     }
 
     void close() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            ac.cult.reload.integrations.GeyserTranslatorRouter.remove(ClientboundSetEntityDataPacket.class, host, this);
+            GeyserTranslatorRouter.remove(ClientboundSetEntityDataPacket.class, host, this);
             return;
         }
         if (isInstalled()) Registries.JAVA_PACKET_TRANSLATORS.register(ClientboundSetEntityDataPacket.class, delegate);

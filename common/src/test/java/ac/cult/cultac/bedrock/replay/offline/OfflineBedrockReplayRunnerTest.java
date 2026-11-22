@@ -38,9 +38,9 @@ import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -49,9 +49,9 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Stream;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -385,43 +385,6 @@ public final class OfflineBedrockReplayRunnerTest {
         }
     }
 
-    private static List<String> smallScenarioNames() throws Exception {
-        Path smallScenarios = SCENARIOS.resolve("small-scenarios");
-        try (Stream<Path> paths = Files.list(smallScenarios)) {
-            return paths.filter(Files::isDirectory)
-                    .map(path -> path.getFileName().toString())
-                    .filter(OfflineBedrockReplayRunnerTest::scenarioSelected)
-                    .sorted()
-                    .toList();
-        }
-    }
-
-    private static boolean scenarioSelected(String scenario) {
-        String filter = System.getProperty("bedrockReplayScenarios", "").trim();
-        if (filter.isEmpty()) {
-            return true;
-        }
-        for (String selected : filter.split(",")) {
-            if (scenario.equals(selected.trim())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean cheatScenarioSelected(String scenario) {
-        String filter = System.getProperty("bedrockReplayCheats", "").trim();
-        if (filter.isEmpty()) {
-            return true;
-        }
-        for (String selected : filter.split(",")) {
-            if (scenario.equals(selected.trim())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static ReplayResult runScenario(String scenarioName) throws Exception {
         return runScenario(scenarioName, ReplayVariant.baseline());
     }
@@ -729,14 +692,6 @@ public final class OfflineBedrockReplayRunnerTest {
         return input.ordinal() < Long.SIZE ? 1L << input.ordinal() : 0L;
     }
 
-    private static BedrockAuthInputFrame.Builder withInputFlag(
-            BedrockAuthInputFrame.Builder builder, PlayerAuthInputData input) {
-        int ordinal = input.ordinal();
-        return ordinal < Long.SIZE
-                ? builder.rawInputFlags(1L << ordinal)
-                : builder.rawInputFlagsHigh(1L << (ordinal - Long.SIZE));
-    }
-
     private static PacketReceiveEvent<ServerboundMovePlayer> translatedMovementEvent(
             CultPlayer player, ServerboundMovePlayer packet) {
         return RecordReceiveTestEvents.movement(player, packet);
@@ -887,124 +842,6 @@ public final class OfflineBedrockReplayRunnerTest {
         return new Vec3(vector.x + shift.x, vector.y + shift.y, vector.z + shift.z);
     }
 
-    private static String bedrockMovementExpectationFailure(
-            String scenarioName,
-            ReplayResult result,
-            int expectedCount,
-            List<Double> expectedOffsets,
-            double tolerance) {
-        List<FlagSample> flags = validationFlags(scenarioName, result);
-        if (expectedCount != flags.size()) {
-            return scenarioName + " BedrockMovement flags expected " + expectedCount + " but was " + flags.size() + ": "
-                    + flags;
-        }
-        for (int i = 0; i < expectedOffsets.size(); i++) {
-            double expected = expectedOffsets.get(i);
-            double actual = flags.get(i).offset();
-            if (Math.abs(actual - expected) > tolerance) {
-                return scenarioName + " BedrockMovement offset " + i + " expected " + expected + " +/- " + tolerance
-                        + " but was " + actual + ": " + flags;
-            }
-        }
-        return null;
-    }
-
-    private static String authoredMovementAttack(JsonObject manifest) {
-        JsonObject mutation = manifest == null
-                        || !manifest.has("mutation")
-                        || !manifest.get("mutation").isJsonObject()
-                ? null
-                : manifest.getAsJsonObject("mutation");
-        if (mutation == null) {
-            return null;
-        }
-        String kind = stringValue(mutation, "kind", "").trim();
-        // These mutations alter only authored ground evidence. Their physical
-        // position stream remains a legitimate BedrockMovement baseline and
-        // is still required to pass the normal H/V injection variants.
-        return switch (kind) {
-            case "", "nofall", "nofall-twostage" -> null;
-            case "nofall-upwipe", "fly", "timer" -> kind;
-            default -> throw new IllegalArgumentException("Unclassified replay mutation kind: " + kind);
-        };
-    }
-
-    private static String authoredMovementAttackExpectationFailure(String scenarioName, List<FlagSample> flags) {
-        if (flags.isEmpty()) {
-            return scenarioName + " authored movement attack produced no BedrockMovement flag";
-        }
-        if (flags.stream().noneMatch(flag -> flag.offset() > IMPOSSIBLE_MOVEMENT_FLAG_OFFSET_TOLERANCE)) {
-            return scenarioName
-                    + " authored movement attack never exceeded "
-                    + IMPOSSIBLE_MOVEMENT_FLAG_OFFSET_TOLERANCE
-                    + ": " + flags;
-        }
-        return null;
-    }
-
-    private static String injectedBedrockMovementExpectationFailure(String scenarioName, ReplayResult result) {
-        ReplayInjectionPlan injection = result.injection();
-        if (injection == null) {
-            return scenarioName + " injected replay did not record its selected injection frames";
-        }
-        int expectedMutations = MutationKind.values().length;
-        if (injection.mutations().size() != expectedMutations) {
-            return scenarioName + " injected replay expected " + expectedMutations + " mutations but recorded "
-                    + injection.mutations().size() + ": " + injection.mutations();
-        }
-        List<FlagSample> flags = validationFlags(scenarioName, result);
-        int maxExpectedFlags = injection.allowedFlagTicks().size();
-        if (flags.size() < expectedMutations || flags.size() > maxExpectedFlags) {
-            return scenarioName + " injected BedrockMovement flags expected " + expectedMutations + ".."
-                    + maxExpectedFlags + " but was "
-                    + flags.size() + " at ticks " + injection.allowedFlagTicks()
-                    + ": " + flags;
-        }
-        for (FlagSample flag : flags) {
-            if (!injection.allowsFlagTick(flag.tick())) {
-                return scenarioName + " injected BedrockMovement flag expected tick " + injection.allowedFlagTicks()
-                        + " but was " + flag.tick()
-                        + ": " + flags;
-            }
-        }
-        for (ReplayMutation mutation : injection.mutations()) {
-            FlagSample selectedFlag = flagAt(flags, mutation.selectedTick());
-            if (selectedFlag == null) {
-                return scenarioName + " injected BedrockMovement flags did not include "
-                        + mutation.kind() + " selected tick " + mutation.selectedTick()
-                        + ": " + flags;
-            }
-            if (mutation.kind() == MutationKind.VERTICAL
-                    && selectedFlag.offset() + IMPOSSIBLE_MOVEMENT_FLAG_OFFSET_TOLERANCE
-                            < IMPOSSIBLE_MOVEMENT_AXIS_OFFSET) {
-                return scenarioName + " injected " + mutation.kind()
-                        + " BedrockMovement offset expected at least " + IMPOSSIBLE_MOVEMENT_AXIS_OFFSET
-                        + " - " + IMPOSSIBLE_MOVEMENT_FLAG_OFFSET_TOLERANCE + " but was "
-                        + selectedFlag.offset() + ": " + flags;
-            }
-        }
-        return null;
-    }
-
-    private static List<FlagSample> validationFlags(String scenarioName, ReplayResult result) {
-        if (!scenarioName.equals(KNOWN_FALSE_FLAG_SCENARIO)
-                && !scenarioName.equals(KNOWN_FALSE_FLAG_SCENARIO + " baseline")) {
-            return result.bedrockMovementFlags();
-        }
-        return result.bedrockMovementFlags().stream()
-                .filter(flag -> flag.tick() != KNOWN_FALSE_FLAG_TICK)
-                .toList();
-    }
-
-    private static FlagSample flagAt(List<FlagSample> flags, long tick) {
-        for (FlagSample flag : flags) {
-            if (flag.tick() == tick) {
-                return flag;
-            }
-        }
-        return null;
-    }
-
     static CultPlayer offlinePlayer() {
         BedrockPlayerState state = new BedrockPlayerState(PLAYER_UUID);
         state.setSetbacksEnabled(true);
@@ -1059,7 +896,7 @@ public final class OfflineBedrockReplayRunnerTest {
 
     private static void setArmor(CultPlayer player, int slot, JsonObject armor, String key) {
         String materialName = stringValue(armor, key, "AIR");
-        var stack = OfflineCultTestBootstrap.item("minecraft:" + materialName.toLowerCase(java.util.Locale.ROOT));
+        var stack = OfflineCultTestBootstrap.item("minecraft:" + materialName.toLowerCase(Locale.ROOT));
         player.getInventory().inventory.getInventoryStorage().setItem(slot, stack);
     }
 
@@ -1097,7 +934,7 @@ public final class OfflineBedrockReplayRunnerTest {
                 if (line.isBlank()) {
                     continue;
                 }
-                JsonObject packet = com.google.gson.JsonParser.parseString(line).getAsJsonObject();
+                JsonObject packet = JsonParser.parseString(line).getAsJsonObject();
                 if (!"PLAYER_AUTH_INPUT".equals(stringValue(packet, "packetType", ""))) {
                     continue;
                 }
@@ -1121,30 +958,9 @@ public final class OfflineBedrockReplayRunnerTest {
         return Math.abs(delta.x) > 1.0E-6D || Math.abs(delta.z) > 1.0E-6D;
     }
 
-    private static List<Double> expectedOffsets(JsonObject expected) {
-        if (expected.has("offsets")) {
-            JsonArray offsets = expected.getAsJsonArray("offsets");
-            List<Double> values = new ArrayList<>(offsets.size());
-            for (JsonElement offset : offsets) {
-                values.add(offset.getAsDouble());
-            }
-            return values;
-        }
-        int count = intValue(expected, "count", 0);
-        if (count == 0) {
-            return List.of();
-        }
-        return List.of(doubleValue(expected, "offset", 0.0D));
-    }
-
     private static String stringValue(JsonObject object, String key, String fallback) {
         JsonElement value = object == null ? null : object.get(key);
         return value != null && value.isJsonPrimitive() ? value.getAsString() : fallback;
-    }
-
-    private static int intValue(JsonObject object, String key, int fallback) {
-        JsonElement value = object == null ? null : object.get(key);
-        return value != null && value.isJsonPrimitive() ? value.getAsInt() : fallback;
     }
 
     private static boolean booleanValue(JsonObject object, String key, boolean fallback) {
@@ -1185,10 +1001,6 @@ public final class OfflineBedrockReplayRunnerTest {
             frames.add(testFrame(firstTick + i, x, 64.0D, z, moveX, moveZ, yaw));
         }
         return List.copyOf(frames);
-    }
-
-    private static BedrockAuthInputFrame testFrame(long clientTick, double x, double y, double z) {
-        return testFrame(clientTick, x, y, z, 0.25F, -0.5F, 45.0F);
     }
 
     private static BedrockAuthInputFrame testFrame(
@@ -1272,36 +1084,11 @@ public final class OfflineBedrockReplayRunnerTest {
         private static ReplayVariant baseline() {
             return new ReplayVariant(false, "");
         }
-
-        private static ReplayVariant injected(String replayName) {
-            return new ReplayVariant(true, replayName);
-        }
     }
 
     private record ReplayFrames(List<BedrockAuthInputFrame> frames, ReplayInjectionPlan injection) {}
 
     private record ReplayInjectionPlan(List<ReplayMutation> mutations) {
-        private boolean allowsFlagTick(long tick) {
-            for (ReplayMutation mutation : mutations) {
-                if (mutation.allowsFlagTick(tick)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private List<Long> allowedFlagTicks() {
-            List<Long> ticks =
-                    new ArrayList<>(mutations.size() * ((int) IMPOSSIBLE_MOVEMENT_ALLOWED_FALLOUT_TICKS + 1));
-            for (ReplayMutation mutation : mutations) {
-                for (long tick = mutation.selectedTick();
-                        tick <= mutation.followingTick() + IMPOSSIBLE_MOVEMENT_ALLOWED_FALLOUT_TICKS;
-                        tick++) {
-                    addUnique(ticks, tick);
-                }
-            }
-            return List.copyOf(ticks);
-        }
 
         private ReplayMutation mutation(MutationKind kind) {
             for (ReplayMutation mutation : mutations) {
@@ -1311,19 +1098,10 @@ public final class OfflineBedrockReplayRunnerTest {
             }
             throw new IllegalArgumentException("Missing replay mutation " + kind);
         }
-
-        private static void addUnique(List<Long> ticks, long tick) {
-            if (!ticks.contains(tick)) {
-                ticks.add(tick);
-            }
-        }
     }
 
     private record ReplayMutation(
             MutationKind kind, int selectedIndex, long selectedTick, long followingTick, Vec3 extra) {
-        private boolean allowsFlagTick(long tick) {
-            return tick >= selectedTick && tick <= followingTick + IMPOSSIBLE_MOVEMENT_ALLOWED_FALLOUT_TICKS;
-        }
     }
 
     private enum MutationKind {

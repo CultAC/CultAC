@@ -6,6 +6,7 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
@@ -108,8 +109,7 @@ public class BedrockClientOnlyBlockTest {
         }
     }
 
-    private static ac.cult.cultac.bedrock.prediction.state.BedrockMovementState frame(
-            CultPlayer player, int tick, float feetY, Vec3 velocity, long flags) {
+    private static BedrockMovementState frame(CultPlayer player, int tick, float feetY, Vec3 velocity, long flags) {
         var local = new Vec3(38.5, feetY, 0.5);
         var frame = BedrockAuthInputFrame.builder(player.playerUUID)
                 .protocolVersion(2193)

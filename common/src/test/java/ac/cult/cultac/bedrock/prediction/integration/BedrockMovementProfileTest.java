@@ -10,13 +10,6 @@ import org.mockito.Mockito;
 
 public final class BedrockMovementProfileTest {
     @Test
-    public void bedrockUsesImmediatePacketVelocityModifiers() {
-        BedrockMovementProfile profile = new BedrockMovementProfile();
-
-        assertFalse(profile.shouldUseBundledPacketProof(null));
-    }
-
-    @Test
     public void flightExemptionRequiresTheCompensatedMayFlyAbility() {
         BedrockMovementProfile profile = new BedrockMovementProfile();
         CultPlayer player = Mockito.mock(CultPlayer.class);

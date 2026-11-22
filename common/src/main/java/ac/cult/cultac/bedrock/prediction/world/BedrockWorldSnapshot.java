@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import java.util.Objects;
+import java.util.Set;
 
 public record BedrockWorldSnapshot(
         BedrockMovementContext movementContext,
@@ -34,7 +35,7 @@ public record BedrockWorldSnapshot(
                 context.playerDimensionsState(),
                 BedrockClimbableContact.NONE,
                 PowderSnowContactState.NONE,
-                new StandingSurfaceState(java.util.Set.of()),
+                new StandingSurfaceState(Set.of()),
                 BlockMovementSlowdownState.NONE,
                 HoneySlideState.NONE);
     }

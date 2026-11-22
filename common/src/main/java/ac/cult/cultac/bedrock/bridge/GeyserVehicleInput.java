@@ -1,6 +1,8 @@
 package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.data.KnownInput;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.cloudburstmc.protocol.bedrock.packet.InteractPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
 import org.geysermc.geyser.session.GeyserSession;
@@ -21,15 +23,14 @@ final class GeyserVehicleInput {
     static void observe(GeyserSession session, CultPlayer player, PlayerAuthInputPacket packet) {
         var flags = packet.getInputData();
         var motion = packet.getMotion();
-        player.packetStateData.knownInput = new ac.cult.cultac.utils.data.KnownInput(
+        player.packetStateData.knownInput = new KnownInput(
                 motion.getY() > 0,
                 motion.getY() < 0,
                 motion.getX() > 0,
                 motion.getX() < 0,
-                flags.contains(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.JUMP_CURRENT_RAW)
-                        || flags.contains(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.JUMP_DOWN)
-                        || flags.contains(
-                                org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.AUTO_JUMPING_IN_WATER),
+                flags.contains(PlayerAuthInputData.JUMP_CURRENT_RAW)
+                        || flags.contains(PlayerAuthInputData.JUMP_DOWN)
+                        || flags.contains(PlayerAuthInputData.AUTO_JUMPING_IN_WATER),
                 session.isSneaking() || session.isShouldSendSneak(),
                 session.isSprinting());
         player.isSneaking = session.isSneaking();

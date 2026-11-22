@@ -14,6 +14,7 @@ import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import java.util.List;
 import java.util.function.Consumer;
 import org.cloudburstmc.math.vector.Vector3i;
+import org.cloudburstmc.protocol.bedrock.data.PlayerActionType;
 import org.cloudburstmc.protocol.bedrock.data.PlayerBlockActionData;
 
 public final class BedrockBlockBreakActions {
@@ -38,7 +39,7 @@ public final class BedrockBlockBreakActions {
         var visibility = player.checkManager.getCheck(BedrockBreakVisibility.class);
         for (var iterator = actions.iterator(); iterator.hasNext(); ) {
             var action = iterator.next();
-            if (action.getAction() == org.cloudburstmc.protocol.bedrock.data.PlayerActionType.DROP_ITEM) {
+            if (action.getAction() == PlayerActionType.DROP_ITEM) {
                 player.getInventory().dropHeldItem(false);
                 continue;
             }
@@ -46,7 +47,7 @@ public final class BedrockBlockBreakActions {
             if (action.getAction() == null || local == null) continue;
             Vec3 world = coordinates.toWorld(new Vec3(local.getX(), local.getY(), local.getZ()));
             BlockPos pos = BlockPos.containing(world.x, world.y, world.z);
-            if (action.getAction() == org.cloudburstmc.protocol.bedrock.data.PlayerActionType.ABORT_BREAK) {
+            if (action.getAction() == PlayerActionType.ABORT_BREAK) {
                 breaking = null;
                 continue;
             }

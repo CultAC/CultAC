@@ -111,52 +111,10 @@ public record BedrockInputIntent(
         }
     }
 
-    public record SprintIntent(boolean sprinting, boolean start, boolean stop, boolean down) {
-        public boolean currentTickActorSprinting(boolean currentSprinting) {
-            if (sprinting) {
-                return true;
-            }
-            if (start) {
-                return true;
-            }
-            if (stop) {
-                return false;
-            }
-            return currentSprinting;
-        }
-
-        public boolean nextActorSprinting(boolean currentSprinting) {
-            if (sprinting) {
-                return true;
-            }
-            if (stop) {
-                return false;
-            }
-            if (start) {
-                return true;
-            }
-            return currentSprinting;
-        }
-
-        public boolean afterActionEdges(boolean currentSprinting) {
-
-            boolean next = currentSprinting;
-            if (start) {
-                next = true;
-            }
-            if (stop) {
-                next = false;
-            }
-            return next;
-        }
-    }
+    public record SprintIntent(boolean sprinting, boolean start, boolean stop, boolean down) {}
 
     public record ItemUseIntent(boolean start, boolean stop, boolean release) {}
 
     public record RiptideIntent(
-            boolean chargeStart, boolean startSpinAttack, boolean stopSpinAttack, boolean serverUsingItem) {
-        public RiptideIntent(boolean chargeStart, boolean startSpinAttack, boolean stopSpinAttack) {
-            this(chargeStart, startSpinAttack, stopSpinAttack, false);
-        }
-    }
+            boolean chargeStart, boolean startSpinAttack, boolean stopSpinAttack, boolean serverUsingItem) {}
 }

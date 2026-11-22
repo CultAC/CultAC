@@ -3,7 +3,6 @@ package ac.cult.cultac.bedrock.prediction.simulation.postmove;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
-import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
@@ -53,10 +52,6 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
 
     BedrockInputFrame frame() {
         return plan.frame().input().inputFrame();
-    }
-
-    BedrockInputIntent intent() {
-        return plan.frame().inputIntent();
     }
 
     Vec3d startingVelocity() {

@@ -8,7 +8,17 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
+import ac.cult.cultac.manager.player.CheckManager;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.reload.integrations.GeyserQueue;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -17,15 +27,43 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.cloudburstmc.math.vector.Vector2f;
 import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.BedrockPeer;
+import org.cloudburstmc.protocol.bedrock.BedrockServerSession;
+import org.cloudburstmc.protocol.bedrock.BedrockSession;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
-import org.cloudburstmc.protocol.bedrock.netty.BedrockPacketWrapper;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityLinkData;
+import org.cloudburstmc.protocol.bedrock.netty.BedrockPacketWrapper;
+import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
+import org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
+import org.cloudburstmc.protocol.common.PacketSignal;
+import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.api.connection.GeyserConnection;
+import org.geysermc.geyser.entity.type.BoatEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.CamelEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.CamelHuskEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.ChestedHorseEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.HorseEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.LlamaEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.SkeletonHorseEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.TraderLlamaEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.ZombieHorseEntity;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.UpstreamSession;
+import org.geysermc.geyser.translator.protocol.bedrock.BedrockNetworkStackLatencyTranslator;
+import org.geysermc.geyser.translator.protocol.java.JavaPingTranslator;
+import org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundPingPacket;
+import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket;
+import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -33,25 +71,22 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void continuedActorCreationCannotAcceptAnOldAuthTick() throws Exception {
-        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class);
+        var session = Mockito.mock(GeyserSession.class);
         var type = Class.forName(GeyserBedrockBridgeRuntime.class.getName() + "$PacketTapHandler");
         var constructor = type.getDeclaredConstructor(
-                org.geysermc.geyser.session.GeyserSession.class,
-                org.cloudburstmc.protocol.bedrock.BedrockSession.class,
-                org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler.class,
-                ac.cult.reload.integrations.GeyserQueue.class);
+                GeyserSession.class, BedrockSession.class, BedrockPacketHandler.class, GeyserQueue.class);
         constructor.setAccessible(true);
-        var tap = constructor.newInstance(session, null, null, new ac.cult.reload.integrations.GeyserQueue());
+        var tap = constructor.newInstance(session, null, null, new GeyserQueue());
         var runtime = type.getDeclaredField("actorCreationRuntimeId");
         runtime.setAccessible(true);
         runtime.set(tap, 42L);
         var floor = type.getDeclaredField("continuedMovementTick");
         floor.setAccessible(true);
         floor.set(tap, 500L);
-        var player = Mockito.mock(ac.cult.cultac.player.CultPlayer.class);
-        player.bedrockState = new ac.cult.cultac.bedrock.player.BedrockPlayerState(java.util.UUID.randomUUID());
-        player.checkManager = Mockito.mock(ac.cult.cultac.manager.player.CheckManager.class);
-        var processor = Mockito.mock(ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor.class);
+        var player = Mockito.mock(CultPlayer.class);
+        player.bedrockState = new BedrockPlayerState(UUID.randomUUID());
+        player.checkManager = Mockito.mock(CheckManager.class);
+        var processor = Mockito.mock(SimulationProcessor.class);
         Mockito.when(player.checkManager.getSimulationProcessor()).thenReturn(processor);
         Mockito.doAnswer(call -> {
                     player.bedrockState.recordActorCreation(call.getArgument(0));
@@ -59,7 +94,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
                 })
                 .when(processor)
                 .handleBedrockActorCreation(42L);
-        var initialize = type.getDeclaredMethod("initializeActor", ac.cult.cultac.player.CultPlayer.class);
+        var initialize = type.getDeclaredMethod("initializeActor", CultPlayer.class);
         initialize.setAccessible(true);
         initialize.invoke(tap, player);
         assertFalse(player.bedrockState.acceptMovementTick(500));
@@ -71,9 +106,9 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void queuedLatencyReplyReachesReplacementTapInItsOriginalTickLoopSlot() throws Exception {
-        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class);
-        var upstream = Mockito.mock(org.cloudburstmc.protocol.bedrock.BedrockSession.class);
-        var replacement = Mockito.mock(org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler.class);
+        var session = Mockito.mock(GeyserSession.class);
+        var upstream = Mockito.mock(BedrockSession.class);
+        var replacement = Mockito.mock(BedrockPacketHandler.class);
         Mockito.when(upstream.getPacketHandler()).thenReturn(replacement);
         Deque<Runnable> accepted = new ArrayDeque<>();
         Mockito.doAnswer(call -> {
@@ -84,20 +119,16 @@ public final class GeyserBedrockBridgeRuntimeTest {
                 .ensureInEventLoop(Mockito.any(Runnable.class));
         var type = Class.forName(GeyserBedrockBridgeRuntime.class.getName() + "$PacketTapHandler");
         var constructor = type.getDeclaredConstructor(
-                org.geysermc.geyser.session.GeyserSession.class,
-                org.cloudburstmc.protocol.bedrock.BedrockSession.class,
-                org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler.class,
-                ac.cult.reload.integrations.GeyserQueue.class);
+                GeyserSession.class, BedrockSession.class, BedrockPacketHandler.class, GeyserQueue.class);
         constructor.setAccessible(true);
-        var old = (org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler)
-                constructor.newInstance(session, upstream, null, new ac.cult.reload.integrations.GeyserQueue());
-        var reply = new org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket();
+        var old = (BedrockPacketHandler) constructor.newInstance(session, upstream, null, new GeyserQueue());
+        var reply = new NetworkStackLatencyPacket();
         reply.setFromServer(true);
         old.handlePacket(reply);
         Mockito.verifyZeroInteractions(replacement);
         var detached = type.getDeclaredField("detached");
         detached.setAccessible(true);
-        ((java.util.concurrent.atomic.AtomicBoolean) detached.get(old)).set(true);
+        ((AtomicBoolean) detached.get(old)).set(true);
         var handedOff = type.getDeclaredField("handedOff");
         handedOff.setAccessible(true);
         handedOff.set(old, true);
@@ -108,7 +139,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void unfinishedSpawnCannotReleaseWithoutTheGuaranteedDimensionReset() {
-        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class, Mockito.RETURNS_DEEP_STUBS);
+        var session = Mockito.mock(GeyserSession.class, Mockito.RETURNS_DEEP_STUBS);
         Mockito.when(session.getTickEventLoop().inEventLoop()).thenReturn(true);
         assertNull(GeyserBedrockBridgeRuntime.releaseSession(session));
         Mockito.verify(session, Mockito.never()).getUpstream();
@@ -117,7 +148,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void transferFencesEngineReceiptsWithoutChangingNativeLatencyOrder() {
-        var queue = new ac.cult.reload.integrations.GeyserQueue();
+        var queue = new GeyserQueue();
         var old = queue.scope();
         List<String> receipts = new ArrayList<>();
         queue.add(() -> receipts.add("native-A"));
@@ -241,10 +272,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
         OutboundFixture() throws Exception {
             tapType = Class.forName(GeyserBedrockBridgeRuntime.class.getName() + "$PacketTapHandler");
             var constructor = tapType.getDeclaredConstructor(
-                    GeyserSession.class,
-                    org.cloudburstmc.protocol.bedrock.BedrockSession.class,
-                    org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler.class,
-                    GeyserQueue.class);
+                    GeyserSession.class, BedrockSession.class, BedrockPacketHandler.class, GeyserQueue.class);
             constructor.setAccessible(true);
             tap = constructor.newInstance(session, null, null, queue);
             var scopeField = tapType.getDeclaredField("latencyScope");
@@ -259,7 +287,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
         void detach(boolean transferred) throws Exception {
             var detached = tapType.getDeclaredField("detached");
             detached.setAccessible(true);
-            ((java.util.concurrent.atomic.AtomicBoolean) detached.get(tap)).set(true);
+            ((AtomicBoolean) detached.get(tap)).set(true);
             var handedOff = tapType.getDeclaredField("handedOff");
             handedOff.setAccessible(true);
             handedOff.set(tap, transferred);
@@ -347,23 +375,21 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     private static final class LoginSwapFixture implements AutoCloseable {
         final GeyserSession session = Mockito.mock(GeyserSession.class);
-        final org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler upstream =
-                Mockito.mock(org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler.class);
+        final BedrockPacketHandler upstream = Mockito.mock(BedrockPacketHandler.class);
         final EmbeddedChannel wire = new EmbeddedChannel();
         final TickLoop tickLoop = new TickLoop();
         final Class<?> tapType;
-        org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler handler =
-                Mockito.mock(org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler.class);
+        BedrockPacketHandler handler = Mockito.mock(BedrockPacketHandler.class);
 
         LoginSwapFixture() throws Exception {
             tapType = Class.forName(GeyserBedrockBridgeRuntime.class.getName() + "$PacketTapHandler");
             var cache = GeyserSession.class.getDeclaredField("latencyPingCache");
             cache.setAccessible(true);
-            cache.set(session, new java.util.concurrent.ConcurrentLinkedQueue<Runnable>());
+            cache.set(session, new ConcurrentLinkedQueue<Runnable>());
             Mockito.doCallRealMethod().when(session).getLatencyPingCache();
-            var geyserUpstream = Mockito.mock(org.geysermc.geyser.session.UpstreamSession.class);
-            var bedrock = Mockito.mock(org.cloudburstmc.protocol.bedrock.BedrockServerSession.class);
-            var peer = Mockito.mock(org.cloudburstmc.protocol.bedrock.BedrockPeer.class);
+            var geyserUpstream = Mockito.mock(UpstreamSession.class);
+            var bedrock = Mockito.mock(BedrockServerSession.class);
+            var peer = Mockito.mock(BedrockPeer.class);
             Mockito.when(session.getUpstream()).thenReturn(geyserUpstream);
             Mockito.when(geyserUpstream.getSession()).thenReturn(bedrock);
             Mockito.when(bedrock.getPeer()).thenReturn(peer);
@@ -386,15 +412,15 @@ public final class GeyserBedrockBridgeRuntimeTest {
             Mockito.doAnswer(call -> {
                         Runnable callback = session.getLatencyPingCache().poll();
                         if (callback != null) callback.run();
-                        return org.cloudburstmc.protocol.common.PacketSignal.HANDLED;
+                        return PacketSignal.HANDLED;
                     })
                     .when(upstream)
                     .handlePacket(Mockito.any());
         }
 
         void install() throws Exception {
-            var install = GeyserBedrockBridgeRuntime.class.getDeclaredMethod(
-                    "installPacketTap", org.geysermc.geyser.api.connection.GeyserConnection.class);
+            var install =
+                    GeyserBedrockBridgeRuntime.class.getDeclaredMethod("installPacketTap", GeyserConnection.class);
             install.setAccessible(true);
             install.invoke(null, session);
         }
@@ -426,7 +452,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
         public void close() throws Exception {
             var taps = GeyserBedrockBridgeRuntime.class.getDeclaredField("PACKET_TAPS");
             taps.setAccessible(true);
-            ((java.util.Map<?, ?>) taps.get(null)).remove(session);
+            ((Map<?, ?>) taps.get(null)).remove(session);
             wire.finishAndReleaseAll();
         }
     }
@@ -437,14 +463,12 @@ public final class GeyserBedrockBridgeRuntimeTest {
         var packet = new MovePlayerPacket();
         previous.begin();
         previous.enqueue(packet, () -> {});
-        var operation = new ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation(
-                42, ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance.GFP_REBASE, null);
+        var operation = new BedrockTeleportOperation(42, BedrockTeleportProvenance.GFP_REBASE, null);
         previous.finish(16000000, -16000000, operation);
         var continued = new BedrockOriginDispatch();
         continued.restore(previous.continuation());
         previous.clear();
-        assertEquals(
-                new ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame(16000000, -16000000, 1), continued.frame());
+        assertEquals(new BedrockCoordinateFrame(16000000, -16000000, 1), continued.frame());
         var emission = continued.take(packet);
         assertEquals(continued.frame(), emission.frame());
         assertEquals(operation, emission.operation());
@@ -454,15 +478,15 @@ public final class GeyserBedrockBridgeRuntimeTest {
     @Test
     public void invalidMovementIsRejectedBeforeFrameCapture() {
         var packet = new PlayerAuthInputPacket();
-        packet.setPosition(org.cloudburstmc.math.vector.Vector3f.ZERO);
-        packet.setDelta(org.cloudburstmc.math.vector.Vector3f.ZERO);
-        packet.setRotation(org.cloudburstmc.math.vector.Vector3f.ZERO);
-        packet.setMotion(org.cloudburstmc.math.vector.Vector2f.ZERO);
+        packet.setPosition(Vector3f.ZERO);
+        packet.setDelta(Vector3f.ZERO);
+        packet.setRotation(Vector3f.ZERO);
+        packet.setMotion(Vector2f.ZERO);
         assertTrue(GeyserBedrockBridgeRuntime.hasFiniteMovement(packet));
-        packet.setPosition(org.cloudburstmc.math.vector.Vector3f.from(Float.NaN, 64, 0));
+        packet.setPosition(Vector3f.from(Float.NaN, 64, 0));
         assertFalse(GeyserBedrockBridgeRuntime.hasFiniteMovement(packet));
-        packet.setPosition(org.cloudburstmc.math.vector.Vector3f.ZERO);
-        packet.setDelta(org.cloudburstmc.math.vector.Vector3f.from(0, Float.POSITIVE_INFINITY, 0));
+        packet.setPosition(Vector3f.ZERO);
+        packet.setDelta(Vector3f.from(0, Float.POSITIVE_INFINITY, 0));
         assertFalse(GeyserBedrockBridgeRuntime.hasFiniteMovement(packet));
     }
 
@@ -472,13 +496,11 @@ public final class GeyserBedrockBridgeRuntimeTest {
         packet.getInputData().add(PlayerAuthInputData.VERTICAL_COLLISION);
         packet.getInputData().add(PlayerAuthInputData.HORIZONTAL_COLLISION);
         packet.getInputData().add(PlayerAuthInputData.PERFORM_ITEM_STACK_REQUEST);
-        GeyserBedrockBridgeRuntime.correctCollisions(
-                packet, ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags.AIR);
+        GeyserBedrockBridgeRuntime.correctCollisions(packet, BedrockCollisionFlags.AIR);
         assertFalse(packet.getInputData().contains(PlayerAuthInputData.VERTICAL_COLLISION));
         assertFalse(packet.getInputData().contains(PlayerAuthInputData.HORIZONTAL_COLLISION));
         assertTrue(packet.getInputData().contains(PlayerAuthInputData.PERFORM_ITEM_STACK_REQUEST));
-        GeyserBedrockBridgeRuntime.correctCollisions(
-                packet, ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags.ON_GROUND);
+        GeyserBedrockBridgeRuntime.correctCollisions(packet, BedrockCollisionFlags.ON_GROUND);
         assertTrue(packet.getInputData().contains(PlayerAuthInputData.VERTICAL_COLLISION));
     }
 
@@ -496,20 +518,17 @@ public final class GeyserBedrockBridgeRuntimeTest {
     public void predictedEquinesDoNotRequireDefinitionAccessor() {
         assertFalse(GeyserBedrockBridgeRuntime.isPredictedHorse(null));
         for (var type : List.of(
-                org.geysermc.geyser.entity.type.living.animal.horse.HorseEntity.class,
-                org.geysermc.geyser.entity.type.living.animal.horse.ChestedHorseEntity.class,
-                org.geysermc.geyser.entity.type.living.animal.horse.SkeletonHorseEntity.class,
-                org.geysermc.geyser.entity.type.living.animal.horse.ZombieHorseEntity.class)) {
+                HorseEntity.class, ChestedHorseEntity.class, SkeletonHorseEntity.class, ZombieHorseEntity.class)) {
             var entity = Mockito.mock(type);
             assertTrue(GeyserBedrockBridgeRuntime.isPredictedHorse(entity));
             Mockito.verifyZeroInteractions(entity);
         }
         for (var type : List.of(
-                org.geysermc.geyser.entity.type.living.animal.horse.LlamaEntity.class,
-                org.geysermc.geyser.entity.type.living.animal.horse.TraderLlamaEntity.class,
-                org.geysermc.geyser.entity.type.living.animal.horse.CamelEntity.class,
-                org.geysermc.geyser.entity.type.living.animal.horse.CamelHuskEntity.class,
-                org.geysermc.geyser.entity.type.BoatEntity.class)) {
+                LlamaEntity.class,
+                TraderLlamaEntity.class,
+                CamelEntity.class,
+                CamelHuskEntity.class,
+                BoatEntity.class)) {
             var entity = Mockito.mock(type);
             assertFalse(GeyserBedrockBridgeRuntime.isPredictedHorse(entity));
             Mockito.verifyZeroInteractions(entity);
@@ -518,10 +537,10 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void latencyQueueInstallsThroughTheUnmodifiedGeyserGetter() throws Exception {
-        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class, Mockito.CALLS_REAL_METHODS);
-        var cache = org.geysermc.geyser.session.GeyserSession.class.getDeclaredField("latencyPingCache");
+        var session = Mockito.mock(GeyserSession.class, Mockito.CALLS_REAL_METHODS);
+        var cache = GeyserSession.class.getDeclaredField("latencyPingCache");
         cache.setAccessible(true);
-        cache.set(session, new java.util.concurrent.ConcurrentLinkedQueue<Runnable>());
+        cache.set(session, new ConcurrentLinkedQueue<Runnable>());
         var queue = GeyserBedrockBridgeRuntime.installLatencyQueue(session);
         assertSame(queue, session.getLatencyPingCache());
         assertSame(queue, GeyserBedrockBridgeRuntime.installLatencyQueue(session));
@@ -530,15 +549,15 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void nativeReceiptsDoNotEmitJavaPongs() throws Exception {
-        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class, Mockito.CALLS_REAL_METHODS);
-        var cache = org.geysermc.geyser.session.GeyserSession.class.getDeclaredField("latencyPingCache");
+        var session = Mockito.mock(GeyserSession.class, Mockito.CALLS_REAL_METHODS);
+        var cache = GeyserSession.class.getDeclaredField("latencyPingCache");
         cache.setAccessible(true);
-        cache.set(session, new java.util.concurrent.ConcurrentLinkedQueue<Runnable>());
+        cache.set(session, new ConcurrentLinkedQueue<Runnable>());
         var queue = GeyserBedrockBridgeRuntime.installLatencyQueue(session);
-        var geyser = Mockito.mock(org.geysermc.geyser.GeyserImpl.class, Mockito.RETURNS_DEEP_STUBS);
+        var geyser = Mockito.mock(GeyserImpl.class, Mockito.RETURNS_DEEP_STUBS);
         Mockito.doReturn(geyser).when(session).getGeyser();
         Mockito.when(geyser.config().gameplay().forwardPlayerPing()).thenReturn(true);
-        List<org.cloudburstmc.protocol.bedrock.packet.BedrockPacket> packets = new ArrayList<>();
+        List<BedrockPacket> packets = new ArrayList<>();
         Mockito.doAnswer(invocation -> {
                     packets.add(invocation.getArgument(0));
                     return null;
@@ -554,25 +573,22 @@ public final class GeyserBedrockBridgeRuntimeTest {
                 .ensureInEventLoop(Mockito.any(Runnable.class));
         List<Integer> pongs = new ArrayList<>();
         Mockito.doAnswer(invocation -> {
-                    var pong = (org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket)
-                            invocation.getArgument(0);
+                    var pong = (ServerboundPongPacket) invocation.getArgument(0);
                     pongs.add(pong.getId());
                     return null;
                 })
                 .when(session)
                 .sendDownstreamPacket(Mockito.any());
 
-        var pingTranslator = new org.geysermc.geyser.translator.protocol.java.JavaPingTranslator();
-        pingTranslator.translate(
-                session, new org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundPingPacket(101));
-        pingTranslator.translate(
-                session, new org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundPingPacket(102));
+        var pingTranslator = new JavaPingTranslator();
+        pingTranslator.translate(session, new ClientboundPingPacket(101));
+        pingTranslator.translate(session, new ClientboundPingPacket(102));
         assertEquals(2, packets.size());
         queue.write(() -> {});
         queue.insert(GeyserBedrockBridgeRuntime.nativeLatencyCallback(session, 999), () -> {});
         queue.write(() -> {});
-        var translator = new org.geysermc.geyser.translator.protocol.bedrock.BedrockNetworkStackLatencyTranslator();
-        var reply = new org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket();
+        var translator = new BedrockNetworkStackLatencyTranslator();
+        var reply = new NetworkStackLatencyPacket();
         reply.setTimestamp(0);
         for (int i = 0; i < 3; i++) translator.translate(session, reply);
         assertTrue(pongs.isEmpty());
@@ -583,8 +599,8 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void mixedLatencyCallbacksFollowWireOrderRegardlessOfTimestamp() {
-        var queue = new ac.cult.reload.integrations.GeyserQueue();
-        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class, Mockito.RETURNS_DEEP_STUBS);
+        var queue = new GeyserQueue();
+        var session = Mockito.mock(GeyserSession.class, Mockito.RETURNS_DEEP_STUBS);
         Mockito.when(session.getLatencyPingCache()).thenReturn(queue);
         List<String> completed = new ArrayList<>();
         // Geyser registers these before Cloudburst flushes their packets.
@@ -602,9 +618,9 @@ public final class GeyserBedrockBridgeRuntimeTest {
         queue.write(() -> {});
         queue.write(() -> {});
 
-        var translator = new org.geysermc.geyser.translator.protocol.bedrock.BedrockNetworkStackLatencyTranslator();
+        var translator = new BedrockNetworkStackLatencyTranslator();
         for (long timestamp : new long[] {0, 0, Long.MIN_VALUE, Long.MAX_VALUE, -1, 42, 42, 42}) {
-            var reply = new org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket();
+            var reply = new NetworkStackLatencyPacket();
             reply.setTimestamp(timestamp);
             translator.translate(session, reply);
         }
@@ -614,7 +630,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void nativeReceiptDoesNotForwardSyntheticPong() {
-        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class);
+        var session = Mockito.mock(GeyserSession.class);
         Deque<Runnable> eventLoop = new ArrayDeque<>();
         Mockito.doAnswer(invocation -> {
                     eventLoop.add(invocation.getArgument(0));
@@ -630,10 +646,10 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void failedWriteLeavesCallbackUnconfirmedAndDetachPreservesGeyserCallbacks() {
-        var queue = new ac.cult.reload.integrations.GeyserQueue();
+        var queue = new GeyserQueue();
         Runnable callback = () -> {};
         queue.add(callback);
-        org.junit.Assert.assertThrows(
+        Assert.assertThrows(
                 IllegalStateException.class,
                 () -> queue.write(() -> {
                     throw new IllegalStateException("write failed");
@@ -649,14 +665,14 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void javaUserBindsToExactGeyserDownstreamSocket() {
-        io.netty.channel.Channel geyserDownstream = Mockito.mock(io.netty.channel.Channel.class);
-        io.netty.channel.Channel matchingServer = Mockito.mock(io.netty.channel.Channel.class);
-        io.netty.channel.Channel otherServer = Mockito.mock(io.netty.channel.Channel.class);
+        Channel geyserDownstream = Mockito.mock(Channel.class);
+        Channel matchingServer = Mockito.mock(Channel.class);
+        Channel otherServer = Mockito.mock(Channel.class);
         InetSocketAddress endpoint = new InetSocketAddress("127.0.0.1", 32145);
 
         Mockito.when(geyserDownstream.localAddress()).thenReturn(endpoint);
-        var matchingUnsafe = Mockito.mock(io.netty.channel.Channel.Unsafe.class);
-        var otherUnsafe = Mockito.mock(io.netty.channel.Channel.Unsafe.class);
+        var matchingUnsafe = Mockito.mock(Channel.Unsafe.class);
+        var otherUnsafe = Mockito.mock(Channel.Unsafe.class);
         Mockito.when(matchingServer.unsafe()).thenReturn(matchingUnsafe);
         Mockito.when(otherServer.unsafe()).thenReturn(otherUnsafe);
         Mockito.when(matchingUnsafe.remoteAddress()).thenReturn(endpoint);
@@ -672,8 +688,8 @@ public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
     public void unboundChannelsCannotMatchAnotherSession() {
-        var downstream = Mockito.mock(io.netty.channel.Channel.class);
-        var server = Mockito.mock(io.netty.channel.Channel.class);
+        var downstream = Mockito.mock(Channel.class);
+        var server = Mockito.mock(Channel.class);
         assertFalse(GeyserBedrockBridgeRuntime.sameJavaConnection(downstream, server));
     }
 
@@ -778,7 +794,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
     public void geyserSelfEntityTeleportPositionIsConvertedToPhysicalFeet() {
         Vector3f packetPosition = Vector3f.from(223.7F, 67.1152F, 416.82675F);
 
-        ac.cult.cultac.utils.math.Vec3 physicalFeet = GeyserBedrockBridgeRuntime.toJavaPosition(packetPosition);
+        Vec3 physicalFeet = GeyserBedrockBridgeRuntime.toJavaPosition(packetPosition);
 
         assertEquals((double) packetPosition.getX(), physicalFeet.x, 0.0D);
         assertEquals((double) packetPosition.getY() - 1.6200103759765625D, physicalFeet.y, 0.0D);

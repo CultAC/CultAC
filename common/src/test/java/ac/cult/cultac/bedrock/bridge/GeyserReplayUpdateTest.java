@@ -6,6 +6,7 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent
 import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayContextEvent;
 import java.util.ArrayList;
 import org.cloudburstmc.protocol.bedrock.data.AttributeData;
+import org.cloudburstmc.protocol.bedrock.packet.AddEntityPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MobEffectPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket;
 import org.junit.Test;
@@ -47,7 +48,7 @@ public final class GeyserReplayUpdateTest {
 
     @Test
     public void spawnAndNonMovementAttributesKeepFullInstances() {
-        var packet = new org.cloudburstmc.protocol.bedrock.packet.AddEntityPacket();
+        var packet = new AddEntityPacket();
         packet.setRuntimeEntityId(4);
         packet.getAttributes().add(new AttributeData("minecraft:horse.jump_strength", 0, 2, 0.81F, 0.7F));
         packet.getAttributes().add(new AttributeData("minecraft:movement", 0, 1024, 0.35245588F, 0.1F));

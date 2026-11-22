@@ -12,6 +12,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.function.BiFunction;
 
@@ -174,8 +175,8 @@ final class BedrockMovementRewind {
     }
 
     /** For each held frame that met actors whose reach depends on the delay, those it met at {@code delay} ticks. */
-    private static List<java.util.BitSet> met(List<BedrockActorHistory.Frame> frames, int delay) {
-        var met = new ArrayList<java.util.BitSet>();
+    private static List<BitSet> met(List<BedrockActorHistory.Frame> frames, int delay) {
+        var met = new ArrayList<BitSet>();
         for (var frame : frames) {
             if (frame.solidActors() != null && !frame.solidActors().delays().isEmpty())
                 met.add(frame.solidActors().met(delay));

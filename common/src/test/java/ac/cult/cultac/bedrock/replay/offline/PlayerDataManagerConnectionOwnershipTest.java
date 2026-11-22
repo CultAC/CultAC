@@ -4,6 +4,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.PlayerDataManager;
@@ -92,6 +93,6 @@ public final class PlayerDataManagerConnectionOwnershipTest {
     }
 
     private static User user(String name) {
-        return ac.cult.cultac.network.TestUsers.create(new User.Profile(SHARED_UUID, name), new EmbeddedChannel());
+        return TestUsers.create(new User.Profile(SHARED_UUID, name), new EmbeddedChannel());
     }
 }

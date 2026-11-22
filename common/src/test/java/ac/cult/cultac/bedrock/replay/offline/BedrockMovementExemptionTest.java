@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.replay.offline;
 import static org.junit.Assert.*;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockActorHistory;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.manager.player.SetbackFixtures;
@@ -43,7 +44,7 @@ public class BedrockMovementExemptionTest {
             var rewind = rewindField.get(corrections);
             var historyField = rewind.getClass().getDeclaredField("authoritative");
             historyField.setAccessible(true);
-            var history = (ac.cult.cultac.bedrock.prediction.integration.BedrockActorHistory) historyField.get(rewind);
+            var history = (BedrockActorHistory) historyField.get(rewind);
             assertTrue(history.frames().isEmpty());
 
             player.canFly = false;

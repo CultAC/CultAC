@@ -23,10 +23,6 @@ public final class BedrockSwimmingPoseProgress {
         return BedrockPoseInputData.committedHorizontalPose(frame);
     }
 
-    public static double nextSwimAmount(boolean swimPoseActive, double previousSwimAmount) {
-        return nextSwimAmount(previousSwimAmount, swimPoseActive);
-    }
-
     public static double nextSwimAmount(double previousSwimAmount, boolean swimPoseActive) {
         float next = (float) previousSwimAmount + (swimPoseActive ? SWIM_AMOUNT_STEP : -SWIM_AMOUNT_STEP);
         if (next <= 0.0D) {

@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
@@ -17,8 +18,10 @@ import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerAttack;
+import ac.cult.cultac.network.PacketDispatcher;
 import ac.cult.cultac.network.PacketReceiveHandler;
 import ac.cult.cultac.network.PacketReceiveRoute;
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
@@ -273,10 +276,7 @@ public final class ReachabilityOrderingParityTest {
             evaluate.invoke(runner, pig);
             assertEquals(1, vehicleC.flags);
 
-            player.getInventory()
-                    .inventory
-                    .getInventoryStorage()
-                    .setItem(Inventory.HOTBAR_OFFSET, ac.cult.blocksim.engine.SimItemStack.EMPTY);
+            player.getInventory().inventory.getInventoryStorage().setItem(Inventory.HOTBAR_OFFSET, SimItemStack.EMPTY);
             PacketEntity strider = new PacketEntity(EntityTypeIds.STRIDER, 11);
             evaluate.invoke(runner, strider);
             assertEquals(2, vehicleC.flags);
@@ -321,8 +321,8 @@ public final class ReachabilityOrderingParityTest {
                 evaluate.invoke(runner, root);
                 assertEquals("The current client selection can be ahead of its packet report", i + 1, vehicleC.flags);
                 assertEquals(1, player.packetStateData.lastSlotSelected);
-                storage.setItem(Inventory.HOTBAR_OFFSET + 8, ac.cult.blocksim.engine.SimItemStack.EMPTY);
-                storage.setItem(9, ac.cult.blocksim.engine.SimItemStack.EMPTY);
+                storage.setItem(Inventory.HOTBAR_OFFSET + 8, SimItemStack.EMPTY);
+                storage.setItem(9, SimItemStack.EMPTY);
             }
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -428,7 +428,7 @@ public final class ReachabilityOrderingParityTest {
             throws ReflectiveOperationException {
         PacketReceiveHandler<Object> earlyManager =
                 (receiveEvent, routedPlayer, packet) -> routedPlayer.checkManager.dispatchEarlyReceive(receiveEvent);
-        new ac.cult.cultac.network.PacketDispatcher.ReceiveRoute(
+        new PacketDispatcher.ReceiveRoute(
                         PacketReceiveRoute.of(new PacketReceiveHandler[] {earlyManager}),
                         PacketReceiveRoute.of(ordinaryHandlers),
                         PacketReceiveRoute.EMPTY)
@@ -515,16 +515,14 @@ public final class ReachabilityOrderingParityTest {
     private static CultPlayer offlineJavaPlayer() {
         OfflineCultTestBootstrap.installConfig();
         UUID playerId = UUID.randomUUID();
-        User user = ac.cult.cultac.network.TestUsers.create(
-                new User.Profile(playerId, ".Reachability_Order_Test"), new EmbeddedChannel());
+        User user = TestUsers.create(new User.Profile(playerId, ".Reachability_Order_Test"), new EmbeddedChannel());
         return new CultPlayer(user);
     }
 
     private static CultPlayer offlineBedrockPlayer() {
         OfflineCultTestBootstrap.installConfig();
         UUID playerId = UUID.randomUUID();
-        User user = ac.cult.cultac.network.TestUsers.create(
-                new User.Profile(playerId, ".Reachability_Bedrock_Test"), new EmbeddedChannel());
+        User user = TestUsers.create(new User.Profile(playerId, ".Reachability_Bedrock_Test"), new EmbeddedChannel());
         return new CultPlayer(user, MovementPlatform.BEDROCK, new BedrockPlayerState(playerId));
     }
 

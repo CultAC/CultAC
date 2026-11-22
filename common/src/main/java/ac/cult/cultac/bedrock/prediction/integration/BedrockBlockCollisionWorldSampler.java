@@ -11,7 +11,9 @@ import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import java.util.Optional;
 
 final class BedrockBlockCollisionWorldSampler {
     private final BedrockFluidBlockSampler fluidBlocks = new BedrockFluidBlockSampler();
@@ -61,7 +63,7 @@ final class BedrockBlockCollisionWorldSampler {
                 feet.z() + radius);
         var world = sample(
                         player,
-                        ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings.catalog(),
+                        BedrockClientBlockShapeMappings.catalog(),
                         box,
                         box.copy()
                                 .expand(Math.max(
@@ -87,7 +89,7 @@ final class BedrockBlockCollisionWorldSampler {
     }
 
     private SimpleCollisionBox trustedActorCollisionBox(SimulationContext context, BedrockPlayerContext playerContext) {
-        java.util.Optional<Vec3d> trustedFeetPosition = BedrockProfileState.trustedFeetPosition(context);
+        Optional<Vec3d> trustedFeetPosition = BedrockProfileState.trustedFeetPosition(context);
         if (trustedFeetPosition.isEmpty()) {
             throw new IllegalStateException("missing trusted Bedrock actor position for block sampling");
         }

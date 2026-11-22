@@ -70,23 +70,6 @@ public record PlacedBlockCollision(
             String bedrockIdentifier,
             Map<String, Object> bedrockState,
             List<WorldCollisionBox> collisionBoxes,
-            List<WorldCollisionBox> contactBoxes) {
-        this(
-                position,
-                javaState,
-                bedrockIdentifier,
-                bedrockState,
-                collisionBoxes,
-                contactBoxes,
-                fullBlockContactBoxes(position));
-    }
-
-    public PlacedBlockCollision(
-            BlockPosition position,
-            String javaState,
-            String bedrockIdentifier,
-            Map<String, Object> bedrockState,
-            List<WorldCollisionBox> collisionBoxes,
             List<WorldCollisionBox> contactBoxes,
             List<WorldCollisionBox> insideBlockContactBoxes) {
         this(
@@ -141,32 +124,6 @@ public record PlacedBlockCollision(
             String javaState,
             String bedrockIdentifier,
             List<WorldCollisionBox> collisionBoxes,
-            List<WorldCollisionBox> contactBoxes) {
-        return new PlacedBlockCollision(position, javaState, bedrockIdentifier, Map.of(), collisionBoxes, contactBoxes);
-    }
-
-    public static PlacedBlockCollision manual(
-            BlockPosition position,
-            String javaState,
-            String bedrockIdentifier,
-            List<WorldCollisionBox> collisionBoxes,
-            List<WorldCollisionBox> contactBoxes,
-            List<WorldCollisionBox> insideBlockContactBoxes) {
-        return manual(
-                position,
-                javaState,
-                bedrockIdentifier,
-                collisionBoxes,
-                contactBoxes,
-                insideBlockContactBoxes,
-                PlacedBlockContactBehaviorResolver.derive(javaState, bedrockIdentifier, Map.of()));
-    }
-
-    public static PlacedBlockCollision manual(
-            BlockPosition position,
-            String javaState,
-            String bedrockIdentifier,
-            List<WorldCollisionBox> collisionBoxes,
             List<WorldCollisionBox> contactBoxes,
             List<WorldCollisionBox> insideBlockContactBoxes,
             Set<BlockContactBehavior> contactBehaviors) {
@@ -188,17 +145,6 @@ public record PlacedBlockCollision(
             Map<String, Object> bedrockState,
             List<WorldCollisionBox> collisionBoxes) {
         return new PlacedBlockCollision(position, javaState, bedrockIdentifier, bedrockState, collisionBoxes);
-    }
-
-    public static PlacedBlockCollision manual(
-            BlockPosition position,
-            String javaState,
-            String bedrockIdentifier,
-            Map<String, Object> bedrockState,
-            List<WorldCollisionBox> collisionBoxes,
-            List<WorldCollisionBox> contactBoxes) {
-        return new PlacedBlockCollision(
-                position, javaState, bedrockIdentifier, bedrockState, collisionBoxes, contactBoxes);
     }
 
     public static PlacedBlockCollision manual(
@@ -282,25 +228,6 @@ public record PlacedBlockCollision(
                 javaState,
                 bedrockIdentifier,
                 bedrockState,
-                collisionBoxes,
-                fullBlockContactBoxes(position),
-                fullBlockContactBoxes(position),
-                contactBehaviors);
-    }
-
-    public static PlacedBlockCollision sampled(
-            BlockPosition position,
-            String javaIdentifier,
-            int javaState,
-            String bedrockIdentifier,
-            List<WorldCollisionBox> collisionBoxes,
-            Set<BlockContactBehavior> contactBehaviors) {
-        return sampled(
-                position,
-                javaIdentifier,
-                javaState,
-                bedrockIdentifier,
-                Map.of(),
                 collisionBoxes,
                 fullBlockContactBoxes(position),
                 fullBlockContactBoxes(position),
@@ -418,13 +345,7 @@ public record PlacedBlockCollision(
 
     private static List<WorldCollisionBox> fullBlockContactBoxes(BlockPosition position) {
         Objects.requireNonNull(position, "position");
-        return List.of(new WorldCollisionBox(
-                position.x(),
-                position.y(),
-                position.z(),
-                position.x() + 1.0D,
-                position.y() + 1.0D,
-                position.z() + 1.0D));
+        return List.of(WorldCollisionBox.fullBlock(position));
     }
 
     public enum BlockContactBehavior {

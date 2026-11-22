@@ -44,7 +44,7 @@ public class BedrockMountedShulkerTest {
     public void anIdlePlayerLeavesTheMountedShulkerWithoutInventingInput() {
         withBoat(player -> {
             // The closed shell's west face ends the player's centre at this float coordinate. The initial overlap
-            // is 0.001617431640625, the sideways displacement that a stationary prediction used to reject.
+            // is 0.001617431640625, a sideways displacement a stationary prediction accepts.
             float stopped = 315.5001F;
             standAt(player, stopped + 0.001617431640625F);
             assertTrue(player.compensatedEntities.isUntrackedRider(shulker(player)));
