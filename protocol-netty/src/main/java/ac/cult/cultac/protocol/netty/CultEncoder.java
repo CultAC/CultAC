@@ -950,7 +950,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
      * Inside an open flush bundle a host bundle's delimiters are dropped and its packets join the flush bundle,
      * which ClientPacketListener#handleBundlePacket still handles in one task. A client bundle cannot nest.
      */
-    private boolean joinsFlushBundle(ChannelHandlerContext ctx, Frame frame) {
+    private boolean joinsFlushBundle(Frame frame) {
         if (frame.type != ClientboundPackets.BUNDLE_DELIMITER
                 || !connection.flushBundleOpen()
                 || !delimitsFlushBundle()) return false;
@@ -987,7 +987,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                         recycle(frame);
                         continue;
                     }
-                    if (joinsFlushBundle(ctx, frame)) {
+                    if (joinsFlushBundle(frame)) {
                         recycle(frame);
                         continue;
                     }
