@@ -41,6 +41,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
@@ -202,6 +203,12 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         receiveGeneric(event, player);
     }
 
+    // LocalPlayer#sendChanges sends player_input; LocalPlayer#tick sends its player_commands from aiStep on.
+    private static boolean sentAfterAiStepStart(Object packet) {
+        return packet instanceof ServerboundPlayerInput
+                || packet instanceof ServerboundPlayerCommand command && sentByLocalPlayerTick(command.action());
+    }
+
     // InBedChatScreen sends STOP_SLEEPING and Minecraft#handleKeybinds OPEN_INVENTORY; LocalPlayer#tick sends the rest.
     private static boolean sentByLocalPlayerTick(PlayerCommandAction action) {
         return action != PlayerCommandAction.STOP_SLEEPING && action != PlayerCommandAction.OPEN_INVENTORY;
@@ -282,6 +289,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             state.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             state.playerLoadedIntoLevel = true;
+            onAiStepStarted(player);
             if (packet.hasPosition()) state.lastSentTickPosition = position;
             if (!laterMovementThisClientTick) state.sentPositionCache.onTickMovement(packet.hasPosition(), position);
             if (packet.hasRotation()) {
@@ -461,6 +469,16 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             player.checkManager.dispatchReceiveHandlers(event);
         } finally {
             setbacks.releaseSafePosition();
+        }
+    }
+
+    // LocalPlayer#aiStep starts with handlePortalTransitionEffect, before every player_input, player_command and
+    // movement LocalPlayer#tick sends, so the first of them or else the tick end applies its screen close.
+    private static void onAiStepStarted(CultPlayer player) {
+        if (player.localPlayerTicks()
+                && !player.localPlayerRemovedThisTick()
+                && player.localPortalProcess.takeScreenCloseOfNextAiStep()) {
+            player.openWindow.onPortalClosedScreen();
         }
     }
 
@@ -988,6 +1006,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
         onAiStepObserved(player);
         onLocalPlayerAttackTick(player);
+        onAiStepStarted(player);
         player.checkManager.dispatchReceiveHandlers(event);
         boolean ticked = player.localPlayerTicks();
         // LivingEntity#tick skips aiStep on the tick LocalPlayer#tickDeath removes the player.
@@ -1160,6 +1179,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             if (packet instanceof ServerboundSwing swing) {
                 player.serverSwingEcho.classify(swing.hand(), player.lastTransactionReceived.get());
             }
+            if (!player.isBedrockMovement() && sentAfterAiStepStart(packet)) onAiStepStarted(player);
             player.checkManager.dispatchEarlyReceive(event);
             // An early cancel ends this packet's dispatch before the ordinary route.
             if (event.isCancelled()) {
