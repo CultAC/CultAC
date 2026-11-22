@@ -19,10 +19,6 @@ public class LastInstance {
         lastInstance = 0;
     }
 
-    public int getRaw() {
-        return lastInstance;
-    }
-
     public int setRaw(int value) {
         return lastInstance = value;
     }

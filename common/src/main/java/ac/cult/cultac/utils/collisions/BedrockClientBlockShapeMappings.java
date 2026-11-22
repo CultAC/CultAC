@@ -78,10 +78,6 @@ public final class BedrockClientBlockShapeMappings {
         return Optional.of(entry.movement().copy().offset(x, y, z));
     }
 
-    static Optional<CollisionBox> visual(CultPlayer player, int state, int x, int y, int z) {
-        return Optional.empty();
-    }
-
     static Snapshot build(BedrockCollisionOverrideCatalog catalog) {
         return build(catalog, ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol()));
     }
@@ -98,18 +94,18 @@ public final class BedrockClientBlockShapeMappings {
                     || BedrockCollisionWorldBuilder.positionDependentMovement(javaStateId);
             boolean clientComputedMovement = BedrockCollisionWorldBuilder.clientComputedMovement(javaStateId);
             if (dynamicMovement) {
-                entries.put(javaStateId, new Entry(null, true, clientComputedMovement));
+                entries.put(javaStateId, new Entry(null, true));
                 continue;
             }
             // A moving piston takes the engine world's model as well, never Java's moving-piston shape.
             if (clientComputedMovement || BlockIds.is(javaStateId, BlockIds.MOVING_PISTON)) {
                 CollisionBox movement = bedrockMovement(catalog, javaStateId, BedrockCollisionShapeQuery.NONE);
-                entries.put(javaStateId, new Entry(movement, false, clientComputedMovement));
+                entries.put(javaStateId, new Entry(movement, false));
                 continue;
             }
             Optional<CollisionBox> movement = override.map(shape -> fromLocalBoxes(shape.boxes()))
                     .or(() -> VersionedJavaBlockShapes.movement(catalogVersion, javaStateId, 0, 0, 0));
-            movement.ifPresent(shape -> entries.put(javaStateId, new Entry(shape, false, false)));
+            movement.ifPresent(shape -> entries.put(javaStateId, new Entry(shape, false)));
         }
         return new Snapshot(Map.copyOf(entries), catalog.shapeCount(), catalog);
     }
@@ -210,17 +206,7 @@ public final class BedrockClientBlockShapeMappings {
             }
             return count;
         }
-
-        int clientComputedMovementCount() {
-            int count = 0;
-            for (Entry entry : entries.values()) {
-                if (entry.clientComputedMovement()) {
-                    count++;
-                }
-            }
-            return count;
-        }
     }
 
-    record Entry(CollisionBox movement, boolean dynamicMovement, boolean clientComputedMovement) {}
+    record Entry(CollisionBox movement, boolean dynamicMovement) {}
 }

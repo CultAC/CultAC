@@ -41,11 +41,6 @@ public class Collisions {
     private static final Vec3 WEAVING_COBWEB_STUCK_SPEED = new Vec3(0.5, 0.25, 0.5);
     private static final Vec3 SWEET_BERRY_BUSH_STUCK_SPEED = new Vec3(0.800000011920929, 0.75, 0.800000011920929);
     private static final Vec3 POWDER_SNOW_STUCK_SPEED = new Vec3(0.8999999761581421, 1.5, 0.8999999761581421);
-    /** Every Entity#stuckSpeedMultiplier a block's entityInside gives the local player. */
-    public static final List<Vec3> PLAYER_STUCK_SPEEDS = List.of(
-            COBWEB_STUCK_SPEED, WEAVING_COBWEB_STUCK_SPEED, SWEET_BERRY_BUSH_STUCK_SPEED, POWDER_SNOW_STUCK_SPEED);
-
-    private static final boolean IS_FOURTEEN = true; // Current runtime is newer than 1.14.
 
     public static Vec3 collide(CultPlayer player, double desiredX, double desiredY, double desiredZ) {
         return collide(player, player.boundingBox, desiredX, desiredY, desiredZ);
@@ -703,7 +698,7 @@ public class Collisions {
 
                     CachedSection section = chunk.getSection(sectionIndex);
 
-                    if (section == null || (IS_FOURTEEN && section.isEmpty())) { // Check for empty on 1.13+ servers
+                    if (section == null || section.isEmpty()) {
                         // empty
                         // skip to next section
                         y = (y & ~(15)) + 15; // increment by 15: iterator loop increments by the extra one
@@ -1630,35 +1625,6 @@ public class Collisions {
         boolean visit(BlockPos pos, int iteration);
     }
 
-    public static boolean canFullBlockAffectInsideBlockMovement(
-            SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb, Vec3 axisOrderMovement, BlockPos pos) {
-        if (sweptFullBlockEntityInside(toAabb, toAabb, pos.getX(), pos.getY(), pos.getZ())) {
-            return true;
-        }
-
-        Vec3 movement = boxCenter(toAabb).subtract(boxCenter(fromAabb));
-        if (movement.lengthSqr() == 0.0D) {
-            return sweptFullBlockEntityInside(fromAabb, toAabb, pos.getX(), pos.getY(), pos.getZ());
-        }
-
-        SimpleCollisionBox stepFrom = fromAabb.copy();
-        for (Axis axis : getAxisStepOrder(axisOrderMovement)) {
-            double movementOnAxis = getAxisValue(movement, axis);
-            if (movementOnAxis == 0.0D) {
-                continue;
-            }
-
-            SimpleCollisionBox stepTo = stepFrom.copy();
-            offsetAlongAxis(stepTo, axis, movementOnAxis);
-            if (sweptFullBlockEntityInside(stepFrom, stepTo, pos.getX(), pos.getY(), pos.getZ())) {
-                return true;
-            }
-            stepFrom = stepTo;
-        }
-
-        return false;
-    }
-
     public static boolean sweptFullBlockEntityInside(
             SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb, int x, int y, int z) {
         // Equivalent to MCP-Reborn Entity#collidedWithShapeMovingFrom for one axis
@@ -2068,7 +2034,7 @@ public class Collisions {
                 for (int y = minYIterate; y <= maxYIterate; ++y) {
                     CachedSection section = chunk.getSection((y >> 4) - minSection);
 
-                    if (section == null || (IS_FOURTEEN && section.isEmpty())) { // Check for empty on 1.13+ servers
+                    if (section == null || section.isEmpty()) {
                         // empty
                         // skip to next section
                         y = (y & ~(15)) + 15; // increment by 15: iterator loop increments by the extra one

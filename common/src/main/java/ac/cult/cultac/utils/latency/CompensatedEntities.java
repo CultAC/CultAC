@@ -629,12 +629,6 @@ public class CompensatedEntities {
         return rootOf(rider) == null ? null : rider.getClientMovementCollisionBox();
     }
 
-    /** The seat untracked {@code rider} takes while the root of its vehicle chain holds {@code rootBox}; null in a cycle. */
-    @Nullable
-    public SimpleCollisionBox untrackedRiderSeatOn(PacketEntity rider, SimpleCollisionBox rootBox) {
-        return untrackedRiderSeat(rider, 0, rootBox);
-    }
-
     /**
      * The position box untracked {@code rider} may push from: its seat, widened by every position the root of its
      * vehicle chain may hold. Null inside a riding cycle. Allocates; rule far riders out with
@@ -904,10 +898,6 @@ public class CompensatedEntities {
 
     public Integer getSlowFallingAmplifier() {
         return getPotionLevelForPlayer(MovementEffect.SLOW_FALLING);
-    }
-
-    public Integer getDolphinsGraceAmplifier() {
-        return getPotionLevelForPlayer(MovementEffect.DOLPHINS_GRACE);
     }
 
     public Integer getPotionLevelForPlayer(MovementEffect type) {

@@ -115,8 +115,7 @@ public final class ClientBlockShapes {
     }
 
     public static CollisionBox visual(CultPlayer player, int state, int x, int y, int z) {
-        int blockState = state;
-        CollisionBox latestJava = NativeBlockCollisionHelper.getSelectionBox(player, blockState, x, y, z);
+        CollisionBox latestJava = NativeBlockCollisionHelper.getSelectionBox(player, state, x, y, z);
         return selectIfDifferent(latestJava, visualAlternative(player, state, x, y, z));
     }
 
@@ -168,10 +167,6 @@ public final class ClientBlockShapes {
     }
 
     private static Optional<CollisionBox> visualAlternative(CultPlayer player, int state, int x, int y, int z) {
-        Optional<CollisionBox> bedrock = BedrockClientBlockShapeMappings.visual(player, state, x, y, z);
-        if (bedrock.isPresent()) {
-            return bedrock;
-        }
         Optional<CollisionBox> viaReplacement = ViaClientBlockShapeMappings.visual(player, state, x, y, z);
         if (viaReplacement.isPresent()) {
             return viaReplacement;

@@ -371,7 +371,6 @@ public class CultPlayer implements GrimUser {
     public @Nullable String world;
     public @Nullable Vec3 bedPosition;
     public long lastBlockPlaceUseItem = 0;
-    public int totalFlyingPacketsSent;
     public final @NotNull AtomicInteger cancelledPackets = new AtomicInteger(0);
     private boolean loggedPacketSpam;
     /**
@@ -616,14 +615,6 @@ public class CultPlayer implements GrimUser {
 
     public static final int PING_TRAILING = 2;
     public static final int PING_LEADING = 3;
-
-    public void updateDisabled() {
-        if (platformPlayer == null) return;
-        boolean current = platformPlayer.hasPermission(DISABLED_PERMISSION, false);
-        if (current != disabled) {
-            disabled = current;
-        }
-    }
 
     public CultPlayer(@NotNull User user) {
         this(user, MovementPlatform.JAVA, null);
@@ -1587,8 +1578,6 @@ public class CultPlayer implements GrimUser {
 
     public boolean noModifyPacketPermission = false;
     public boolean noSetbackPermission = false;
-    public boolean immunePermission = false;
-    public boolean chatBypass = false;
     public boolean healthPermission = false;
 
     // TODO: Create a configurable timer for this
@@ -1598,9 +1587,7 @@ public class CultPlayer implements GrimUser {
         try {
             boolean noModifyPacket = platformPlayer.hasPermission("cult.nomodifypacket");
             boolean noSetback = platformPlayer.hasPermission("cult.nosetback");
-            boolean immune = platformPlayer.hasPermission("cult.immune");
             boolean showHealth = platformPlayer.hasPermission("cult.showhealth");
-            boolean bypassChat = platformPlayer.hasPermission("cult.chatbypass");
             boolean cultDisabled = platformPlayer.hasPermission(DISABLED_PERMISSION, false);
 
             for (AbstractCheck check : getChecks()) {
@@ -1611,9 +1598,7 @@ public class CultPlayer implements GrimUser {
 
             this.noModifyPacketPermission = noModifyPacket;
             this.noSetbackPermission = noSetback;
-            this.immunePermission = immune;
             this.healthPermission = showHealth;
-            this.chatBypass = bypassChat;
             this.disabled = cultDisabled;
         } catch (Exception e) {
             LogUtil.error("Failed to update permissions for " + getName() + "!", e);
@@ -1632,7 +1617,6 @@ public class CultPlayer implements GrimUser {
     public boolean spoofHealth = false;
     public boolean throwError = false;
     public boolean chunkDebug = false;
-    public boolean debugNoSlow = false;
     // Temporary command override, owned by the player's model thread and discarded on reconnect.
     public Vec3 debugUncertainty = Vec3.ZERO;
     public double debugUncertaintyChancePercent = 100.0D;

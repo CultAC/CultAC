@@ -28,7 +28,6 @@ public class TrackerData {
     int entityType;
     int lastTransactionHung;
     boolean onGround;
-    int legacyPointEightMountedUpon;
     float health;
 
     // The transform the client's packet handler last wrote; it holds only in the client tick it was written in.

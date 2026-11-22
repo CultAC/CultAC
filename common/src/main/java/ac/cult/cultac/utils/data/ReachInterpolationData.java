@@ -886,10 +886,6 @@ public class ReachInterpolationData {
         return interpolationStepsLowBound == interpolationStepsHighBound ? interpolationStepsLowBound : -1;
     }
 
-    public int getTotalInterpolationSteps() {
-        return getInterpolationSteps();
-    }
-
     /**
      * Client ticks the queued stepped path can still take. SteppedInterpolationHandler.InterpolationData#advance
      * consumes at least one tick of the path per client tick.

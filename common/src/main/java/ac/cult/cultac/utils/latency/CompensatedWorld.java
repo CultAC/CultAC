@@ -1709,14 +1709,6 @@ public class CompensatedWorld {
         return new int[] {minX, maxX, minZ, maxZ};
     }
 
-    /** Whether the client has applied the column at the chunk position and no load or unload of it is in flight. */
-    public boolean isColumnProven(int chunkX, int chunkZ) {
-        CachedChunk column = getChunk(chunkX, chunkZ);
-        return column != null
-                && column.getTransaction() < player.lastTransactionReceived.get()
-                && !serverBlockView.isUnknown(chunkX, chunkZ);
-    }
-
     public boolean isChunkLoaded(int chunkX, int chunkZ) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
         if (!clientChunkCache.contains(chunkX, chunkZ)) return false;
@@ -2324,10 +2316,6 @@ public class CompensatedWorld {
 
     public void clientBiomeZoomSeed(long seed) {
         clientBiomeZoomSeed = seed;
-    }
-
-    public ac.cult.blocksim.environment.DimensionData getVisibleDimensionType() {
-        return visibleDimensionType;
     }
 
     public boolean hasFastLava() {

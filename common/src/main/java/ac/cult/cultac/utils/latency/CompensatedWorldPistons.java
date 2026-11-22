@@ -50,8 +50,6 @@ public final class CompensatedWorldPistons {
             return;
         }
 
-        Direction eventDirection = Direction.from3DDataValue(triggerData & 7);
-
         int pistonState = world.getBlockStateIdAt(pos);
         if (!isPistonBlock(pistonState) || !BlockProps.FACING.has(pistonState)) {
             // Level#blockEvent dispatches through the block currently at this position. A piston

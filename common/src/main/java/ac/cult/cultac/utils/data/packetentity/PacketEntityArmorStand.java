@@ -27,11 +27,6 @@ public final class PacketEntityArmorStand extends PacketEntity {
         return (actionFlags & 1) != 0;
     }
 
-    /** Whether the stand is neither small nor a marker, at the size BoundingBoxSize gives it. */
-    public boolean hasMovementSize() {
-        return (actionFlags & (1 | 16)) == 0;
-    }
-
     public void updateActionMetadata(List<EntityMetadata.Entry> entries) {
         var flags = WatchableIndexUtil.getIndex(entries, 15);
         if (flags != null && flags.value() instanceof Byte value) actionFlags = value;

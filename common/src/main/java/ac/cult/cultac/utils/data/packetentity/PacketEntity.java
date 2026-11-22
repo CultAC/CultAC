@@ -1566,12 +1566,6 @@ public class PacketEntity {
         return newPacketLocation != null && newPacketLocation.hasActiveInterpolationTarget();
     }
 
-    private boolean hasActiveSteppedInterpolation() {
-        return newPacketLocation != null
-                && newPacketLocation.usesSteppedInterpolation()
-                && newPacketLocation.hasActiveInterpolationTarget();
-    }
-
     public void tickPacketInterpolationPreservingPhysical(CultPlayer player, Vec3 physicalPosition) {
         tickPacketInterpolationPreservingPhysical(player, physicalPosition, clientPhysicalYaw, clientPhysicalPitch);
     }
@@ -1857,10 +1851,6 @@ public class PacketEntity {
     /** The status this client tick's AbstractBoat#tick took, else null. */
     public @Nullable BoatEntityStatus boatStatusThisTick(CultPlayer player) {
         return boatTickStatusAt == player.packetStateData.acceptedClientTick ? boatTickStatus : null;
-    }
-
-    public boolean hasPassenger(PacketEntity entity) {
-        return passengers.contains(entity);
     }
 
     public void mount(PacketEntity vehicle) {
@@ -2284,23 +2274,6 @@ public class PacketEntity {
         }
     }
 
-    /** The movement candidates {@link #getMovementCollisionBoxesBeforeTick} bounds. */
-    public List<SimpleCollisionBox> movementCollisionBoxCandidatesBeforeTick() {
-        List<SimpleCollisionBox> before = beforeTickPositions();
-        if (before != null) {
-            List<SimpleCollisionBox> boxes = new ArrayList<>(before.size());
-            for (SimpleCollisionBox box : before) boxes.add(movementBoxAt(box.copy()));
-            return boxes;
-        }
-        boolean reading = readingTickPositions;
-        readingTickPositions = true;
-        try {
-            return getPossibleMovementCollisionBoxCandidates();
-        } finally {
-            readingTickPositions = reading;
-        }
-    }
-
     private List<SimpleCollisionBox> beforeTickPositions() {
         return tickPositions == null || positionPlayer == null ? null : tickPositions.beforeThisTick(positionPlayer);
     }
@@ -2457,18 +2430,6 @@ public class PacketEntity {
         dataProvenAt = Math.max(dataProvenAt, provenAt);
     }
 
-    /**
-     * Whether a client that answered {@code received} shows this entity at rest in the one box
-     * getExactMovementCollisionBox holds, with every entity data the server sent applied.
-     */
-    public boolean hasCertainBox(int received) {
-        return riding == null
-                && hasProvenMovementCandidates(received)
-                && replacedPoses == 0
-                && Float.isNaN(replacedScale)
-                && getExactMovementCollisionBox() != null;
-    }
-
     /** The discrete client positions have proven paths; readers enumerate pending avatar dimensions separately. */
     public boolean hasProvenMovementCandidates(int received) {
         return received >= dataProvenAt && !hasInexactPosition();
@@ -2563,10 +2524,6 @@ public class PacketEntity {
 
     public void setClientTickOrder(long clientTickOrder) {
         this.clientTickOrder = clientTickOrder;
-    }
-
-    public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidatesAfterClientTick() {
-        return getPossibleMovementCollisionBoxCandidates();
     }
 
     public PacketEntity getRiding() {
