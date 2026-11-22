@@ -43,6 +43,7 @@ import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.GrimAPIProvider;
 import ac.grim.grimac.api.plugin.GrimPlugin;
+import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import io.netty.channel.Channel;
@@ -122,7 +123,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             transports.set(transport);
             this.bridge =
                     new BridgeService(proxy, nativePlugin, transport::channel, manager::connection, plugin.getLogger());
-            this.dormancy = new VelocityDormancy(proxy, transport, bridge, () -> cloudBackends);
+            this.dormancy = new VelocityDormancy(proxy, transport, bridge, this::cloudAdopted);
             transport.dormancy(dormancy);
             this.server = new VelocityServer(proxy, senders, bridge::tps);
             this.network = new VelocityNetwork(proxy, nativePlugin, transport::channel);
@@ -379,6 +380,12 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         transport.attach(
                 player, channel, bedrockOwner(channel), ac.cult.cultac.network.ConnectionContinuation.from(state));
         bridge.adopted(player);
+        CloudBackends backends = cloudBackends;
+        if (backends != null) backends.adopted(player);
+    }
+
+    /** Tells the cloud upload's backends, while it runs, that {@code player}'s connection is attached again. */
+    private void cloudAdopted(Player player) {
         CloudBackends backends = cloudBackends;
         if (backends != null) backends.adopted(player);
     }
