@@ -40,7 +40,8 @@ class SpawnInfoCodecsTest {
                     assertEquals(42, login.playerId());
                     assertTrue(login.showDeathScreen());
                     assertEquals(
-                            new PlayerSpawnInfo(2, "cult:level", GameMode.ADVENTURE, 130, 1234), login.spawnInfo());
+                            new PlayerSpawnInfo(2, "cult:level", GameMode.ADVENTURE, 130, 1234, 300),
+                            login.spawnInfo());
                     assertEquals(1, bytes.readableBytes());
                     assertTrue(bytes.readBoolean());
                 } finally {
@@ -66,7 +67,8 @@ class SpawnInfoCodecsTest {
                             0);
                     var respawn = new RespawnCodec().read(bytes, context);
                     assertEquals(
-                            new PlayerSpawnInfo(2, "cult:level", GameMode.ADVENTURE, -48, 1234), respawn.spawnInfo());
+                            new PlayerSpawnInfo(2, "cult:level", GameMode.ADVENTURE, -48, 1234, 300),
+                            respawn.spawnInfo());
                     assertEquals(3, respawn.dataToKeep());
                     assertEquals(0, bytes.readableBytes());
                 } finally {

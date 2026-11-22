@@ -993,6 +993,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         boolean aiStep = ticked && !player.localPlayerRemovedThisTick();
         // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
         if (aiStep) FlightToggle.onClientTick(player);
+        // Entity#canUsePortal excludes a passenger.
+        if (aiStep) player.localPortalProcess.onAiStep(player.intersectedWithNetherPortal && !player.inVehicle());
         player.sprintState.onClientTickEnd();
         // A synthetic tick end is a timeout, not a client tick that runs LocalPlayer#sendPosition.
         if (!event.isSynthetic()) state.sentPositionCache.onClientTickEnd();

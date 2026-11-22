@@ -51,6 +51,7 @@ import ac.cult.cultac.utils.data.ClientCombatAttributes;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.ClientSwimState;
+import ac.cult.cultac.utils.data.LocalPortalProcess;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.ServerSwingEcho;
 import ac.cult.cultac.utils.data.VehicleData;
@@ -330,6 +331,7 @@ public class CultPlayer implements GrimUser {
     public boolean serverOpenedInventoryThisTick;
     // Whether this tick's movement intersected a nether portal block (see MultiActionsD)
     public boolean intersectedWithNetherPortal;
+    public final LocalPortalProcess localPortalProcess = new LocalPortalProcess();
 
     @Getter
     private final @NotNull MovementData movementData;
@@ -405,7 +407,8 @@ public class CultPlayer implements GrimUser {
     }
 
     /** A login or respawn replaced the LocalPlayer, which has not ticked yet. */
-    public void onLocalPlayerCreated() {
+    public void onLocalPlayerCreated(int portalCooldown) {
+        localPortalProcess.onLocalPlayerCreated(portalCooldown);
         packetStateData.localPlayerTickedSinceSpawn = false;
         packetStateData.localPlayerDeathTime = 0;
         packetStateData.localPlayerRemoved = false;
