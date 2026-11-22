@@ -2,7 +2,6 @@ package ac.cult.cultac.utils.common.arguments;
 
 import ac.cult.cultac.platform.api.Platform;
 import java.lang.management.ManagementFactory;
-import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -38,16 +37,8 @@ public record SystemArgumentFactory(
 
         protected void registerDefaultParsers() {
             registerParser(Boolean.class, Boolean::parseBoolean)
-                    .registerParser(Byte.class, Byte::parseByte)
-                    .registerParser(Short.class, Short::parseShort)
                     .registerParser(Integer.class, Integer::parseInt)
-                    .registerParser(Float.class, Float::parseFloat)
-                    .registerParser(Double.class, Double::parseDouble)
-                    .registerParser(Long.class, Long::parseLong)
-                    .registerParser(Character.class, s -> !s.isEmpty() ? s.charAt(0) : '\0')
-                    .registerParser(char[].class, String::toCharArray)
                     .registerParser(String.class, String::valueOf)
-                    .registerParser(Charset.class, Charset::forName)
                     .registerParser(Platform.class, Platform::getByName);
         }
 
@@ -88,7 +79,7 @@ public record SystemArgumentFactory(
         if ((value != null && !options.getVerifier().test(value)))
             throw new IllegalArgumentException(
                     "Invalid default value for startup argument \"" + options.getKey() + "\"");
-        return new SystemArgument<>(options.getKey(), options.getClazz(), value, false, options.getVisibility());
+        return new SystemArgument<>(value);
     }
 
     public <T> SystemArgument<T> create(ArgumentOptions.Builder<T> builder) {
@@ -102,7 +93,7 @@ public record SystemArgumentFactory(
             if (parser == null) return createDefaultSupplier(options);
             T parsed = options.getModifier().apply(parser.apply(value));
             if (parsed == null || !options.getVerifier().test(parsed)) return createDefaultSupplier(options);
-            return new SystemArgument<>(options.getKey(), options.getClazz(), parsed, true, options.getVisibility());
+            return new SystemArgument<>(parsed);
         } catch (Exception e) {
             return createDefaultSupplier(options);
         }

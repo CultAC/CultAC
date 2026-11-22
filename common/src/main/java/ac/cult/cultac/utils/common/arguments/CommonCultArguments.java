@@ -10,8 +10,6 @@ public class CommonCultArguments {
             .optionModifier(builder -> builder.key("Cult" + builder.options().getKey()))
             .build();
 
-    public static final SystemArgument<String> API_URL =
-            FACTORY.create(string("APIUrl", "https://api.grim.ac/v1/server/"));
     public static final SystemArgument<String> PASTE_API_URL =
             FACTORY.create(string("PasteApiUrl", "https://api.pastes.dev/"));
     public static final SystemArgument<String> PASTE_URL = FACTORY.create(string("PasteUrl", "https://pastes.dev/"));

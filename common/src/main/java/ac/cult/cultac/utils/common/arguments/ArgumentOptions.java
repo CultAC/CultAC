@@ -19,7 +19,6 @@ public class ArgumentOptions<T> {
     private Supplier<T> defaultSupplier;
     private Predicate<T> verifier = t -> true;
     private Function<T, T> modifier = t -> t;
-    private SystemArgument.Visibility visibility = SystemArgument.Visibility.VISIBLE;
     private boolean nullable = false;
 
     public static <T> Builder<T> from(Class<T> clazz, String key, T defaultValue) {
