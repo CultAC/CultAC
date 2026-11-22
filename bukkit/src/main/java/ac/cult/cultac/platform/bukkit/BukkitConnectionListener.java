@@ -25,6 +25,6 @@ final class BukkitConnectionListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
-        dormancy.quit(event.getPlayer().getUniqueId());
+        dormancy.quit(event.getPlayer());
     }
 }

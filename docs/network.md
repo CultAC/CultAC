@@ -152,7 +152,8 @@ Commands:
   `on`, players who join are checked, and for players already online checking starts again at their next server
   switch or reconnect. Without `on` or `off` it shows the current state and where it comes from. Each proxy and server
   answers with how many of the players the target names it does not check. Bedrock players, and players on a server
-  that is not a proxy, are checked again when they reconnect.
+  that is not a proxy, are checked again when they reconnect; an engine update reaches a Bedrock player who is not
+  checked when they reconnect.
 - `check <check> <on|off>`: switches one check on or off for the players the target names. Tab completion offers each
   check's current name; any name a check has or had works.
 - `update <build>` or `update latest [channel]`, optionally followed by `--canary`: installs a signed numbered build

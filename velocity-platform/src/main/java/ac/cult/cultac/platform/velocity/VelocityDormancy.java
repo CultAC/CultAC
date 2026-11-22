@@ -5,6 +5,7 @@ import ac.cult.cultac.network.ConnectionContinuation;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.DormantWatch;
+import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.velocity.bridge.BridgeService;
@@ -132,12 +133,18 @@ final class VelocityDormancy implements DormancyController.Platform {
     }
 
     /**
-     * A Java player at PostLogin; true when they are dormant on the server Velocity is connecting them to and got only a
-     * watch. While no connection to a server is in flight they are attached, and go dormant once their connection to a
-     * server where they are dormant completed. On the channel's event loop.
+     * A player at PostLogin; true when they are dormant, by the server Velocity is connecting them to or, with none in
+     * flight, as {@link DormancyController#dormant} decides for an unknown server, and got only a watch (Java) or
+     * CultAC's handlers without a CultAC player (Bedrock). Anyone else is attached, and goes dormant once their
+     * connection to a server where they are dormant completed. On the channel's event loop.
      */
-    boolean joined(Player player, Channel channel) {
+    boolean joined(Player player, Channel channel, @Nullable PacketOwner bedrock) {
         if (!DormancyController.dormant(inFlight(player))) return false;
+        if (bedrock != null) {
+            bridge.dormant(player.getUniqueId());
+            transport.attachDormant(player, channel, bedrock);
+            return true;
+        }
         if (VelocityProtocols.disconnectUnsupportedClient(player, channel)) return true;
         watch(player, channel, Map.of(DormantWatch.LOGIN_NOTIFIED, false), new int[0]);
         return true;
@@ -182,16 +189,11 @@ final class VelocityDormancy implements DormancyController.Platform {
     CompletableFuture<Void> remove() {
         List<CompletableFuture<Void>> removed = new ArrayList<>();
         for (DormantWatch watch : List.copyOf(DormantWatch.all())) {
-            Channel channel = watch.channel();
             try {
-                removed.add(CompletableFuture.runAsync(
-                        () -> {
-                            if (channel.pipeline().context(watch) != null)
-                                channel.pipeline().remove(watch);
-                        },
-                        channel.eventLoop()));
+                removed.add(
+                        CompletableFuture.runAsync(watch::leave, watch.channel().eventLoop()));
             } catch (RuntimeException closed) {
-                // A loop that no longer runs has no pipeline left to clean.
+                // A stopped loop has no pipeline to clean.
             }
         }
         return CompletableFuture.allOf(removed.toArray(CompletableFuture[]::new));
@@ -222,7 +224,7 @@ final class VelocityDormancy implements DormancyController.Platform {
         if (backends != null) backends.adopted(player);
     }
 
-    /** {@code captured} with the brand, client settings and plugin channels Velocity holds for the client now. */
+    /** {@code captured} with the brand, client settings and plugin channels Velocity holds for the client. */
     private Map<String, Object> refreshed(Map<String, Object> captured, Player player) {
         Map<String, Object> state = new HashMap<>(captured);
         String brand = player.getClientBrand();

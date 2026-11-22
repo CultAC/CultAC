@@ -121,7 +121,7 @@ public class PlayerDataManager {
         var session = user.getCultConnection();
         CultPlayer created;
         synchronized (session) {
-            if (session.disconnected() || session.player() != null) return;
+            if (session.disconnected() || session.player() != null || session.dormant() != null) return;
             created = createPlayer(user);
             session.player(created);
             activePlayers.add(created);

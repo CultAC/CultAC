@@ -6,6 +6,7 @@ import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.network.ConnectionContinuation;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.DormantWatch;
 import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.PlatformConnection;
@@ -181,14 +182,27 @@ final class VelocityTransport {
         return running;
     }
 
-    /** A connection at its PostLogin: a dormant Java player gets only a watch, everyone else is attached. */
+    /**
+     * A connection at its PostLogin: a dormant Java player gets only a watch, a dormant Bedrock player CultAC's handlers
+     * and no CultAC player, everyone else is attached.
+     */
     void join(Player player, Channel channel, PacketOwner bedrock) {
         VelocityDormancy dormant = dormancy;
-        if (bedrock == null && running && dormant != null && dormant.joined(player, channel)) return;
+        if (running && dormant != null && dormant.joined(player, channel, bedrock)) return;
         attach(player, channel, bedrock, null);
     }
 
     synchronized void attach(Player player, Channel channel, PacketOwner bedrock, ConnectionContinuation continued) {
+        attach(player, channel, bedrock, continued, false);
+    }
+
+    /** Attaches a Bedrock connection whose player is dormant: CultAC's handlers and no CultAC player. */
+    synchronized void attachDormant(Player player, Channel channel, PacketOwner bedrock) {
+        attach(player, channel, bedrock, null, true);
+    }
+
+    private void attach(
+            Player player, Channel channel, PacketOwner bedrock, ConnectionContinuation continued, boolean dormant) {
         if (!running) {
             return;
         }
@@ -206,6 +220,7 @@ final class VelocityTransport {
         var connection = manager.createConnection(adapter, channel);
         adapter.attach(connection);
         connection.continuation(continued);
+        if (dormant) DormancyController.joinedDormant(connection);
         connection.phase(PacketDirection.SERVERBOUND, ConnectionPhase.CONFIGURATION);
         connection.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.CONFIGURATION);
         connection.resolveOwner();

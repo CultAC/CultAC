@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.network.CultNetworkManager;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.netty.ChannelInitializationBarrier;
@@ -87,10 +88,15 @@ final class PaperInjector {
     private synchronized void inject(Channel channel, boolean existing) {
         if (!registered || manager.connection(channel) != null) return;
         if (!(channel.pipeline().get("packet_handler") instanceof Connection nativeConnection)) return;
-        if (dormancy.skips(channel)) return;
+        boolean dormant = dormancy.dormant();
+        if (dormant && PaperDormancy.skips(channel)) {
+            RuntimeEnvironment.release(channel, CompletableFuture.completedFuture(null));
+            return;
+        }
         var inbound = existing ? installedPhase(channel, "decoder", PacketDecoder.class) : ConnectionPhase.HANDSHAKE;
         var outbound = existing ? installedPhase(channel, "encoder", PacketEncoder.class) : ConnectionPhase.HANDSHAKE;
         var connection = manager.createConnection(new BukkitConnectionAdapter(nativeConnection, channel), channel);
+        if (dormant) DormancyController.joinedDormant(connection);
         if (existing) {
             connection.phase(PacketDirection.SERVERBOUND, inbound);
             connection.phase(PacketDirection.CLIENTBOUND, outbound);

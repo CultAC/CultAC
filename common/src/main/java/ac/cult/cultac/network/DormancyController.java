@@ -31,9 +31,10 @@ import org.jetbrains.annotations.Nullable;
  * {@code toggle} is on for the backend server they are on, and dormant while it is off: CultAC then holds no player,
  * decoder or encoder for them, only a {@link DormantWatch}, or, on a connection that does not {@link Platform#swaps
  * swap}, CultAC's handlers without a player. A player goes dormant as soon as the setting turns off for
- * them, once their connection to a server where it is off completed, and at a reconfiguration acknowledgement on the way
- * to such a server; a dormant player is checked again at an acknowledgement on the way to a server where it is on, or
- * when they join again. A connection never keeps a watch next to CultAC's handlers.
+ * them, at their join while the instance's value is every player's, else once their connection to a server where it is
+ * off completed, and at a reconfiguration acknowledgement on the way to such a server; a dormant player is checked again
+ * at an acknowledgement on the way to a server where it is on, or when they join again. A connection never keeps a
+ * watch next to CultAC's handlers.
  */
 public final class DormancyController {
     /** How many times in quick succession a detached connection tries to swap its handlers before trying once a second. */
@@ -149,16 +150,25 @@ public final class DormancyController {
     }
 
     /**
-     * Whether a player on {@code backend} is dormant; never while their backend is not known, as a player CultAC stops
-     * checking is checked again only at a reconfiguration. Any thread.
+     * Whether a player on {@code backend} is dormant. A player whose backend is not known follows the instance's value
+     * while no backend server's {@code toggle} record can decide for them, and is checked while one can, as a player
+     * CultAC stops checking is checked again only at a reconfiguration. Any thread.
      */
     public static boolean dormant(@Nullable String backend) {
-        return backend != null
-                && !NetworkModule.setting(NetSettings.TOGGLE, backend).on();
+        if (backend == null && NetworkModule.backendScoped(NetSettings.TOGGLE)) return false;
+        return !NetworkModule.setting(NetSettings.TOGGLE, backend).on();
     }
 
     /**
-     * Takes the inspected connections whose players are dormant now out of inspection, each on its packet owner;
+     * Marks a connection opening while its player is dormant, before its login: it keeps CultAC's handlers and gets no
+     * CultAC player.
+     */
+    public static void joinedDormant(CultConnection connection) {
+        connection.dormant(Map.of(DormantWatch.LOGIN_NOTIFIED, false));
+    }
+
+    /**
+     * Takes the inspected connections whose players are dormant out of inspection, each on its packet owner;
      * completes once each of those tasks ran. Any thread.
      */
     public static CompletableFuture<Void> settle() {
@@ -266,7 +276,7 @@ public final class DormancyController {
         return true;
     }
 
-    /** Attaches a watched connection again; closes it instead, logged, while CultAC's decoder is still on it. */
+    /** Attaches a watched connection again; closes it, logged, while CultAC's decoder is still on it. */
     private static void resume(Platform hooks, DormantWatch watch) throws Exception {
         var pipeline = watch.channel().pipeline();
         if (pipeline.get(hooks.decoder()) != null) {

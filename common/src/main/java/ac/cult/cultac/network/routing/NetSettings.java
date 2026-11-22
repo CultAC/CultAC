@@ -441,6 +441,26 @@ public final class NetSettings {
         return value(baseline, key, decides(view(), key, backend));
     }
 
+    /**
+     * Whether {@code key}'s value for a player can differ from the instance's by the backend server they are on: it is
+     * not pinned, and a record of it naming a backend server is newer than every record naming this instance as a whole.
+     */
+    public boolean backendScoped(String key) {
+        NetCommands.Options accepted = options;
+        if (baseline.pin(key) != null
+                || !accepted.enabled()
+                || !accepted.accept().contains(command(key))) return false;
+        String self = service.instanceId();
+        boolean proxy = service.proxy();
+        for (Entry entry : view().of(key)) {
+            if (entry.target().instanceWide(self, proxy)) return false;
+            for (Term term : entry.target().terms()) {
+                if (term.kind() == Term.Kind.NAME) return true;
+            }
+        }
+        return false;
+    }
+
     /** {@code key}'s value under {@code baseline} when {@code record} is the newest that names the instance or player. */
     static Value value(Baseline baseline, String key, @Nullable Record record) {
         Pin pin = baseline.pin(key);
