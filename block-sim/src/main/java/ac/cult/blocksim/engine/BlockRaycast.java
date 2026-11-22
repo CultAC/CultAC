@@ -27,9 +27,6 @@ public final class BlockRaycast {
         return player.sight().eyePosition().addScaled(viewVector(player, level.clientVersion()), player.sight().blockInteractionRange());
     }
 
-    public static Vec3 viewVector(SimPlayer player) {
-        return viewVector(player, BlockSimClientVersion.V26_3);
-    }
     public static Vec3 viewVector(SimPlayer player, BlockSimClientVersion version) {
         float pitch = player.state().pitch() * (float) (Math.PI / 180.0);
         float yaw = -player.yaw() * (float) (Math.PI / 180.0);

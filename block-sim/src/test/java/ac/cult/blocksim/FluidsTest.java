@@ -6,7 +6,6 @@ import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimFluidState;
 import ac.cult.blocksim.engine.SimLevel;
-import ac.cult.blocksim.engine.SimWorldView;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;

@@ -89,7 +89,6 @@ public final class SimPlayer {
         return result;
     }
     public int foodLevel() { return foodLevel; }
-    public float saturationLevel() { return saturationLevel; }
     public ActiveUse activeUse() { return activeUse; }
     public void stopUsingItem() { activeUse = null; }
     public void startUsingItem(Hand hand, int duration) {

@@ -9,9 +9,6 @@ public record ComponentPatch(Components added, Set<String> removed) {
     public ComponentPatch { java.util.Objects.requireNonNull(added); removed = Set.copyOf(removed); }
 
     /** Complete network values from the private wire decoder, without native codec parsing. */
-    public static ComponentPatch fromNetwork(byte[] bytes) {
-        return fromNetwork(bytes, null);
-    }
     public static ComponentPatch fromNetwork(byte[] bytes, byte[] layouts) {
         if (bytes == null) return EMPTY;
         var compound = (ac.cult.blocksim.data.nbt.NbtValue.Compound) ac.cult.blocksim.data.nbt.BinaryNbt.read(bytes);

@@ -56,7 +56,6 @@ public final class SimItemStack {
     public void setCount(int count) { count(count); }
     public int getMaxStackSize() { return maxStackSize(); }
     public int getDamageValue() { return damage(); }
-    public int getMaxDamage() { return maxDamage(); }
     public boolean isDamageableItem() { return isDamageable(); }
     public static boolean isSameItemSameComponents(SimItemStack first, SimItemStack second) {
         return first.sameItemSameComponents(second);
@@ -112,7 +111,6 @@ public final class SimItemStack {
         return isEmpty() && other.isEmpty() || prototype.equals(other.prototype) && patch().equals(other.patch());
     }
     public void grow(int amount) { count(count() + amount); }
-    public void limitSize(int maximum) { if (!isEmpty() && count() > maximum) count(maximum); }
     public SimItemStack split(int amount) {
         int taken = Math.min(count(), amount);
         var result = copyWithCount(taken);

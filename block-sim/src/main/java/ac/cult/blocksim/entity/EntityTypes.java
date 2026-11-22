@@ -23,29 +23,6 @@ public final class EntityTypes {
         public boolean canSpawn(Set<String> enabledFeatures, boolean peaceful) {
             return enabledFeatures.containsAll(features) && (allowedInPeaceful || !peaceful);
         }
-        /** EntityAttachments#getClamped(PASSENGER), after EntityDimensions#scale. */
-        public Vec3 passengerAttachment(int index, float scale, float yaw) {
-            return passengerAttachment(index, 1.0F, scale, yaw);
-        }
-        /**
-         * EntityAttachments#getClamped(PASSENGER) after the getDefaultDimensions scale ({@code dimensionScale}, e.g.
-         * Phantom's size) and then LivingEntity#getDimensions' getScale.
-         */
-        public Vec3 passengerAttachment(int index, float dimensionScale, float scale, float yaw) {
-            if (passengers.isEmpty()) throw new IllegalStateException("No passenger attachment for " + key);
-            Vec3 point = passengers.get(Math.clamp(index, 0, passengers.size() - 1));
-            if (!fixed && dimensionScale != 1.0F) point = point.scale(dimensionScale);
-            return attachment(point, scale, yaw);
-        }
-        /** EntityAttachments#get(VEHICLE, 0), after EntityDimensions#scale. */
-        public Vec3 vehicleAttachment(float scale, float yaw) {
-            if (vehicle.isEmpty()) throw new IllegalStateException("No vehicle attachment for " + key);
-            return attachment(vehicle.get(0), scale, yaw);
-        }
-        private Vec3 attachment(Vec3 point, float scale, float yaw) {
-            if (!fixed && scale != 1.0F) point = point.scale(scale);
-            return point.yRot(-yaw * (float) (Math.PI / 180.0));
-        }
         public Box boxAt(Vec3 position) {
             double radius = width / 2.0F;
             return new Box(position.x() - radius, position.y(), position.z() - radius,

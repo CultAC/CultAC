@@ -147,9 +147,6 @@ public final class ItemComponents {
     public static int maxDamage(Components components) { return components.integer("minecraft:max_damage", 0); }
     public static boolean glider(Components components) { return components.has("minecraft:glider"); }
     public static NbtValue.Compound customData(Components components) { return (NbtValue.Compound) components.encodedNbt("minecraft:custom_data"); }
-    public static List<ItemTemplate> bundleContents(Components components) {
-        return components.bundle() == null ? null : components.bundle().items();
-    }
     public static ItemTemplate useRemainder(Components components) {
         String key = "minecraft:use_remainder";
         if (!components.has(key)) return null;

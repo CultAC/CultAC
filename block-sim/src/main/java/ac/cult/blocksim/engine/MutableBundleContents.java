@@ -24,7 +24,6 @@ public final class MutableBundleContents {
             selectedItem = contents.selectedItem();
         }
     }
-    public Fraction weight() { return weight; }
 
     public int tryInsert(SimItemStack incoming) {
         if (incoming.isEmpty() || !registry.canFitInsideContainerItems(incoming.definition())) return 0;
