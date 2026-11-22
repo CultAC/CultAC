@@ -219,21 +219,6 @@ public class PredVector extends Vec3 implements DebugText.Recordable {
         return false;
     }
 
-    /**
-     * Whether a step with {@code reason} after {@code from} in this lineage changed X ({@code xAxis}) or Z from the
-     * step before it. Every step back to the root counts when {@code from} is not in the lineage.
-     */
-    public boolean reasonMovedAxisSince(String reason, PredVector from, boolean xAxis) {
-        for (PredVector current = this;
-                current != from && current != null && current.lastVector != null;
-                current = current.lastVector) {
-            if (!reason.equals(current.reason)) continue;
-            PredVector previous = current.lastVector;
-            if (xAxis ? current.x != previous.x : current.z != previous.z) return true;
-        }
-        return false;
-    }
-
     public <T extends PredVector> T firstInLineage(Class<T> type) {
         PredVector current = this;
         while (current != null) {

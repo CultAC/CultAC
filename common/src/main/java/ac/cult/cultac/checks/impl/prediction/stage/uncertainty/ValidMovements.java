@@ -127,17 +127,6 @@ public class ValidMovements {
         this(initialStartingVel, player, result, UncertaintyPipeline.MODIFIERS);
     }
 
-    /**
-     * The zero impulse already included in EntityPush's allowance. A late concrete shove can supply the report's
-     * displacement by itself; selecting an impulse toward that final report first would count the shove twice.
-     */
-    public ValidMovements withoutEntityPush(PredictionResult prediction) {
-        List<UncertaintyHandler> kept = uncertaintyHandlers.stream()
-                .filter(handler -> !(handler instanceof EntityPush))
-                .toList();
-        return new ValidMovements(initialStartingVel, player, prediction, kept);
-    }
-
     public ValidMovements(
             PredVector initialStartingVel,
             CultPlayer player,
@@ -607,10 +596,6 @@ public class ValidMovements {
         this.closestToTarget = closestTrace == null ? null : closestTrace.position();
     }
 
-    protected PredVector initialStartingVelocity() {
-        return initialStartingVel;
-    }
-
     public SimpleCollisionBox computeAABB(PredictionResult lastResult) {
         // Only handlers run between the six traces, and no skip predicate reads what a handler writes.
         UncertaintyHandler[] kept = handlers;
@@ -651,12 +636,4 @@ public class ValidMovements {
 
         return new SimpleCollisionBox(negX, negY, negZ, posX, posY, posZ).sort();
     }
-
-    public boolean isTestingMaxStartingVelExtents(Vec3 end) {
-        return Math.abs(end.x) == LARGE_MOVEMENT
-                || Math.abs(end.y) == LARGE_MOVEMENT
-                || Math.abs(end.z) == LARGE_MOVEMENT;
-    }
-
-    public void addTransformers(UncertaintyPipeline uncertaintyPipeline) {}
 }

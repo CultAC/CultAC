@@ -18,8 +18,4 @@ public class EntityControl extends Check implements PostPredictionListener {
     public EntityControl(CultPlayer cultPlayer) {
         super(cultPlayer, INFO);
     }
-
-    public void rewardPlayer() {
-        reward();
-    }
 }

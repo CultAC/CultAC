@@ -121,8 +121,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     static long computeTimeNS = 300000L;
     private static final AtomicInteger flags = new AtomicInteger(0);
     private static final MovementModifiers MOVEMENT_MODIFIERS = new MovementModifiers();
-    private static final double TELEPORT_GROUND_UNCERTAIN_DISTANCE_SQ = 4.0E-8;
-    private static final double TRAVEL_DEBUG_DISTANCE_SQR = 1.0;
     private static final double TRAVEL_FLAG_DISTANCE_SQR = 400.0;
     // LevelLoadTracker stops waiting after CLIENT_WAIT_TIMEOUT_MS (30 s) and LEVEL_LOAD_CLOSE_DELAY_MS (0.5 s).
     private static final int MAX_LOADING_LEVEL_TICKS = 610;
@@ -1279,13 +1277,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.applyProfileCommit(
                 BedrockMovementEngine.INSTANCE.advancePassenger(this.player, this.profileCarry, context));
         this.commitAuthoredInputPlayerState(frame, position, frame.getYaw(), frame.getPitch());
-    }
-
-    public void relocateBedrockPassenger(ac.cult.cultac.bedrock.prediction.state.BedrockMovementState vehicle) {
-        Vec3 position = BedrockVehiclePredictionState.passengerPosition(vehicle);
-        this.applyProfileCommit(BedrockMovementEngine.INSTANCE.relocatePassenger(
-                this.profileCarry, position, vehicle.coordinateFrame()));
-        this.commitPlayerPosition(position);
     }
 
     public void handleBedrockSleepingStateChange(boolean sleeping) {

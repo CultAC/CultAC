@@ -13,22 +13,8 @@ import ac.cult.cultac.utils.nmsutil.ReusableVelocitySet;
  * stored, returned or read after that call returns; its own documentation says what the site writes before reading.
  */
 public final class PredictionScratch {
-    /**
-     * ValidMovements#computeAABB's coordinates handed through the position-form handlers; each tail run writes all
-     * three before a handler reads them.
-     */
-    public final double[] extentCoordinates = new double[3];
     /** GeyserVelocity's moved box; all six bounds and the full-block flag are written on entry. */
     public final SimpleCollisionBox geyserBox = new SimpleCollisionBox();
-    /**
-     * JavaInsideBlockEffects#scan's boxes while it tests whether any block can have an effect; all six bounds and the
-     * full-block flag are written on entry.
-     */
-    public final SimpleCollisionBox insideTo = new SimpleCollisionBox();
-
-    public final SimpleCollisionBox insideFrom = new SimpleCollisionBox();
-    /** JavaFallDistance's moved water box; all six bounds and the full-block flag are written on entry. */
-    public final SimpleCollisionBox fallWaterBox = new SimpleCollisionBox();
     /** WaterCurrent's fluid interaction box; all six bounds and the full-block flag are written on entry. */
     public final SimpleCollisionBox fluidBox = new SimpleCollisionBox();
     /**

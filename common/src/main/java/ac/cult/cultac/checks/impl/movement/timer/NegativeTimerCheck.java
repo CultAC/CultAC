@@ -24,7 +24,6 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
             .build();
 
     int ticksWithoutNewTransactionOrLook = 0;
-    int lastTransactionReceivedLastTick = 0;
     float lastXRot = 0;
     float lastYRot = 0;
 
@@ -83,7 +82,6 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
 
         float newXRot = flying.hasRotation() ? flying.yaw() : lastXRot;
         float newYRot = flying.hasRotation() ? flying.pitch() : lastYRot;
-        this.lastTransactionReceivedLastTick = player.lastTransactionReceived.get();
 
         if (newXRot != this.lastXRot || newYRot != this.lastYRot) {
             this.lastXRot = newXRot;

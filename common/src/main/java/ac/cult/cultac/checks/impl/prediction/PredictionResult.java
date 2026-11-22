@@ -173,25 +173,6 @@ public class PredictionResult {
         flags.add(new Flag(check, message, flagSeverity));
     }
 
-    /** Drops the flags of {@code check} and their severity, leaving every other flag on this result. */
-    public void removeFlags(Class<? extends Check> check) {
-        if (getFlag(check) == null) {
-            return;
-        }
-        List<Flag> kept = new ArrayList<>(flags.size());
-        double severity = 0.0D;
-        for (Flag flag : flags) {
-            if (flag.getCheck().getClass() != check) {
-                kept.add(flag);
-                severity += flag.getSeverity();
-            }
-        }
-        flags = kept;
-        if (!isExempt) {
-            flagSeverity = severity;
-        }
-    }
-
     public boolean hasFlag(Class<? extends Check> check) {
         return getFlag(check) != null;
     }

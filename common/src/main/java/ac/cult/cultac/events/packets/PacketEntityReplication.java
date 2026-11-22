@@ -2081,12 +2081,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         return proof == null ? -1 : proof.transaction();
     }
 
-    /** A {@link Proof#BEFORE_NEXT_TICK} ping after a vehicle packet another listener handles; null when none is sent. */
-    @Nullable
-    public CultPlayer.TrackedTransaction appendVehicleProtocolProofTransaction(PacketSendEvent<?> event) {
-        return trailingProof(event, List.of());
-    }
-
     private void handleMoveEntity(PacketSendEvent<?> event, EntityMovement movement) {
         handleMoveEntity(event, movement, player.compensatedEntities.getTrackedEntity(movement.entityId));
     }
