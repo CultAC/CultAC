@@ -1,10 +1,13 @@
 package ac.cult.cultac.utils.collisions;
 
+import ac.cult.blocksim.data.Box;
 import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import java.util.ArrayList;
@@ -51,8 +54,7 @@ public final class ClientBlockShapes {
     /** Source-proven unit cube with no client mapping override; safe for a boolean-only scan. */
     public static boolean hasStaticFullMovement(
             CultPlayer player, int state, int x, int y, int z, double entityBottom) {
-        return player.compensatedWorld.geometry().staticCollision(state)
-                        == ac.cult.blocksim.engine.shapes.Shapes.block()
+        return player.compensatedWorld.geometry().staticCollision(state) == Shapes.block()
                 && movementAlternative(player, state, x, y, z, entityBottom).isEmpty();
     }
 
@@ -100,17 +102,15 @@ public final class ClientBlockShapes {
     }
 
     /** Apply the shared Java version catalog to an already-observed local shape. */
-    public static ac.cult.blocksim.engine.shapes.VoxelShape versionedMovementShape(
-            CultPlayer player, int state, ac.cult.blocksim.engine.shapes.VoxelShape observed) {
+    public static VoxelShape versionedMovementShape(CultPlayer player, int state, VoxelShape observed) {
         if (player == null || player.isBedrockMovement()) return observed;
         var alternative = VersionedJavaBlockShapes.movement(player, state, 0, 0, 0);
         if (alternative.isEmpty()) return observed;
-        if (alternative.get() instanceof ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox voxel)
-            return voxel.voxelShape();
+        if (alternative.get() instanceof VoxelShapeCollisionBox voxel) return voxel.voxelShape();
         var parts = new ArrayList<SimpleCollisionBox>();
         alternative.get().downCast(parts);
-        return ac.cult.blocksim.engine.shapes.Shapes.fromBoxes(parts.stream()
-                .map(box -> new ac.cult.blocksim.data.Box(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ))
+        return Shapes.fromBoxes(parts.stream()
+                .map(box -> new Box(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ))
                 .toList());
     }
 
@@ -125,17 +125,15 @@ public final class ClientBlockShapes {
     }
 
     /** Local outline geometry for vanilla VoxelShape.clip, using the same client selection as visual boxes. */
-    public static ac.cult.blocksim.engine.shapes.VoxelShape visualShape(
-            CultPlayer player, int state, int x, int y, int z) {
+    public static VoxelShape visualShape(CultPlayer player, int state, int x, int y, int z) {
         var latest = NativeBlockCollisionHelper.getSelectionShape(player, state, x, y, z);
         var alternative = visualAlternative(player, state, x, y, z);
         if (alternative.isEmpty()
                 || sameShape(NativeBlockCollisionHelper.fromShape(latest, x, y, z), alternative.get())) return latest;
         var parts = new ArrayList<SimpleCollisionBox>();
         alternative.get().downCast(parts);
-        return ac.cult.blocksim.engine.shapes.Shapes.fromBoxes(parts.stream()
-                .map(box -> new ac.cult.blocksim.data.Box(
-                        box.minX - x, box.minY - y, box.minZ - z, box.maxX - x, box.maxY - y, box.maxZ - z))
+        return Shapes.fromBoxes(parts.stream()
+                .map(box -> new Box(box.minX - x, box.minY - y, box.minZ - z, box.maxX - x, box.maxY - y, box.maxZ - z))
                 .toList());
     }
 
@@ -182,9 +180,8 @@ public final class ClientBlockShapes {
     }
 
     static boolean sameShape(CollisionBox first, CollisionBox second) {
-        if (first instanceof ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox a
-                && second instanceof ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox b
-                && !a.sameGrid(b)) return false;
+        if (first instanceof VoxelShapeCollisionBox a && second instanceof VoxelShapeCollisionBox b && !a.sameGrid(b))
+            return false;
         List<SimpleCollisionBox> firstBoxes = boxes(first);
         List<SimpleCollisionBox> secondBoxes = boxes(second);
         if (firstBoxes.size() != secondBoxes.size()) {

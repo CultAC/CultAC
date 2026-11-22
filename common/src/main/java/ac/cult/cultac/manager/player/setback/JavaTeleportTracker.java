@@ -8,6 +8,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.data.SetBackData;
@@ -591,7 +592,7 @@ public final class JavaTeleportTracker {
             float sourcePitch,
             float finalYaw,
             float finalPitch,
-            ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation rotation) {
+            ClientboundPlayerRotation rotation) {
         int transaction = proofTransaction < 0 ? Integer.MAX_VALUE : proofTransaction;
         TeleportData data = new TeleportData(
                 Vec3.ZERO, flags, Vec3.ZERO, transaction, 0, sourceYaw, sourcePitch, finalYaw, finalPitch);

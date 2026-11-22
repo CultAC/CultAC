@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.InteractionRegistries;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.network.packet.SectionSnapshot;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -238,7 +239,7 @@ class WorldBenchTest {
                 int nonEmpty = 0, fluids = 0;
                 for (int state : states) {
                     var facts = REGISTRY.facts(state);
-                    if (facts.has(ac.cult.blocksim.data.StateFacts.AIR)) continue;
+                    if (facts.has(StateFacts.AIR)) continue;
                     nonEmpty++;
                     if (!facts.fluid().equals("minecraft:empty")) fluids++;
                 }

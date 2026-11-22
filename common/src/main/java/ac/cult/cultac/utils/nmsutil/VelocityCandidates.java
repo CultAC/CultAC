@@ -9,6 +9,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaHiddenTravelInput;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Ladder;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
@@ -16,6 +17,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.math.CultMath;
@@ -297,7 +299,7 @@ public final class VelocityCandidates {
     }
 
     private static boolean reachesVerticalLimit(
-            PredictionResult result, ac.cult.cultac.utils.data.CollideAxisData collisions) {
+            PredictionResult result, CollideAxisData collisions) {
         boolean down = requestedMovementY(result) < 0;
         var limit = down ? collisions.getYNeg() : collisions.getYPos();
         if (limit == null || !limit.isLikelyCollide()) return false;
@@ -311,7 +313,7 @@ public final class VelocityCandidates {
     }
 
     private static boolean endsAtVerticalLimit(
-            PredictionResult result, ac.cult.cultac.utils.data.CollideAxisData collisions) {
+            PredictionResult result, CollideAxisData collisions) {
         var limit = requestedMovementY(result) < 0 ? collisions.getYNeg() : collisions.getYPos();
         if (limit == null || !limit.isLikelyCollide()) return false;
         Vec3 stuck = result.getValidMovements()
@@ -381,7 +383,7 @@ public final class VelocityCandidates {
         SimulationContext context = result.getSimulationContext();
         PacketEntity vehicle = context == null ? null : context.getVehicle();
         if (context == null
-                || ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(context)
+                || JavaRiddenTravel.clearsWithoutTravel(context)
                 || vehicle != null && (EntityTypeUtil.isBoat(vehicle.type) || vehicle instanceof PacketEntityHappyGhast)
                 || player.getClientVersion() == ClientVersion.V_1_21_4
                 || context.getWorldData().isInWater()) {

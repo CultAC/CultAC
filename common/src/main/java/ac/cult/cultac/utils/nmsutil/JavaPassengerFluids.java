@@ -5,6 +5,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.BoatData;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
@@ -44,7 +45,7 @@ public final class JavaPassengerFluids {
             // box after it.
             BoatEntityStatus status = vehicle.boatStatusThisTick(player);
             if (status == null) status = player.boatData.statusThisTick(player, vehicle);
-            if (status == null) status = ac.cult.cultac.utils.data.BoatData.sampleStatus(player, vehicleBox).status();
+            if (status == null) status = BoatData.sampleStatus(player, vehicleBox).status();
             boolean under = status == BoatEntityStatus.UNDER_WATER || status == BoatEntityStatus.UNDER_FLOWING_WATER;
             if (!under) {
                 if (player.getClientVersion().isOlderThan(ClientVersion.V_26_1)) waterAllowed = false;

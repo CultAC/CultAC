@@ -17,6 +17,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import com.sun.management.ThreadMXBean;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.management.ManagementFactory;
@@ -203,7 +204,7 @@ class RiderAllocationTest {
             for (int i = 0; i < roots.length; i++) {
                 double x = i % PLAYERS + shift;
                 double z = i < PLAYERS ? -3.0 : -9.0;
-                ac.cult.cultac.utils.nmsutil.GetBoundingBox.getBoundingBoxFromPosAndSize(box, x, 64.0, z, .6F, 1.8F);
+                GetBoundingBox.getBoundingBoxFromPosAndSize(box, x, 64.0, z, .6F, 1.8F);
                 roots[i].setPositionRaw(box);
             }
             player.packetEntityReplication.onPlayerTickEnd(null);

@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TransactionVel;
@@ -71,7 +72,7 @@ public final class ClientRavagerRoars {
     public void resetVerticalBefore(PacketEntity self, long sequence) {
         for (Impulse impulse : pending) {
             if (impulse.actor != self || impulse.getOutboundSequence() >= sequence) continue;
-            impulse.impulses = impulse.impulses.stream().map(velocity -> velocity.with(ac.cult.cultac.protocol.value.Direction.Axis.Y, 0)).toList();
+            impulse.impulses = impulse.impulses.stream().map(velocity -> velocity.with(Direction.Axis.Y, 0)).toList();
             impulse.setVel(impulse.impulses.getFirst());
         }
     }

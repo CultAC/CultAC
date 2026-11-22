@@ -18,9 +18,11 @@ import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.visibility.CameraEyeHeight;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Vanilla liquid-presence, body-depth, and eye queries have different bounds. */
 public final class ClientFluidQueries {
@@ -190,10 +192,10 @@ public final class ClientFluidQueries {
     }
 
     private static boolean eyeHoldersInTag(CultPlayer player, int contact, FluidTags tag) {
-        java.util.Collection<String> members =
+        Collection<String> members =
                 !player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
                         ? clientTags(player).fluids().getOrDefault(tag.key(), List.of())
-                        : DataTables.defaults().tags().getOrDefault("fluid:" + tag.key(), java.util.Set.of());
+                        : DataTables.defaults().tags().getOrDefault("fluid:" + tag.key(), Set.of());
         for (int i = 0; i < EYE_FLUIDS.length; i++)
             if ((contact & (2 << i)) != 0 && members.contains(EYE_FLUIDS[i])) return true;
         return false;

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.utils.inventory.ItemUtil;
+import com.google.gson.JsonPrimitive;
 import org.junit.jupiter.api.Test;
 
 class ClientAttackStrengthTest {
@@ -143,8 +144,8 @@ class ClientAttackStrengthTest {
         assertFalse(ClientAttackStrength.changesItemOnUseCompletion(honey, true));
         assertFalse(ClientAttackStrength.changesItemOnUseCompletion(item("minecraft:bow"), false));
         assertFalse(ClientAttackStrength.changesItemOnUseCompletion(SimItemStack.EMPTY, false));
-        honey.components(honey.components()
-                .with("minecraft:use_remainder", new com.google.gson.JsonPrimitive("minecraft:honey_bottle")));
+        honey.components(
+                honey.components().with("minecraft:use_remainder", new JsonPrimitive("minecraft:honey_bottle")));
         assertFalse(ClientAttackStrength.changesItemOnUseCompletion(honey, false));
     }
 }

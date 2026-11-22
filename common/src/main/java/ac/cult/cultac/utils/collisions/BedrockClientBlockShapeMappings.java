@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.collisions;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
@@ -19,6 +20,7 @@ import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.ComplexCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.NoCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +40,7 @@ public final class BedrockClientBlockShapeMappings {
         ClientVersion catalogVersion = ClientVersion.fromProtocolVersion(artifact.javaProtocol());
         int[] mappings = BedrockServerStateMappings.create(
                 nativeModelProtocol,
-                ac.cult.blocksim.data.DataTables.defaults().registry().stateCount(),
+                DataTables.defaults().registry().stateCount(),
                 artifact.javaProtocol(),
                 artifact.javaStateCount());
         Snapshot snapshot = build(artifact.forServerStates(mappings), catalogVersion);
@@ -84,9 +86,7 @@ public final class BedrockClientBlockShapeMappings {
 
     static Snapshot build(BedrockCollisionOverrideCatalog catalog, ClientVersion catalogVersion) {
         Map<Integer, Entry> entries = new HashMap<>();
-        for (int id = 0;
-                id < ac.cult.blocksim.data.DataTables.defaults().registry().stateCount();
-                id++) {
+        for (int id = 0; id < DataTables.defaults().registry().stateCount(); id++) {
             int javaStateId = id;
             Optional<BedrockCollisionOverrideShape> override = catalog.override(javaStateId);
             // A shape that reads the player's client state is built per query, like an actor-dependent one.
@@ -142,7 +142,7 @@ public final class BedrockClientBlockShapeMappings {
 
     private static boolean wearingLeatherBoots(CultPlayer player) {
         SimItemStack boots = player.getInventory().getBoots();
-        return boots != null && boots.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS;
+        return boots != null && boots.getItem() == ItemTypes.LEATHER_BOOTS;
     }
 
     private static CollisionBox fromLocalBoxes(List<BlockAabb> boxes) {

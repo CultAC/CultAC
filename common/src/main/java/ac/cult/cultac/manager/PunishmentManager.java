@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.api.AbstractCheck;
@@ -207,8 +208,8 @@ public class PunishmentManager implements ConfigReloadable {
                                     && !BUILTIN_ACTIONS.contains(command.action());
                             boolean canceled = withheld
                                     || COMMAND_CHANNEL.fire(
-                                            ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
-                                            ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(check),
+                                            RuntimeEnvironment.outwardUser(player),
+                                            RuntimeEnvironment.outwardCheck(check),
                                             shown,
                                             cmd);
                             if (command.interval == 0) {

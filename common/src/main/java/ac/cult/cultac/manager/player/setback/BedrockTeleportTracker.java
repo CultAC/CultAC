@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicLong;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -413,7 +414,7 @@ public final class BedrockTeleportTracker {
     private static boolean sameBedrockDestination(
             TeleportData data, BedrockCoordinateFrame frame, Vec3 localPacketTarget) {
         return data.getBedrockCoordinateFrame().equals(frame)
-                && java.util.Objects.equals(data.getBedrockLocalPacketTarget(), localPacketTarget);
+                && Objects.equals(data.getBedrockLocalPacketTarget(), localPacketTarget);
     }
 
     private static void applyBedrockOrigin(TeleportData data, BedrockCoordinateFrame frame, Vec3 localPacketTarget) {

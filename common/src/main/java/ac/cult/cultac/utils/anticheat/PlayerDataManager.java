@@ -166,7 +166,7 @@ public class PlayerDataManager {
         }
         tracked.onRemove();
         CloudModule.playerRemoved(tracked.getUniqueId());
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) host.unbindUser(user.getChannel());
         return true;
     }
@@ -269,9 +269,8 @@ public class PlayerDataManager {
 
         tracked.onRemove();
         clearExemptions(user);
-        Channels.QUIT.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(tracked));
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() != null)
-            ac.cult.cultac.runtime.RuntimeEnvironment.host().unbindUser(user.getChannel());
+        Channels.QUIT.fire(RuntimeEnvironment.outwardUser(tracked));
+        if (RuntimeEnvironment.host() != null) RuntimeEnvironment.host().unbindUser(user.getChannel());
         releaseConnection(user, tracked, transferred);
     }
 

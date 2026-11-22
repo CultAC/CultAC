@@ -1,5 +1,6 @@
 package ac.cult.cultac.manager.player.setback;
 
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil.HandledVehicleTeleport;
@@ -257,8 +258,7 @@ public final class VehicleTeleportTracker {
             VehicleTeleportData state,
             double responseDistanceTolerance) {
         if (player.isBedrockMovement()
-                && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(
-                        player.compensatedEntities.getEntity(vehicleId))) {
+                && BedrockVehicleControl.isSupported(player.compensatedEntities.getEntity(vehicleId))) {
             Vec3 local = bedrockFrame.get().toLocal(position);
             position = bedrockFrame.get().toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
             responseDistanceTolerance = 0.0D;

@@ -1,8 +1,10 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.data.ItemDefinition;
+import ac.cult.blocksim.engine.MutableBundleContents;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsA;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -15,9 +17,11 @@ import ac.cult.cultac.network.packet.InventoryPackets.CreativeSlot;
 import ac.cult.cultac.network.packet.InventoryPackets.MerchantOffer;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHeldSlot;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSelectBundleItem;
@@ -33,6 +37,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.inventory.EquipmentType;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.InventoryClick;
+import ac.cult.cultac.utils.inventory.InventoryItem;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
 import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.inventory.ItemUtil;
@@ -42,10 +47,15 @@ import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import ac.cult.cultac.utils.inventory.slot.MountSaddleSlot;
 import ac.cult.cultac.utils.inventory.slot.Slot;
+import ac.cult.cultac.utils.lists.CorrectingPlayerInventoryStorage;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiPredicate;
+import java.util.function.Predicate;
 import lombok.Getter;
 
 public class CompensatedInventory extends CultProcessor implements CheckListener {
@@ -73,7 +83,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         super(playerData);
 
         InventoryStorage storage =
-                new ac.cult.cultac.utils.lists.CorrectingPlayerInventoryStorage(playerData, Inventory.STORAGE_SIZE);
+                new CorrectingPlayerInventoryStorage(playerData, Inventory.STORAGE_SIZE);
         inventory = new Inventory(playerData, storage);
 
         menu = inventory;
@@ -159,7 +169,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     @Override
-    public void onReload(ac.grim.grimac.api.config.ConfigManager config) {
+    public void onReload(ConfigManager config) {
         maxClicksPerTick = config.getIntElse("max-clicks-per-tick", 3);
     }
 
@@ -174,7 +184,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         boolean container = click.windowId() != 0;
         AbstractContainerMenu target = container ? observedMenu : inventory;
         int stateId = container ? serverView.containerStateId() : serverView.playerStateId();
-        var touched = new java.util.LinkedHashSet<>(click.changedSlots().keySet());
+        var touched = new LinkedHashSet<>(click.changedSlots().keySet());
         if (click.slot() >= 0) touched.add(click.slot());
         List<InventoryPackets.Slot> slots = new ArrayList<>();
         for (int index : touched) {
@@ -258,7 +268,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         menu.setCarried(stack == null ? SimItemStack.EMPTY : stack);
     }
 
-    public void applyBedrockSlots(int windowId, java.util.Map<Integer, SimItemStack> changed) {
+    public void applyBedrockSlots(int windowId, Map<Integer, SimItemStack> changed) {
         if (windowId != 0 && windowId != openWindowID) return;
         var target = windowId == 0 ? inventory : menu;
         changed.forEach((index, item) -> {
@@ -411,7 +421,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 allowance == null ? 0 : allowance.amount());
     }
 
-    private static List<ac.cult.cultac.utils.inventory.InventoryItem> inventoryValues(List<SimItemStack> slots) {
+    private static List<InventoryItem> inventoryValues(List<SimItemStack> slots) {
         return slots.stream().map(ItemUtil::inventoryValue).toList();
     }
 
@@ -457,7 +467,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             InventoryClick click,
             List<SimItemStack> beforeSlots,
             SimItemStack beforeCarried,
-            java.util.function.BiPredicate<Integer, SimItemStack> matches) {
+            BiPredicate<Integer, SimItemStack> matches) {
         List<SimItemStack> afterSlots = new ArrayList<>(beforeSlots);
         SimItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
                 ? beforeSlots.get(click.slot())
@@ -484,7 +494,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             InventoryClick click,
             List<SimItemStack> beforeSlots,
             SimItemStack beforeCarried,
-            java.util.function.BiPredicate<Integer, SimItemStack> matches) {
+            BiPredicate<Integer, SimItemStack> matches) {
         SimItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
                 ? beforeSlots.get(click.slot())
                 : SimItemStack.EMPTY;
@@ -503,7 +513,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             List<SimItemStack> beforeSlots,
             SimItemStack primarySource,
             SimItemStack secondarySource,
-            java.util.function.Predicate<SimItemStack> matches) {
+            Predicate<SimItemStack> matches) {
         if (claim == null || claim.isEmpty()) {
             return SimItemStack.EMPTY;
         }
@@ -543,7 +553,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         } else {
             ignoredByServer = serverIgnoresClickedSlot(packet);
             if (ignoredByServer) event.setCancelled(true);
-            int currentTick = ac.cult.cultac.CultAPI.INSTANCE.getTickManager().currentTick;
+            int currentTick = CultAPI.INSTANCE.getTickManager().currentTick;
             if (lastClickServerTick != currentTick) {
                 clicksThisServerTick = 0;
                 lastClickServerTick = currentTick;
@@ -712,7 +722,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         SimItemStack carried = carriedBefore.copy();
 
         if (hasBundleContents(carried)) {
-            var mutable = new ac.cult.blocksim.engine.MutableBundleContents(
+            var mutable = new MutableBundleContents(
                     carried.components().bundle(), ItemUtil.modelItems());
             if (primary && !clicked.isEmpty()) {
                 mutable.tryInsert(clicked);
@@ -720,7 +730,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 return new BundleClickResult(clicked, carried);
             }
             if (!primary && clicked.isEmpty()) {
-                ac.cult.blocksim.engine.SimItemStack removed = mutable.removeOne();
+                SimItemStack removed = mutable.removeOne();
                 if (removed == null) {
                     carried.bundleContents(mutable.toImmutable());
                     return new BundleClickResult(SimItemStack.EMPTY, carried);
@@ -737,7 +747,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         }
 
         if (hasBundleContents(clicked)) {
-            var mutable = new ac.cult.blocksim.engine.MutableBundleContents(
+            var mutable = new MutableBundleContents(
                     clicked.components().bundle(), ItemUtil.modelItems());
             if (primary && !carried.isEmpty()) {
                 mutable.tryInsert(carried);
@@ -745,7 +755,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 return new BundleClickResult(clicked, carried);
             }
             if (!primary && carried.isEmpty()) {
-                ac.cult.blocksim.engine.SimItemStack removed = mutable.removeOne();
+                SimItemStack removed = mutable.removeOne();
                 if (removed != null) {
                     carried = removed;
                 }
@@ -771,7 +781,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         return hasBundleContents(stack);
     }
 
-    private static boolean hasBundleContents(ac.cult.blocksim.engine.SimItemStack stack) {
+    private static boolean hasBundleContents(SimItemStack stack) {
         return stack != null && !stack.isEmpty() && stack.components().has("minecraft:bundle_contents");
     }
 
@@ -1031,9 +1041,9 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     @CultPacketHandler
     public void onContainerClose(
-            PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose> event,
+            PacketReceiveEvent<ServerboundContainerClose> event,
             CultPlayer player,
-            ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose packet) {
+            ServerboundContainerClose packet) {
         if (!event.isCancelled()) {
             // The server's container closes when it handles this packet.
             observedWindowId = 0;
@@ -1093,7 +1103,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return;
         }
 
-        var mutable = new ac.cult.blocksim.engine.MutableBundleContents(
+        var mutable = new MutableBundleContents(
                 item.components().bundle(), ItemUtil.modelItems());
         mutable.toggleSelectedItem(selectedItemIndex);
         item.bundleContents(mutable.toImmutable());
@@ -1266,9 +1276,9 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     @CultPacketHandler
     public void onContainerClose(
-            PacketSendEvent<ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose> event,
+            PacketSendEvent<ClientboundContainerClose> event,
             CultPlayer player,
-            ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose packet) {
+            ClientboundContainerClose packet) {
         observedWindowId = 0;
         observedMenu = inventory;
         observedMenuTypeSlots = 0;

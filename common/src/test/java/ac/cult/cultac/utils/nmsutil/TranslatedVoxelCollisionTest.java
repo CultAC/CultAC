@@ -8,6 +8,7 @@ import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -95,7 +96,7 @@ class TranslatedVoxelCollisionTest {
         assertTrue(new VoxelShapeCollisionBox(expected).sameGrid(copy));
         view.offset(1, 2, 3);
         assertTrue(expected.sameGrid(copy.voxelShape()));
-        var boxes = new java.util.ArrayList<SimpleCollisionBox>();
+        var boxes = new ArrayList<SimpleCollisionBox>();
         copy.downCast(boxes);
         assertEquals(expected.boxes().getFirst().minX(), boxes.getFirst().minX, 0);
     }

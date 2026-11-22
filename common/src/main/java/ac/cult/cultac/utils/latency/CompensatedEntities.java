@@ -2,6 +2,8 @@ package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockPassengerPosition;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPath;
@@ -467,7 +469,7 @@ public class CompensatedEntities {
         if (!isUntrackedRider(rider)) return;
         SimpleCollisionBox seat;
         if (player.isBedrockMovement())
-            seat = ac.cult.cultac.bedrock.prediction.integration.BedrockPassengerPosition.box(
+            seat = BedrockPassengerPosition.box(
                     player, rider, new SimpleCollisionBox());
         else if (rider == playerEntity) seat = untrackedRiderSeat(rider, 0);
         else {
@@ -1253,7 +1255,7 @@ public class CompensatedEntities {
         PacketEntity vehicle = entity.getRiding();
         for (SimpleCollisionBox parent : ridingPositionCandidates(vehicle)) {
             Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(vehicle, entity, player, parent);
-            boxes.add(ac.cult.cultac.utils.nmsutil.GetBoundingBox.getPacketEntityBoundingBox(
+            boxes.add(GetBoundingBox.getPacketEntityBoundingBox(
                     player, seat.x, seat.y, seat.z, entity));
         }
         return boxes;
@@ -1523,7 +1525,7 @@ public class CompensatedEntities {
         vehicles.markSaddleControlSwitch(entity, controlled);
     }
 
-    private void updateSelfEquipment(int entityID, EquipmentSlot slot, ac.cult.blocksim.engine.SimItemStack stack) {
+    private void updateSelfEquipment(int entityID, EquipmentSlot slot, SimItemStack stack) {
         if (entityID != player.entityID) {
             return;
         }
@@ -1627,7 +1629,7 @@ public class CompensatedEntities {
                 interaction.refreshDimensions(player);
         }
         var modelType = EntityTypeUtil.modelType(entity.type);
-        if (modelType != null && modelType.has(ac.cult.blocksim.entity.EntityTypes.ARROW)) {
+        if (modelType != null && modelType.has(EntityTypes.ARROW)) {
             if (WatchableIndexUtil.value(watchableObjects, 10) instanceof Boolean value)
                 entity.actionArrowInGround = value;
         }

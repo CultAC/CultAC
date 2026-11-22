@@ -11,6 +11,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.inventory.ItemTypes;
 
@@ -81,8 +82,7 @@ public record JavaCollisionState(
         if (!fluid.isSource()
                 || !(entityBottom > y + 0.5 - 1.0E-5F)
                 || !ClientFluidQueries.is(player, fluid, FluidTags.LAVA)) return Shapes.empty();
-        SimFluidState above = ClientFluidQueries.fluidAt(
-                player.compensatedWorld, new ac.cult.cultac.protocol.value.BlockPos(x, y + 1, z));
+        SimFluidState above = ClientFluidQueries.fluidAt(player.compensatedWorld, new BlockPos(x, y + 1, z));
         return above.isSame(fluid) ? Shapes.empty() : STRIDER_LIQUID;
     }
 

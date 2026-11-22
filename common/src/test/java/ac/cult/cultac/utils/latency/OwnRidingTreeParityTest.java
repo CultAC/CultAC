@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -176,8 +177,7 @@ class OwnRidingTreeParityTest {
         Object message;
         while ((message = channel.readOutbound()) != null) queued.add(message);
         for (Object item : queued) {
-            if (item instanceof ac.cult.cultac.network.CultConnection.WriteTask task)
-                task.action().run();
+            if (item instanceof CultConnection.WriteTask task) task.action().run();
         }
     }
 

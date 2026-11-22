@@ -4,6 +4,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.bridge.protocol.BridgeMessage;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.aim.processor.AimProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -15,6 +16,7 @@ import ac.cult.cultac.checks.impl.packetorder.PacketOrderProcessor;
 import ac.cult.cultac.checks.impl.ping.TransactionOrder;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
@@ -29,8 +31,10 @@ import ac.cult.cultac.manager.player.PluginChannelManager;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.manager.player.features.FeatureManagerImpl;
 import ac.cult.cultac.manager.player.handlers.NoOpResyncHandler;
+import ac.cult.cultac.manager.tick.BackendTickEstimator;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
@@ -43,9 +47,12 @@ import ac.cult.cultac.protocol.PacketBundlePolicy;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.anticheat.NettyScheduler;
+import ac.cult.cultac.utils.blockplace.LookPlaceRecheck;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BoatData;
 import ac.cult.cultac.utils.data.ClientAttackStrength;
@@ -61,23 +68,31 @@ import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.HorseMountLook;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.latency.BlockActionReconciler;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
+import ac.cult.cultac.utils.latency.ClientWorldView;
 import ac.cult.cultac.utils.latency.CompensatedCameraEntity;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.latency.CompensatedFireworks;
 import ac.cult.cultac.utils.latency.CompensatedInventory;
+import ac.cult.cultac.utils.latency.CompensatedOpenWindow;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
+import ac.cult.cultac.utils.latency.InteractionPause;
 import ac.cult.cultac.utils.latency.KeepAliveProcessor;
 import ac.cult.cultac.utils.latency.LatencyUtils;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.TrigHandler;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoatRiderYaw;
+import ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.EntityCollisionSelection;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.JavaLoaderFluids;
 import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import ac.cult.cultac.utils.visibility.VisibilityDebug;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.GrimUser;
@@ -99,6 +114,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -144,7 +160,7 @@ public class CultPlayer implements GrimUser {
     // Only Bedrock entries carry native receipt state and callbacks.
     public static final class BedrockTransaction extends SentTransaction {
         private boolean acknowledged;
-        private java.util.List<Runnable> acknowledgements;
+        private List<Runnable> acknowledgements;
 
         private BedrockTransaction(int transaction, int id) {
             super(transaction, id, System.nanoTime());
@@ -220,12 +236,12 @@ public class CultPlayer implements GrimUser {
     private @MonotonicNonNull PacketTracker packetTracker;
     public final @NotNull PacketOrderProcessor packetOrderProcessor = new PacketOrderProcessor(this);
     // Debug stimulus: drops interactions so the resync paths can be exercised.
-    public final ac.cult.cultac.utils.latency.InteractionPause interactionPause =
-            new ac.cult.cultac.utils.latency.InteractionPause(this);
-    public final ac.cult.cultac.utils.latency.BlockActionReconciler blockActionReconciler =
-            new ac.cult.cultac.utils.latency.BlockActionReconciler(this);
-    public final ac.cult.cultac.utils.blockplace.LookPlaceRecheck lookPlaceRecheck =
-            new ac.cult.cultac.utils.blockplace.LookPlaceRecheck(this);
+    public final InteractionPause interactionPause =
+            new InteractionPause(this);
+    public final BlockActionReconciler blockActionReconciler =
+            new BlockActionReconciler(this);
+    public final LookPlaceRecheck lookPlaceRecheck =
+            new LookPlaceRecheck(this);
     public long rawTransactionPing = 0;
     public long lastTransSent = 0;
 
@@ -297,7 +313,7 @@ public class CultPlayer implements GrimUser {
     public float dimensionScale = 1.0F;
 
     public boolean isInBed = false;
-    public final ac.cult.cultac.utils.latency.CompensatedOpenWindow openWindow;
+    public final CompensatedOpenWindow openWindow;
     public boolean hasInventoryOpen = false;
     public long lastOpenedInventory;
     public int food = 20;
@@ -316,14 +332,14 @@ public class CultPlayer implements GrimUser {
     public final @NotNull KeepAliveProcessor keepAliveProcessor;
     public final @NotNull NettyScheduler nettyScheduler;
     public @NotNull TrigHandler trigHandler;
-    public final ac.cult.cultac.utils.nmsutil.JavaLoaderFluids loaderFluids =
-            new ac.cult.cultac.utils.nmsutil.JavaLoaderFluids(this);
+    public final JavaLoaderFluids loaderFluids =
+            new JavaLoaderFluids(this);
     /** Scoped to one complete Java simulation state; null before a fluid-tag order is needed. */
-    public ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder clientFluidTagOrder;
+    public ClientFluidTagOrder clientFluidTagOrder;
     /** The client's JVM order, once an accepted movement distinguishes it; survives world/vehicle changes. */
-    public ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder provenClientFluidTagOrder;
+    public ClientFluidTagOrder provenClientFluidTagOrder;
     /** A protocol 773 client's bubble-column rule, once an accepted movement distinguishes 1.21.9 from 1.21.10. */
-    public ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch provenMovementPatch;
+    public JavaMovementPatch provenMovementPatch;
 
     public @NotNull PacketStateData packetStateData;
     public ClientComponentRegistries registryState;
@@ -332,7 +348,7 @@ public class CultPlayer implements GrimUser {
     public final @NotNull KeepSprint keepSprint;
     public final @NotNull PluginChannelManager pluginChannelManager;
     /** The Lunar Client mods the player's server last reported through Apollo; null before any report. */
-    public volatile ac.cult.cultac.bridge.protocol.BridgeMessage.@Nullable ClientMods clientMods;
+    public volatile BridgeMessage.@Nullable ClientMods clientMods;
 
     public final @NotNull PacketEntityReplication packetEntityReplication;
     private final @NotNull GhostBlockMitigator ghostBlockMitigator;
@@ -630,7 +646,7 @@ public class CultPlayer implements GrimUser {
         this.timeJoined = System.currentTimeMillis();
         onReload();
 
-        this.openWindow = new ac.cult.cultac.utils.latency.CompensatedOpenWindow(this);
+        this.openWindow = new CompensatedOpenWindow(this);
         this.nettyScheduler = new NettyScheduler(this);
         this.packetEntityReplication = new PacketEntityReplication(this);
         this.ghostBlockMitigator = new GhostBlockMitigator(this);
@@ -683,7 +699,7 @@ public class CultPlayer implements GrimUser {
         else {
             try {
                 owner.execute(cleanup);
-            } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            } catch (RejectedExecutionException rejected) {
                 owner.terminationFuture().addListener(ignored -> cleanup.run());
             }
         }
@@ -1129,7 +1145,7 @@ public class CultPlayer implements GrimUser {
         }
         if (!TransactionChannels.SEND.isEmpty()) {
             TransactionChannels.SEND.fire(
-                    ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(this), transaction.id(), timestamp);
+                    RuntimeEnvironment.outwardUser(this), transaction.id(), timestamp);
         }
         return transaction.transaction();
     }
@@ -1240,7 +1256,7 @@ public class CultPlayer implements GrimUser {
         if (transaction == null || transaction.acknowledged) {
             latencyUtils.runQueuedTask(task);
         } else {
-            if (transaction.acknowledgements == null) transaction.acknowledgements = new java.util.ArrayList<>(2);
+            if (transaction.acknowledgements == null) transaction.acknowledgements = new ArrayList<>(2);
             transaction.acknowledgements.add(task);
         }
     }
@@ -1709,11 +1725,11 @@ public class CultPlayer implements GrimUser {
                 : packetStateData.isSlowedByUsingItem();
     }
 
-    public ac.cult.cultac.protocol.value.Hand getClientItemUseHand() {
+    public Hand getClientItemUseHand() {
         return usesModernJavaItemUse() ? clientItemUse.hand() : packetStateData.itemInUseHand;
     }
 
-    public ac.cult.cultac.utils.latency.ClientWorldRegistries getWorldRegistries() {
+    public ClientWorldRegistries getWorldRegistries() {
         return registryState().worldRegistries(user.getCultConnection().platform()::initialWorldData);
     }
 
@@ -1722,7 +1738,7 @@ public class CultPlayer implements GrimUser {
         if (registryState == null)
             registryState = new ClientComponentRegistries(
                     bedrockState == null || !isBedrockMovement()
-                            ? ac.cult.cultac.utils.latency.ClientWorldView.RECEIVED
+                            ? ClientWorldView.RECEIVED
                             : bedrockState.worldView);
         return registryState;
     }
@@ -1897,18 +1913,18 @@ public class CultPlayer implements GrimUser {
 
     @Override
     public String getBrand() {
-        var check = checkManager.getCheck(ac.cult.cultac.checks.impl.misc.ClientBrand.class);
+        var check = checkManager.getCheck(ClientBrand.class);
         return check == null ? "Unknown" : check.getBrand();
     }
 
     private volatile ClientVersion resolvedClientVersion;
 
-    public ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
+    public ProtocolVersion getObservedProtocol() {
         return user.getObservedProtocol();
     }
 
-    @org.jetbrains.annotations.Nullable
-    public ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+    @Nullable
+    public ProtocolVersion getClientProtocol() {
         return user.getCultConnection().getClientProtocol();
     }
 
@@ -2010,7 +2026,7 @@ public class CultPlayer implements GrimUser {
     }
 
     // The player's own shared-flags metadata entry as most recently sent by the server.
-    public volatile ac.cult.cultac.network.packet.EntityMetadata.Entry serverSentSelfSharedFlags;
+    public volatile EntityMetadata.Entry serverSentSelfSharedFlags;
 
     /**
      * Resends the server's shared flags for this player. The client keeps its locally predicted
@@ -2021,15 +2037,15 @@ public class CultPlayer implements GrimUser {
             if (!canSendPlayPackets()) return;
             var flags = serverSentSelfSharedFlags;
             if (flags == null) {
-                flags = ac.cult.cultac.network.packet.EntityMetadata.Entry.byteValue(
-                        ac.cult.cultac.utils.nmsutil.WatchableIndexUtil.ENTITY_SHARED_FLAGS, (byte) 0);
+                flags = EntityMetadata.Entry.byteValue(
+                        WatchableIndexUtil.ENTITY_SHARED_FLAGS, (byte) 0);
             }
-            user.write(new ac.cult.cultac.network.packet.EntityMetadata(entityID, List.of(flags)));
+            user.write(new EntityMetadata(entityID, List.of(flags)));
         });
     }
 
     // The player's own DATA_LIVING_ENTITY_FLAGS entry as most recently sent by the server.
-    public volatile ac.cult.cultac.network.packet.EntityMetadata.Entry serverSentSelfLivingFlags;
+    public volatile EntityMetadata.Entry serverSentSelfLivingFlags;
     // Whether the self living flags being written are resyncItemUse's resend rather than the server's.
     public boolean resendingSelfLivingFlags;
 
@@ -2051,19 +2067,19 @@ public class CultPlayer implements GrimUser {
         }
         var flags = serverSentSelfLivingFlags;
         if (flags == null) {
-            flags = ac.cult.cultac.network.packet.EntityMetadata.Entry.byteValue(
-                    ac.cult.cultac.utils.nmsutil.WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 0);
+            flags = EntityMetadata.Entry.byteValue(
+                    WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 0);
         }
         resendingSelfLivingFlags = true;
         try {
-            user.write(new ac.cult.cultac.network.packet.EntityMetadata(entityID, List.of(flags)));
+            user.write(new EntityMetadata(entityID, List.of(flags)));
         } finally {
             resendingSelfLivingFlags = false;
         }
     }
 
     @Nullable
-    public ac.cult.cultac.manager.tick.BackendTickEstimator backendTicks() {
+    public BackendTickEstimator backendTicks() {
         return user.getCultConnection().platform().backendTicks();
     }
 

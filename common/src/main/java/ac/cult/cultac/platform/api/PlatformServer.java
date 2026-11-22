@@ -75,13 +75,7 @@ public interface PlatformServer {
      * Places a real server block as an explicit validation stimulus, then reports through the
      * callback. Only platforms with server authority support this.
      */
-    void applyValidationBlock(
-            ac.cult.cultac.platform.api.player.PlatformPlayer player,
-            int x,
-            int y,
-            int z,
-            String state,
-            Runnable applied);
+    void applyValidationBlock(PlatformPlayer player, int x, int y, int z, String state, Runnable applied);
 
     double getTPS();
 

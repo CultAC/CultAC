@@ -17,7 +17,12 @@ package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockPassengerPosition;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes;
+import ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -27,6 +32,7 @@ import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BoatData;
 import ac.cult.cultac.utils.data.ClientFrost;
+import ac.cult.cultac.utils.data.ClientPistonDeltas;
 import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.ReachInterpolationData;
@@ -56,8 +62,8 @@ public class PacketEntity {
 
     public long bedrockRuntimeId = -1;
     // Final Bedrock wire attributes, retained even before this actor is locally controlled.
-    public ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes bedrockAttributes =
-            ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
+    public BedrockActorAttributes bedrockAttributes =
+            BedrockActorAttributes.EMPTY;
     // How far above the feet the actor's Bedrock packet position is: the eye height for a player.
     public float bedrockPositionOffset;
     // The acknowledged SEAT_OFFSET, in the vehicle's packet-position frame. Unsent data keeps the protocol's zero.
@@ -84,8 +90,8 @@ public class PacketEntity {
     // Whether the Bedrock client has the COLLIDABLE flag for this actor: its box is then a shape the moves of the
     // player, and of a mob it rides, collide with.
     public boolean bedrockCollidable;
-    public ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState bedrockPrediction;
-    public ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties bedrockBoat;
+    public BedrockVehiclePredictionState bedrockPrediction;
+    public BedrockBoatProperties bedrockBoat;
     public Vec3 desyncClientPos;
 
     public final int type;
@@ -159,13 +165,13 @@ public class PacketEntity {
     public float clientPhysicalPitch = 0.0F;
 
     // Entity fields retained between the block-entity moves of a remote root.
-    public ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState blockEntityState;
+    public JavaPassState blockEntityState;
     private SimpleCollisionBox blockEntityPhysicalBox;
     // Where the last block-entity pass left this untracked rider; allocated only once a pass reaches its vehicle.
     private List<SimpleCollisionBox> riderPushBoxes;
     private int riderPushPass;
     // Entity#pistonDeltas of an untracked rider after the last block-entity pass that reached it, one per push box.
-    public List<ac.cult.cultac.utils.data.ClientPistonDeltas> riderPistonDeltas;
+    public List<ClientPistonDeltas> riderPistonDeltas;
     private ClientRiderInterpolation riderInterpolation;
 
     private void clientPositionChanged() {
@@ -393,7 +399,7 @@ public class PacketEntity {
      */
     public SimpleCollisionBox bedrockShownBox(CultPlayer player, SimpleCollisionBox out) {
         if (player.compensatedEntities.isUntrackedRider(this))
-            return ac.cult.cultac.bedrock.prediction.integration.BedrockPassengerPosition.box(player, this, out);
+            return BedrockPassengerPosition.box(player, this, out);
         return GetBoundingBox.getPacketEntityBoundingBox(
                 out, player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
     }
@@ -1433,7 +1439,7 @@ public class PacketEntity {
         if (ridden && stepsBeforeStatus) updateBoatStatus(player);
 
         if (player.isBedrockMovement() && isBoat() && bedrockPrediction != null) {
-            ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
+            BedrockVehiclePredictionState.rebase(
                     this, player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame());
         }
 
