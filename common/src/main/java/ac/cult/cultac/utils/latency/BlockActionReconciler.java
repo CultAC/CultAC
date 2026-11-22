@@ -2,7 +2,6 @@ package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.SimAction;
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.InventoryPackets;
@@ -95,7 +94,7 @@ public final class BlockActionReconciler {
         serverWonGame = false;
         serverDestroyPos = null;
         startLoadTimer();
-        if (!died || player.isBedrockMovement() || CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        if (!died || player.isBedrockMovement() || player.isObserveOnly()) return;
         lastForwarded = Math.min(lastForwarded, lastConfirmedServerAck);
         for (Correction correction : pending) correction.barrier = Math.min(correction.barrier, lastForwarded);
         int dropped = player.compensatedWorld.highestUnacknowledgedPredictionSequence();
@@ -134,7 +133,7 @@ public final class BlockActionReconciler {
 
     public void rejectPlace(ServerboundUseItemOn packet) {
         // Observe-only forwards a rejected action, so the server acknowledges it.
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (player.isObserveOnly()) {
             forwarded(packet.sequence());
             return;
         }
@@ -144,7 +143,7 @@ public final class BlockActionReconciler {
     /** A place whose prediction was applied before the action was withheld from the server. */
     public void rejectPlace(ServerboundUseItemOn packet, ClientBlockActions.Prediction prediction) {
         if (player.isBedrockMovement()) return;
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (player.isObserveOnly()) {
             forwarded(packet.sequence());
             return;
         }
@@ -162,7 +161,7 @@ public final class BlockActionReconciler {
     public void rejectUse(ServerboundUseItem packet, ClientBlockActions.Prediction prediction) {
         if (player.isBedrockMovement()) return;
         if (prediction.writes().isEmpty() && prediction.inventory().isEmpty()) return;
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (player.isObserveOnly()) {
             forwarded(packet.sequence());
             return;
         }
@@ -203,7 +202,7 @@ public final class BlockActionReconciler {
      * as an ABORT with its sequence, which ends the session without destroying the block and acknowledges the sequence.
      */
     public void abortServerDestroy(PacketReceiveEvent<ServerboundPlayerAction> event, ServerboundPlayerAction packet) {
-        if (player.isBedrockMovement() || CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        if (player.isBedrockMovement() || player.isObserveOnly()) return;
         if (serverDropsActions()) return;
         if (packet.action() != PlayerAction.STOP_DESTROY_BLOCK
                 || !packet.position().equals(serverDestroyPos)) return;
@@ -214,7 +213,7 @@ public final class BlockActionReconciler {
 
     public void rejectDig(ServerboundPlayerAction packet) {
         if (player.isBedrockMovement()) return;
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (player.isObserveOnly()) {
             forwarded(packet.sequence());
             return;
         }

@@ -34,6 +34,8 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
+import ac.cult.cultac.network.routing.NetSettings;
+import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.protocol.ConnectionLifecycle;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -95,6 +97,7 @@ import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -557,7 +560,7 @@ public class CultPlayer implements GrimUser {
 
     public void onPacketCancel() {
         if (spamThreshold != -1 && cancelledPackets.incrementAndGet() > spamThreshold) {
-            if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            if (isObserveOnly()) {
                 if (!loggedPacketSpam) {
                     loggedPacketSpam = true;
                     LogUtil.info("Not disconnecting " + getName() + " for spamming invalid packets in observe-only");
@@ -1493,7 +1496,7 @@ public class CultPlayer implements GrimUser {
     /** A client withholding a packet a vanilla client always sends is treated as one withholding its pongs. */
     public void withheld(String what) {
         // Not failsOpen(): the client decides whether to answer a ping, so withholding them must not buy an exemption.
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (isObserveOnly()) {
             LogUtil.warn("Not inspecting " + getName() + " any more; " + what);
             CultAPI.INSTANCE.getPlayerDataManager().exemptUser(user);
             return;
@@ -1569,6 +1572,7 @@ public class CultPlayer implements GrimUser {
         if (this.platformPlayer == null && user.getPlayer() != null) {
             this.platformPlayer = user.getPlayer();
             updatePermissions();
+            runSafely(this::applyNetworkSettings);
         }
 
         // Datastore session heartbeat — throttled internally to once per
@@ -1620,7 +1624,11 @@ public class CultPlayer implements GrimUser {
     private int spamThreshold = 100;
     private boolean debugPacketCancel;
     private int maxTransactionTime = 60;
-    private boolean observeOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
+    /** The network's observe-only value for this player's backend server; null where the instance's own mode applies. */
+    private volatile @Nullable Boolean observeOnlySet;
+    /** The mode last applied, against which a change of mode is told. */
+    private volatile boolean observeOnly = NetworkModule.setting(NetSettings.OBSERVE).on();
+    private volatile boolean punishmentsPaused;
     public boolean spoofHealth = false;
     public boolean throwError = false;
     public boolean chunkDebug = false;
@@ -1643,17 +1651,7 @@ public class CultPlayer implements GrimUser {
         featureManager.onReload(config);
         debugPacketCancel = config.getBooleanElse("debug-packet-cancel", false);
         maxTransactionTime = CultMath.clamp(config.getIntElse("max-transaction-time", 60), 1, 180);
-        boolean nowObserveOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
-        if (nowObserveOnly != observeOnly) {
-            observeOnly = nowObserveOnly;
-            if (nowObserveOnly) getSetbackTeleportUtil().policy().observeOnlyStarted();
-            else {
-                // Violations counted while nothing acted would otherwise set back on the next flag.
-                for (AbstractCheck check : getChecks()) {
-                    if (check instanceof Check c) c.violations = 0;
-                }
-            }
-        }
+        applyNetworkSettings();
         onReload();
         // reload all checks
         for (AbstractCheck value : getChecks()) value.reload();
@@ -1665,6 +1663,45 @@ public class CultPlayer implements GrimUser {
     @Override
     public void reload() {
         reload(CultAPI.INSTANCE.getConfigManager().getConfig());
+    }
+
+    /**
+     * Whether CultAC only observes this player: as the network's shared settings set it for their backend server, else
+     * the instance's own mode.
+     */
+    public boolean isObserveOnly() {
+        Boolean set = observeOnlySet;
+        return set != null ? set : CultAPI.INSTANCE.getConfigManager().isObserveOnly();
+    }
+
+    /** Whether the punishment commands of punishments.yml are withheld for this player. */
+    public boolean isPunishmentsPaused() {
+        return punishmentsPaused;
+    }
+
+    /**
+     * Applies the network's shared settings for the backend server this player is on, else the instance's: observe-only,
+     * paused punishments and the checks switched off. Runs on the player's packet owner.
+     */
+    public void applyNetworkSettings() {
+        String backend = platformPlayer == null ? null : platformPlayer.serverName();
+        punishmentsPaused = !NetworkModule.setting(NetSettings.PUNISH, backend).on();
+        Set<String> off = NetworkModule.checksOff(backend);
+        for (AbstractCheck check : getChecks()) {
+            if (check instanceof Check c) c.setSwitchedOff(off.contains(c.getStableKey()));
+        }
+        NetSettings.Value observe = NetworkModule.setting(NetSettings.OBSERVE, backend);
+        observeOnlySet = observe.source() == NetSettings.Source.CONFIG ? null : observe.on();
+        boolean nowObserveOnly = isObserveOnly();
+        if (nowObserveOnly == observeOnly) return;
+        observeOnly = nowObserveOnly;
+        if (nowObserveOnly) getSetbackTeleportUtil().policy().observeOnlyStarted();
+        else {
+            // Violations counted while nothing acted would otherwise set back on the next flag.
+            for (AbstractCheck check : getChecks()) {
+                if (check instanceof Check c) c.violations = 0;
+            }
+        }
     }
 
     public double getMovementThreshold() {

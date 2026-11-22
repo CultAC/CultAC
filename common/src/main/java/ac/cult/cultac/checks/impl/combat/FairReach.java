@@ -1,6 +1,5 @@
 package ac.cult.cultac.checks.impl.combat;
 
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -180,8 +179,7 @@ public class FairReach extends Check implements CheckListener {
             if (attack.action() != InteractAction.ATTACK) return;
 
             double maxReach = AttackReach.capture(player, visibility).maxClosestDistance() + reach_leniency;
-            if (target.getMinDistanceForReach() > maxReach
-                    && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            if (target.getMinDistanceForReach() > maxReach && !player.isObserveOnly()) {
                 player.onPacketCancel();
                 event.setCancelled(true);
             }

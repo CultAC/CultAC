@@ -2,7 +2,6 @@ package ac.cult.cultac.utils.blockplace;
 
 import ac.cult.blocksim.SimAction;
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
@@ -97,7 +96,7 @@ public final class LookPlaceRecheck {
             return ClientBlockActions.useOnAgain(player, place.place, place.action, place.prediction, yaw);
         });
         // Observe-only forwarded the action, so the server answers it.
-        if (place.withheld != null && !CultAPI.INSTANCE.getConfigManager().isObserveOnly())
+        if (place.withheld != null && !player.isObserveOnly())
             player.blockActionReconciler.rejectPlace(place.withheld, again);
     }
 

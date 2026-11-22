@@ -2,7 +2,6 @@ package ac.cult.cultac.events.packets.listeners;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.crash.CrashC;
@@ -150,8 +149,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     }
 
     // In observe-only the codec forwards a cancelled packet unchanged, so the server applies it.
-    private static boolean reachesServer(PacketReceiveEvent<?> event) {
-        return !event.isCancelled() || CultAPI.INSTANCE.getConfigManager().isObserveOnly();
+    private static boolean reachesServer(PacketReceiveEvent<?> event, CultPlayer player) {
+        return !event.isCancelled() || player.isObserveOnly();
     }
 
     // The server drops this sequenced action without acknowledging it; withheld, it is answered like any other.
@@ -180,7 +179,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     @CultPacketHandler
     public void onContainerClick(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
         receiveGeneric(event, player);
-        if (reachesServer(event)) player.getInventory().onClickForwarded(packet);
+        if (reachesServer(event, player)) player.getInventory().onClickForwarded(packet);
         else player.getInventory().resyncCancelledClick(packet);
     }
 
@@ -227,7 +226,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         // ClientPacketListener#notifyPlayerLoaded sends this as it sets clientLoaded, before this tick's player tick.
         player.packetStateData.playerLoadedIntoLevel = true;
         receiveGeneric(event, player);
-        if (reachesServer(event)) player.blockActionReconciler.loadReachedServer();
+        if (reachesServer(event, player)) player.blockActionReconciler.loadReachedServer();
     }
 
     @CultPacketHandler
@@ -1089,11 +1088,11 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             if (predictedDig) {
                 // BlockStatePredictionHandler keeps the predicted break until a block-changed ack reaches its sequence.
                 // abortServerDestroy can forward a rejected STOP as an ABORT, so reaching the server is read after it.
-                if (!reachesServer(event)) reconciler.abortServerDestroy(event, packet);
-                if (reachesServer(event)) reconciler.forwarded(packet.sequence());
+                if (!reachesServer(event, player)) reconciler.abortServerDestroy(event, packet);
+                if (reachesServer(event, player)) reconciler.forwarded(packet.sequence());
                 else reconciler.rejectDig(packet);
             }
-            if (reachesServer(event)) reconciler.digReachedServer(event.getPacket());
+            if (reachesServer(event, player)) reconciler.digReachedServer(event.getPacket());
         } finally {
             endPacket(player);
         }
@@ -1155,7 +1154,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             // The player tried placing blocks in air/water or failed other checks
             // Or the player tried playing blocks while pending a teleport
             ClientBlockActions.Prediction applied = null;
-            if (!CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+            if (!player.isObserveOnly()
                     && (blockPlace.isCancelled()
                             || event.isCancelled()
                             || player.getSetbackTeleportUtil().isPendingSetback())) {
@@ -1179,7 +1178,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             }
 
             player.checkManager.dispatchReceiveHandlers(event);
-            if (reachesServer(event)) player.blockActionReconciler.forwarded(packet.sequence());
+            if (reachesServer(event, player)) player.blockActionReconciler.forwarded(packet.sequence());
             else if (applied != null) {
                 player.blockActionReconciler.rejectPlace(packet, applied);
                 player.lookPlaceRecheck.withheld(packet);
@@ -1206,7 +1205,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             var applied = PlaceHandler.handleQueuedUseItem(player, packet);
             player.lastBlockPlaceUseItem = System.currentTimeMillis();
             player.checkManager.dispatchReceiveHandlers(event);
-            if (reachesServer(event)) {
+            if (reachesServer(event, player)) {
                 player.blockActionReconciler.forwarded(packet.sequence());
                 if (restart)
                     player.clientItemUse.restarted(
@@ -1467,7 +1466,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 player.checkManager.onEarlyCancel(packet);
                 breakPassengerRotationPair(event, player);
             }
-            if (!reachesServer(event)) player.blockActionReconciler.rejectEarly(packet);
+            if (!reachesServer(event, player)) player.blockActionReconciler.rejectEarly(packet);
         }
     }
 

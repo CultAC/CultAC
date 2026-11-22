@@ -1,6 +1,5 @@
 package ac.cult.cultac.manager.player.setback;
 
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil.HandledVehicleTeleport;
@@ -330,7 +329,7 @@ public final class VehicleTeleportTracker {
                 || dropped.isComplete()
                 || dropped.isPlugin()
                 || safePositions.current() == null) return;
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (player.isObserveOnly()) {
             reissue.release(new Vec3(player.x, player.y, player.z));
             return;
         }

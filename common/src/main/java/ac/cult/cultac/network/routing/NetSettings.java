@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -37,11 +38,13 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -444,6 +447,43 @@ public final class NetSettings {
         if (pin != null) return new Value(pin.on(), Source.PIN, record, pin.env());
         if (record != null) return new Value(record.on(), Source.RECORD, record, null);
         return new Value(on(key, baseline.config()), Source.CONFIG, null, null);
+    }
+
+    /**
+     * The stable keys of the checks switched off on this instance or, given one, for a player on {@code backend}, their
+     * backend server.
+     */
+    public Set<String> checksOff(@Nullable String backend) {
+        View current = view();
+        Set<String> recorded = new HashSet<>();
+        for (String key : current.byKey().keySet()) {
+            if (key.startsWith(CHECK)) recorded.add(key.substring(CHECK.length()));
+        }
+        return checksOff(baseline, recorded, key -> decides(current, key, backend));
+    }
+
+    /**
+     * The stable keys of the checks switched off under {@code baseline}, of those it names and {@code recorded}, when
+     * {@code decides} gives the newest record of a check's key that names the instance or player.
+     */
+    static Set<String> checksOff(
+            Baseline baseline, Collection<String> recorded, Function<String, @Nullable Record> decides) {
+        Set<String> candidates = new TreeSet<>(baseline.checksOff());
+        candidates.addAll(baseline.checksOffPin());
+        candidates.addAll(recorded);
+        Set<String> off = new TreeSet<>();
+        for (String check : candidates) {
+            String key = CHECK + check;
+            if (!value(baseline, key, decides.apply(key)).on()) off.add(check);
+        }
+        return Collections.unmodifiableSet(off);
+    }
+
+    /** Completes once config.yml and the file hold the changes merged before this call. */
+    CompletableFuture<Void> settled() {
+        CompletableFuture<Void> settled = new CompletableFuture<>();
+        serially(() -> settled.complete(null));
+        return settled;
     }
 
     /** The table, oldest first. */

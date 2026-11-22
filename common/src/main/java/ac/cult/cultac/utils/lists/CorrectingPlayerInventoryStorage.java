@@ -83,7 +83,7 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
         }
         SimItemStack existing = getItem(slot);
         if ((existing.getItem() != serverside.getItem() || existing.getCount() != serverside.getCount())
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                && !player.isObserveOnly()) {
             player.getInventory().correctPlayerSlot(slot);
         }
         return true;

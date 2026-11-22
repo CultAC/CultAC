@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.anticheat.MessageUtil;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -28,6 +29,7 @@ import org.jetbrains.annotations.Nullable;
 public final class NetworkModule {
     private static final List<Consumer<NetworkService>> startHooks = new CopyOnWriteArrayList<>();
     private static final List<NetSettings.Listener> settingsListeners = new CopyOnWriteArrayList<>();
+    private static final List<Consumer<UUID>> playerListeners = new CopyOnWriteArrayList<>();
     private static volatile @Nullable NetworkPlatform platform;
     private static volatile @Nullable NetworkService service;
     /** The shared settings of the last service started, read while a reconnect replaces it. */
@@ -125,16 +127,32 @@ public final class NetworkModule {
      * player whose backend is not known, gives the instance's value. Any thread.
      */
     public static NetSettings.Value setting(String key, @Nullable String backend) {
+        NetSettings settings = settings();
+        return settings != null ? settings.value(key, backend) : NetSettings.value(baseline(), key, null);
+    }
+
+    /**
+     * The stable keys of the checks switched off for a player on {@code backend}, the backend server their proxy sent
+     * them to; null, for a player whose backend is not known, gives the instance's. Any thread.
+     */
+    public static Set<String> checksOff(@Nullable String backend) {
+        NetSettings settings = settings();
+        return settings != null
+                ? settings.checksOff(backend)
+                : NetSettings.checksOff(baseline(), List.of(), key -> null);
+    }
+
+    private static @Nullable NetSettings settings() {
         NetworkService running = service;
-        NetSettings settings = running != null ? running.netSettings() : lastSettings;
-        if (settings != null) return settings.value(key, backend);
-        NetSettings.Baseline baseline;
+        return running != null ? running.netSettings() : lastSettings;
+    }
+
+    private static NetSettings.Baseline baseline() {
         try {
-            baseline = NetCommands.CULT.baseline();
+            return NetCommands.CULT.baseline();
         } catch (RuntimeException unloaded) {
-            baseline = NetSettings.Baseline.DEFAULT;
+            return NetSettings.Baseline.DEFAULT;
         }
-        return NetSettings.value(baseline, key, null);
     }
 
     /**
@@ -169,10 +187,23 @@ public final class NetworkModule {
         thread.start();
     }
 
+    /** Calls {@code listener} with each player who joins or switches backend server on this instance, until closed. */
+    public static NetworkService.Registration onPlayerChanged(Consumer<UUID> listener) {
+        playerListeners.add(listener);
+        return () -> playerListeners.remove(listener);
+    }
+
     /** A join or backend switch on this instance; {@code brand} is the client brand, null while it is not known. */
     public static void playerChanged(UUID uuid, String name, @Nullable String server, @Nullable String brand) {
         NetworkService running = service;
         if (running != null) running.playerChanged(new OnlinePlayer(uuid, name, server, brand));
+        for (Consumer<UUID> listener : playerListeners) {
+            try {
+                listener.accept(uuid);
+            } catch (RuntimeException failure) {
+                LogUtil.warn("A listener of player joins and server switches failed", failure);
+            }
+        }
     }
 
     /** The client brand of a player on this instance arrived after their join. Any thread. */

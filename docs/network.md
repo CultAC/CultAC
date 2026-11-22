@@ -139,13 +139,26 @@ refused, and nothing is sent.
 Commands:
 
 - `status`: for each server, its CultAC build, whether it is a proxy or a server, the players online and inspected,
-  whether it checks players, observe-only mode (and the environment variable that pins it), the checks switched off,
-  the average time per prediction, and how long the server and its running CultAC engine have been up. For a backend
-  name, each proxy reports the players on the backends named.
+  whether it checks players, observe-only mode (and the environment variable that pins it), whether punishment
+  commands run, the checks switched off, the average time per prediction, and how long the server and its running
+  CultAC engine have been up. For a backend name, each proxy reports the players and settings on the backends named.
+- `reload`: reloads CultAC's configuration, as `/cult reload` does. It runs on proxies and servers only; a backend name
+  is refused.
+- `observe on|off`: turns observe-only mode on or off for the players the target names. Without `on` or `off` it shows
+  the current mode and where it comes from.
+- `punish on|off`: runs or withholds the commands of `punishments.yml` for the players the target names; checks,
+  alerts and setbacks are unaffected. Without `on` or `off` it shows the current state.
+- `check <check> <on|off>`: switches one check on or off for the players the target names. Tab completion offers each
+  check's current name; any name a check has or had works.
 
-Each command needs `cult.net` and its own node, `cult.net.status`, on the server it is typed on; the console holds them
-all. A receiving server runs it only when the sender held that node, and a command forwarded from another server can
-never start one.
+Each command needs `cult.net` and its own node, `cult.net.<command>` (`cult.net.status`, `cult.net.reload`,
+`cult.net.observe`, `cult.net.punish`, `cult.net.check`), on the server it is typed on; the console holds them all. A
+receiving server runs it only when the sender held that node, and a command forwarded from another server can never
+start one.
+
+`observe`, `punish` and `check` apply per player: on a proxy, each player follows the setting issued last for the
+backend server they are on or for the proxy itself, and a player who moves to another backend takes its settings at
+once. `/cult observe` and the `observe-only` key set the mode of their own server.
 
 `network.commands` in `config.yml` sets what a server takes; each key's environment variable wins when set and not
 blank:
@@ -153,8 +166,11 @@ blank:
 | Key | Default | Environment variable | Meaning |
 |---|---|---|---|
 | `enabled` | `true` | `CULTAC_NETWORK_COMMANDS` | Whether this server runs network commands. |
-| `accept` | `[status, reload, observe, toggle, check, update]` | `CULTAC_NETWORK_COMMANDS_ACCEPT` (a comma list) | The commands it runs; it refuses the others. |
+| `accept` | `[status, reload, observe, toggle, check, punish, update]` | `CULTAC_NETWORK_COMMANDS_ACCEPT` (a comma list) | The commands it runs; it refuses the others. |
 | `webhook` | `summary` | `CULTAC_NETWORK_COMMANDS_WEBHOOK` | What goes to `update.webhook`: `summary`, `every` or `none`. |
+
+An `accept` list already in `config.yml` keeps the commands it lists; add `punish` to it for the server to take
+`punish`.
 
 Every server that runs a network command, and the server it was typed on, logs one line for it:
 `net <id> <sender> (<uuid>|console) from <server> → <target>: <command> = <result>`. With `webhook: summary` the server

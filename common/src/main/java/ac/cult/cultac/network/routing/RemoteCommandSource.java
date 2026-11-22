@@ -35,6 +35,7 @@ public final class RemoteCommandSource implements Sender {
             "cult.net.observe",
             "cult.net.toggle",
             "cult.net.check",
+            "cult.net.punish",
             "cult.net.update");
 
     private final UUID uuid;

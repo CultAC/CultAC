@@ -1,6 +1,5 @@
 package ac.cult.cultac.manager.player.setback;
 
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
@@ -62,7 +61,7 @@ public final class SetbackPolicy {
     }
 
     public void executeForceResync(String cause) {
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        if (player.isObserveOnly()) return;
         if (!player.shouldEnforceMovementSetbacks()) return;
         if (player.isDisabled() || player.gamemode == GameMode.SPECTATOR)
             return; // We don't care about spectators, they don't flag
@@ -82,7 +81,7 @@ public final class SetbackPolicy {
     }
 
     public void executeNonSimulatingSetback() {
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        if (player.isObserveOnly()) return;
         if (!player.shouldEnforceMovementSetbacks()) return;
         if (player.isDisabled() || player.gamemode == GameMode.SPECTATOR)
             return; // We don't care about spectators, they don't flag
@@ -117,7 +116,7 @@ public final class SetbackPolicy {
 
     /** As {@link #executeViolationSetback(PredictionResult)}, for a violation of {@code check}, or null. */
     public boolean executeViolationSetback(PredictionResult flagged, Check check) {
-        if (isExempt()) return false;
+        if (isExempt() || (check != null && check.isSwitchedOff())) return false;
         if (corrections.isPending()) { // Don't spam setbacks // TODO: Remove plugin teleport status
             return false;
         }
@@ -160,7 +159,7 @@ public final class SetbackPolicy {
     }
 
     private boolean isExempt() {
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return true;
+        if (player.isObserveOnly()) return true;
         // Not exempting spectators here because timer check for spectators is actually valid.
         // Player hasn't spawned yet
         if (safePositions.current() == null) return true;
@@ -247,7 +246,7 @@ public final class SetbackPolicy {
         if (required == null || required.isPlugin()) {
             return;
         }
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (player.isObserveOnly()) {
             releaseRequiredSetback(new Vec3(player.x, player.y, player.z));
             return;
         }

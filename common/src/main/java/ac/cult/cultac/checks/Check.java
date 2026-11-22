@@ -65,6 +65,10 @@ public class Check extends CultProcessor implements AbstractCheck {
     @Setter
     private boolean isEnabled;
 
+    /** A network check switch holds this check off: no flags, setbacks or packet changes, whatever punishments.yml says. */
+    @Setter
+    private volatile boolean switchedOff;
+
     // permissions
     private boolean exemptPermission;
     private boolean noSetbackPermission;
@@ -139,9 +143,14 @@ public class Check extends CultProcessor implements AbstractCheck {
         return getClass().isAnnotationPresent(BedrockSupported.class);
     }
 
+    /** Whether punishments.yml holds this check and no network check switch holds it off. */
+    public boolean isEnabled() {
+        return isEnabled && !switchedOff;
+    }
+
     public boolean shouldModifyPackets() {
-        return isEnabled
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+        return isEnabled()
+                && !player.isObserveOnly()
                 && !player.isDisabled()
                 && !player.noModifyPacketPermission
                 && !noModifyPacketPermission
@@ -224,9 +233,15 @@ public class Check extends CultProcessor implements AbstractCheck {
         return recordFlag(binary, alertText);
     }
 
-    /** Whether a flag of this check reaches its consumers: false while the player is disabled or exempt from it. */
+    /**
+     * Whether a flag of this check reaches its consumers: false while the player is disabled or exempt from it, or the
+     * check is switched off.
+     */
     public final boolean canRecordFlags() {
-        return !player.isDisabled() && (!experimental || player.isExperimentalChecks()) && !exemptPermission;
+        return !switchedOff
+                && !player.isDisabled()
+                && (!experimental || player.isExperimentalChecks())
+                && !exemptPermission;
     }
 
     private boolean recordFlag(@NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
@@ -380,6 +395,7 @@ public class Check extends CultProcessor implements AbstractCheck {
     public void onReload(@NotNull ConfigManager config) {}
 
     public boolean alert(@NotNull Supplier<String> verbose) {
+        if (switchedOff) return false;
         return player.punishmentManager.handleAlert(player, memoize(Objects.requireNonNull(verbose, "verbose")), this);
     }
 
@@ -399,13 +415,16 @@ public class Check extends CultProcessor implements AbstractCheck {
     }
 
     public boolean shouldSetback() {
-        return !noSetbackPermission
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+        return !switchedOff
+                && !noSetbackPermission
+                && !player.isObserveOnly()
                 && violations + deferredFlags > setbackVL;
     }
 
     public boolean executeViolationSetback() {
-        return !noSetbackPermission && player.getSetbackTeleportUtil().executeViolationSetback(this);
+        return !switchedOff
+                && !noSetbackPermission
+                && player.getSetbackTeleportUtil().executeViolationSetback(this);
     }
 
     public String formatOffset(double offset) {
@@ -458,7 +477,7 @@ public class Check extends CultProcessor implements AbstractCheck {
         @Override
         public void commit() {
             deferredFlags--;
-            commitFlag(verboseData, verbose, alertText, recorded);
+            if (!switchedOff) commitFlag(verboseData, verbose, alertText, recorded);
         }
 
         @Override

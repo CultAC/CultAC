@@ -1,6 +1,5 @@
 package ac.cult.cultac.manager.player.setback;
 
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsN;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
@@ -218,7 +217,7 @@ public final class JavaTeleportTracker {
                 }
                 pendingTeleports.poll();
                 if (currentRequiredSetback) {
-                    if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                    if (player.isObserveOnly()) {
                         reissue.release(physicalFeetPosition);
                     } else {
                         corrections.required().setPlugin(false);

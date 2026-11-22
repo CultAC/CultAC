@@ -4,6 +4,7 @@ import static ac.cult.cultac.network.routing.NetSettings.CHECK;
 import static ac.cult.cultac.network.routing.NetSettings.OBSERVE;
 import static ac.cult.cultac.network.routing.NetSettings.OFF;
 import static ac.cult.cultac.network.routing.NetSettings.ON;
+import static ac.cult.cultac.network.routing.NetSettings.PUNISH;
 import static ac.cult.cultac.network.routing.NetSettings.TOGGLE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -13,18 +14,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.manager.config.BaseConfigManager;
+import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.routing.NetSettings.Baseline;
 import ac.cult.cultac.network.routing.NetSettings.Record;
 import ac.cult.cultac.network.routing.NetSettings.Setting;
 import ac.cult.cultac.network.routing.NetSettings.Source;
 import ac.cult.cultac.network.routing.NetSettings.Value;
 import ac.cult.cultac.network.routing.TestNetworks.Players;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
+import ac.cult.cultac.player.CultPlayer;
 import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -408,5 +416,52 @@ class NetSettingsTest {
         assertFalse(proxy.netSettings().value(TOGGLE, "BRG_1").on());
         server.netCommands().expireAll().join();
         done.join();
+    }
+
+    @Test
+    void aPlayersObserveOnlyPausedPunishmentsAndSwitchedOffChecksFollowTheirBackendServer() {
+        NetworkService proxy = networks.service("p3")
+                .platform(new Players().proxy(null).backends("BRG_1", "lobby"))
+                .net(new Net(null))
+                .start();
+        TestNetworks.install(proxy);
+        try {
+            String probeKey = "cult.test.backend_probe";
+            proxy.netSettings()
+                    .merge(List.of(
+                            record(OBSERVE, ON, "BRG_*", 10, A),
+                            record(PUNISH, OFF, "BRG_1", 10, B),
+                            record(CHECK + probeKey, OFF, "BRG_1", 10, C)));
+            CultPlayer player = mock(CultPlayer.class);
+            PlatformPlayer platform = mock(PlatformPlayer.class);
+            player.platformPlayer = platform;
+            SetbackTeleportUtil setbacks = new SetbackTeleportUtil(player);
+            when(player.getSetbackTeleportUtil()).thenReturn(setbacks);
+            Check probe = new Check(
+                    player,
+                    CheckInfo.builder().name("BackendProbe").stableKey(probeKey).build()) {};
+            probe.setEnabled(true);
+            doReturn(List.of(probe)).when(player).getChecks();
+            doCallRealMethod().when(player).applyNetworkSettings();
+            doCallRealMethod().when(player).isObserveOnly();
+            doCallRealMethod().when(player).isPunishmentsPaused();
+
+            when(platform.serverName()).thenReturn("BRG_1");
+            player.applyNetworkSettings();
+            assertTrue(player.isObserveOnly());
+            assertTrue(player.isPunishmentsPaused());
+            assertFalse(probe.isEnabled());
+
+            probe.violations = 5;
+            when(platform.serverName()).thenReturn("lobby");
+            player.applyNetworkSettings();
+            assertFalse(player.isObserveOnly());
+            assertFalse(player.isPunishmentsPaused());
+            assertTrue(probe.isEnabled());
+            assertEquals(0, probe.violations);
+            assertFalse(NetworkModule.setting(OBSERVE).on());
+        } finally {
+            NetworkModule.stop();
+        }
     }
 }

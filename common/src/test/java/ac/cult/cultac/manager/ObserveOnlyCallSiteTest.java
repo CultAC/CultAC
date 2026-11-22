@@ -35,6 +35,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.tools.JavaCompiler;
@@ -43,12 +45,14 @@ import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
 
 /**
- * Holds every call that kicks a player, cancels or rewrites a packet, resyncs or teleports to a condition on
- * {@code isObserveOnly()}, {@code shouldModifyPackets()} or {@code failsOpen()} (true in observe-only), or to an
- * entry in {@link #ALLOWED}. A call is guarded when
- * a condition naming the guard encloses it: an {@code if} or {@code ?:} around it, the left side of an {@code &&} or
- * {@code ||}, or an earlier {@code if (...) return|continue|break|throw} in an enclosing block. The scan is syntactic:
- * it resolves neither receivers nor the guard's polarity, which {@code ObserveOnlyTest} pins.
+ * Holds every call that kicks a player, cancels or rewrites a packet, resyncs or teleports to a condition on a
+ * player's {@code isObserveOnly()}, {@code shouldModifyPackets()} or {@code failsOpen()} (true in observe-only), or to
+ * an entry in {@link #ALLOWED}. A call is guarded when a condition naming the guard encloses it: an {@code if} or
+ * {@code ?:} around it, the left side of an {@code &&} or {@code ||}, or an earlier
+ * {@code if (...) return|continue|break|throw} in an enclosing block. The network's shared settings set the mode per
+ * backend server, so what runs for a player reads the player's mode; the instance's own mode,
+ * {@code getConfigManager().isObserveOnly()}, is read and guards only in the methods {@link #INSTANCE_MODE} lists. The
+ * scan is syntactic: it resolves neither receivers nor the guard's polarity, which {@code ObserveOnlyTest} pins.
  */
 class ObserveOnlyCallSiteTest {
     private static final List<String> MODULES = List.of(
@@ -105,7 +109,27 @@ class ObserveOnlyCallSiteTest {
             "sendVehicleProtocolResync",
             "resyncPose");
 
-    private static final List<String> GUARDS = List.of("isObserveOnly()", "shouldModifyPackets()", "failsOpen()");
+    private static final List<String> GUARDS = List.of("shouldModifyPackets()", "failsOpen()");
+    /** A player's mode: {@code isObserveOnly()} on any receiver but the config manager. */
+    private static final Pattern PLAYER_MODE = Pattern.compile("(?<!getConfigManager\\(\\)\\.)\\bisObserveOnly\\(\\)");
+
+    /** Each {@code file#method} reading the instance's own mode, under a {@code [] reason} line. */
+    private static final String INSTANCE_MODE = """
+            [] the instance's mode as /cult observe, /cult version, the host and the cloud panel show it
+            command/commands/CultObserve.java#mode()
+            command/commands/CultVersion.java#checkForUpdatesAsync(Sender)
+            cloud/transport/CloudConnection.java#agent()
+            runtime/EngineRuntime.java#isObserveOnly()
+            [] storage that fails to start in observe-only leaves the instance running
+            manager/datastore/DataStoreLifecycle.java#initialize(boolean)
+            [] the loaded config taking the network's value for the instance
+            network/routing/NetCommands.java#observeOnly(boolean)
+            [] a player whose backend server the network's settings leave to the instance
+            player/CultPlayer.java#isObserveOnly()
+            [] a connection without a player yet
+            events/packets/PacketPluginMessage.java#checkChannel(User,String)
+            protocol/netty/CultDecoder.java#process(ByteBuf,ModelRead)
+            """;
 
     /**
      * {@code [guard] reason} starts a section; {@code [] reason} starts a section of exceptions. Each entry is
@@ -347,14 +371,17 @@ class ObserveOnlyCallSiteTest {
     @Test
     void everyGameplayCallIsGuardedOrListed() throws IOException {
         Map<String, Allowed> allowed = allowed();
+        Set<String> instanceMode = instanceMode();
         List<String> problems = new ArrayList<>();
-        scan().forEach((key, calls) -> {
+        scan().sites().forEach((key, calls) -> {
             Allowed entry = allowed.remove(key);
             List<String> guards = new ArrayList<>(GUARDS);
             if (entry != null && entry.guard() != null) guards.add(entry.guard());
+            if (instanceMode.contains(key.substring(0, key.lastIndexOf(' ')))) guards.add("isObserveOnly()");
             long open = calls.stream()
-                    .filter(conditions ->
-                            conditions.stream().noneMatch(c -> guards.stream().anyMatch(c::contains)))
+                    .filter(conditions -> conditions.stream()
+                            .noneMatch(c -> PLAYER_MODE.matcher(c).find()
+                                    || guards.stream().anyMatch(c::contains)))
                     .count();
             long expected = entry == null ? 0 : entry.open();
             if (open != expected) problems.add(key + " x" + open + " (allowed " + expected + ")");
@@ -368,7 +395,37 @@ class ObserveOnlyCallSiteTest {
                         + String.join("\n  ", problems));
     }
 
+    @Test
+    void theInstanceModeIsReadOnlyWhereListed() throws IOException {
+        Set<String> listed = instanceMode();
+        Set<String> found = scan().instanceReads();
+        List<String> problems = new ArrayList<>();
+        for (String read : found) {
+            if (!listed.contains(read)) problems.add(read);
+        }
+        for (String read : listed) {
+            if (!found.contains(read)) problems.add(read + ": listed but not found");
+        }
+        assertTrue(
+                problems.isEmpty(),
+                "What runs for a player reads that player's isObserveOnly(), which follows their backend server. Read"
+                        + " getConfigManager().isObserveOnly() only for the instance itself and add it to"
+                        + " INSTANCE_MODE:\n  " + String.join("\n  ", problems));
+    }
+
     private record Allowed(String guard, long open) {}
+
+    /** The {@code file#method} entries of {@link #INSTANCE_MODE}, where the instance's mode guards gameplay too. */
+    private static Set<String> instanceMode() {
+        Set<String> listed = new TreeSet<>();
+        for (String line : INSTANCE_MODE.lines().map(String::strip).toList()) {
+            if (!line.isEmpty() && !line.startsWith("[")) listed.add(line);
+        }
+        return listed;
+    }
+
+    /** Each gameplay call with the conditions that enclose it, and each {@code file#method} reading the instance mode. */
+    private record Scan(Map<String, List<List<String>>> sites, Set<String> instanceReads) {}
 
     private static Map<String, Allowed> allowed() {
         Map<String, Allowed> allowed = new TreeMap<>();
@@ -390,11 +447,12 @@ class ObserveOnlyCallSiteTest {
     }
 
     /** Each gameplay call, keyed by file, method and called name, as the conditions that enclose it. */
-    private static Map<String, List<List<String>>> scan() throws IOException {
+    private static Scan scan() throws IOException {
         Path repository = Path.of("").toAbsolutePath();
         while (!Files.exists(repository.resolve("settings.gradle.kts"))) repository = repository.getParent();
         JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
         Map<String, List<List<String>>> sites = new TreeMap<>();
+        Set<String> instanceReads = new TreeSet<>();
         try (StandardJavaFileManager files = javac.getStandardFileManager(null, null, StandardCharsets.UTF_8)) {
             for (String module : MODULES) {
                 Path root = repository.resolve(module).resolve("src/main/java");
@@ -411,26 +469,38 @@ class ObserveOnlyCallSiteTest {
                             .toString()
                             .replace('\\', '/')
                             .replaceFirst("^ac/cult/(cultac/)?", "");
-                    new Finder(file, sites).scan(unit, null);
+                    new Finder(file, sites, instanceReads).scan(unit, null);
                 }
             }
         }
-        return sites;
+        return new Scan(sites, instanceReads);
     }
 
     private static final class Finder extends TreePathScanner<Void, Void> {
         private final String file;
         private final Map<String, List<List<String>>> sites;
+        private final Set<String> instanceReads;
 
-        Finder(String file, Map<String, List<List<String>>> sites) {
+        Finder(String file, Map<String, List<List<String>>> sites, Set<String> instanceReads) {
             this.file = file;
             this.sites = sites;
+            this.instanceReads = instanceReads;
         }
 
         @Override
         public Void visitMethodInvocation(MethodInvocationTree call, Void unused) {
             String name = name(call.getMethodSelect());
             if (name != null && GAMEPLAY.contains(name) && affectsGameplay(name, call)) record(name);
+            if ("isObserveOnly".equals(name)
+                    && call.getMethodSelect() instanceof MemberSelectTree member
+                    && member.getExpression().toString().endsWith("getConfigManager()")) {
+                TreePath at = getCurrentPath();
+                while (!(at.getLeaf() instanceof MethodTree
+                        || at.getParentPath().getLeaf() instanceof ClassTree)) {
+                    at = at.getParentPath();
+                }
+                instanceReads.add(file + "#" + ownerName(at.getLeaf()));
+            }
             return super.visitMethodInvocation(call, unused);
         }
 

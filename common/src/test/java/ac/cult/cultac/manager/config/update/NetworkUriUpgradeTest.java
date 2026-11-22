@@ -301,7 +301,7 @@ class NetworkUriUpgradeTest {
                                     "enabled",
                                     true,
                                     "accept",
-                                    List.of("status", "reload", "observe", "toggle", "check", "update"),
+                                    List.of("status", "reload", "observe", "toggle", "check", "punish", "update"),
                                     "webhook",
                                     "summary")),
                     network(data));
