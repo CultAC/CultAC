@@ -56,6 +56,7 @@ import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.RidingJumpCharge;
 import ac.cult.cultac.utils.data.ServerSwingEcho;
 import ac.cult.cultac.utils.data.VehicleData;
+import ac.cult.cultac.utils.data.packetentity.HorseMountLook;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
@@ -266,6 +267,7 @@ public class CultPlayer implements GrimUser {
     public float yawBeforeLook;
     // The yaw a first boat mount set before the client's next rotation packet, NaN when none did.
     public float mountYaw = Float.NaN;
+    public final HorseMountLook horseMountLook = new HorseMountLook();
     public boolean onGround;
     public boolean lastOnGround;
     public boolean isSneaking;
@@ -435,6 +437,22 @@ public class CultPlayer implements GrimUser {
         unclampedHeadYaw = Float.NaN;
         boatYawBeforeTurn = Float.NaN;
         ridingJumpCharge.forget();
+    }
+
+    /**
+     * Entity#absSnapRotationTo's look, its last-tick look with it, replacing a boat mount's yaw. Entity#setYRot and
+     * Entity#setXRot keep a rotation that is not finite out.
+     */
+    public void snapLook(float yaw, float pitch) {
+        if (Float.isFinite(yaw)) {
+            xRot = yaw;
+            lastTickXRot = yaw;
+            mountYaw = Float.NaN;
+        }
+        if (Float.isFinite(pitch)) {
+            yRot = pitch;
+            lastTickYRot = pitch;
+        }
     }
 
     /**

@@ -292,6 +292,10 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         boolean laterMovementThisClientTick = false;
         // A teleport acknowledgement is not LocalPlayer#tick movement.
         if (!teleport.isTeleport()) {
+            // The first movement after a horse mount reports the look AbstractHorse#addPassenger turned the player to.
+            if (packet.hasRotation() && player.horseMountLook.reports(packet.yaw(), packet.pitch()))
+                player.snapLook(packet.yaw(), packet.pitch());
+            player.horseMountLook.clear();
             // LocalPlayer#sendPosition follows the client tick's use-ons with the yaw they were made with. A rider's
             // Rot follows Entity#positionRider, which may have turned it since.
             if (packet.hasRotation() && !passengerRotation) player.lookPlaceRecheck.yawKnown(packet.yaw());
@@ -1222,6 +1226,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     public static void processClientTickEndReceive(PacketReceiveEvent<?> event, CultPlayer player) {
         if (event.getPhase() != ConnectionPhase.PLAY) return;
         player.lookPlaceRecheck.tickEnded();
+        player.horseMountLook.clear();
         if (!event.isSynthetic()) {
             player.clientTickEndTimeout.onTickEnd(System.nanoTime());
             player.lastClientTickArrivedAt = System.nanoTime();
@@ -1374,6 +1379,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         HeadRotation from = rotationOrigin(player.xRot, player.yRot, yaw, pitch, accepted);
         player.yawBeforeLook = Float.isNaN(player.mountYaw) ? player.xRot : player.mountYaw;
         player.mountYaw = Float.NaN;
+        player.horseMountLook.clear();
         player.xRot = yaw;
         player.yRot = pitch;
         RotationUpdate update = new RotationUpdate(

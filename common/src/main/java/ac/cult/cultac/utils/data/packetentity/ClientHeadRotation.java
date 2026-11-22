@@ -13,12 +13,17 @@ public final class ClientHeadRotation {
     private int lerpHeadSteps;
     private boolean headKnown;
     private boolean headOKnown;
+    // The head is a rotate_head angle plus whole turns, to which float adds whole turns exactly.
+    private boolean headTurns;
+    private boolean headOTurns;
     private float xRotO;
     private boolean xRotOKnown;
     // The entity's yaw and pitch were set apart from its interpolation step since its last tick began.
     private boolean rotationPlaced;
     // AbstractHorse#tickRidden set the pitch from a controlling rider in the last tick.
     private boolean ridden;
+    // AbstractHorse#tickRidden last set the pitch from a controlling rider other than the local player.
+    private boolean riddenByOther;
 
     /** LivingEntity#recreateFromPacket: the head yaw, and Entity#absSnapTo's xRotO. */
     public void spawn(float headYaw, float pitch) {
@@ -27,10 +32,13 @@ public final class ClientHeadRotation {
         lerpHeadSteps = 0;
         headKnown = true;
         headOKnown = true;
+        headTurns = false;
+        headOTurns = false;
         xRotO = CultMath.clamp(pitch, -90.0F, 90.0F) % 360.0F;
         xRotOKnown = true;
         rotationPlaced = false;
         ridden = false;
+        riddenByOther = false;
     }
 
     /** LivingEntity#lerpHeadTo from ClientPacketListener#handleRotateMob. */
@@ -47,26 +55,37 @@ public final class ClientHeadRotation {
      * The entity's client tick up to its interpolation step. Entity#setOldPosAndRot takes xRotO from {@code pitch}, the
      * pitch before the tick's interpolation step. LivingEntity#baseTick takes yHeadRotO, LivingEntity#aiStep steps the
      * head lerp, and AbstractHorse#tickRidden sets the head to {@code controllerYaw}, NaN without a controlling rider; a
-     * controlling rider whose yaw is not known passes {@code controllerUnknown}. {@link #turnWithBody} follows once the
-     * entity has moved.
+     * controlling rider whose yaw is not known passes {@code controllerUnknown}, and one other than the local player
+     * {@code controllerOther}. {@link #turnWithBody} follows once the entity has moved.
      */
-    public void tick(float pitch, boolean pitchExact, float controllerYaw, boolean controllerUnknown) {
+    public void tick(
+            float pitch, boolean pitchExact, float controllerYaw, boolean controllerUnknown, boolean controllerOther) {
         xRotO = pitch;
-        xRotOKnown = pitchExact && !rotationPlaced && !ridden;
+        xRotOKnown = pitchExact && !rotationPlaced && !ridden && !riddenByOther;
         rotationPlaced = false;
         ridden = controllerUnknown || !Float.isNaN(controllerYaw);
+        if (ridden) riddenByOther = controllerOther;
         yHeadRotO = yHeadRot;
         headOKnown = headKnown;
+        headOTurns = headTurns;
         if (lerpHeadSteps > 0) {
-            yHeadRot = (float) CultMath.rotLerp(1.0 / lerpHeadSteps, (double) yHeadRot, lerpYHeadRot);
+            if (headKnown) {
+                yHeadRot = (float) CultMath.rotLerp(1.0 / lerpHeadSteps, (double) yHeadRot, lerpYHeadRot);
+            } else {
+                // The last step, the head plus Mth#wrapDegrees(angle - head) in double, is the angle plus whole turns.
+                headTurns = lerpHeadSteps == 1;
+                yHeadRot = (float) lerpYHeadRot;
+            }
             lerpHeadSteps--;
         }
         if (controllerUnknown) {
             headKnown = false;
+            headTurns = false;
         } else if (!Float.isNaN(controllerYaw)) {
             // Entity#setRot keeps the yaw modulo 360; Entity#setYRot drops one that is not finite.
             float yaw = controllerYaw % 360.0F;
             headKnown = Float.isFinite(yaw);
+            headTurns = false;
             if (headKnown) yHeadRot = yaw;
         }
     }
@@ -80,6 +99,7 @@ public final class ClientHeadRotation {
      */
     public void turnWithBody(boolean turns, float bodyYaw, float maxHeadYRot, boolean turnedAfter) {
         if (turns) {
+            headTurns = false;
             if (Float.isNaN(bodyYaw)) {
                 headKnown = false;
             } else if (headKnown) {
@@ -88,17 +108,34 @@ public final class ClientHeadRotation {
             }
         }
         if (headKnown) {
+            // Whatever whole turns yHeadRotO's angle carries, the loops end on its one value within 180 of the head.
             while (yHeadRot - yHeadRotO < -180.0F) yHeadRotO -= 360.0F;
             while (yHeadRot - yHeadRotO >= 180.0F) yHeadRotO += 360.0F;
+            headOKnown |= headOTurns;
+            headOTurns = false;
         } else {
+            // The range check adds whole turns, which keep yHeadRotO a rotate_head angle plus whole turns.
             headOKnown = false;
         }
-        if (turnedAfter) headKnown = false;
+        if (turnedAfter) {
+            headKnown = false;
+            headTurns = false;
+        }
     }
 
     /** Whether the look AbstractHorse#addPassenger gives is known, with the entity's pitch {@code pitchExact}. */
     public boolean knowsRiderLook(boolean pitchExact) {
         return headKnown && headOKnown && xRotOKnown && !rotationPlaced && !ridden && pitchExact;
+    }
+
+    /**
+     * The looks Entity#absSnapRotationTo takes from getViewYRot(0) and getViewXRot(0) as held here, into {@code look}:
+     * yHeadRotO modulo 360, on either side of zero while yHeadRotO is a rotate_head angle plus whole turns, and xRotO.
+     */
+    public void riderLooks(HorseMountLook look, float pitch) {
+        float yaw = headOKnown || headOTurns ? yHeadRotO % 360.0F : Float.NaN;
+        float otherYaw = !headOTurns || yaw == 0.0F ? yaw : yaw < 0.0F ? yaw + 360.0F : yaw - 360.0F;
+        look.hold(yaw, otherYaw, xRotOKnown && !rotationPlaced && !ridden ? riderPitch(pitch) : Float.NaN);
     }
 
     /** Entity#absSnapRotationTo's yaw from LivingEntity#getViewYRot(0): Mth#rotLerp from yHeadRotO. */
