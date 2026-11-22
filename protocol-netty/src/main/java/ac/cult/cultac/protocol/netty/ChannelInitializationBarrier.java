@@ -4,13 +4,14 @@ import ac.cult.cultac.network.CultNetworkManager;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import java.util.Objects;
 
 /** Finishes attachment after synchronous initializers, before activation can start reads. */
 public final class ChannelInitializationBarrier extends ChannelInboundHandlerAdapter {
     private final Runnable initialize;
 
     private ChannelInitializationBarrier(Runnable initialize) {
-        this.initialize = java.util.Objects.requireNonNull(initialize);
+        this.initialize = Objects.requireNonNull(initialize);
     }
 
     public static void install(Channel channel, Runnable initialize) {

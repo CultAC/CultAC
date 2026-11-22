@@ -6,6 +6,7 @@ import java.util.UUID;
 import net.minecraft.world.level.block.Block;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
+import org.bukkit.craftbukkit.block.data.CraftBlockData;
 import org.jetbrains.annotations.NotNull;
 
 public record BukkitPlatformWorld(@NotNull World bukkitWorld) implements PlatformWorld {
@@ -18,9 +19,8 @@ public record BukkitPlatformWorld(@NotNull World bukkitWorld) implements Platfor
     @Override
     public int getBlockAt(int x, int y, int z) {
         if (BukkitPlatformChunk.isIllegalY(bukkitWorld, y)) return BlockIds.AIR.defaultState();
-        return BukkitPlatformChunk.toModelState(Block.getId(((org.bukkit.craftbukkit.block.data.CraftBlockData)
-                        bukkitWorld.getBlockAt(x, y, z).getBlockData())
-                .getState()));
+        return BukkitPlatformChunk.toModelState(
+                Block.getId(((CraftBlockData) bukkitWorld.getBlockAt(x, y, z).getBlockData()).getState()));
     }
 
     @Override

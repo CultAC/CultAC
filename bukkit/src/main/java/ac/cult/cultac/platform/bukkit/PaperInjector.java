@@ -41,7 +41,7 @@ final class PaperInjector {
         inject(channel, false);
     }
 
-    java.util.concurrent.CompletionStage<Void> disconnect(Channel channel) {
+    CompletionStage<Void> disconnect(Channel channel) {
         var connection = manager.connection(channel);
         if (connection == null) return CompletableFuture.completedFuture(null);
         var completion = new CompletableFuture<Void>();

@@ -2,6 +2,7 @@ package ac.cult.reload.host;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /** Existing explicit player targets; self commands otherwise use the sender's session. */
@@ -13,7 +14,7 @@ public final class CommandRouting {
     private CommandRouting() {}
 
     public static String target(String[] args) {
-        return args.length > 1 && TARGET.contains(args[0].toLowerCase(java.util.Locale.ROOT)) ? args[1] : null;
+        return args.length > 1 && TARGET.contains(args[0].toLowerCase(Locale.ROOT)) ? args[1] : null;
     }
 
     /** {@code /cult runtimes <id> <command>}: one command per player of that runtime, naming them by %player%. */
@@ -25,6 +26,6 @@ public final class CommandRouting {
     }
 
     public static boolean aggregate(String[] args) {
-        return args.length > 0 && GLOBAL.contains(args[0].toLowerCase(java.util.Locale.ROOT));
+        return args.length > 0 && GLOBAL.contains(args[0].toLowerCase(Locale.ROOT));
     }
 }

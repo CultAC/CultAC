@@ -2,6 +2,8 @@ package ac.cult.cultac.manager.init.start;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
+import ac.cult.cultac.platform.bukkit.BukkitRuntimeRegistrations;
+import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
@@ -12,8 +14,7 @@ import org.bukkit.event.server.PluginEnableEvent;
 public class GeyserBedrockBridgeInit implements StartableInitable, Listener {
     @Override
     public void start() {
-        ac.cult.cultac.platform.bukkit.BukkitRuntimeRegistrations.registerEvents(
-                this, ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER);
+        BukkitRuntimeRegistrations.registerEvents(this, CultACBukkitLoaderPlugin.LOADER);
         if (Bukkit.getPluginManager().isPluginEnabled("Geyser-Spigot")) {
             startBridge();
         }

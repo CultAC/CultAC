@@ -3,6 +3,9 @@ package ac.cult.reload.host;
 import ac.cult.reload.api.HostContext;
 import ac.grim.grimac.internal.platform.bukkit.resolver.BukkitResolverRegistrar;
 import ac.grim.grimac.internal.plugin.resolver.GrimExtensionManager;
+import java.nio.file.Path;
+import java.util.Optional;
+import java.util.WeakHashMap;
 
 public final class SharedExtensions {
     private SharedExtensions() {}
@@ -13,10 +16,10 @@ public final class SharedExtensions {
         else {
             Object plugin = host.plugin();
             Object proxy = host.server();
-            java.nio.file.Path directory = host.directory();
+            Path directory = host.directory();
             Object logger = host.logger();
             var wrapper = SharedPlugin.create(host.directory(), host.logger(), host.build());
-            var owners = new java.util.WeakHashMap<Object, SharedPlugin>();
+            var owners = new WeakHashMap<Object, SharedPlugin>();
             manager.registerResolver(context -> {
                 if (context == plugin) return wrapper;
                 if (context.getClass().getClassLoader() instanceof RuntimeClassLoader || context instanceof Class<?>)
@@ -32,14 +35,14 @@ public final class SharedExtensions {
                         var descriptionType = loader.loadClass("com.velocitypowered.api.plugin.PluginDescription");
                         Object plugins =
                                 serverType.getMethod("getPluginManager").invoke(proxy);
-                        var container = (java.util.Optional<?>) pluginsType
+                        var container = (Optional<?>) pluginsType
                                 .getMethod("fromInstance", Object.class)
                                 .invoke(plugins, context);
                         if (container.isEmpty()) return null;
                         Object description =
                                 containerType.getMethod("getDescription").invoke(container.get());
                         String id = (String) descriptionType.getMethod("getId").invoke(description);
-                        var version = (java.util.Optional<?>)
+                        var version = (Optional<?>)
                                 descriptionType.getMethod("getVersion").invoke(description);
                         var resolved = SharedPlugin.create(
                                 directory.resolveSibling(id),

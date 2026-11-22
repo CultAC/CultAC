@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.incendo.cloud.bukkit.BukkitCommandContextKeys;
+import org.incendo.cloud.bukkit.data.SinglePlayerSelector;
 import org.incendo.cloud.bukkit.parser.selector.SinglePlayerSelectorParser;
 import org.incendo.cloud.parser.ParserDescriptor;
 import org.incendo.cloud.suggestion.Suggestion;
@@ -24,9 +25,8 @@ public class BukkitCloudPlatformCommandArguments implements CloudPlatformCommand
         return ParserDescriptor.of(
                 descriptor
                         .parser()
-                        .mapSuccess((context, selector) ->
-                                CompletableFuture.completedFuture(new BukkitPlayerSelectorAdapter(
-                                        (org.incendo.cloud.bukkit.data.SinglePlayerSelector) selector))),
+                        .mapSuccess((context, selector) -> CompletableFuture.completedFuture(
+                                new BukkitPlayerSelectorAdapter((SinglePlayerSelector) selector))),
                 PlayerSelector.class);
     }
 

@@ -19,7 +19,6 @@ public class AbstractRedisBungeeAPI {
         return instance;
     }
 
-
     public String getProxyId() {
         return proxyId;
     }

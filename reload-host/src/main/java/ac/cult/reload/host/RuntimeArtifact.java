@@ -1,7 +1,10 @@
 package ac.cult.reload.host;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.jar.JarFile;
 
 public record RuntimeArtifact(String build, String entrypoint, String digest) {
@@ -90,13 +93,13 @@ public record RuntimeArtifact(String build, String entrypoint, String digest) {
                     throw new IOException("Runtime bundles shared ABI: " + name);
                 }
             }
-            var digest = java.security.MessageDigest.getInstance("SHA-256");
-            try (var input = java.nio.file.Files.newInputStream(jar)) {
+            var digest = MessageDigest.getInstance("SHA-256");
+            try (var input = Files.newInputStream(jar)) {
                 var buffer = new byte[65536];
                 int read;
                 while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
             }
-            return new RuntimeArtifact(build, entry, java.util.HexFormat.of().formatHex(digest.digest()));
+            return new RuntimeArtifact(build, entry, HexFormat.of().formatHex(digest.digest()));
         }
     }
 }

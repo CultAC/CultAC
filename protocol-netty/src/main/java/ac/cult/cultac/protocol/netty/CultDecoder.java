@@ -13,6 +13,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -248,8 +249,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                         && connection.user().getBedrockBridgeConnection() != null) {
                     player.getSetbackTeleportUtil()
                             .bedrockTeleports()
-                            .setBedrockPaperVisiblePosition(
-                                    new ac.cult.cultac.utils.math.Vec3(move.x(), move.y(), move.z()));
+                            .setBedrockPaperVisiblePosition(new Vec3(move.x(), move.y(), move.z()));
                 }
                 forwardedType = type;
                 forwardedPacket = packet;

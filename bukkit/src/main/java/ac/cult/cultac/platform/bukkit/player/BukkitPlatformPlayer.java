@@ -2,6 +2,7 @@ package ac.cult.cultac.platform.bukkit.player;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.network.protocol.util.FoliaCompatUtil;
 import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -112,7 +113,7 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
 
     @Override
     public void closeInventory() {
-        ac.cult.cultac.network.protocol.util.FoliaCompatUtil.runTaskForEntity(
+        FoliaCompatUtil.runTaskForEntity(
                 bukkitPlayer, CultACBukkitLoaderPlugin.LOADER, bukkitPlayer::closeInventory, null, 0);
     }
 
