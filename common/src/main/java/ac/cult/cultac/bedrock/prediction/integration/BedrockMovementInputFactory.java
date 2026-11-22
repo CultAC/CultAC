@@ -224,11 +224,6 @@ final class BedrockMovementInputFactory {
             return worldSnapshot.movementContext();
         }
 
-        public Input withPreviousEntry(BedrockProfileState.Entry previousEntry) {
-            java.util.Objects.requireNonNull(previousEntry, "previousEntry");
-            return withPreviousState(previousEntry.state(), previousEntry.mobJumpComponent());
-        }
-
         public Input withPreviousState(
                 BedrockMovementState previousState, BedrockMobJumpComponentState mobJumpComponent) {
             if (previousState.isHorse()) {

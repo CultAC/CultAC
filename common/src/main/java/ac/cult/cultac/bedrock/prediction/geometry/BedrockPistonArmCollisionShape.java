@@ -75,15 +75,6 @@ final class BedrockPistonArmCollisionShape {
         double offsetZ() {
             return offsetZ;
         }
-
-        static FacingDirection fromBedrockValue(int bedrockValue) {
-            for (FacingDirection direction : values()) {
-                if (direction.bedrockValue == bedrockValue) {
-                    return direction;
-                }
-            }
-            throw new IllegalArgumentException("unknown Bedrock piston facing_direction " + bedrockValue);
-        }
     }
 
     /** The arm's boxes, relative to its piston's cell, with the piston at {@code progress}. */

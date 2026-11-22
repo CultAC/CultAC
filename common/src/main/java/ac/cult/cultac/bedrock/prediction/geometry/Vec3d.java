@@ -25,10 +25,6 @@ public record Vec3d(double x, double y, double z) {
         return Math.sqrt(x * x + y * y + z * z);
     }
 
-    public double maxAbsComponent() {
-        return Math.max(Math.abs(x), Math.max(Math.abs(y), Math.abs(z)));
-    }
-
     private static void requireFinite(double value, String name) {
         if (!Double.isFinite(value)) {
             throw new IllegalArgumentException(name + " must be finite: " + value);

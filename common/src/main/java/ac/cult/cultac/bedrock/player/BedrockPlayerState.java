@@ -65,16 +65,6 @@ public final class BedrockPlayerState {
         return derivedShapesKnown;
     }
 
-    /** Whether this client's stairs carry no corner state and take their corner from the stairs around them. */
-    public boolean stairCornersFromNeighbours() {
-        return stairCornersFromNeighbours;
-    }
-
-    /** Whether this client's chorus plants carry no connections and take them from the blocks around them. */
-    public boolean chorusConnectionsFromNeighbours() {
-        return chorusConnectionsFromNeighbours;
-    }
-
     public boolean derivesShapesFromNeighbours() {
         return stairCornersFromNeighbours || chorusConnectionsFromNeighbours || fenceConnectionsFromNeighbours;
     }
@@ -144,18 +134,12 @@ public final class BedrockPlayerState {
     private long lastVerboseMovementLog = Long.MIN_VALUE;
     private PlayerDimensionsState confirmedBoundingBoxSize;
     private PlayerDimensionsState collisionDefinition;
-    private Long observedActorRuntimeId;
     private BedrockRidingJumpState ridingJump = BedrockRidingJumpState.INITIAL;
     private BedrockAuthInputFrame ridingJumpFrame;
     private int horseJumpRelease = -1;
 
     public BedrockPlayerState(UUID playerUuid) {
         this.playerUuid = playerUuid;
-    }
-
-    /** Null for older captures whose actor-creation history is unavailable. */
-    public Long observedActorRuntimeId() {
-        return observedActorRuntimeId;
     }
 
     public void recordActorCreation(long runtimeEntityId) {
@@ -166,7 +150,6 @@ public final class BedrockPlayerState {
         movementEffects.clear();
         movementCorrections.clearEffects();
         clientActors.clear();
-        observedActorRuntimeId = runtimeEntityId;
         ridingJump = BedrockRidingJumpState.INITIAL;
         ridingJumpFrame = null;
         horseJumpRelease = -1;
@@ -262,17 +245,6 @@ public final class BedrockPlayerState {
         return lastProcessedFrame == null ? 0L : lastProcessedFrame.getClientTick();
     }
 
-    /** Clears packet-local input while retaining confirmed pose and dimensions. */
-    public void clearTransientMovementInputState() {
-        lastOfferedFrame = null;
-        lastProcessedFrame = null;
-        lastMoveFrame = null;
-        lastPoseAppliedFrame = null;
-        lastPoseAppliedState = null;
-        actions.clear();
-        lastAuthInputMatchStatus = "transient auth input state cleared";
-    }
-
     public void applyAcknowledgedBoundingBoxMetadata(Float width, Float height) {
         if (width == null && height == null
                 || width != null && (!Float.isFinite(width) || width <= 0.0F)
@@ -285,10 +257,6 @@ public final class BedrockPlayerState {
         }
         confirmedBoundingBoxSize = new PlayerDimensionsState(
                 width == null ? previous.width() : width, height == null ? previous.height() : height);
-    }
-
-    public void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming) {
-        applyAcknowledgedPoseMetadata(crawling, swimming, null, null, null);
     }
 
     public void applyAcknowledgedPoseMetadata(

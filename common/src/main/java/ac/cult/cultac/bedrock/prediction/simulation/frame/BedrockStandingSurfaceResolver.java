@@ -18,10 +18,6 @@ import java.util.Set;
 final class BedrockStandingSurfaceResolver {
     private BedrockStandingSurfaceResolver() {}
 
-    public static StandingSurfaceState fromBlockWorld(Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld) {
-        return fromBlockWorld(physicalFeetPosition, blockWorld, PlayerDimensionsState.DEFAULT);
-    }
-
     public static StandingSurfaceState fromBlockWorld(
             Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld, PlayerDimensionsState playerDimensions) {
         Objects.requireNonNull(physicalFeetPosition, "physicalFeetPosition");
@@ -32,28 +28,6 @@ final class BedrockStandingSurfaceResolver {
         return standingBlock
                 .map(BedrockStandingSurfaceResolver::fromStandingBlock)
                 .orElseGet(() -> new StandingSurfaceState(Set.of()));
-    }
-
-    static boolean hasCollisionSupport(
-            Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld, PlayerDimensionsState playerDimensions) {
-        Objects.requireNonNull(physicalFeetPosition, "physicalFeetPosition");
-        Objects.requireNonNull(blockWorld, "blockWorld");
-        Objects.requireNonNull(playerDimensions, "playerDimensions");
-        return currentlyStandingOn(physicalFeetPosition, blockWorld, playerDimensions)
-                .isPresent();
-    }
-
-    public static StandingSurfaceState resolve(
-            boolean onGround, Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld) {
-        if (!onGround) {
-            return new StandingSurfaceState(Set.of());
-        }
-        return fromBlockWorld(physicalFeetPosition, blockWorld);
-    }
-
-    static StandingSurfaceState travelSurfaceFromBlockWorld(
-            Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld) {
-        return travelSurfaceFromBlockWorld(physicalFeetPosition, blockWorld, PlayerDimensionsState.DEFAULT);
     }
 
     static StandingSurfaceState travelSurfaceFromBlockWorld(

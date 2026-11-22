@@ -183,10 +183,6 @@ public final class BedrockCollisionOverrideCatalog {
         return value == null ? OptionalLong.empty() : OptionalLong.of(value);
     }
 
-    public int overrideCount() {
-        return byJavaStateId.size();
-    }
-
     public int shapeCount() {
         return shapes.size();
     }

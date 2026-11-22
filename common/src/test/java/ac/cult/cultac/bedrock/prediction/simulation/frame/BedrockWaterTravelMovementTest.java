@@ -74,18 +74,4 @@ public final class BedrockWaterTravelMovementTest {
     private static BedrockMobJumpInput lavaJumpInput(boolean autoSurfaceSwim, boolean swimTransition) {
         return new BedrockMobJumpInput(true, autoSurfaceSwim, swimTransition, false, true, false, true, true);
     }
-
-    @Test
-    public void waterNextTickVelocityAppliesFrictionAndWaterGravity() {
-        double velocityY = BedrockLiquidVerticalMovement.waterNextTickVelocityY(-0.08D, true);
-
-        assertEquals(-0.069D, velocityY, 1.0E-12D);
-    }
-
-    @Test
-    public void waterNextTickVelocityCanSkipWaterGravityWhenSwimmingActorGateIsActive() {
-        double velocityY = BedrockLiquidVerticalMovement.waterNextTickVelocityY(0.0D, false);
-
-        assertEquals(0.0D, velocityY, 1.0E-12D);
-    }
 }

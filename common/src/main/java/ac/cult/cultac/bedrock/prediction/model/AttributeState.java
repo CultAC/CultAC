@@ -20,37 +20,6 @@ public record AttributeState(
             DEFAULT_JUMP_STRENGTH,
             DEFAULT_FRICTION_MODIFIER);
 
-    public AttributeState(double baseMovementSpeed, float underwaterMovementSpeed) {
-        this(
-                baseMovementSpeed,
-                baseMovementSpeed,
-                underwaterMovementSpeed,
-                DEFAULT_LAVA_MOVEMENT_SPEED,
-                DEFAULT_JUMP_STRENGTH,
-                DEFAULT_FRICTION_MODIFIER);
-    }
-
-    public AttributeState(double baseMovementSpeed, float underwaterMovementSpeed, float lavaMovementSpeed) {
-        this(
-                baseMovementSpeed,
-                baseMovementSpeed,
-                underwaterMovementSpeed,
-                lavaMovementSpeed,
-                DEFAULT_JUMP_STRENGTH,
-                DEFAULT_FRICTION_MODIFIER);
-    }
-
-    public AttributeState(
-            double baseMovementSpeed, float underwaterMovementSpeed, float lavaMovementSpeed, float jumpStrength) {
-        this(
-                baseMovementSpeed,
-                baseMovementSpeed,
-                underwaterMovementSpeed,
-                lavaMovementSpeed,
-                jumpStrength,
-                DEFAULT_FRICTION_MODIFIER);
-    }
-
     public AttributeState(
             double baseMovementSpeed,
             double horizontalInputBaseMovementSpeed,

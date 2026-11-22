@@ -8,13 +8,11 @@ import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalDouble;
 import java.util.OptionalInt;
 
 public final class BedrockLiquidGeometry {
     private static final Vec3d WATER_AABB_SHRINK = new Vec3d(0.001D, 0.401D, 0.001D);
     private static final Vec3d LAVA_AABB_SHRINK = new Vec3d(0.1D, 0.4D, 0.1D);
-    private static final double LIQUID_HEIGHT_UNIT = 1.0D / 9.0D;
 
     private BedrockLiquidGeometry() {}
 
@@ -73,16 +71,6 @@ public final class BedrockLiquidGeometry {
         return (float) (block.position().y() + 1) - (height - 1.0F / 9.0F);
     }
 
-    public static boolean centerTopAndBottomNotInAir(
-            BlockCollisionWorld blockWorld, Vec3d stateVectorPosition, PlayerDimensionsState dimensions) {
-        double halfHeight = dimensions.height() * 0.5D;
-        BlockPosition top =
-                blockPosition(stateVectorPosition.x(), stateVectorPosition.y() + halfHeight, stateVectorPosition.z());
-        BlockPosition bottom =
-                blockPosition(stateVectorPosition.x(), stateVectorPosition.y() - halfHeight, stateVectorPosition.z());
-        return !isAir(blockWorld, top) && !isAir(blockWorld, bottom);
-    }
-
     public static WorldCollisionBox fullBlockBox(BlockPosition position) {
         return new WorldCollisionBox(
                 position.x(),
@@ -91,22 +79,6 @@ public final class BedrockLiquidGeometry {
                 position.x() + 1.0D,
                 position.y() + 1.0D,
                 position.z() + 1.0D);
-    }
-
-    public static Optional<WorldCollisionBox> liquidBlockBox(PlacedBlockCollision block) {
-        if (liquidKind(block) == BedrockLiquidKind.NONE) {
-            return Optional.empty();
-        }
-        OptionalDouble surfaceY = liquidSurfaceY(block);
-        return surfaceY.isPresent()
-                ? Optional.of(new WorldCollisionBox(
-                        block.position().x(),
-                        block.position().y(),
-                        block.position().z(),
-                        block.position().x() + 1.0D,
-                        surfaceY.getAsDouble(),
-                        block.position().z() + 1.0D))
-                : Optional.of(fullBlockBox(block.position()));
     }
 
     public static BedrockLiquidKind liquidKind(PlacedBlockCollision block) {
@@ -149,22 +121,8 @@ public final class BedrockLiquidGeometry {
         return depth > 7 ? 0 : depth;
     }
 
-    private static OptionalDouble liquidSurfaceY(PlacedBlockCollision block) {
-        OptionalInt depth = liquidDepth(block);
-        if (depth.isEmpty()) {
-            return OptionalDouble.empty();
-        }
-        int value = depth.getAsInt() < 8 ? depth.getAsInt() + 1 : 1;
-        double heightFromDepth = value * LIQUID_HEIGHT_UNIT;
-        return OptionalDouble.of(block.position().y() + 1.0D - (heightFromDepth - LIQUID_HEIGHT_UNIT));
-    }
-
     private static BlockPosition blockPosition(double x, double y, double z) {
         return new BlockPosition((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
-    }
-
-    private static boolean isAir(BlockCollisionWorld blockWorld, BlockPosition position) {
-        return blockWorld.blockAt(position).isEmpty();
     }
 
     private static WorldCollisionBox shrinkActorBox(WorldCollisionBox actorBox, Vec3d shrink) {
