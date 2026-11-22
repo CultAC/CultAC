@@ -333,6 +333,10 @@ class NetCommandsTest {
         assertEquals(
                 List.of("all", "proxies", "p3", "p7", "BRG_1", "BRG_2", "lobby", "BRG_*", "p*"),
                 server.netCommands().targets(""));
+        assertEquals(List.of("p3", "p3,"), server.netCommands().targets("p3"));
+        assertEquals(
+                List.of("BRG_*,all", "BRG_*,proxies", "BRG_*,p3", "BRG_*,p7", "BRG_*,lobby", "BRG_*,p*"),
+                server.netCommands().targets("BRG_*,"));
 
         TestNetworks.install(server);
         CommandManager<Sender> manager =
@@ -351,14 +355,32 @@ class NetCommandsTest {
 
     @Test
     void aForwardedCommandLineCanNeverStartANetworkCommand() {
-        assertTrue(RemoteCommandSource.DENIED.containsAll(Set.of(
-                "cult.net",
-                "cult.net.status",
-                "cult.net.reload",
-                "cult.net.observe",
-                "cult.net.toggle",
-                "cult.net.check",
-                "cult.net.update")));
+        NetworkService a = started("p3", new Players(), new Net());
+        NetworkService b = started("p7", new Players(), new Net());
+        List<JsonObject> atA = received(a, NetCommands.CMD);
+        List<JsonObject> atB = received(b, NetCommands.CMD);
+        List<Component> heard = new CopyOnWriteArrayList<>();
+        RemoteCommandSource console =
+                new RemoteCommandSource(MOD, "Console", true, Set.of(), Set.of(), heard::add, null);
+
+        a.netCommands().issue(console, "all", "status", List.of()).join();
+
+        assertTrue(atA.isEmpty());
+        assertTrue(atB.isEmpty());
+        assertEquals(1, heard.size());
+    }
+
+    @Test
+    void anInstanceHeardFromBeforeItsRosterIsAskedAndAwaited() {
+        started("p7", new Players(), new Net());
+        NetworkService a = started("p3", new Players(), new Net());
+
+        status(a, "p7");
+
+        assertTrue(
+                staff.plain().stream().anyMatch(line -> line.startsWith("p7 » b1")),
+                staff.plain().toString());
+        assertTrue(heard("1 of 1 answered"), staff.plain().toString());
     }
 
     private List<String> suggest(CommandManager<Sender> manager, String input) {

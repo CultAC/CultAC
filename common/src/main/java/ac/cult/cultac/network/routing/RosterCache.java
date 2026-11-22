@@ -32,8 +32,9 @@ import org.jetbrains.annotations.Nullable;
  * {@value #EXPIRY_MILLIS} ms. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any type
  * heard from it. Builds that run network commands add {@code role} ({@value #PROXY} or {@value #SERVER}),
  * {@code build} and {@code state} ({@link State}) to every body; a full body without {@code role} comes from an older
- * build, and a delta without it keeps what the instance last said. {@code settings}, the shared settings' records, is
- * {@link NetSettings}'s to read. Any thread.
+ * build, a delta without it keeps what the instance last said, and an instance heard only through other messages has
+ * not described itself yet. {@code settings}, the shared settings' records, is {@link NetSettings}'s to read. Any
+ * thread.
  */
 final class RosterCache {
     static final String TYPE = "roster";
@@ -57,12 +58,16 @@ final class RosterCache {
         return BACKEND_NAME.matcher(name).matches();
     }
 
-    /** A live instance as its roster last described it; a null {@code role} marks a build without network commands. */
+    /**
+     * A live instance as its roster last described it: {@code older} when that was a full roster without {@code role},
+     * from a build without network commands; else a null {@code role} means it has not described itself yet.
+     */
     record Instance(
             String id,
             @Nullable String role,
             @Nullable String build,
-            @Nullable State state) {}
+            @Nullable State state,
+            boolean older) {}
 
     /**
      * An instance's switchable state and player counts: whether it checks players ({@code toggle}), whether it observes
@@ -171,6 +176,8 @@ final class RosterCache {
 
         @Nullable
         State state;
+
+        boolean older;
     }
 
     /** Guarded by itself. */
@@ -226,6 +233,7 @@ final class RosterCache {
                 peer.role = role;
                 peer.build = build;
                 peer.state = state;
+                peer.older = !body.has(ROLE);
             }
         }
     }
@@ -236,7 +244,8 @@ final class RosterCache {
         synchronized (peers) {
             for (Map.Entry<String, Peer> entry : peers.entrySet()) {
                 Peer peer = entry.getValue();
-                if (live(peer, now)) instances.add(new Instance(entry.getKey(), peer.role, peer.build, peer.state));
+                if (live(peer, now))
+                    instances.add(new Instance(entry.getKey(), peer.role, peer.build, peer.state, peer.older));
             }
         }
         instances.sort(Comparator.comparing(Instance::id));

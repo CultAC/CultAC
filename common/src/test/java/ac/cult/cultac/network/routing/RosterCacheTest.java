@@ -123,7 +123,7 @@ class RosterCacheTest {
     void anOlderBuildsBodyParsesAsBeforeAndTheInstanceFieldsRoundTrip() {
         cache.apply("old", full(List.of(ALICE_ONLINE), 1L), 0);
         assertEquals(List.of("Alice"), names(0));
-        assertEquals(List.of(new RosterCache.Instance("old", null, null, null)), cache.instances(0));
+        assertEquals(List.of(new RosterCache.Instance("old", null, null, null, true)), cache.instances(0));
 
         RosterCache.State state = new RosterCache.State(
                 false, true, List.of("simulation"), List.of("CULTAC_OBSERVE_ONLY"), 3, 2, 1, List.of("BRG_1", "lobby"));
@@ -138,7 +138,7 @@ class RosterCacheTest {
 
         assertEquals(List.of("Alice"), names(0));
         assertEquals(
-                new RosterCache.Instance("p3", RosterCache.PROXY, "b310@0123456789ab", state),
+                new RosterCache.Instance("p3", RosterCache.PROXY, "b310@0123456789ab", state, false),
                 cache.instances(0).get(1));
     }
 
