@@ -41,10 +41,6 @@ public final class PacketRouteBuilder {
         CONNECTION
     }
 
-    public void receiveOpaque(List<PacketType<Opaque>> types, PacketReceiveHandler<Opaque> handler) {
-        receiveOpaque(types, PacketListenerPriority.NORMAL, handler);
-    }
-
     public void receiveOpaque(
             List<PacketType<Opaque>> types, PacketListenerPriority priority, PacketReceiveHandler<Opaque> handler) {
         Objects.requireNonNull(handler);

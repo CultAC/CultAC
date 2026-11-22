@@ -115,10 +115,6 @@ public final class User {
                                 : new ac.cult.cultac.network.CultWrite(packet, false)));
     }
 
-    public CompletionStage<Void> writeSilently(Object packet) {
-        return completion(getCultConnection().write(new ac.cult.cultac.network.CultWrite(packet, true)));
-    }
-
     public CompletionStage<Void> write(java.util.List<ac.cult.cultac.network.CultWrite> packets, boolean bundle) {
         return completion(getCultConnection().write(packets, bundle));
     }

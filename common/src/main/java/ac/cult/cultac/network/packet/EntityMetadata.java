@@ -478,16 +478,6 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
         }
 
         /**
-         * An entry whose bytes are {@code length} bytes of {@code payload} from absolute index {@code offset}. The
-         * payload must be read-only, and nothing may change its contents, position or limit afterwards.
-         */
-        public static Entry of(int id, Object value, ByteBuffer payload, int offset, int length) {
-            if (!payload.isReadOnly()) throw new IllegalArgumentException("Entry payload must be read-only");
-            Objects.checkFromIndexSize(offset, length, payload.limit());
-            return new Entry(id, value, payload, 0, offset, length);
-        }
-
-        /**
          * An entry whose bytes are {@code length} bytes of {@code payload} from index {@code offset}. The entry keeps
          * the array: nothing may change its contents afterwards.
          */
