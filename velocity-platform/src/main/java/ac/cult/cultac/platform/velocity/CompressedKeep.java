@@ -456,27 +456,25 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         }
         boolean published = held && inflated != null;
         try {
-            try {
-                Throwable released = null;
-                if (inflated != null) {
-                    MESSAGE_PRODUCED.set(decoder, true);
-                    try {
-                        if (published) released = publish(output, inflated, copy, client);
-                        else output.fireChannelRead(inflated);
-                    } catch (Throwable fired) {
-                        failure = fired;
-                    }
-                }
-                if (failure == null) failure = released;
-                else if (released != null) failure.addSuppressed(released);
-            } finally {
-                if (!published) {
-                    Throwable released = CompressedForwarder.release(client, null);
-                    released = CompressedForwarder.release(copy, released);
-                    if (failure == null) failure = released;
-                    else if (released != null) failure.addSuppressed(released);
+            // An unpublished frame's private buffers are free before its delivery allocates.
+            Throwable clientDropped = null;
+            Throwable copyDropped = null;
+            if (!published) {
+                clientDropped = CompressedForwarder.release(client, null);
+                copyDropped = CompressedForwarder.release(copy, null);
+            }
+            Throwable released = null;
+            if (inflated != null) {
+                MESSAGE_PRODUCED.set(decoder, true);
+                try {
+                    if (published) released = publish(output, inflated, copy, client);
+                    else output.fireChannelRead(inflated);
+                } catch (Throwable fired) {
+                    failure = fired;
                 }
             }
+            failure = CompressedForwarder.combine(failure, released);
+            failure = CompressedForwarder.combine(failure, CompressedForwarder.combine(clientDropped, copyDropped));
             if (failure != null) deliver(output, failure);
         } finally {
             if (refusedTrust) untrusted.run();

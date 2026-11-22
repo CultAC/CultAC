@@ -389,9 +389,15 @@ final class CompressedForwarder extends ChannelDuplexHandler {
         try {
             buf.release();
         } catch (RuntimeException | Error thrown) {
-            if (failure == null) return thrown;
-            failure.addSuppressed(thrown);
+            return combine(failure, thrown);
         }
+        return failure;
+    }
+
+    /** {@code failure} with a distinct {@code other} suppressed into it, or {@code other} when {@code failure} is null. */
+    static @Nullable Throwable combine(@Nullable Throwable failure, @Nullable Throwable other) {
+        if (failure == null) return other;
+        if (other != null && other != failure) failure.addSuppressed(other);
         return failure;
     }
 
