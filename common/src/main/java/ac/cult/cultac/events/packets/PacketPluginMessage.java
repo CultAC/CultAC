@@ -5,6 +5,7 @@ import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
@@ -25,9 +26,12 @@ public class PacketPluginMessage {
                             + "Having ViaVersion installed on the proxy is incompatible with CultAC and causes many issues. "
                             + "Please remove ViaVersion from your proxy server and install it on your backend servers instead.");
         }
+        CultPlayer player = user.getCultPlayer();
         // kick if they do not have a proxy configured OR they have ViaVersion installed on the backend
         if (CommonCultArguments.KICK_ON_VIA_PROXY.value()
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+                && !(player != null
+                        ? player.isObserveOnly()
+                        : CultAPI.INSTANCE.getConfigManager().isObserveOnly())
                 && (!usingProxy || ViaVersionUtil.isAvailable())) {
 
             LogUtil.warn(user.getName() + " is being disconnected for sending ViaVersion proxy data.");

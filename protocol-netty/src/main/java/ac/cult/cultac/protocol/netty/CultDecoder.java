@@ -156,7 +156,10 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
         boolean releaseOriginal = true;
         PacketType<?> originalType = null;
         ServerboundPacket originalPacket = null;
-        boolean observeOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
+        var observed = connection.player();
+        boolean observeOnly = observed != null
+                ? observed.isObserveOnly()
+                : CultAPI.INSTANCE.getConfigManager().isObserveOnly();
         try {
             var phase = connection.phase(PacketDirection.SERVERBOUND);
             connection.observePacket(PacketDirection.SERVERBOUND, phase, frame);

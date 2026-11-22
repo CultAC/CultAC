@@ -16,7 +16,6 @@
 package ac.cult.cultac.checks.impl.combat;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
@@ -265,7 +264,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         }
 
         if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid)
-                || (tooManyAttacks && !CultAPI.INSTANCE.getConfigManager().isObserveOnly())) {
+                || (tooManyAttacks && !player.isObserveOnly())) {
             debug(() -> {
                 return "cancelled, many=" + tooManyAttacks + ", invalid=" + knownInvalid;
             });

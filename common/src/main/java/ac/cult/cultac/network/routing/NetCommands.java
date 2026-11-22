@@ -2,6 +2,8 @@ package ac.cult.cultac.network.routing;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
+import ac.cult.cultac.checks.info.CheckCatalog;
+import ac.cult.cultac.command.commands.CultReload;
 import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.network.routing.NetworkPlatform.Holder;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
@@ -75,6 +77,8 @@ final class NetCommands {
 
     static final String PERMISSION = "cult.net";
     static final String STATUS = "status";
+    static final String RELOAD = "reload";
+    static final String CHECK = "check";
     static final String PROXIES = "proxies";
     /** Names an instance whose id reads as a target keyword. */
     static final String ID_PREFIX = "id:";
@@ -116,7 +120,56 @@ final class NetCommands {
     }
 
     /** The commands this build runs; a target refuses the others as unsupported. */
-    static final Map<String, Spec> COMMANDS = Map.of(STATUS, new Spec(STATUS, 5_000, true, List::isEmpty));
+    static final Map<String, Spec> COMMANDS = Map.of(
+            STATUS,
+            new Spec(STATUS, 5_000, true, List::isEmpty),
+            RELOAD,
+            new Spec(RELOAD, 20_000, false, List::isEmpty),
+            NetSettings.OBSERVE,
+            new Spec(
+                    NetSettings.OBSERVE,
+                    10_000,
+                    true,
+                    NetCommands::switchArgs,
+                    args -> switched(NetSettings.OBSERVE, args)),
+            NetSettings.PUNISH,
+            new Spec(
+                    NetSettings.PUNISH,
+                    10_000,
+                    true,
+                    NetCommands::switchArgs,
+                    args -> switched(NetSettings.PUNISH, args)),
+            CHECK,
+            new Spec(
+                    CHECK, 10_000, true, args -> args.size() == 2 && onOff(args.get(1)) != null, NetCommands::checked));
+
+    /** {@code on} or {@code off}, ignoring case, as a value; null for anything else. */
+    static @Nullable Boolean onOff(String arg) {
+        return switch (arg.toLowerCase(Locale.ROOT)) {
+            case NetSettings.ON -> true;
+            case NetSettings.OFF -> false;
+            default -> null;
+        };
+    }
+
+    /** The arguments of {@code observe} and {@code punish}: none to show the setting, else on or off. */
+    private static boolean switchArgs(List<String> args) {
+        return args.isEmpty() || (args.size() == 1 && onOff(args.getFirst()) != null);
+    }
+
+    /** What {@code observe} or {@code punish} sets with {@code args}: {@code key} on or off, nothing when bare. */
+    private static NetSettings.@Nullable Setting switched(String key, List<String> args) {
+        return args.isEmpty() ? null : new NetSettings.Setting(key, Boolean.TRUE.equals(onOff(args.getFirst())));
+    }
+
+    /** What {@code check <check> <on|off>} sets; null when no check of this build has that name. */
+    private static NetSettings.@Nullable Setting checked(List<String> args) {
+        CheckCatalog.Entry entry = CheckCatalog.named(args.getFirst());
+        return entry == null
+                ? null
+                : new NetSettings.Setting(
+                        NetSettings.CHECK + entry.stableKey(), Boolean.TRUE.equals(onOff(args.get(1))));
+    }
 
     /** What {@code network.commands.webhook} posts to {@code update.webhook}. */
     enum Webhook {
@@ -129,8 +182,8 @@ final class NetCommands {
 
     /** {@code network.commands}: whether this instance takes network commands, which ones, and what it posts. */
     record Options(boolean enabled, Set<String> accept, Webhook webhook) {
-        static final Options DEFAULT =
-                new Options(true, Set.of("status", "reload", "observe", "toggle", "check", "update"), Webhook.SUMMARY);
+        static final Options DEFAULT = new Options(
+                true, Set.of("status", "reload", "observe", "toggle", "check", "punish", "update"), Webhook.SUMMARY);
 
         Options {
             accept = Set.copyOf(accept);
@@ -222,6 +275,19 @@ final class NetCommands {
         default @Nullable Path configFile() {
             return null;
         }
+
+        /** Reloads config.yml into every generation here; completes with whether that succeeded. */
+        default CompletableFuture<Boolean> reload() {
+            return CompletableFuture.completedFuture(true);
+        }
+
+        /**
+         * Brings the loaded config, which this instance's own mode reads, to {@code observeOnly}, the network's value for
+         * this instance, once config.yml holds it; completes with whether that succeeded.
+         */
+        default CompletableFuture<Boolean> observeOnly(boolean observeOnly) {
+            return CompletableFuture.completedFuture(true);
+        }
     }
 
     static final Local CULT = new Local() {
@@ -245,8 +311,8 @@ final class NetCommands {
             }
             return new State(
                     true,
-                    CultAPI.INSTANCE.getConfigManager().isObserveOnly(),
-                    List.of(),
+                    NetworkModule.setting(NetSettings.OBSERVE).on(),
+                    List.copyOf(NetworkModule.checksOff(null)),
                     baseline().pins(),
                     online.size(),
                     CultAPI.INSTANCE.getPlayerDataManager().size() + elsewhere,
@@ -319,6 +385,18 @@ final class NetCommands {
             return directory().resolve("config.yml");
         }
 
+        @Override
+        public CompletableFuture<Boolean> reload() {
+            return CultReload.reloadAsync();
+        }
+
+        @Override
+        public CompletableFuture<Boolean> observeOnly(boolean observeOnly) {
+            return CultAPI.INSTANCE.getConfigManager().isObserveOnly() == observeOnly
+                    ? CompletableFuture.completedFuture(true)
+                    : CultReload.reloadAsync();
+        }
+
         // Every generation of the host reads config.yml from, and keeps the shared settings in, the host's folder.
         private Path directory() {
             HostContext host = RuntimeEnvironment.host();
@@ -373,35 +451,57 @@ final class NetCommands {
             new Text("net-refused-permission", "&crefused: %sender% lacks %node% here");
 
     /** What each result code reads as. */
-    private static final Map<String, Text> REPLIES = Map.of(
-            STATUS,
-            new Text(
-                    "net-status-line",
-                    "&f%build% &8· &7%role% &8· &f%players% &7players, &f%inspected% &7inspected, &f%dormant% &7dormant"
-                            + " &8· &7%toggle% &8· &7%observe% &8· &7checks off: &f%checks% &8· &f%prediction%"
-                            + " &7ms/prediction &8· &7up &f%uptime% &7(engine &f%engine_uptime%&7, %generations%"
-                            + " generations)"),
-            "status-backends",
-            new Text(
-                    "net-status-backends-line",
-                    "&f%build% &8· &7%role% &8· &7on &f%backends%&7: &f%players% &7players, &f%inspected% &7inspected"
-                            + " &8· &7%toggle% &8· &7%observe% &8· &7checks off: &f%checks%"),
-            "refused-permission",
-            REFUSED_PERMISSION,
-            "refused-disabled",
-            new Text("net-refused-disabled", "&crefused: this server does not take network commands"),
-            "refused-not-accepted",
-            new Text("net-refused-not-accepted", "&crefused: this server does not take %cmd% over the network"),
-            "refused-unsupported",
-            new Text("net-refused-unsupported", "&crefused: this server's build cannot run %cmd%"),
-            "refused-invalid",
-            new Text("net-refused-invalid", "&crefused: %cmd% does not take these arguments"),
-            "refused-busy",
-            new Text("net-refused-busy", "&crefused: too many network commands are running here"),
-            "refused-rate",
-            new Text("net-refused-rate", "&crefused: too many network commands from %instance% lately"),
-            "failed",
-            new Text("net-failed", "&cfailed: %reason%"));
+    private static final Map<String, Text> REPLIES = Map.ofEntries(
+            Map.entry(
+                    STATUS,
+                    new Text(
+                            "net-status-line",
+                            "&f%build% &8· &7%role% &8· &f%players% &7players, &f%inspected% &7inspected, &f%dormant%"
+                                    + " &7dormant &8· &7%toggle% &8· &7%observe% &8· &7%punish% &8· &7checks off:"
+                                    + " &f%checks% &8· &f%prediction% &7ms/prediction &8· &7up &f%uptime% &7(engine"
+                                    + " &f%engine_uptime%&7, %generations% generations)")),
+            Map.entry(
+                    "status-backends",
+                    new Text(
+                            "net-status-backends-line",
+                            "&f%build% &8· &7%role% &8· &7on &f%backends%&7: &f%players% &7players, &f%inspected%"
+                                    + " &7inspected &8· &7%toggle% &8· &7%observe% &8· &7%punish% &8· &7checks off:"
+                                    + " &f%checks%")),
+            Map.entry("refused-permission", REFUSED_PERMISSION),
+            Map.entry(
+                    "refused-disabled",
+                    new Text("net-refused-disabled", "&crefused: this server does not take network commands")),
+            Map.entry(
+                    "refused-not-accepted",
+                    new Text(
+                            "net-refused-not-accepted", "&crefused: this server does not take %cmd% over the network")),
+            Map.entry(
+                    "refused-unsupported",
+                    new Text("net-refused-unsupported", "&crefused: this server's build cannot run %cmd%")),
+            Map.entry(
+                    "refused-invalid",
+                    new Text("net-refused-invalid", "&crefused: %cmd% does not take these arguments")),
+            Map.entry(
+                    "refused-busy",
+                    new Text("net-refused-busy", "&crefused: too many network commands are running here")),
+            Map.entry(
+                    "refused-rate",
+                    new Text("net-refused-rate", "&crefused: too many network commands from %instance% lately")),
+            Map.entry("failed", new Text("net-failed", "&cfailed: %reason%")),
+            Map.entry("reloaded", new Text("reloaded", "%prefix% &fConfig has been reloaded.")),
+            Map.entry("reload-failed", new Text("reload-failed", "%prefix% &cFailed to reload config.")),
+            Map.entry("pinned", new Text("net-pinned", "&enot changed: pinned by %env%")),
+            Map.entry("observe-state", new Text("net-observe-state", "&f%players%: %state%")),
+            Map.entry("observe-applied", new Text("net-observe-applied", "&f%players%: now %state%")),
+            Map.entry(
+                    "observe-failed",
+                    new Text(
+                            "net-observe-failed",
+                            "&c%players%: set to %state%, but reloading failed; see the console")),
+            Map.entry("punish-state", new Text("net-punish-state", "&f%players%: %state%")),
+            Map.entry("punish-applied", new Text("net-punish-applied", "&f%players%: now %state%")),
+            Map.entry("check-applied", new Text("net-check-applied", "&f%check% %state% &7(%players%)")),
+            Map.entry("check-unknown", new Text("net-check-unknown", "&cno check %check% here")));
 
     private final NetworkService service;
     private final LongSupplier clock;
@@ -472,6 +572,11 @@ final class NetCommands {
         if (sender instanceof RemoteCommandSource || !holds(sender, spec.permission())) {
             sender.sendMessage(
                     REFUSED_PERMISSION.render(sender, Map.of("sender", sender.getName(), "node", spec.permission())));
+            return none;
+        }
+        if (spec.name().equals(CHECK) && setting == null) {
+            sender.sendMessage(line(
+                    sender, service.instanceId(), Reply.of(false, "check-unknown", Map.of("check", args.getFirst()))));
             return none;
         }
         if (setting != null && !service.netSettings().caughtUp()) {
@@ -835,15 +940,134 @@ final class NetCommands {
     private CompletionStage<Reply> run(Received request, @Nullable List<String> backends) {
         return switch (request.cmd()) {
             case STATUS -> CompletableFuture.completedFuture(backends == null ? status() : status(backends));
+            case RELOAD ->
+                local.reload()
+                        .exceptionally(failure -> false)
+                        .thenApply(ok -> Reply.of(ok, ok ? "reloaded" : "reload-failed", Map.of()));
+            case NetSettings.OBSERVE, NetSettings.PUNISH -> switched(request, backends);
+            case CHECK -> CompletableFuture.completedFuture(check(request, backends));
             default ->
                 CompletableFuture.completedFuture(Reply.of(false, "refused-unsupported", Map.of("cmd", request.cmd())));
         };
     }
 
+    /**
+     * {@code observe} or {@code punish}: bare, shows the setting; else answers with the value its record, merged on
+     * receipt, left. Observe for the whole instance answers once config.yml holds the value and the loaded config took
+     * it.
+     */
+    private CompletionStage<Reply> switched(Received request, @Nullable List<String> backends) {
+        String key = request.cmd();
+        String players = players(backends);
+        if (request.args().isEmpty())
+            return CompletableFuture.completedFuture(Reply.of(
+                    true, key + "-state", Map.of("players", players, "state", described(key, backends, true))));
+        String pin = service.netSettings().value(key).pin();
+        if (pin != null) return CompletableFuture.completedFuture(Reply.of(false, "pinned", Map.of("env", pin)));
+        if (backends != null || !key.equals(NetSettings.OBSERVE))
+            return CompletableFuture.completedFuture(Reply.of(
+                    true, key + "-applied", Map.of("players", players, "state", described(key, backends, false))));
+        NetSettings settings = service.netSettings();
+        return settings.settled()
+                .thenCompose(ignored -> local.observeOnly(settings.value(key).on()))
+                .exceptionally(failure -> false)
+                .thenApply(ok -> Reply.of(
+                        ok,
+                        ok ? "observe-applied" : "observe-failed",
+                        Map.of("players", players, "state", described(key, null, false))));
+    }
+
+    /** {@code check <check> <on|off>}: answers with the value its record, merged on receipt, left. */
+    private Reply check(Received request, @Nullable List<String> backends) {
+        NetSettings.Record record = request.setting();
+        CheckCatalog.Entry entry = record == null
+                ? CheckCatalog.named(request.args().getFirst())
+                : CheckCatalog.byStableKey(record.k().substring(NetSettings.CHECK.length()));
+        if (entry == null)
+            return Reply.of(
+                    false, "check-unknown", Map.of("check", request.args().getFirst()));
+        String key = NetSettings.CHECK + entry.stableKey();
+        String pin = service.netSettings().value(key).pin();
+        if (pin != null) return Reply.of(false, "pinned", Map.of("env", pin));
+        return Reply.of(
+                true,
+                "check-applied",
+                Map.of("check", entry.name(), "state", described(key, backends, false), "players", players(backends)));
+    }
+
+    /** Whom a command ran for: every player here, or those on {@code backends}. */
+    private static String players(@Nullable List<String> backends) {
+        return backends == null ? "all players" : "players on " + listed(backends);
+    }
+
+    /** {@code names}, the first {@value #MAX_LISTED_BACKENDS} of them and how many more. */
+    private static String listed(List<String> names) {
+        String listed = String.join(", ", names.subList(0, Math.min(names.size(), MAX_LISTED_BACKENDS)));
+        return names.size() > MAX_LISTED_BACKENDS ? listed + " +" + (names.size() - MAX_LISTED_BACKENDS) : listed;
+    }
+
+    /**
+     * {@code key}'s value for every player here or, given {@code backends}, for those on each of them, with where it
+     * comes from when {@code source}; backends whose players differ are listed with each value.
+     */
+    private String described(String key, @Nullable List<String> backends, boolean source) {
+        NetSettings settings = service.netSettings();
+        if (backends == null) return describe(key, settings.value(key), source);
+        Map<String, List<String>> groups = new LinkedHashMap<>();
+        for (String backend : backends)
+            groups.computeIfAbsent(describe(key, settings.value(key, backend), source), ignored -> new ArrayList<>())
+                    .add(backend);
+        return grouped(groups);
+    }
+
+    private static String describe(String key, NetSettings.Value value, boolean source) {
+        String state = switch (key) {
+            case NetSettings.OBSERVE -> value.on() ? "observe-only" : "enforcing";
+            case NetSettings.PUNISH -> value.on() ? "punishing" : "punishments paused";
+            default -> value.on() ? NetSettings.ON : NetSettings.OFF;
+        };
+        if (value.pin() != null) return state + " (pinned by " + value.pin() + ")";
+        if (!source) return state;
+        NetSettings.Record record = value.record();
+        return record == null || record.by().equals(NetSettings.HAND_EDIT)
+                ? state + " (from config.yml)"
+                : state + " (set by " + record.by() + " for " + record.t() + ")";
+    }
+
+    /** The names of the checks switched off for every player here or, given {@code backends}, on each of them. */
+    private String checksOff(@Nullable List<String> backends) {
+        NetSettings settings = service.netSettings();
+        if (backends == null) return checkNames(settings.checksOff(null));
+        Map<String, List<String>> groups = new LinkedHashMap<>();
+        for (String backend : backends)
+            groups.computeIfAbsent(checkNames(settings.checksOff(backend)), ignored -> new ArrayList<>())
+                    .add(backend);
+        return grouped(groups);
+    }
+
+    private static String checkNames(Collection<String> stableKeys) {
+        if (stableKeys.isEmpty()) return "none";
+        List<String> names = new ArrayList<>();
+        for (String key : stableKeys) {
+            CheckCatalog.Entry entry = CheckCatalog.byStableKey(key);
+            names.add(entry == null ? key : entry.name());
+        }
+        return String.join(", ", names);
+    }
+
+    /** The one value of {@code groups}, else each value with the backends it holds on. */
+    private static String grouped(Map<String, List<String>> groups) {
+        if (groups.size() == 1) return groups.keySet().iterator().next();
+        List<String> parts = new ArrayList<>();
+        for (Map.Entry<String, List<String>> group : groups.entrySet())
+            parts.add(group.getKey() + " on " + listed(group.getValue()));
+        return String.join("; ", parts);
+    }
+
     private Reply status() {
         State state = local.state(service.platform());
         Map<String, String> params = new LinkedHashMap<>(local.details());
-        settings(params, state);
+        settings(params, state, null);
         params.put("players", String.valueOf(state.players()));
         params.put("inspected", String.valueOf(state.inspected()));
         params.put("dormant", String.valueOf(state.dormant()));
@@ -864,27 +1088,24 @@ final class NetCommands {
             if (local.inspected(platform, player.uuid())) inspected++;
         }
         Map<String, String> params = new LinkedHashMap<>();
-        settings(params, local.state(platform));
-        String listed = String.join(", ", backends.subList(0, Math.min(backends.size(), MAX_LISTED_BACKENDS)));
-        if (backends.size() > MAX_LISTED_BACKENDS) listed += " +" + (backends.size() - MAX_LISTED_BACKENDS);
-        params.put("backends", listed);
+        settings(params, local.state(platform), backends);
+        params.put("backends", listed(backends));
         params.put("players", String.valueOf(players));
         params.put("inspected", String.valueOf(inspected));
         return Reply.of(true, "status-backends", params);
     }
 
-    /** The build, role and settings a status line shows. */
-    private void settings(Map<String, String> params, State state) {
+    /**
+     * The build, role and settings a status line shows, for every player here or, given {@code backends}, for those on
+     * each of them.
+     */
+    private void settings(Map<String, String> params, State state, @Nullable List<String> backends) {
         params.put("build", String.valueOf(local.build()));
         params.put("role", service.proxy() ? RosterCache.PROXY : RosterCache.SERVER);
         params.put("toggle", state.checking() ? "checking" : "dormant");
-        params.put(
-                "observe",
-                (state.observe() ? "observe-only" : "enforcing")
-                        + (state.pins().contains(BaseConfigManager.OBSERVE_ONLY_ENV)
-                                ? " (pinned by " + BaseConfigManager.OBSERVE_ONLY_ENV + ")"
-                                : ""));
-        params.put("checks", state.off().isEmpty() ? "none" : String.join(", ", state.off()));
+        params.put("observe", described(NetSettings.OBSERVE, backends, false));
+        params.put("punish", described(NetSettings.PUNISH, backends, false));
+        params.put("checks", checksOff(backends));
     }
 
     private void answer(Received request, Webhook webhook, Reply reply) {
@@ -969,11 +1190,18 @@ final class NetCommands {
 
     private static Component line(Sender sender, String instance, Reply reply) {
         Text text = REPLIES.get(reply.code());
-        String line = text == null ? MessageUtil.miniMessageSafe(reply.text()) : fill(text.template(), reply.params());
+        String line = text == null
+                ? MessageUtil.miniMessageSafe(reply.text())
+                : fill(unprefixed(text.template()), reply.params());
         String format = LINE.template()
                 .replace("%instance%", MessageUtil.miniMessageSafe(instance))
                 .replace("%line%", line);
         return MessageUtil.miniMessage(MessageUtil.replacePlaceholders(sender, format));
+    }
+
+    /** {@code template} without {@code %prefix%}: an answer shows after its instance's name. */
+    private static String unprefixed(String template) {
+        return template.replace("%prefix%", "").strip();
     }
 
     private static String fill(String template, Map<String, String> values) {
@@ -1202,7 +1430,7 @@ final class NetCommands {
 
         private static String english(String code, Map<String, String> params) {
             Text text = REPLIES.get(code);
-            String line = text == null ? code : text.fallback();
+            String line = text == null ? code : unprefixed(text.fallback());
             for (Map.Entry<String, String> value : params.entrySet())
                 line = line.replace("%" + value.getKey() + "%", value.getValue());
             return COLOR.matcher(line).replaceAll("");

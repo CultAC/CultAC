@@ -1,7 +1,6 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.SimAction;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.InventoryPackets;
@@ -55,7 +54,7 @@ public final class BlockActionReconciler {
 
     public void rejectPlace(ServerboundUseItemOn packet) {
         // Observe-only forwards a rejected action, so the server acknowledges it.
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (player.isObserveOnly()) {
             forwarded(packet.sequence());
             return;
         }
@@ -96,7 +95,7 @@ public final class BlockActionReconciler {
      * as an ABORT with its sequence, which ends the session without destroying the block and acknowledges the sequence.
      */
     public void abortServerDestroy(PacketReceiveEvent<ServerboundPlayerAction> event, ServerboundPlayerAction packet) {
-        if (player.isBedrockMovement() || CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        if (player.isBedrockMovement() || player.isObserveOnly()) return;
         if (packet.action() != PlayerAction.STOP_DESTROY_BLOCK
                 || !packet.position().equals(serverDestroyPos)) return;
         event.setCancelled(false);
@@ -106,7 +105,7 @@ public final class BlockActionReconciler {
 
     public void rejectDig(ServerboundPlayerAction packet) {
         if (player.isBedrockMovement()) return;
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (player.isObserveOnly()) {
             forwarded(packet.sequence());
             return;
         }

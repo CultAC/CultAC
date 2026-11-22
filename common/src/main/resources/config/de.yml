@@ -347,7 +347,7 @@ network:
     # Whether this server runs network commands sent from other servers.
     enabled: true
     # The network commands this server runs; it refuses the others.
-    accept: [status, reload, observe, toggle, check, update]
+    accept: [status, reload, observe, toggle, check, punish, update]
     # What goes to update.webhook: summary (the sending server posts each command and its summary), every (each
     # server posts the command it ran) or none.
     webhook: summary

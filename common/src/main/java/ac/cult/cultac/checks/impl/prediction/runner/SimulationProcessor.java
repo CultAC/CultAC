@@ -1115,7 +1115,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private void prepareFlaggedPrediction(PredictionResult result, boolean createProfileVerboseLog) {
         if (result.isExempt() || result.getFlagSeverity() <= 0.0) return;
         this.dumpRecentFlagsWhenDebugging(result);
-        if (!CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (!player.isObserveOnly()) {
             this.player.getSetbackTeleportUtil().sender().resyncWorld();
         }
         boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);

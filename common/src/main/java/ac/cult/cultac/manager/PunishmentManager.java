@@ -200,9 +200,8 @@ public class PunishmentManager implements ConfigReloadable {
                             String cmd = replaceAlertPlaceholders(command, vl, check, shown);
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
-                            boolean withheld =
-                                    CultAPI.INSTANCE.getConfigManager().isObserveOnly()
-                                            && !BUILTIN_ACTIONS.contains(command.action());
+                            boolean withheld = (player.isObserveOnly() || player.isPunishmentsPaused())
+                                    && !BUILTIN_ACTIONS.contains(command.action());
                             boolean canceled = withheld
                                     || COMMAND_CHANNEL.fire(
                                             ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),

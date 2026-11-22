@@ -170,6 +170,13 @@ class NetCommandsTest {
         done.join();
     }
 
+    /** Runs {@code command} on {@code target} from {@code service} for {@code sender} and waits for its summary. */
+    private static void run(NetworkService service, Sender sender, String target, String command, String... args) {
+        CompletableFuture<Void> done = service.netCommands().issue(sender, target, command, List.of(args));
+        service.netCommands().expireAll().join();
+        done.join();
+    }
+
     /** {@code status} from Mod on p3 for {@code target}, granting {@code granted}. */
     private static JsonObject command(String target, String... granted) {
         JsonObject sender = new JsonObject();
@@ -277,8 +284,9 @@ class NetCommandsTest {
         assertTrue(heard("status sent to 3 instances (all)"), staff.plain().toString());
         assertTrue(
                 staff.plain()
-                        .contains("p3 » b1 · proxy · 0 players, 0 inspected, 0 dormant · checking · enforcing · checks"
-                                + " off: none · 0.100 ms/prediction · up 5m (engine 4m, 1 generations)"),
+                        .contains(
+                                "p3 » b1 · proxy · 0 players, 0 inspected, 0 dormant · checking · enforcing · punishing ·"
+                                        + " checks off: none · 0.100 ms/prediction · up 5m (engine 4m, 1 generations)"),
                 staff.plain().toString());
         assertTrue(staff.plain().stream().anyMatch(line -> line.startsWith("p7 » b1 · server · 1 players")));
         assertTrue(heard("2 of 3 answered"), staff.plain().toString());
@@ -313,7 +321,7 @@ class NetCommandsTest {
         assertTrue(
                 staff.plain()
                         .contains("p3 » b1 · proxy · on BRG_1, BRG_2: 1 players, 1 inspected · checking · enforcing"
-                                + " · checks off: none"),
+                                + " · punishing · checks off: none"),
                 staff.plain().toString());
         assertTrue(heard("1 of 1 answered"), staff.plain().toString());
 
@@ -323,6 +331,30 @@ class NetCommandsTest {
         assertTrue(
                 heard("No proxy or server is named BRG_9; nothing was sent."),
                 staff.plain().toString());
+    }
+
+    @Test
+    void punishAndCheckSwitchThePlayersOnTheBackendsNamedAndStatusShowsEachBackend() {
+        NetworkService proxy = started(
+                "p3", new Players().proxy(null).backends("BRG_1", "BRG_2").with(ALICE, "Alice", "BRG_1"), new Net());
+        NetworkService server = started("p7", new Players(), new Net());
+        networks.tick(proxy);
+        Staff mod = new Staff(Set.of("cult.net", "cult.net.status", "cult.net.punish", "cult.net.check"));
+
+        run(server, mod, "BRG_1", "punish", "off");
+        run(server, mod, "BRG_1", "check", "speed", "off");
+        run(server, mod, "p3", "check", "NoSuchCheck", "off");
+        run(server, mod, "brg_*", "status");
+
+        List<String> heard = mod.plain();
+        assertTrue(heard.contains("p3 » players on BRG_1: now punishments paused"), heard.toString());
+        assertTrue(heard.contains("p3 » Speed off (players on BRG_1)"), heard.toString());
+        assertTrue(heard.contains("p7 » no check NoSuchCheck here"), heard.toString());
+        assertTrue(
+                heard.contains("p3 » b1 · proxy · on BRG_1, BRG_2: 1 players, 1 inspected · checking · enforcing ·"
+                        + " punishments paused on BRG_1; punishing on BRG_2 · checks off: Speed on BRG_1; none on"
+                        + " BRG_2"),
+                heard.toString());
     }
 
     @Test
@@ -350,7 +382,7 @@ class NetCommandsTest {
                 };
         new CultNet().register(manager, null);
         assertEquals(List.of("brg_1,BRG_2", "brg_1,BRG_*"), suggest(manager, "cult net brg_1,b"));
-        assertEquals(List.of("status"), suggest(manager, "cult net BRG_1,p7 "));
+        assertEquals(List.of("check", "observe", "punish", "status"), suggest(manager, "cult net BRG_1,p7 "));
     }
 
     @Test

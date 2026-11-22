@@ -92,7 +92,7 @@ class ObserveOnlyTest {
 
     @Test
     void checksNeitherCancelNorSetBack() throws ReflectiveOperationException {
-        try (var ignored = installConfig(true)) {
+        try (var ignored = observing(player, true)) {
             Check check = probe();
             when(player.getSetbackTeleportUtil()).thenReturn(new SetbackTeleportUtil(player));
             assertFalse(check.shouldModifyPackets());
@@ -103,7 +103,7 @@ class ObserveOnlyTest {
 
     @Test
     void crashChecksDoNotCancelEither() throws ReflectiveOperationException {
-        try (var ignored = installConfig(true)) {
+        try (var ignored = observing(player, true)) {
             CrashH crash = new CrashH(player);
             crash.setEnabled(true);
             assertFalse(crash.shouldModifyPackets());
@@ -112,14 +112,15 @@ class ObserveOnlyTest {
 
     @Test
     void setbacksReturnBeforeTouchingThePlayer() throws ReflectiveOperationException {
-        try (var ignored = installConfig(true)) {
+        try (var ignored = observing(player, true)) {
             SetbackTeleportUtil setbacks = new SetbackTeleportUtil(player);
             SetbackFixtures.seedSafePosition(setbacks, new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO));
             setbacks.executeForceResync("test");
             setbacks.executeNonSimulatingSetback();
             assertFalse(setbacks.executeViolationSetback());
             assertFalse(setbacks.executeTooHighLatencySetback("test"));
-            verifyNoInteractions(player);
+            verify(player, atLeastOnce()).isObserveOnly();
+            verifyNoMoreInteractions(player);
         }
     }
 
@@ -131,8 +132,6 @@ class ObserveOnlyTest {
         when(config.getStringElse(eq("alerts-format"), anyString())).thenReturn("alert");
         when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List) List.of(new LinkedHashMap<>(
                 Map.of("checks", List.of("observeonlyprobe"), "commands", List.of("1:0 [alert]", "1:0 kick probe")))));
-        PunishmentManager punishments = new PunishmentManager(player);
-        punishments.reload(config);
 
         GrimPlugin plugin = mock(GrimPlugin.class);
         List<String> fired = new ArrayList<>();
@@ -143,15 +142,23 @@ class ObserveOnlyTest {
                     fired.add(command);
                     return cancelled;
                 });
-        try (var ignored = installConfig(true)) {
-            punishments.handleViolation(check);
-            punishments.handleAlert(player, "verbose", check);
+        try {
+            // Observing only, then enforcing with punishments paused.
+            for (boolean observeOnly : new boolean[] {true, false}) {
+                PunishmentManager punishments = new PunishmentManager(player);
+                punishments.reload(config);
+                when(player.isPunishmentsPaused()).thenReturn(!observeOnly);
+                try (var ignored = observing(player, observeOnly)) {
+                    punishments.handleViolation(check);
+                    punishments.handleAlert(player, "verbose", check);
+                }
+            }
         } finally {
             CultAPI.INSTANCE.getEventBus().unregisterAllListeners(plugin);
         }
 
-        assertEquals(List.of("alert"), fired);
-        verify(player).sendMessage(any(Component.class));
+        assertEquals(List.of("alert", "alert"), fired);
+        verify(player, times(2)).sendMessage(any(Component.class));
     }
 
     @Test
@@ -206,7 +213,7 @@ class ObserveOnlyTest {
                     fired.add(command);
                     return cancelled;
                 });
-        try (var ignored = installConfig(true)) {
+        try (var ignored = observing(player, true)) {
             punishments.handleViolation(check);
             punishments.handleAlert(player, "verbose", check);
         } finally {
@@ -226,8 +233,8 @@ class ObserveOnlyTest {
     @Test
     void anIgnoredServerTeleportLeavesNoSetback() throws ReflectiveOperationException {
         for (boolean mounted : new boolean[] {false, true}) {
-            try (var ignored = installConfig(true)) {
-                IgnoredTeleport teleport = ignoreServerTeleport(mounted);
+            try (var ignored = installConfig(false)) {
+                IgnoredTeleport teleport = ignoreServerTeleport(mounted, true);
                 assertFalse(teleport.setbacks().isPendingSetback(), "mounted=" + mounted);
                 assertTrue(teleport.setbacks().pendingTeleports.isEmpty(), "mounted=" + mounted);
                 assertFalse(teleport.resent(), "mounted=" + mounted);
@@ -236,8 +243,8 @@ class ObserveOnlyTest {
                         teleport.setbacks().safePosition().getPos(),
                         "mounted=" + mounted);
             }
-            try (var ignored = installConfig(false)) {
-                IgnoredTeleport teleport = ignoreServerTeleport(mounted);
+            try (var ignored = installConfig(true)) {
+                IgnoredTeleport teleport = ignoreServerTeleport(mounted, false);
                 assertTrue(teleport.setbacks().isPendingSetback(), "mounted=" + mounted);
                 assertEquals(!mounted, teleport.resent(), "mounted=" + mounted);
             }
@@ -247,7 +254,7 @@ class ObserveOnlyTest {
     @Test
     void aSetbackPendingWhenObserveOnlyStartsIsReleased() throws ReflectiveOperationException {
         try (var ignored = installConfig(false)) {
-            SetbackTeleportUtil setbacks = ignoreServerTeleport(false).setbacks();
+            SetbackTeleportUtil setbacks = ignoreServerTeleport(false, false).setbacks();
             SetbackFixtures.setBlockOffsets(setbacks, true);
             assertTrue(setbacks.isPendingSetback());
 
@@ -262,7 +269,7 @@ class ObserveOnlyTest {
     void worldResyncIsLeftToTheServer() throws ReflectiveOperationException {
         for (boolean observeOnly : new boolean[] {true, false}) {
             CultPlayer player = mock(CultPlayer.class);
-            try (var ignored = installConfig(observeOnly)) {
+            try (var ignored = observing(player, observeOnly)) {
                 ResyncWorldUtil.resyncPositions(player, 0, 64, 0, 1, 66, 1);
             }
             verify(player, times(observeOnly ? 0 : 1)).runSafely(any());
@@ -288,7 +295,7 @@ class ObserveOnlyTest {
                             user.getCultConnection().getObservedProtocol(),
                             20.0F)));
             var event = new PacketSendEvent<>(user, ConnectionPhase.PLAY, type, packet, false);
-            try (var ignored = installConfig(observeOnly)) {
+            try (var ignored = observing(player, observeOnly)) {
                 new PacketSelfMetadataListener().onSetEntityData(event, player, packet);
             }
             assertEquals(!observeOnly, event.isReplaced());
@@ -306,7 +313,7 @@ class ObserveOnlyTest {
                     .thenReturn(CompensatedWorld.UNKNOWN_SERVER_STATE);
             BlockPlace place = mock(BlockPlace.class);
             when(place.getPlacedBlockPos()).thenReturn(new BlockPos(0, 64, 0));
-            try (var ignored = installConfig(observeOnly)) {
+            try (var ignored = observing(player, observeOnly)) {
                 GhostBlockMitigation mitigation = new GhostBlockMitigation(player);
                 mitigation.onReload(config);
                 mitigation.onBlockPlace(place);
@@ -324,7 +331,7 @@ class ObserveOnlyTest {
                 set(player, "user", user);
                 doCallRealMethod().when(player).timedOut();
                 doCallRealMethod().when(player).withheld(any());
-                try (var ignored = installConfig(observeOnly, failOpen)) {
+                try (var ignored = observing(player, observeOnly, failOpen)) {
                     player.timedOut();
                 }
                 // fail-open does not apply: withholding pongs is the client's choice, not a failure of ours
@@ -341,7 +348,7 @@ class ObserveOnlyTest {
             set(player, "cancelledPackets", new AtomicInteger());
             set(player, "spamThreshold", 1);
             doCallRealMethod().when(player).onPacketCancel();
-            try (var ignored = installConfig(observeOnly, true)) {
+            try (var ignored = observing(player, observeOnly, true)) {
                 for (int i = 0; i < 4; i++) player.onPacketCancel();
             }
             verify(player, times(observeOnly ? 0 : 2)).disconnect(any());
@@ -372,7 +379,7 @@ class ObserveOnlyTest {
             when(player.getInventory()).thenReturn(inventory);
             when(inventory.settledServerSlot(36)).thenReturn(OfflineCultTestBootstrap.item("minecraft:stone"));
             CorrectingPlayerInventoryStorage storage = new CorrectingPlayerInventoryStorage(player, 46);
-            try (var ignored = installConfig(observeOnly)) {
+            try (var ignored = observing(player, observeOnly)) {
                 assertEquals(true, sync.invoke(storage, 36));
             }
             verify(inventory, times(observeOnly ? 0 : 1)).correctPlayerSlot(36);
@@ -395,7 +402,7 @@ class ObserveOnlyTest {
             InventoryClick click = new InventoryClick(0, 0, 36, 0, WindowClickType.PICKUP, Map.of(), null);
             var event = new PacketReceiveEvent<>(user(new EmbeddedChannel()), ConnectionPhase.PLAY, type, click);
             event.setCancelled(true);
-            try (var ignored = installConfig(observeOnly)) {
+            try (var ignored = observing(player, observeOnly)) {
                 new CheckManagerListener().onContainerClick(event, player, click);
             }
             verify(inventory, times(observeOnly ? 0 : 1)).resyncCancelledClick(click);
@@ -431,7 +438,7 @@ class ObserveOnlyTest {
                     new ServerboundInteract(99, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
             var event = new PacketReceiveEvent<>(
                     user(new EmbeddedChannel()), ConnectionPhase.PLAY, ServerboundPackets.INTERACT, attack);
-            try (var ignored = installConfig(observeOnly)) {
+            try (var ignored = observing(player, observeOnly)) {
                 PlayerReach reach = new PlayerReach(player, new ClientVisibilityProcessor(player));
                 reach.setEnabled(true);
                 @SuppressWarnings("unchecked")
@@ -446,8 +453,10 @@ class ObserveOnlyTest {
     /** {@code resent}: CultAC queued its own teleport on the connection. */
     private record IgnoredTeleport(SetbackTeleportUtil setbacks, boolean resent) {}
 
-    private static IgnoredTeleport ignoreServerTeleport(boolean mounted) throws ReflectiveOperationException {
+    private static IgnoredTeleport ignoreServerTeleport(boolean mounted, boolean observeOnly)
+            throws ReflectiveOperationException {
         CultPlayer player = mock(CultPlayer.class);
+        when(player.isObserveOnly()).thenReturn(observeOnly);
         EmbeddedChannel channel = new EmbeddedChannel();
         set(player, "user", user(channel));
         AtomicInteger received = new AtomicInteger(4);
@@ -502,6 +511,17 @@ class ObserveOnlyTest {
         check.setEnabled(true);
         check.violations = 5;
         return check;
+    }
+
+    /** The player observes only or enforces; the instance does the opposite, which the player's own mode overrides. */
+    private Restore observing(CultPlayer target, boolean observeOnly) throws ReflectiveOperationException {
+        return observing(target, observeOnly, false);
+    }
+
+    private Restore observing(CultPlayer target, boolean observeOnly, boolean failOpen)
+            throws ReflectiveOperationException {
+        when(target.isObserveOnly()).thenReturn(observeOnly);
+        return installConfig(!observeOnly, failOpen);
     }
 
     private Restore installConfig(boolean observeOnly) throws ReflectiveOperationException {
