@@ -31,9 +31,11 @@ public class VehicleF extends Check implements CheckListener {
     public void onPaddleBoat(
             PacketReceiveEvent<ServerboundPaddleBoat> event, CultPlayer player, ServerboundPaddleBoat packet) {
         // lastVehicleSwitch isn't updated by this time.
-        if (lastTickVehicle != player.compensatedEntities.getSelf().getRiding()) return;
+        PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
+        if (lastTickVehicle != riding) return;
 
-        KnownInput input = player.packetStateData.knownInput;
+        // AbstractBoat#controlBoat paddles by the keys of the boat's last AbstractBoat#setInput.
+        KnownInput input = riding == null ? KnownInput.DEFAULT : riding.boatInput;
         boolean expectedLeft = input.forward() || !input.left() && input.right();
         boolean expectedRight = input.forward() || input.left() && !input.right();
 
