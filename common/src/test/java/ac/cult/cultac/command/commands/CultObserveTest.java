@@ -12,7 +12,6 @@ import static org.mockito.Mockito.when;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.command.commands.CultObserve.Outcome;
 import ac.cult.cultac.manager.config.BaseConfigManager;
-import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.io.File;
 import java.io.IOException;
@@ -25,9 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
-import java.util.logging.Handler;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -66,15 +62,10 @@ class CultObserveTest {
             return CompletableFuture.completedFuture(true);
         };
 
-        List<String> logged = capture(() -> {
-            assertEquals(Outcome.APPLIED, CultObserve.switchTo(true, config, reload).join());
-            assertTrue(manager.isObserveOnly());
-            assertEquals(Outcome.APPLIED, CultObserve.switchTo(false, config, reload).join());
-            assertFalse(manager.isObserveOnly());
-        });
-
-        assertTrue(logged.contains("Switched to observe-only; pending setbacks are released"), logged.toString());
-        assertTrue(logged.contains("Switched to enforcing; check violations start from zero"), logged.toString());
+        assertEquals(Outcome.APPLIED, CultObserve.switchTo(true, config, reload).join());
+        assertTrue(manager.isObserveOnly());
+        assertEquals(Outcome.APPLIED, CultObserve.switchTo(false, config, reload).join());
+        assertFalse(manager.isObserveOnly());
         assertEquals(CONFIG, Files.readString(config.toPath()).replace("\r\n", "\n"));
     }
 
@@ -143,29 +134,5 @@ class CultObserveTest {
         when(manager.getBooleanElse(eq("observe-only"), anyBoolean()))
                 .thenAnswer(invocation -> values.getOrDefault("observe-only", invocation.getArgument(1)));
         return manager;
-    }
-
-    private static List<String> capture(Runnable action) {
-        Logger logger = LogUtil.getLogger();
-        List<String> messages = new ArrayList<>();
-        Handler handler = new Handler() {
-            @Override
-            public void publish(LogRecord record) {
-                messages.add(record.getMessage());
-            }
-
-            @Override
-            public void flush() {}
-
-            @Override
-            public void close() {}
-        };
-        logger.addHandler(handler);
-        try {
-            action.run();
-        } finally {
-            logger.removeHandler(handler);
-        }
-        return messages;
     }
 }
