@@ -101,6 +101,21 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         onClientOpenOrCloseWindow(false);
     }
 
+    /**
+     * LocalPlayer#handlePortalTransitionEffect sets no screen in place of a LecternScreen, which is no
+     * AbstractContainerScreen: the client sends no container_close for it. A lectern window the client has handled
+     * closes; one whose open_screen it may not have handled yet stays possible.
+     */
+    public void onPortalClosedScreen() {
+        int transaction = player.lastTransactionReceived.get();
+        boolean closed = possibleOpenWindows.removeIf(
+                window -> window != null && window.type() == MenuType.LECTERN && window.transaction() < transaction);
+        if (!closed) return;
+        possibleOpenWindows.add(null);
+        onClose();
+        closeTransaction = transaction;
+    }
+
     public void maybeClose() {
         possibleOpenWindows.add(null);
         closeTransaction = player.lastTransactionReceived.get();

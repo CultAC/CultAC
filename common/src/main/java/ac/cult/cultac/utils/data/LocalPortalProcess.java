@@ -11,12 +11,14 @@ public final class LocalPortalProcess {
     private int cooldown;
     private boolean insideThisTick;
     private boolean closedScreen;
+    private boolean screenCloseTaken;
 
     /** A new LocalPlayer: no PortalProcessor, and the portal cooldown its CommonPlayerSpawnInfo carries. */
     public void onLocalPlayerCreated(int portalCooldown) {
         cooldown = portalCooldown;
         insideThisTick = false;
         closedScreen = false;
+        screenCloseTaken = false;
     }
 
     /**
@@ -27,10 +29,21 @@ public final class LocalPortalProcess {
     public void onAiStep(boolean insideNetherPortal) {
         closedScreen = insideThisTick;
         insideThisTick = false;
+        screenCloseTaken = false;
         if (cooldown > 0) cooldown--;
         if (!insideNetherPortal) return;
         if (cooldown > 0) cooldown = DIMENSION_CHANGING_DELAY;
         else insideThisTick = true;
+    }
+
+    /**
+     * Whether the LocalPlayer#aiStep after the last {@link #onAiStep} starts with handlePortalTransitionEffect closing
+     * the open screen; true at most once for that aiStep.
+     */
+    public boolean takeScreenCloseOfNextAiStep() {
+        if (!insideThisTick || screenCloseTaken) return false;
+        screenCloseTaken = true;
+        return true;
     }
 
     /** Whether the last LocalPlayer#aiStep closed the screen for the nether portal the player stood in. */
