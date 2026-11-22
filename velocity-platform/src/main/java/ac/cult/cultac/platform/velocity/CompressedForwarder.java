@@ -75,7 +75,6 @@ final class CompressedForwarder extends ChannelDuplexHandler {
     private CompressedKeep linkKeep;
     // An installed keep is held by its pipeline; these leave a removed keep and its backend to the collector.
     private @Nullable WeakReference<CompressedKeep> linkRef, endedKeep;
-
     private long forwarded, forwardedWireBytes, forwardedInflatedBytes;
     private long notMarked, indicesChanged, guardMismatch, failures, forwardFailures, decoderUnlinked;
 
@@ -202,7 +201,6 @@ final class CompressedForwarder extends ChannelDuplexHandler {
         return threshold;
     }
 
-    /** The client channel's allocator. */
     ByteBufAllocator clientAllocator() {
         return inbound.channel().alloc();
     }
@@ -522,7 +520,6 @@ final class CompressedForwarder extends ChannelDuplexHandler {
         linkStatus = "linked";
     }
 
-    /** Whether {@code keep} is the current link's keep. */
     boolean linksTo(CompressedKeep keep) {
         return linkKeep == keep;
     }
@@ -614,13 +611,9 @@ final class CompressedForwarder extends ChannelDuplexHandler {
     }
 
     /**
-     * The mode, status, link and counters; an inactive backend channel's link reads {@code backend-closed}. The hit
-     * rate is forwarded frames (hand-offs to the encoder's context that returned normally) over those plus the marked
-     * buffer's writes passed to the encoder for changed indices, changed content or a failed comparison, each counted
-     * when it is passed on; a write that fails at the forwarder's own release of its input, or whose hand-off throws,
-     * is in neither part. {@code not marked} counts every other buffer written while enabled, and
-     * {@code decoder unlinked} the published writes passed on while the client decoder's neighbours did not both link
-     * to it, outside the hit rate.
+     * The mode, status, link and counters. The hit rate is forwarded frames over those plus marked writes passed to the
+     * encoder for changed indices, changed content or a failed comparison; {@code not marked} and
+     * {@code decoder unlinked} are outside it.
      */
     String stats() {
         long recompressed = indicesChanged + guardMismatch + forwardFailures;

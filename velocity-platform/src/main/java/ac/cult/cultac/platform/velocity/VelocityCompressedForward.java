@@ -286,7 +286,6 @@ final class VelocityCompressedForward {
         try {
             LogUtil.warn(refusal.warning);
         } catch (Throwable failure) {
-            // The switch-off path runs no logger; its throw reaches neither the caller nor the loop.
         }
     }
 
@@ -299,7 +298,6 @@ final class VelocityCompressedForward {
             try {
                 channel.eventLoop().execute(warning);
             } catch (Throwable failure) {
-                // The switch-off path hands nothing off; no throw of the hand-off may reach the read or write.
             }
         };
     }
@@ -356,10 +354,8 @@ final class VelocityCompressedForward {
     }
 
     /**
-     * Velocity's handles a decode of the decoder class {@code type} completes with: {@code account(int)} of its
-     * {@code packetLimiter} field's type, and {@value #VELOCITY_PRECONDITIONS}'s {@code checkFrame} and
-     * {@value #VELOCITY_QUIET_EXCEPTION}'s constructor as the decoder's loader resolves them; null when one cannot be
-     * bound.
+     * The limiter's {@code account(int)}, {@code checkFrame} and quiet-exception constructor handles that a decode of
+     * decoder class {@code type} completes with, resolved through its loader; null when one cannot be bound.
      */
     static @Nullable CompressedKeep.Decode decode(Class<?> type) {
         try {
@@ -720,7 +716,6 @@ final class VelocityCompressedForward {
                 if (backend != null) link(forwarder, client, backend, decoderClass, compressors, decode, refused);
             });
         } catch (Throwable failure) {
-            // No throw of the hand-off may reach the caller.
         }
     }
 

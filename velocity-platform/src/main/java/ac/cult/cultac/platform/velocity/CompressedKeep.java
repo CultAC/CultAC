@@ -292,7 +292,6 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
         ended = true;
     }
 
-    /** Whether the attached context reads removed from its pipeline. */
     boolean removed() {
         ChannelHandlerContext keep = keepContext;
         return keep != null && keep.isRemoved();
@@ -396,11 +395,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     }
 
     /**
-     * Completes Velocity's decode of {@code frame}, whose claim {@code n} the keep has read and which it has retained,
-     * as {@code MinecraftCompressDecoder.decode} and {@code MessageToMessageDecoder.channelRead} complete it: inflates
-     * into the decoder's allocation, checks the length, accounts the limiter, releases the keep's reference and the
-     * input, and fires the result from {@code output}, the decoder's context, with the mark when it can be forwarded, or
-     * delivers the failure from that context. Every buffer the keep allocates comes from {@code alloc}.
+     * Completes Velocity's decode of the retained {@code frame} claiming {@code n} as the decoder would, and fires the
+     * result from {@code output}, the decoder's context, marked when it can be forwarded, or delivers the failure from
+     * that context. Every buffer the keep allocates comes from {@code alloc}.
      */
     private void decode(
             ChannelHandlerContext ctx,
@@ -599,11 +596,9 @@ final class CompressedKeep extends ChannelInboundHandlerAdapter {
     }
 
     /**
-     * Frames the claim {@code n} and the {@code length} body bytes of {@code frame} at {@code body} into {@code client},
-     * inflates that copy of the body into {@code inflated} with the decoder's compressor, raising what the compressor
-     * raises, moves {@code frame}'s reader as the compressor moves its source and copies the result into {@code copy}.
-     * Returns {@link #NOT_INFLATED} when the copy cannot be made in the shape the compressor reads, {@link #INFLATED}
-     * when the inflate returned but the frame cannot be forwarded, else {@link #HELD}.
+     * Frames {@code frame}'s body into {@code client}, inflates that copy into {@code inflated}, raising what the
+     * compressor raises, and copies the result into {@code copy}: {@link #NOT_INFLATED} when the framed copy cannot be
+     * read by the compressor, {@link #INFLATED} when the inflate returned but cannot be forwarded, else {@link #HELD}.
      */
     private int heldInflate(
             Codec codec, ByteBuf frame, int body, int length, int n, ByteBuf client, ByteBuf inflated, ByteBuf copy)
