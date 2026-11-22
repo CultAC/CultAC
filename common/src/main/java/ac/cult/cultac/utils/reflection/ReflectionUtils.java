@@ -1,9 +1,6 @@
 package ac.cult.cultac.utils.reflection;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import lombok.experimental.UtilityClass;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 @UtilityClass
@@ -13,44 +10,11 @@ public class ReflectionUtils {
         return getClass(className) != null;
     }
 
-    public static @Nullable Method getMethod(
-            @NotNull Class<?> clazz, @NotNull String methodName, Class<?>... parameterTypes) {
-        try {
-            return clazz.getMethod(methodName, parameterTypes);
-        } catch (NoSuchMethodException e) {
-            while (clazz != null) {
-                try {
-                    return clazz.getDeclaredMethod(methodName, parameterTypes);
-                } catch (NoSuchMethodException ignored) {
-                    clazz = clazz.getSuperclass();
-                }
-            }
-        }
-
-        return null;
-    }
-
     public static @Nullable Class<?> getClass(String className) {
         try {
             return Class.forName(className);
         } catch (ClassNotFoundException e) {
             return null;
         }
-    }
-
-    /**
-     * Finds a field by name, searching up the superclass hierarchy.
-     */
-    public static Field getField(Class<?> clazz, String fieldName) {
-        while (clazz != null) {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                return field;
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            }
-        }
-        return null;
     }
 }
