@@ -122,7 +122,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             transports.set(transport);
             this.bridge =
                     new BridgeService(proxy, nativePlugin, transport::channel, manager::connection, plugin.getLogger());
-            this.dormancy = new VelocityDormancy(proxy, manager, transport, bridge, () -> cloudBackends);
+            this.dormancy = new VelocityDormancy(proxy, transport, bridge, () -> cloudBackends);
             transport.dormancy(dormancy);
             this.server = new VelocityServer(proxy, senders, bridge::tps);
             this.network = new VelocityNetwork(proxy, nativePlugin, transport::channel);
@@ -373,13 +373,14 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             if (session == null || !ac.cult.cultac.runtime.RuntimeEnvironment.owns(session))
                 throw new IllegalStateException("Missing transferred Bedrock session");
             GeyserBedrockBridgeRuntime.adoptSession(session, continued);
+        } else if (dormancy.adoptDormant(player, channel, state)) {
+            return;
         }
         transport.attach(
                 player, channel, bedrockOwner(channel), ac.cult.cultac.network.ConnectionContinuation.from(state));
         bridge.adopted(player);
         CloudBackends backends = cloudBackends;
         if (backends != null) backends.adopted(player);
-        dormancy.adopted(channel);
     }
 
     java.util.concurrent.CompletionStage<Void> disconnect(Channel channel) {

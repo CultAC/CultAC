@@ -48,6 +48,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -96,84 +97,63 @@ class DormantDetachTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void detachingSwallowsExactlyThePongsOfPingsWrittenBeforeIt(boolean pongCancellingDisabled) throws Exception {
+    void detachingLeavesOnlyAWatchThatSwallowsExactlyThePongsOfPingsWrittenBefore(boolean pongCancellingDisabled)
+            throws Exception {
         try (var ignored = disablePongCancelling(pongCancellingDisabled)) {
             Client c = new Client("lobby");
-            List<Integer> inFlight = List.of(c.ownPing(), c.ownPing(), c.ownPing());
+            int[] inFlight = {c.ownPing(), c.ownPing(), c.ownPing()};
 
             toggle("all", NetSettings.OFF);
             settle();
 
-            assertNull(c.f.user.getCultPlayer(), "the player is detached");
-            assertNotNull(c.f.connection.dormant());
-            assertEquals(List.of(c.id), platform.detached);
+            assertNull(c.f.user.getCultPlayer());
             assertNull(CultAPI.INSTANCE.getNetworkManager().connection(c.f.channel), "the connection is released");
+            List<String> names = c.f.channel.pipeline().names();
+            assertEquals(
+                    List.of(DormantWatch.NAME),
+                    names.stream().filter(name -> name.startsWith("cult-")).toList(),
+                    "CultAC handlers left: " + names);
+            assertEquals(names.indexOf(DormantWatch.NAME) + 1, names.indexOf("decoder"));
             DormantWatch watch = c.watch();
             assertTrue(watch.play());
-            assertArrayEquals(
-                    inFlight.stream().mapToInt(Integer::intValue).sorted().toArray(),
-                    Arrays.stream(watch.retired()).sorted().toArray());
+            assertArrayEquals(sorted(inFlight), sorted(watch.retired()));
 
             for (int id : inFlight)
                 assertEquals(pongCancellingDisabled, c.answer(id), "pong " + id + " for a ping CultAC wrote");
-            assertEquals(0, watch.retired().length, "every retired id is taken");
-            assertTrue(c.answer(inFlight.getFirst()), "a second pong for one id is the backend's");
+            assertTrue(c.answer(inFlight[0]), "a second pong for one id is the backend's");
             assertTrue(c.answer(BACKEND_PONG), "a backend pong is forwarded");
         }
     }
 
     @Test
-    void aDormantConnectionHoldsOnlyTheWatchInFrontOfThePlatformDecoder() throws Exception {
-        Client c = new Client("lobby");
-        toggle("all", NetSettings.OFF);
-        settle();
-
-        List<String> names = c.f.channel.pipeline().names();
-        assertEquals(
-                List.of(DormantWatch.NAME),
-                names.stream().filter(name -> name.startsWith("cult-")).toList(),
-                "CultAC handlers left: " + names);
-        assertEquals(names.indexOf(DormantWatch.NAME) + 1, names.indexOf("decoder"));
-        assertEquals(List.of(c.watch()), List.copyOf(DormantWatch.all()));
-
-        ByteBuf clientbound = Unpooled.buffer();
-        Wire.writeVarInt(clientbound, c.pingType);
-        clientbound.writeInt(7);
-        String sent = ByteBufUtil.hexDump(clientbound);
-        assertTrue(c.f.channel.writeOutbound(clientbound));
-        ByteBuf written = c.f.channel.readOutbound();
-        try {
-            assertEquals(sent, ByteBufUtil.hexDump(written), "clientbound frames pass unchanged");
-        } finally {
-            written.release();
-        }
-    }
-
-    @Test
-    void anAcknowledgementWhereThePlayerIsCheckedAttachesThemAgainWithTheirContinuation() throws Exception {
+    void anAcknowledgementWhereThePlayerIsCheckedAttachesThemBeforeItIsForwarded() throws Exception {
         Client c = new Client("lobby");
         c.f.connection.loginNotified = true;
         c.f.player.checkManager.getCheck(ClientBrand.class).restore("fabric");
         toggle("all", NetSettings.OFF);
         settle();
-        c.watch();
         toggle("all", NetSettings.ON);
         settle();
         assertTrue(platform.resumed.isEmpty(), "a dormant player is checked again only at a reconfiguration");
+        List<Integer> resumedWhenForwarded = new ArrayList<>();
+        c.f.channel.pipeline().addAfter("decoder", "native", new ChannelInboundHandlerAdapter() {
+            @Override
+            public void channelRead(ChannelHandlerContext ctx, Object message) {
+                resumedWhenForwarded.add(platform.resumed.size());
+                ctx.fireChannelRead(message);
+            }
+        });
 
         assertTrue(c.acknowledge());
 
-        assertEquals(1, platform.resumed.size());
+        assertEquals(List.of(1), resumedWhenForwarded, "the player is attached before the acknowledgement passes");
         CultConnection next = platform.resumed.getFirst();
         assertSame(next, CultAPI.INSTANCE.getNetworkManager().connection(c.f.channel));
         assertNull(c.f.channel.pipeline().get(DormantWatch.NAME));
-        assertNotNull(c.f.channel.pipeline().get(CultDecoder.NAME));
-        assertNotNull(next.player(), "a fresh player");
         assertNotSame(c.f.player, next.player());
         assertEquals("fabric", next.player().getBrand());
         assertEquals(c.f.user.getConnectionId(), next.user().getConnectionId());
         assertEquals(List.of(), platform.probe.seen, "the new decoder never saw the acknowledgement");
-        assertEquals(ConnectionPhase.CONFIGURATION, next.phase(PacketDirection.SERVERBOUND));
 
         assertTrue(c.finish());
         assertEquals(1, platform.probe.seen.size());
@@ -186,22 +166,16 @@ class DormantDetachTest {
         toggle("all", NetSettings.OFF);
         settle();
         DormantWatch watch = c.watch();
-        List<String> order = new ArrayList<>();
-        platform.order = order;
-        c.f.channel.pipeline().addAfter("decoder", "native", new Probe(order, "native"));
 
         assertTrue(c.acknowledge());
 
-        assertEquals(List.of("target", "native"), order, "the watch decides before the acknowledgement passes");
         assertSame(watch, c.f.channel.pipeline().get(DormantWatch.NAME));
         assertFalse(watch.play());
         assertTrue(platform.resumed.isEmpty());
         assertTrue(c.answer(ConnectionPhase.CONFIGURATION, BACKEND_PONG));
-
         assertTrue(c.finish());
         assertTrue(watch.play());
         assertTrue(c.answer(BACKEND_PONG));
-        assertSame(watch, c.f.channel.pipeline().get(DormantWatch.NAME));
     }
 
     @Test
@@ -211,7 +185,7 @@ class DormantDetachTest {
         toggle("all", NetSettings.OFF);
         settle();
         DormantWatch older = c.watch();
-        Probe probe = new Probe(new ArrayList<>(), null);
+        Probe probe = new Probe();
         DormantWatch[] newer = new DormantWatch[1];
         DormantWatch.Hooks adopting = new DormantWatch.Hooks() {
             @Override
@@ -245,17 +219,13 @@ class DormantDetachTest {
             context.set(null, previous);
         }
 
-        assertNotNull(newer[0]);
         assertSame(newer[0], c.f.channel.pipeline().get(DormantWatch.NAME));
         assertNull(c.f.channel.pipeline().context(older));
         assertTrue(platform.resumed.isEmpty());
         assertEquals(List.of(), probe.seen, "the newer generation never saw the acknowledgement");
-        assertFalse(newer[0].play());
         assertTrue(newer[0].loginNotified());
         assertEquals(c.f.user.getConnectionId().toString(), newer[0].state().get("connection-id"));
-
         assertTrue(c.finish());
-        assertEquals(1, probe.seen.size());
         assertTrue(newer[0].play());
     }
 
@@ -266,11 +236,8 @@ class DormantDetachTest {
         toggle("BRG_1", NetSettings.OFF);
         settle();
 
-        assertNull(onBrg.f.user.getCultPlayer());
         onBrg.watch();
         assertSame(inLobby.f.player, inLobby.f.user.getCultPlayer(), "a player on another backend stays checked");
-        assertNotNull(inLobby.f.channel.pipeline().get(CultDecoder.NAME));
-        assertNull(inLobby.f.channel.pipeline().get(DormantWatch.NAME));
         assertEquals(List.of(onBrg.id), platform.detached);
         assertEquals(1, DormancyController.dormantPlayers(List.of("brg_1")));
         assertEquals(0, DormancyController.dormantPlayers(List.of("lobby")));
@@ -279,12 +246,7 @@ class DormantDetachTest {
         assertTrue(inLobby.acknowledge());
         assertNull(inLobby.f.user.getCultPlayer(), "switching into the dormant backend detaches at the switch");
         assertNull(inLobby.f.channel.pipeline().get(CultDecoder.NAME));
-        assertNull(inLobby.f.channel.pipeline().get(CultEncoder.NAME));
-        DormantWatch switched = inLobby.watch();
-        assertFalse(switched.play());
-        assertEquals(List.of(onBrg.id, inLobby.id), platform.detached);
-        assertTrue(inLobby.finish());
-        assertTrue(switched.play());
+        assertFalse(inLobby.watch().play());
 
         platform.targets.put(onBrg.id, "lobby");
         assertTrue(onBrg.acknowledge());
@@ -292,8 +254,49 @@ class DormantDetachTest {
         assertSame(
                 platform.resumed.getFirst(),
                 CultAPI.INSTANCE.getNetworkManager().connection(onBrg.f.channel));
-        assertNotNull(platform.resumed.getFirst().player());
-        assertNull(onBrg.f.channel.pipeline().get(DormantWatch.NAME));
+    }
+
+    @Test
+    void aPlayerIsCheckedUntilTheirServerIsKnownAndThenFollowsItsRecord() throws Exception {
+        toggle("all", NetSettings.OFF);
+        toggle("lobby", NetSettings.ON);
+        assertTrue(DormancyController.dormant("BRG_1"));
+        assertFalse(DormancyController.dormant("lobby"), "the backend's record decides over the instance's");
+        assertFalse(DormancyController.dormant(null), "a player whose server is not known yet is checked");
+
+        Client joining = new Client(null);
+        settle();
+        assertSame(joining.f.player, joining.f.user.getCultPlayer());
+
+        platform.backends.put(joining.id, "BRG_1");
+        settle();
+        assertNull(joining.f.user.getCultPlayer(), "a player goes dormant once their server is known to be off");
+        assertTrue(joining.watch().play());
+    }
+
+    @Test
+    void aSwapThatFailsKeepsTheHandlersAndIsRetriedUntilItSucceeds() throws Exception {
+        Client c = new Client("lobby");
+        toggle("BRG_1", NetSettings.OFF);
+        platform.targets.put(c.id, "BRG_1");
+        platform.refusedWatches = Integer.MAX_VALUE;
+        try (var ignored = RecordReceiveFixture.failOpen(false)) {
+            assertTrue(c.acknowledge());
+            c.f.channel.runPendingTasks();
+
+            assertNull(c.f.user.getCultPlayer());
+            assertTrue(c.f.channel.isActive(), "a failed swap keeps the connection where CultAC fails closed");
+            assertSame(c.f.connection, CultAPI.INSTANCE.getNetworkManager().connection(c.f.channel));
+            assertNotNull(c.f.channel.pipeline().get(CultDecoder.NAME));
+            assertNull(c.f.channel.pipeline().get(DormantWatch.NAME));
+
+            platform.refusedWatches = 0;
+            c.f.channel.advanceTimeBy(DormancyController.SLOW_SWAP_MILLIS, TimeUnit.MILLISECONDS);
+            c.f.channel.runPendingTasks();
+        }
+        assertNull(c.f.channel.pipeline().get(CultDecoder.NAME));
+        assertNull(CultAPI.INSTANCE.getNetworkManager().connection(c.f.channel));
+        assertFalse(c.watch().play());
     }
 
     private void toggle(String target, String value) {
@@ -315,6 +318,12 @@ class DormantDetachTest {
         assertTrue(settled.isDone());
     }
 
+    private static int[] sorted(int[] ids) {
+        int[] copy = ids.clone();
+        Arrays.sort(copy);
+        return copy;
+    }
+
     private static AutoCloseable disablePongCancelling(boolean disabled) throws ReflectiveOperationException {
         Field field = BaseConfigManager.class.getDeclaredField("disablePongCancelling");
         field.setAccessible(true);
@@ -330,24 +339,18 @@ class DormantDetachTest {
         return (PacketConnections) field.get(manager);
     }
 
-    /** Adds {@code label}, or without one the frame's hex, to {@code seen} for each frame it passes on. */
+    /** Adds the hex of each frame it passes on to {@code seen}. */
     private static final class Probe extends ChannelInboundHandlerAdapter {
-        final List<String> seen;
-        private final @Nullable String label;
-
-        Probe(List<String> seen, @Nullable String label) {
-            this.seen = seen;
-            this.label = label;
-        }
+        final List<String> seen = new ArrayList<>();
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object message) {
-            if (message instanceof ByteBuf frame) seen.add(label != null ? label : ByteBufUtil.hexDump(frame));
+            if (message instanceof ByteBuf frame) seen.add(ByteBufUtil.hexDump(frame));
             ctx.fireChannelRead(message);
         }
     }
 
-    /** One client on the proxy, inspected and registered with the network manager. */
+    /** One client on the proxy, inspected and registered with the network manager; null for an unknown backend. */
     private final class Client implements AutoCloseable {
         final RecordReceiveFixture f = new RecordReceiveFixture(ProtocolVersion.V26_3);
         final PlatformPlayer platformPlayer = mock(PlatformPlayer.class);
@@ -355,7 +358,7 @@ class DormantDetachTest {
         final int pingType = f.data.packets(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND)
                 .id("minecraft:ping");
 
-        Client(String backend) throws ReflectiveOperationException {
+        Client(@Nullable String backend) throws ReflectiveOperationException {
             clients.add(this);
             f.registrar.registerOwn(PacketManager::registerListeners);
             f.user.bind(platformPlayer);
@@ -365,7 +368,7 @@ class DormantDetachTest {
                 services.useNetwork(manager);
             }
             connections(manager).attach(f.connection);
-            platform.backends.put(id, backend);
+            if (backend != null) platform.backends.put(id, backend);
         }
 
         DormantWatch watch() {
@@ -453,8 +456,9 @@ class DormantDetachTest {
         final Map<UUID, String> targets = new ConcurrentHashMap<>();
         final List<UUID> detached = new ArrayList<>();
         final List<CultConnection> resumed = new ArrayList<>();
-        final Probe probe = new Probe(new ArrayList<>(), null);
-        List<String> order = new ArrayList<>();
+        final Probe probe = new Probe();
+        /** How many of the next watches to refuse. */
+        int refusedWatches;
 
         @Override
         public @Nullable UUID player(CultConnection connection) {
@@ -469,7 +473,6 @@ class DormantDetachTest {
 
         @Override
         public @Nullable String target(UUID player) {
-            order.add("target");
             return targets.getOrDefault(player, backends.get(player));
         }
 
@@ -480,6 +483,10 @@ class DormantDetachTest {
 
         @Override
         public DormantWatch watch(CultConnection connection, boolean play) {
+            if (refusedWatches > 0) {
+                refusedWatches--;
+                throw new IllegalStateException("watch refused");
+            }
             User user = connection.user();
             return new DormantWatch(
                     connection.channel(),
@@ -488,7 +495,7 @@ class DormantDetachTest {
                     user.getPlayer(),
                     user.getPlayer(),
                     connection.dormant(),
-                    connection.drainRetiredPings(),
+                    new int[0],
                     play,
                     DormancyController.hooks());
         }

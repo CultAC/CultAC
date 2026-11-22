@@ -3,7 +3,6 @@ package ac.cult.cultac.platform.velocity;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.ConnectionContinuation;
 import ac.cult.cultac.network.CultConnection;
-import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.DormantWatch;
 import ac.cult.cultac.network.routing.NetworkModule;
@@ -36,7 +35,6 @@ import org.jetbrains.annotations.Nullable;
  */
 final class VelocityDormancy implements DormancyController.Platform {
     private final ProxyServer proxy;
-    private final CultNetworkManager manager;
     private final VelocityTransport transport;
     private final BridgeService bridge;
     private final Supplier<@Nullable CloudBackends> cloudBackends;
@@ -45,12 +43,10 @@ final class VelocityDormancy implements DormancyController.Platform {
 
     VelocityDormancy(
             ProxyServer proxy,
-            CultNetworkManager manager,
             VelocityTransport transport,
             BridgeService bridge,
             Supplier<@Nullable CloudBackends> cloudBackends) {
         this.proxy = proxy;
-        this.manager = manager;
         this.transport = transport;
         this.bridge = bridge;
         this.cloudBackends = cloudBackends;
@@ -91,7 +87,7 @@ final class VelocityDormancy implements DormancyController.Platform {
                 player,
                 adapter.playerBinding().player(),
                 connection.dormant(),
-                connection.drainRetiredPings(),
+                new int[0],
                 play,
                 DormancyController.hooks());
     }
@@ -129,9 +125,13 @@ final class VelocityDormancy implements DormancyController.Platform {
         CultAPI.INSTANCE.getPlayerDataManager().dormantQuit(player, connectionId, platformPlayer);
     }
 
-    /** A Java player at PostLogin; true when they are dormant and got only a watch. On the channel's event loop. */
+    /**
+     * A Java player at PostLogin; true when they are dormant on the server Velocity is connecting them to and got only a
+     * watch. While that server is not known they are attached, and go dormant once Velocity names it. On the channel's
+     * event loop.
+     */
     boolean joined(Player player, Channel channel) {
-        if (!DormancyController.dormant(NetworkModule.backend(player.getUniqueId(), null))) return false;
+        if (!DormancyController.dormant(target(player))) return false;
         if (VelocityProtocols.disconnectUnsupportedClient(player, channel)) return true;
         watch(player, channel, Map.of(DormantWatch.LOGIN_NOTIFIED, false), new int[0]);
         return true;
@@ -157,10 +157,19 @@ final class VelocityDormancy implements DormancyController.Platform {
         attach(player, channel, state);
     }
 
-    /** An inspected connection adopted at its acknowledgement goes dormant there when it switches to a dormant server. */
-    void adopted(Channel channel) {
-        CultConnection connection = manager.connection(channel);
-        if (connection != null) DormancyController.detachAtAcknowledgement(connection);
+    /**
+     * Takes over an inspected Java connection an older generation released at its reconfiguration acknowledgement as a
+     * watch when its player is switching to a server where they are dormant, closing the session row that generation
+     * kept open; false, changing nothing, when they are checked there.
+     */
+    boolean adoptDormant(Player player, Channel channel, Map<String, Object> released) {
+        if (!DormancyController.dormant(target(player))) return false;
+        Map<String, Object> state = new HashMap<>(released);
+        state.put(DormantWatch.LOGIN_NOTIFIED, true);
+        if (state.get("connection-id") instanceof String id)
+            CultAPI.INSTANCE.getPlayerDataManager().dormantAdopted(player.getUniqueId(), UUID.fromString(id));
+        watch(player, channel, state, new int[0]);
+        return true;
     }
 
     /** Removes every watch of this generation. */
