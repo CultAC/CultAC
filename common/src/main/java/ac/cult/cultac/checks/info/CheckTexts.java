@@ -71,6 +71,27 @@ public final class CheckTexts {
         return checks.get(name);
     }
 
+    /**
+     * The explanation of {@code entry} where checks are named as {@code nameVersion} names them: the one under its name
+     * there, which a check merged into another since keeps, unless that is the newest name of a check; else the one
+     * under its newest name.
+     */
+    public @Nullable Text text(CheckCatalog.Entry entry, int nameVersion) {
+        String name = entry.name(nameVersion);
+        if (!name.equals(entry.name())) {
+            Text own = checks.get(name);
+            if (own != null && !isNewestName(name)) return own;
+        }
+        return checks.get(entry.name());
+    }
+
+    private static boolean isNewestName(String name) {
+        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
+            if (entry.name().equals(name)) return true;
+        }
+        return false;
+    }
+
     public Set<String> names() {
         return checks.keySet();
     }

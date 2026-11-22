@@ -210,6 +210,8 @@ import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -445,6 +447,11 @@ public final class CheckCatalog {
             check(CloudExploit.class, CLOUD),
             check(CloudExploitExperimental.class, CLOUD));
 
+    private record Query(String name, String latestName, int nameVersion) {}
+
+    // query runs for every alert; the catalog is searched once per name and name version.
+    private static final Map<Query, String> QUERIES = new ConcurrentHashMap<>();
+
     private CheckCatalog() {}
 
     private static Entry check(Class<? extends Check> type, CheckCategory category) {
@@ -475,6 +482,35 @@ public final class CheckCatalog {
             }
         }
         return null;
+    }
+
+    /**
+     * The check {@code query} names, whatever its case, as name version {@code nameVersion} names checks; of checks
+     * that version names alike, the one whose newest name it is. Else the check {@link #find(String)} gives.
+     */
+    public static @Nullable Entry find(String query, int nameVersion) {
+        Entry named = null;
+        for (Entry entry : ENTRIES) {
+            if (!entry.name(nameVersion).equalsIgnoreCase(query)
+                    && !entry.configName(nameVersion).equalsIgnoreCase(query)
+                    && !(hasAltName(entry) && entry.altName().equalsIgnoreCase(query))) continue;
+            if (entry.name().equalsIgnoreCase(query)) return entry;
+            if (named == null) named = entry;
+        }
+        return named != null ? named : find(query);
+    }
+
+    /**
+     * What {@link #find(String, int)} finds the check named {@code latestName} by: {@code name}, its name in
+     * {@code nameVersion}, unless that finds another check there, else {@code latestName}.
+     */
+    public static String query(String name, String latestName, int nameVersion) {
+        return QUERIES.computeIfAbsent(new Query(name, latestName, nameVersion), CheckCatalog::query);
+    }
+
+    private static String query(Query query) {
+        Entry found = find(query.name(), query.nameVersion());
+        return found != null && found.name().equals(query.latestName()) ? query.name() : query.latestName();
     }
 
     private static boolean hasAltName(Entry entry) {

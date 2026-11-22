@@ -361,8 +361,11 @@ update:
 #   1: AttackMobVisibility, bAttackMobVisibility. InteractEntityVisibility covers players too.
 #   2: AttackEntityVisibility, bAttackEntityVisibility. InteractPlayerVisibility covers players,
 #      InteractEntityVisibility everything else.
+#   3: MultiActionsC, D and H are InventoryA, B and C. MultiActionsI, J, K, L and S are one
+#      check, InventoryD, whose verbose names the action. MultiActionsM, N, O, P, Q, R and T
+#      are InventoryE to K. MultiActionsE, F and G are MultiActionsC, D and E.
 # A file without this line is read as version 1.
-check-name-version: 2
+check-name-version: 3
 
 config-flavor: V2
 config-version: 20

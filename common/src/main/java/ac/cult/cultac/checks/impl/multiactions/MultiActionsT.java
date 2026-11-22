@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -16,7 +17,8 @@ import ac.cult.cultac.utils.data.PacketStateData;
 // ClientPacketListener#handleSetHeldSlot sets the selected slot but leaves carriedIndex, so the next tick sends the
 // server's slot that way; with a screen open the client has no other way to change the selected slot.
 @CheckData(
-        name = "MultiActionsT",
+        name = "InventoryK",
+        formerNames = @FormerName(name = "MultiActionsT", until = 2),
         stableKey = "cult.multiactions.inventory_slot",
         description = "Changed the held slot while in an inventory",
         experimental = true)

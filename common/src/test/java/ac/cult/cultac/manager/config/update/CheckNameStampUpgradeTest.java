@@ -39,6 +39,8 @@ class CheckNameStampUpgradeTest {
         List<String> checks = (List<String>) combat.get("checks");
         assertTrue(checks.contains("AttackEntityVisibility"), checks.toString());
         assertFalse(checks.contains("AttackMobVisibility"), checks.toString());
+        List<String> misc = (List<String>) ((Map<String, Object>) groups.get("Misc")).get("checks");
+        assertTrue(misc.containsAll(List.of("MultiActions", "Inventory")), misc.toString());
     }
 
     @Test
