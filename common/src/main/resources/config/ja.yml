@@ -80,6 +80,15 @@ max-clicks-per-tick: 3
 # CULTAC_OBSERVE_ONLY wins over this key when it is true, 1 or yes, or false, 0 or no. /cult reload applies a change.
 observe-only: false
 
+# Check no one: players' packets pass through untouched and their check state is freed. CULTAC_DORMANT wins over this key when it is true, 1 or yes, or false, 0 or no.
+dormant: false
+
+# Checks that neither flag nor set back, by name. CULTAC_CHECKS_OFF, a comma-separated list of check names, keeps those checks off whatever this list says.
+checks-off: []
+
+# Withhold the punishment commands of punishments.yml; flags, alerts and setbacks keep running. CULTAC_PAUSE_PUNISHMENTS wins over this key when it is true, 1 or yes, or false, 0 or no.
+pause-punishments: false
+
 Simulation:
     # プレイヤーが違反をしていない場合、違反の度合いをどれだけ減らすかの倍率。
     # デフォルト設定のグラフ（x軸 = 秒, y軸 = 1/1000ブロック）: https://www.desmos.com/calculator/d4ufgxrxer

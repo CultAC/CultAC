@@ -160,3 +160,32 @@ Every server that runs a network command, and the server it was typed on, logs o
 it was typed on posts the command and its summary to `update.webhook`; with `every` each server that runs it posts its
 own line; `none` posts nothing. While network routing is off, a network command runs only on the server it is typed
 on, when the target names that server.
+
+### Settings that stay set
+
+A network command that changes a setting (whether a server checks players, observe-only mode, the checks switched
+off, whether punishment commands run) leaves a record: the setting, its value, the target, when it was issued and by
+whom. Every server keeps the same records. They travel with each server's announcements, and a server that starts, or
+comes back after losing the network, asks the others for theirs and catches up. When two records for one setting and
+target disagree, every server takes the one issued last; a record for `all` replaces the older records of its setting.
+
+A record for a backend name applies to the players on that backend, on every proxy that lists it, and to the backend
+itself when it runs CultAC under that name. A setting command may name a backend that no proxy lists yet: it notes
+that, and the setting applies once the backend appears.
+
+Each server stores the records in `network-state.json` in its data folder and writes the values that apply to it into
+`config.yml`, so they survive a restart without the network. Editing one of these keys in `config.yml` yourself changes
+it on that server only, when it starts or on `/cult reload`; a later network command still wins. A server with
+`network.commands.enabled: false`, or whose `accept` list lacks the command that changes a setting, keeps its own
+`config.yml` value for it, while still keeping and passing on the records.
+
+| Key | Default | Environment variable | Meaning |
+|---|---|---|---|
+| `dormant` | `false` | `CULTAC_DORMANT` | Check no one. |
+| `observe-only` | `false` | `CULTAC_OBSERVE_ONLY` | Flag and alert without acting. |
+| `checks-off` | `[]` | `CULTAC_CHECKS_OFF` (a comma list) | Checks that neither flag nor set back. |
+| `pause-punishments` | `false` | `CULTAC_PAUSE_PUNISHMENTS` | Withhold the punishment commands of `punishments.yml`. |
+
+The environment variables pin a setting on their server: `true`, `1` or `yes` and `false`, `0` or `no` hold it at that
+value, and `CULTAC_CHECKS_OFF` keeps the checks it lists off. The network's records still arrive and are kept, but do
+not change a pinned setting, and `status` shows the pin.

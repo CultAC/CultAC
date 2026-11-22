@@ -22,6 +22,12 @@ public class BaseConfigManager {
 
     public static final String OBSERVE_ONLY_ENV = "CULTAC_OBSERVE_ONLY";
     public static final String OBSERVE_ONLY_KEY = "observe-only";
+    public static final String DORMANT_ENV = "CULTAC_DORMANT";
+    public static final String DORMANT_KEY = "dormant";
+    public static final String CHECKS_OFF_ENV = "CULTAC_CHECKS_OFF";
+    public static final String CHECKS_OFF_KEY = "checks-off";
+    public static final String PAUSE_PUNISHMENTS_ENV = "CULTAC_PAUSE_PUNISHMENTS";
+    public static final String PAUSE_PUNISHMENTS_KEY = "pause-punishments";
 
     private final List<Pattern> ignoredClientPatterns = new ArrayList<>();
 
@@ -30,6 +36,21 @@ public class BaseConfigManager {
 
     @Getter
     private boolean observeOnly = false;
+
+    /** {@code dormant} as config.yml sets it; the network's shared settings and {@code CULTAC_DORMANT} decide. */
+    @Getter
+    private boolean dormant = false;
+
+    /** {@code checks-off} as config.yml lists it; the network's shared settings and {@code CULTAC_CHECKS_OFF} decide. */
+    @Getter
+    private List<String> checksOff = List.of();
+
+    /**
+     * {@code pause-punishments} as config.yml sets it; the network's shared settings and
+     * {@code CULTAC_PAUSE_PUNISHMENTS} decide.
+     */
+    @Getter
+    private boolean pausePunishments = false;
 
     @Getter
     private String prefix = "&bCult &8»";
@@ -152,6 +173,9 @@ public class BaseConfigManager {
                             ? "Switched to observe-only; pending setbacks are released"
                             : "Switched to enforcing; check violations start from zero");
         }
+        dormant = config.getBooleanElse(DORMANT_KEY, false);
+        checksOff = names(config.getStringListElse(CHECKS_OFF_KEY, List.of()));
+        pausePunishments = config.getBooleanElse(PAUSE_PUNISHMENTS_KEY, false);
 
         prefix = config.getStringElse("prefix", "&bCult &8»");
 
@@ -209,13 +233,43 @@ public class BaseConfigManager {
 
     /** The mode {@code CULTAC_OBSERVE_ONLY} pins, or null when the config key decides. */
     public static @Nullable Boolean observeOnlyPin(Function<String, String> env) {
-        String value = env.apply(OBSERVE_ONLY_ENV);
+        return pin(env, OBSERVE_ONLY_ENV);
+    }
+
+    /** The value {@code CULTAC_DORMANT} pins {@code dormant} to, or null when it pins nothing. */
+    public static @Nullable Boolean dormantPin(Function<String, String> env) {
+        return pin(env, DORMANT_ENV);
+    }
+
+    /** The value {@code CULTAC_PAUSE_PUNISHMENTS} pins {@code pause-punishments} to, or null when it pins nothing. */
+    public static @Nullable Boolean pausePunishmentsPin(Function<String, String> env) {
+        return pin(env, PAUSE_PUNISHMENTS_ENV);
+    }
+
+    /** The checks {@code CULTAC_CHECKS_OFF}, a comma list, pins off; empty when it is unset or blank. */
+    public static List<String> checksOffPin(Function<String, String> env) {
+        String value = env.apply(CHECKS_OFF_ENV);
+        return value == null ? List.of() : names(List.of(value.split(",")));
+    }
+
+    /** {@code name}'s value when it reads true/1/yes or false/0/no, else null. */
+    private static @Nullable Boolean pin(Function<String, String> env, String name) {
+        String value = env.apply(name);
         if (value == null) return null;
         return switch (value.strip().toLowerCase(Locale.ROOT)) {
             case "true", "1", "yes" -> true;
             case "false", "0", "no" -> false;
             default -> null;
         };
+    }
+
+    private static List<String> names(@Nullable List<String> listed) {
+        if (listed == null) return List.of();
+        List<String> names = new ArrayList<>();
+        for (String name : listed) {
+            if (name != null && !name.isBlank() && !names.contains(name.strip())) names.add(name.strip());
+        }
+        return List.copyOf(names);
     }
 
     public static List<String> resolveCommandRoots(@Nullable ConfigManager config, Consumer<String> warn) {

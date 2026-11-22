@@ -243,6 +243,7 @@ net-usage: "%prefix% &cUse /%command% net <target> <command>. A target is all, p
 net-off: "%prefix% &eNetwork routing is off on this server, so network commands reach this server only."
 net-busy: "%prefix% &cA network command is still running; try again in a few seconds."
 net-unknown: "%prefix% &cNo proxy or server is named %term%; nothing was sent."
+net-not-listed: "%prefix% &eNo proxy lists %term%; the setting applies when it appears."
 net-backend-term: "%prefix% &c%cmd% runs on CultAC instances only; %term% is a backend server."
 net-sent: "%prefix% &7%cmd% sent to %count% instances (%target%)"
 net-reply: "&b%instance% &8» &f%line%"

@@ -54,8 +54,10 @@ import org.jetbrains.annotations.Nullable;
  * every instance {@code target} names ({@link Target}). {@value #CMD} carries it from the issuer, broadcast when the
  * target can reach instances the issuer has not heard from or names several, direct when it names one, and over the
  * in-process bus when the issuer is a target itself: {@code {id, cmd, args, target, scope, origin, sender:{u, n,
- * console}, granted}}. {@code scope} lists the target's terms that name backend servers; a proxy that a term names
- * only through its backends runs the command for the players on those backends. Each target answers with
+ * console}, granted, setting}}. {@code scope} lists the target's terms that name backend servers; a proxy that a term
+ * names only through its backends runs the command for the players on those backends. {@code setting}, sent by a
+ * command that sets one, is its {@link NetSettings} record, which the issuer merged first and every instance hearing
+ * the command merges when the sender held the command's node. Each target answers with
  * {@value #REPLY}, {@code {id, final, ok, code, params, text}}; the issuer shows {@code code} with {@code params} in
  * its own messages, and {@code text}, English, for a code it does not know. Of an instance's generations only the
  * current one runs a command, and only once per id. A target refuses unless {@code network.commands} lets it and the
@@ -89,9 +91,19 @@ final class NetCommands {
 
     /**
      * One allowlisted command: how long its issuer waits for the answers, whether a target may name backend servers
-     * for it, and which arguments it takes.
+     * for it, which arguments it takes, and the shared setting they set, null for none. A setting's target may name
+     * what no roster lists yet, as the setting applies once that appears.
      */
-    record Spec(String name, long replyMillis, boolean backends, Predicate<List<String>> valid) {
+    record Spec(
+            String name,
+            long replyMillis,
+            boolean backends,
+            Predicate<List<String>> valid,
+            Function<List<String>, NetSettings.@Nullable Setting> setting) {
+        Spec(String name, long replyMillis, boolean backends, Predicate<List<String>> valid) {
+            this(name, replyMillis, backends, valid, args -> null);
+        }
+
         String permission() {
             return PERMISSION + "." + name;
         }
@@ -184,6 +196,21 @@ final class NetCommands {
 
         /** Posts {@code line} to {@code update.webhook}; nothing while that is empty. */
         default void post(String line) {}
+
+        /** config.yml's values of the shared settings and the environment variables pinning them, as loaded now. */
+        default NetSettings.Baseline baseline() {
+            return NetSettings.Baseline.DEFAULT;
+        }
+
+        /** Where the shared settings are kept; null keeps them in memory only. */
+        default @Nullable Path stateFile() {
+            return null;
+        }
+
+        /** The config.yml the shared settings are written to and hand edits read from; null for none. */
+        default @Nullable Path configFile() {
+            return null;
+        }
     }
 
     static final Local CULT = new Local() {
@@ -205,14 +232,11 @@ final class NetCommands {
             for (OnlinePlayer player : online) {
                 if (platform.holder(player.uuid()) == Holder.OTHER) elsewhere++;
             }
-            List<String> pins = BaseConfigManager.observeOnlyPin(System::getenv) == null
-                    ? List.of()
-                    : List.of(BaseConfigManager.OBSERVE_ONLY_ENV);
             return new State(
                     true,
                     CultAPI.INSTANCE.getConfigManager().isObserveOnly(),
                     List.of(),
-                    pins,
+                    baseline().pins(),
                     online.size(),
                     CultAPI.INSTANCE.getPlayerDataManager().size() + elsewhere,
                     0);
@@ -260,6 +284,38 @@ final class NetCommands {
             if (hook == null) webhook = hook = new UpdateWebhook();
             hook.post(url, line, LogUtil::warn);
         }
+
+        @Override
+        public NetSettings.Baseline baseline() {
+            BaseConfigManager config = CultAPI.INSTANCE.getConfigManager();
+            return new NetSettings.Baseline(
+                    config.isDormant(),
+                    config.getConfig().getBooleanElse(BaseConfigManager.OBSERVE_ONLY_KEY, false),
+                    config.isPausePunishments(),
+                    config.getChecksOff(),
+                    BaseConfigManager.dormantPin(System::getenv),
+                    BaseConfigManager.observeOnlyPin(System::getenv),
+                    BaseConfigManager.pausePunishmentsPin(System::getenv),
+                    BaseConfigManager.checksOffPin(System::getenv));
+        }
+
+        @Override
+        public Path stateFile() {
+            return directory().resolve(NetSettings.FILE);
+        }
+
+        @Override
+        public Path configFile() {
+            return directory().resolve("config.yml");
+        }
+
+        // Every generation of the host reads config.yml from, and keeps the shared settings in, the host's folder.
+        private Path directory() {
+            HostContext host = RuntimeEnvironment.host();
+            return host == null
+                    ? CultAPI.INSTANCE.getGrimPlugin().getDataFolder().toPath()
+                    : host.directory();
+        }
     };
 
     /** A message key with its English text, which the bundled messages files repeat. */
@@ -284,6 +340,8 @@ final class NetCommands {
             new Text("net-busy", "%prefix% &cA network command is still running; try again in a few seconds.");
     private static final Text UNKNOWN =
             new Text("net-unknown", "%prefix% &cNo proxy or server is named %term%; nothing was sent.");
+    private static final Text NOT_LISTED =
+            new Text("net-not-listed", "%prefix% &eNo proxy lists %term%; the setting applies when it appears.");
     private static final Text BACKEND_TERM =
             new Text("net-backend-term", "%prefix% &c%cmd% runs on CultAC instances only; %term% is a backend server.");
     private static final Text SENT = new Text("net-sent", "%prefix% &7%cmd% sent to %count% instances (%target%)");
@@ -358,10 +416,19 @@ final class NetCommands {
      * and the summary; completes once the summary was shown, at once when nothing was sent.
      */
     CompletableFuture<Void> issue(Sender sender, String typed, String command, List<String> args) {
+        return issue(sender, typed, COMMANDS.get(command.toLowerCase(Locale.ROOT)), args);
+    }
+
+    /** {@link #issue(Sender, String, String, List)} of {@code spec}, null for a command this build does not run. */
+    CompletableFuture<Void> issue(Sender sender, String typed, @Nullable Spec spec, List<String> args) {
         CompletableFuture<Void> none = CompletableFuture.completedFuture(null);
-        Spec spec = COMMANDS.get(command.toLowerCase(Locale.ROOT));
         Target target = Target.parse(typed);
         if (spec == null || target == null || !acceptable(args) || !spec.valid().test(args)) {
+            usage(sender);
+            return none;
+        }
+        NetSettings.Setting setting = spec.setting().apply(args);
+        if (setting != null && target.text().length() > NetSettings.MAX_TARGET_LENGTH) {
             usage(sender);
             return none;
         }
@@ -372,10 +439,15 @@ final class NetCommands {
         }
         boolean bus = service.enabled();
         List<Known> known = known(bus);
+        List<String> unlisted = new ArrayList<>();
         for (Term term : target.terms()) {
             if (bus && !term.known(known)) {
-                sender.sendMessage(UNKNOWN.render(sender, Map.of("term", term.text())));
-                return none;
+                if (setting == null) {
+                    sender.sendMessage(UNKNOWN.render(sender, Map.of("term", term.text())));
+                    return none;
+                }
+                unlisted.add(term.text());
+                continue;
             }
             String backend = spec.backends() ? null : term.backendOnly(known);
             if (backend != null) {
@@ -410,16 +482,15 @@ final class NetCommands {
         remote.remove(self);
         boolean broadcast = bus && (target.open() || remote.size() > 1);
         UUID senderId = sender.getUniqueId() == null ? Sender.CONSOLE_UUID : sender.getUniqueId();
-        Request request = new Request(
-                UUID.randomUUID().toString(),
-                sender,
-                senderId,
-                target,
-                spec,
-                List.copyOf(args),
-                expected,
-                older,
-                broadcast);
+        String id = UUID.randomUUID().toString();
+        NetSettings.Record record =
+                setting == null ? null : service.netSettings().stamp(setting, target.text(), sender.getName(), id);
+        if (setting != null && record == null) {
+            usage(sender);
+            return none;
+        }
+        Request request =
+                new Request(id, sender, senderId, target, spec, List.copyOf(args), expected, older, broadcast);
         synchronized (this) {
             if (closed) {
                 off(sender);
@@ -432,6 +503,8 @@ final class NetCommands {
             inFlight.add(request.key);
             pending.put(request.id, request);
         }
+        if (record != null) service.netSettings().merge(List.of(record));
+        for (String term : unlisted) sender.sendMessage(NOT_LISTED.render(sender, Map.of("term", term)));
         sender.sendMessage(SENT.render(
                 sender, Map.of("cmd", spec.name(), "count", String.valueOf(expected.size()), "target", target.text())));
         request.logged("sent to " + expected.size());
@@ -445,7 +518,8 @@ final class NetCommands {
             request.finish();
             return request.done;
         }
-        JsonObject body = request.body(self, granted(sender), scope);
+        JsonObject body = request.body(self, granted(sender, spec), scope);
+        if (record != null) body.add("setting", record.toJson());
         if (here) service.sendLocal(CMD, body);
         if (broadcast) service.broadcast(CMD, body);
         else if (bus && remote.size() == 1) service.send(remote.iterator().next(), CMD, body);
@@ -600,10 +674,11 @@ final class NetCommands {
         return sender.isConsole() || sender.hasPermission(node);
     }
 
-    /** The {@code cult.net} nodes {@code sender} holds; all of them for the console. */
-    private static JsonArray granted(Sender sender) {
+    /** The {@code cult.net} nodes {@code sender} holds, {@code sent}'s included; all of them for the console. */
+    private static JsonArray granted(Sender sender, Spec sent) {
         Set<String> nodes = new TreeSet<>();
         nodes.add(PERMISSION);
+        nodes.add(sent.permission());
         for (Spec spec : COMMANDS.values()) nodes.add(spec.permission());
         JsonArray granted = new JsonArray();
         for (String node : nodes) {
@@ -616,6 +691,8 @@ final class NetCommands {
         if (!service.current()) return;
         Received request = Received.parse(envelope);
         if (request == null) return;
+        if (request.setting() != null && request.granted().contains(PERMISSION + "." + request.cmd()))
+            service.netSettings().merge(List.of(request.setting()));
         List<String> backends = null;
         if (!request.target().instanceWide(service.instanceId(), service.proxy())) {
             backends = Target.matching(service.backends(), request.scope());
@@ -1051,7 +1128,7 @@ final class NetCommands {
 
     /**
      * A command as a target received it; {@code origin} is the instance that sent it, {@code scope} the target's terms
-     * that name backend servers.
+     * that name backend servers, {@code setting} the record of the setting it sets, null for none.
      */
     private record Received(
             String id,
@@ -1063,7 +1140,8 @@ final class NetCommands {
             String name,
             UUID uuid,
             boolean console,
-            Set<String> granted) {
+            Set<String> granted,
+            NetSettings.@Nullable Record setting) {
         static @Nullable Received parse(Envelope envelope) {
             JsonObject body = envelope.body();
             try {
@@ -1089,6 +1167,7 @@ final class NetCommands {
                 }
                 JsonObject from = body.getAsJsonObject("sender");
                 if (target == null || !COMMAND_NAME.matcher(command).matches() || !acceptable(args)) return null;
+                NetSettings.Record setting = NetSettings.Record.parse(body.get("setting"));
                 return new Received(
                         id,
                         command,
@@ -1099,7 +1178,12 @@ final class NetCommands {
                         from.get("n").getAsString(),
                         UUID.fromString(from.get("u").getAsString()),
                         from.has("console") && from.get("console").getAsBoolean(),
-                        Set.copyOf(granted));
+                        Set.copyOf(granted),
+                        setting != null
+                                        && setting.id().equals(id)
+                                        && NetSettings.command(setting.k()).equals(command)
+                                ? setting
+                                : null);
             } catch (RuntimeException malformed) {
                 return null;
             }

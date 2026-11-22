@@ -46,7 +46,8 @@ import org.jetbrains.annotations.Nullable;
  * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and, at most every {@value #DELTA_PERIOD_MILLIS} ms, one delta
  * with the joins, quits, backend switches and brand changes reported since the last roster message, the last report
  * per player winning, or with a change in the servers verbose staff here cover or in this instance's state, which
- * every roster message lists with its role and build for network commands. Every generation of one host reports
+ * every roster message lists with its role and build for network commands, or with records new to the shared settings
+ * ({@link NetSettings}), which a full snapshot lists in full. Every generation of one host reports
  * into one shared map that only the current generation takes from, so a report made on a superseded generation rides
  * the current one's next roster message. The generation that drew the last roster number sends an empty snapshot when
  * it stops. The generations of one host check that they are current, draw the number and publish one at a time,
@@ -120,6 +121,7 @@ public final class NetworkService implements NetworkRouting {
     private final RemoteCommands commands;
     private final NetCommands.Local netLocal;
     private final NetCommands netCommands;
+    private final NetSettings netSettings;
     private final PlayerSearchNetwork searches;
     private volatile Function<UUID, Map<String, List<String>>> searchDetails = ignored -> Map.of();
     private final Map<String, Function<UUID, Map<String, List<String>>>> searchProviders;
@@ -131,6 +133,8 @@ public final class NetworkService implements NetworkRouting {
     private Set<String> verboseSent = Set.of();
     /** The state the last roster message listed; guarded by {@link #rosterOrder}. */
     private RosterCache.@Nullable State stateSent;
+    /** The shared settings' records as the last roster message left them; guarded by {@link #rosterOrder}. */
+    private Set<NetSettings.Record> settingsSent = Set.of();
     /** The last roster number this generation drew; guarded by {@link #rosterOrder}. */
     private long rosterDrawn = Long.MIN_VALUE;
     /** The {@value #REPORTS_KEY} map, a local one without a host; guarded by itself. */
@@ -182,6 +186,8 @@ public final class NetworkService implements NetworkRouting {
         this.netLocal = netLocal;
         this.netCommands = new NetCommands(this, clock, netLocal, host);
         this.netCommands.register();
+        this.netSettings = new NetSettings(this, clock, netLocal, host);
+        this.netSettings.register();
     }
 
     @SuppressWarnings("unchecked")
@@ -289,6 +295,7 @@ public final class NetworkService implements NetworkRouting {
             transport.start(
                     List.of(directChannel, broadcastChannel),
                     (channel, text) -> enqueue(text, channel.equals(broadcastChannel), false));
+            netSettings.start();
             publishRoster();
         }
         if (scheduler != null) {
@@ -320,7 +327,7 @@ public final class NetworkService implements NetworkRouting {
                     publish(
                             NetworkSettings.ALL,
                             RosterCache.TYPE,
-                            rosterBody(List.of(), true, List.of(), Set.of(), null));
+                            rosterBody(List.of(), true, List.of(), Set.of(), null, List.of()));
             }
             closing.execute(transport::close);
         }
@@ -328,6 +335,7 @@ public final class NetworkService implements NetworkRouting {
         if (receiver != null) receiver.shutdownNow();
         commands.close();
         netCommands.close();
+        netSettings.close();
         searches.close();
         if (host != null) searchProviders.remove(host.generationId(), searchDetails);
     }
@@ -452,13 +460,20 @@ public final class NetworkService implements NetworkRouting {
                 }
                 Set<String> wanted = Set.copyOf(verbose.get());
                 RosterCache.State state = state();
+                List<NetSettings.Record> records = netSettings.records();
+                List<NetSettings.Record> fresh = new ArrayList<>();
+                for (NetSettings.Record record : records) {
+                    if (!settingsSent.contains(record)) fresh.add(record);
+                }
                 if (changed.isEmpty()
                         && left.isEmpty()
                         && wanted.equals(verboseSent)
-                        && Objects.equals(state, stateSent)) return;
+                        && Objects.equals(state, stateSent)
+                        && fresh.isEmpty()) return;
                 verboseSent = wanted;
                 stateSent = state;
-                publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(changed, false, left, wanted, state));
+                settingsSent = Set.copyOf(records);
+                publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(changed, false, left, wanted, state, fresh));
             }
         } catch (RuntimeException failure) {
             LogUtil.warn("Network roster update failed", failure);
@@ -516,6 +531,10 @@ public final class NetworkService implements NetworkRouting {
         return netCommands;
     }
 
+    NetSettings netSettings() {
+        return netSettings;
+    }
+
     void sweepCommands() {
         try {
             commands.sweep();
@@ -533,23 +552,30 @@ public final class NetworkService implements NetworkRouting {
             Set<String> wanted = Set.copyOf(verbose.get());
             Collection<OnlinePlayer> players = platform.onlinePlayers();
             RosterCache.State state = state();
+            List<NetSettings.Record> records = netSettings.records();
             verboseSent = wanted;
             stateSent = state;
-            publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(players, true, List.of(), wanted, state));
+            settingsSent = Set.copyOf(records);
+            publish(
+                    NetworkSettings.ALL,
+                    RosterCache.TYPE,
+                    rosterBody(players, true, List.of(), wanted, state, records));
         }
     }
 
     /**
-     * A roster body with this instance's role, build and {@code state}, and the next number drawn; called holding
-     * {@link #rosterOrder}.
+     * A roster body with this instance's role, build, {@code state} and the shared settings' {@code records}, and the
+     * next number drawn; called holding {@link #rosterOrder}.
      */
     private JsonObject rosterBody(
             Collection<OnlinePlayer> players,
             boolean full,
             Collection<UUID> left,
             Set<String> wanted,
-            RosterCache.@Nullable State state) {
+            RosterCache.@Nullable State state,
+            List<NetSettings.Record> records) {
         JsonObject body = RosterCache.body(players, full, left, wanted, nonce);
+        if (!records.isEmpty()) body.add(NetSettings.SETTINGS, NetSettings.json(records));
         body.addProperty(RosterCache.ROLE, platform.proxy() ? RosterCache.PROXY : RosterCache.SERVER);
         try {
             body.addProperty(RosterCache.BUILD, netLocal.build());
@@ -586,17 +612,28 @@ public final class NetworkService implements NetworkRouting {
         MessageTransport transport = this.transport;
         if (transport == null) return false;
         String text = codec.encode(Envelope.create(type, instanceId, to, clock.getAsLong(), body));
+        JsonObject sent = body;
         if (EnvelopeCodec.utf8Length(text) > EnvelopeCodec.MAX_BYTES
                 && type.equals(RosterCache.TYPE)
                 && body.has(RosterCache.BRANDS)) {
             JsonObject withoutBrands = body.deepCopy();
             withoutBrands.remove(RosterCache.BRANDS);
+            sent = withoutBrands;
             text = codec.encode(Envelope.create(type, instanceId, to, clock.getAsLong(), withoutBrands));
             if (EnvelopeCodec.utf8Length(text) <= EnvelopeCodec.MAX_BYTES && brandsLeftOut.compareAndSet(false, true))
                 LogUtil.warn("Network roster sent without client brands: "
                         + platform.onlinePlayers().size()
                         + " players with their brands do not fit in " + EnvelopeCodec.MAX_BYTES + " bytes; other"
                         + " instances do not see the brands of this instance's players");
+        }
+        if (EnvelopeCodec.utf8Length(text) > EnvelopeCodec.MAX_BYTES
+                && type.equals(RosterCache.TYPE)
+                && sent.has(NetSettings.SETTINGS)) {
+            JsonObject withoutSettings = sent.deepCopy();
+            JsonObject settings = new JsonObject();
+            settings.add(NetSettings.SETTINGS, withoutSettings.remove(NetSettings.SETTINGS));
+            publish(to, NetSettings.STATE, settings);
+            text = codec.encode(Envelope.create(type, instanceId, to, clock.getAsLong(), withoutSettings));
         }
         if (EnvelopeCodec.utf8Length(text) > EnvelopeCodec.MAX_BYTES) {
             if (!type.equals(RosterCache.TYPE))
@@ -645,8 +682,10 @@ public final class NetworkService implements NetworkRouting {
             return;
         }
         if (!local && !envelope.from().equals(instanceId)) {
+            boolean appeared = roster.heardAt(envelope.from(), now) == Long.MIN_VALUE;
             if (envelope.type().equals(RosterCache.TYPE)) roster.apply(envelope.from(), envelope.body(), now);
             else roster.heard(envelope.from(), now);
+            if (appeared) netSettings.appeared(envelope.from(), envelope.type());
         }
         for (MessageHandler handler : handlers.getOrDefault(envelope.type(), List.of())) {
             try {

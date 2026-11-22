@@ -27,6 +27,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class NetworkModule {
     private static final List<Consumer<NetworkService>> startHooks = new CopyOnWriteArrayList<>();
+    private static final List<NetSettings.Listener> settingsListeners = new CopyOnWriteArrayList<>();
     private static volatile @Nullable NetworkPlatform platform;
     private static volatile @Nullable NetworkService service;
 
@@ -80,11 +81,16 @@ public final class NetworkModule {
     /** Starts {@code created} as the running service, unless one runs. */
     static synchronized void start(NetworkService created) {
         if (service != null) return;
+        created.netSettings().listen(NetworkModule::settingsChanged);
         created.start();
         service = created;
+        created.netSettings().configLoaded();
     }
 
-    /** Reconnects when the reloaded {@code network} block differs from the running one. */
+    /**
+     * Reconnects when the reloaded {@code network} block differs from the running one; else the shared settings take
+     * the reloaded config.yml.
+     */
     public static void configReloaded() {
         if (service != null)
             configReloaded(
@@ -93,9 +99,57 @@ public final class NetworkModule {
 
     static synchronized void configReloaded(NetworkSettings settings) {
         NetworkService running = service;
-        if (running == null || settings.equals(running.settings())) return;
+        if (running == null) return;
+        if (settings.equals(running.settings())) {
+            running.netSettings().configLoaded();
+            return;
+        }
         end(NetworkModule::closeInBackground);
         start(settings);
+    }
+
+    /**
+     * {@code key}'s value on this instance, one of {@link NetSettings}' keys: what the network's shared settings,
+     * config.yml and the environment make it. Any thread.
+     */
+    public static NetSettings.Value setting(String key) {
+        return setting(key, null);
+    }
+
+    /**
+     * {@code key}'s value for a player on {@code backend}, the backend server their proxy sent them to; null, for a
+     * player whose backend is not known, gives the instance's value. Any thread.
+     */
+    public static NetSettings.Value setting(String key, @Nullable String backend) {
+        NetworkService running = service;
+        if (running != null) return running.netSettings().value(key, backend);
+        NetSettings.Baseline baseline;
+        try {
+            baseline = NetCommands.CULT.baseline();
+        } catch (RuntimeException unloaded) {
+            baseline = NetSettings.Baseline.DEFAULT;
+        }
+        return NetSettings.value(baseline, key, null);
+    }
+
+    /**
+     * Calls {@code listener} after each change to the shared settings, of any service this runtime runs, until closed:
+     * on the async scheduler, one change at a time, and once with every setting when a service starts or config.yml is
+     * reloaded. It re-reads {@link #setting} for what it applies and must not block.
+     */
+    public static NetworkService.Registration onSettingsChanged(NetSettings.Listener listener) {
+        settingsListeners.add(listener);
+        return () -> settingsListeners.remove(listener);
+    }
+
+    private static void settingsChanged(NetSettings.Change change) {
+        for (NetSettings.Listener listener : settingsListeners) {
+            try {
+                listener.changed(change);
+            } catch (RuntimeException failure) {
+                LogUtil.warn("A listener of the network's shared settings failed", failure);
+            }
+        }
     }
 
     public static synchronized void stop() {
