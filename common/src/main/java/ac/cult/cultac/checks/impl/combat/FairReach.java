@@ -179,7 +179,7 @@ public class FairReach extends Check implements CheckListener {
             if (attack.action() != InteractAction.ATTACK) return;
 
             double maxReach = AttackReach.capture(player, visibility).maxClosestDistance() + reach_leniency;
-            if (target.getMinDistanceForReach() > maxReach && !player.isObserveOnly()) {
+            if (target.getMinDistanceForReach() > maxReach && mayModifyPackets()) {
                 player.onPacketCancel();
                 event.setCancelled(true);
             }

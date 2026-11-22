@@ -188,6 +188,7 @@ public final class NetworkService implements NetworkRouting {
         this.netCommands.register();
         this.netSettings = new NetSettings(this, clock, netLocal, host);
         this.netSettings.register();
+        this.netSettings.listen(netCommands::settingsChanged);
     }
 
     @SuppressWarnings("unchecked")

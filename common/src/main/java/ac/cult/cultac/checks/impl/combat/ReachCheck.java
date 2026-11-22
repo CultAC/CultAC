@@ -197,7 +197,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             debug(() -> {
                 return "cancelled = teleport";
             });
-            return true;
+            return !isSwitchedOff();
         }
 
         // ServerGamePacketListenerImpl#handleAttack drops attacks until the client has loaded, and the LocalPlayer
@@ -206,7 +206,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             debug(() -> {
                 return "cancelled = not ticked";
             });
-            return true;
+            return !isSwitchedOff();
         }
 
         // Stop people from freezing transactions before an entity spawns to bypass reach
@@ -263,8 +263,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             if (player.checkManager.getCheck(owner).dropsAttack(hit, hitPrecision, detail)) return true;
         }
 
-        if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid)
-                || (tooManyAttacks && !player.isObserveOnly())) {
+        if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid) || (tooManyAttacks && mayModifyPackets())) {
             debug(() -> {
                 return "cancelled, many=" + tooManyAttacks + ", invalid=" + knownInvalid;
             });

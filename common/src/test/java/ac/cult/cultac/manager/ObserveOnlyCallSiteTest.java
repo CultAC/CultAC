@@ -46,9 +46,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Holds every call that kicks a player, cancels or rewrites a packet, resyncs or teleports to a condition on a
- * player's {@code isObserveOnly()}, {@code shouldModifyPackets()} or {@code failsOpen()} (true in observe-only), or to
- * an entry in {@link #ALLOWED}. A call is guarded when a condition naming the guard encloses it: an {@code if} or
- * {@code ?:} around it, the left side of an {@code &&} or {@code ||}, or an earlier
+ * player's {@code isObserveOnly()}, {@code shouldModifyPackets()}, {@code mayModifyPackets()} or {@code failsOpen()}
+ * (true in observe-only), or to an entry in {@link #ALLOWED}. A call is guarded when a condition naming the guard
+ * encloses it: an {@code if} or {@code ?:} around it, the left side of an {@code &&} or {@code ||}, or an earlier
  * {@code if (...) return|continue|break|throw} in an enclosing block. The network's shared settings set the mode per
  * backend server, so what runs for a player reads the player's mode; the instance's own mode,
  * {@code getConfigManager().isObserveOnly()}, is read and guards only in the methods {@link #INSTANCE_MODE} lists. The
@@ -108,7 +108,7 @@ class ObserveOnlyCallSiteTest {
             "sendVehicleProtocolResync",
             "resyncPose");
 
-    private static final List<String> GUARDS = List.of("shouldModifyPackets()", "failsOpen()");
+    private static final List<String> GUARDS = List.of("shouldModifyPackets()", "mayModifyPackets()", "failsOpen()");
     /** A player's mode: {@code isObserveOnly()} on any receiver but the config manager. */
     private static final Pattern PLAYER_MODE = Pattern.compile("(?<!getConfigManager\\(\\)\\.)\\bisObserveOnly\\(\\)");
 

@@ -35,6 +35,7 @@ import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import com.google.gson.JsonObject;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -47,6 +48,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
@@ -96,6 +98,12 @@ class NetSettingsTest {
         private final @Nullable Path directory;
         volatile Baseline baseline = Baseline.DEFAULT;
         volatile NetCommands.Options options = NetCommands.Options.DEFAULT;
+        /** The instance's mode as the loaded config holds it. */
+        volatile boolean loadedObserveOnly;
+        /** The reloads that changed {@link #loadedObserveOnly}. */
+        final AtomicInteger reloads = new AtomicInteger();
+        /** Runs at the end of each reload, as a reload tells the shared settings config.yml was loaded. */
+        volatile Runnable reloaded = () -> {};
 
         Net(@Nullable Path directory) {
             this.directory = directory;
@@ -134,6 +142,16 @@ class NetSettingsTest {
         @Override
         public @Nullable Path configFile() {
             return directory == null ? null : directory.resolve("config.yml");
+        }
+
+        @Override
+        public CompletableFuture<Boolean> observeOnly(boolean observeOnly) {
+            if (loadedObserveOnly != observeOnly) {
+                reloads.incrementAndGet();
+                loadedObserveOnly = observeOnly;
+                reloaded.run();
+            }
+            return CompletableFuture.completedFuture(true);
         }
     }
 
@@ -295,6 +313,32 @@ class NetSettingsTest {
     }
 
     @Test
+    void anObserveRecordForTheInstanceArrivingFromAPeerBringsTheLoadedConfigAlong() throws IOException {
+        Path directory = directory("p3");
+        Files.writeString(directory.resolve("config.yml"), "observe-only: false\n");
+        Net net = new Net(directory);
+        NetworkService p3 = networks.service("p3").net(net).start();
+        net.reloaded = p3.netSettings()::configLoaded;
+        NetworkService p7 = networks.service("p7").net(new Net(null)).start();
+
+        p7.netSettings().merge(List.of(record(OBSERVE, ON, "all", clock.get(), A)));
+        networks.tick(p7);
+        assertTrue(p3.netSettings().value(OBSERVE).on());
+        assertTrue(net.loadedObserveOnly);
+        assertEquals(1, net.reloads.get());
+
+        p7.netSettings().merge(List.of(record(OBSERVE, OFF, "id:p7", clock.get() + 1, B)));
+        TestNetworks.sendDelta(p7);
+        assertTrue(net.loadedObserveOnly);
+        assertEquals(1, net.reloads.get());
+
+        p7.netSettings().merge(List.of(record(OBSERVE, OFF, "p3", clock.get() + 2, C)));
+        TestNetworks.sendDelta(p7);
+        assertFalse(net.loadedObserveOnly);
+        assertEquals(2, net.reloads.get());
+    }
+
+    @Test
     void anEnvironmentPinIsReportedAndRecordsNothing() {
         assertEquals(
                 List.of(SPEED, ATTACK_ENTITY_VISIBILITY),
@@ -419,7 +463,8 @@ class NetSettingsTest {
     }
 
     @Test
-    void aPlayersObserveOnlyPausedPunishmentsAndSwitchedOffChecksFollowTheirBackendServer() {
+    void aPlayersObserveOnlyPausedPunishmentsAndSwitchedOffChecksFollowTheirBackendServer()
+            throws ReflectiveOperationException {
         NetworkService proxy = networks.service("p3")
                 .platform(new Players().proxy(null).backends("BRG_1", "lobby"))
                 .net(new Net(null))
@@ -433,6 +478,10 @@ class NetSettingsTest {
                             record(PUNISH, OFF, "BRG_1", 10, B),
                             record(CHECK + probeKey, OFF, "BRG_1", 10, C)));
             CultPlayer player = mock(CultPlayer.class);
+            UUID id = UUID.randomUUID();
+            Field uuid = CultPlayer.class.getDeclaredField("playerUUID");
+            uuid.setAccessible(true);
+            uuid.set(player, id);
             PlatformPlayer platform = mock(PlatformPlayer.class);
             player.platformPlayer = platform;
             SetbackTeleportUtil setbacks = new SetbackTeleportUtil(player);
@@ -460,6 +509,12 @@ class NetSettingsTest {
             assertTrue(probe.isEnabled());
             assertEquals(0, probe.violations);
             assertFalse(NetworkModule.setting(OBSERVE).on());
+
+            NetworkModule.playerConnected(id, "BRG_1");
+            player.applyNetworkSettings();
+            assertTrue(player.isObserveOnly());
+            assertTrue(player.isPunishmentsPaused());
+            assertFalse(probe.isEnabled());
         } finally {
             NetworkModule.stop();
         }

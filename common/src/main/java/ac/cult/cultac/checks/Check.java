@@ -127,6 +127,14 @@ public class Check extends CultProcessor implements AbstractCheck {
         return isEnabled && !switchedOff;
     }
 
+    /**
+     * Whether this check may cancel or rewrite the player's packets at all: false while a network switch holds it off or
+     * the player is observed only. {@link #shouldModifyPackets()} also asks punishments.yml and the permissions.
+     */
+    public boolean mayModifyPackets() {
+        return !switchedOff && !player.isObserveOnly();
+    }
+
     public boolean shouldModifyPackets() {
         return isEnabled()
                 && !player.isObserveOnly()
