@@ -78,13 +78,13 @@ max-clicks-per-tick: 3
 # CULTAC_OBSERVE_ONLY має пріоритет над цим ключем, якщо дорівнює true, 1 або yes, чи false, 0 або no. Зміна застосовується через /cult reload.
 observe-only: false
 
-# CultAC нікого не перевіряє і звільняє пам'ять, яку займають перевірки. CULTAC_DORMANT має пріоритет над цим ключем, якщо дорівнює true, 1 або yes, чи false, 0 або no.
+# CultAC нікого не перевіряє і звільняє пам'ять, яку займають перевірки.
 dormant: false
 
-# Перевірки, які не фіксують порушень і не відкочують гравців, за назвою. CULTAC_CHECKS_OFF, список назв перевірок через кому, тримає ці перевірки вимкненими незалежно від цього списку.
+# Перевірки, які не фіксують порушень і не відкочують гравців, за назвою.
 checks-off: []
 
-# Не виконувати команди покарань із punishments.yml; фіксація порушень, сповіщення та відкати працюють далі. CULTAC_PAUSE_PUNISHMENTS має пріоритет над цим ключем, якщо дорівнює true, 1 або yes, чи false, 0 або no.
+# Не виконувати команди покарань із punishments.yml; фіксація порушень, сповіщення та відкати працюють далі.
 pause-punishments: false
 
 Simulation:
@@ -335,9 +335,7 @@ network:
   # Ім'я цього сервера в мережі. Кожен сервер повинен мати власне.
   # Залиште порожнім, щоб використовувати id проксі RedisBungee, потім cloud.proxy-id, потім IP і порт цього сервера.
   instance-id: ""
-  # /cult net <target> <command> runs a command on several servers at once. Each key's environment variable wins
-  # when set and not blank: CULTAC_NETWORK_COMMANDS, CULTAC_NETWORK_COMMANDS_ACCEPT (a comma list) and
-  # CULTAC_NETWORK_COMMANDS_WEBHOOK.
+  # /cult net <target> <command> runs a command on several servers at once. These keys have no environment variable.
   commands:
     # Whether this server runs network commands sent from other servers.
     enabled: true

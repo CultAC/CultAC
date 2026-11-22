@@ -79,13 +79,13 @@ max-clicks-per-tick: 3
 # CULTAC_OBSERVE_ONLY wins over this key when it is true, 1 or yes, or false, 0 or no. /cult reload applies a change.
 observe-only: false
 
-# CultAC checks no one and frees the memory checking uses. CULTAC_DORMANT wins over this key when it is true, 1 or yes, or false, 0 or no.
+# CultAC checks no one and frees the memory checking uses.
 dormant: false
 
-# Checks that neither flag nor set back, by name. CULTAC_CHECKS_OFF, a comma-separated list of check names, keeps those checks off whatever this list says.
+# Checks that neither flag nor set back, by name.
 checks-off: []
 
-# Withhold the punishment commands of punishments.yml; flags, alerts and setbacks keep running. CULTAC_PAUSE_PUNISHMENTS wins over this key when it is true, 1 or yes, or false, 0 or no.
+# Withhold the punishment commands of punishments.yml; flags, alerts and setbacks keep running.
 pause-punishments: false
 
 Simulation:
@@ -346,9 +346,7 @@ network:
   # O nome deste servidor na rede. Cada servidor precisa do seu próprio.
   # Deixe vazio para usar o id de proxy do RedisBungee, senão cloud.proxy-id, senão o IP e a porta deste servidor.
   instance-id: ""
-  # /cult net <target> <command> runs a command on several servers at once. Each key's environment variable wins
-  # when set and not blank: CULTAC_NETWORK_COMMANDS, CULTAC_NETWORK_COMMANDS_ACCEPT (a comma list) and
-  # CULTAC_NETWORK_COMMANDS_WEBHOOK.
+  # /cult net <target> <command> runs a command on several servers at once. These keys have no environment variable.
   commands:
     # Whether this server runs network commands sent from other servers.
     enabled: true

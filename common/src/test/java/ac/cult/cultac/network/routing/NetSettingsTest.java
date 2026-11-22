@@ -22,7 +22,6 @@ import static org.mockito.Mockito.when;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
-import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.routing.NetSettings.Baseline;
 import ac.cult.cultac.network.routing.NetSettings.Record;
@@ -340,23 +339,17 @@ class NetSettingsTest {
 
     @Test
     void anEnvironmentPinIsReportedAndRecordsNothing() {
-        assertEquals(
-                List.of(SPEED, ATTACK_ENTITY_VISIBILITY),
-                BaseConfigManager.checksOffPin(
-                        Map.of(BaseConfigManager.CHECKS_OFF_ENV, " Speed, ,attackmobvisibility,NoSuchCheck")::get));
         Net net = new Net(null);
-        net.baseline = new Baseline(false, false, false, List.of(), null, false, null, List.of(SPEED));
+        net.baseline = new Baseline(false, false, false, List.of(), false);
         NetSettings settings = networks.service("p3").net(net).start().netSettings();
         settings.configLoaded();
         assertEquals(List.of(), settings.records());
 
         Record observe = record(OBSERVE, ON, "all", 10, A);
-        Record speed = record(CHECK + SPEED, ON, "all", 10, B);
-        settings.merge(List.of(observe, speed));
+        settings.merge(List.of(observe));
 
         assertEquals(new Value(false, Source.PIN, observe, "CULTAC_OBSERVE_ONLY"), settings.value(OBSERVE));
-        assertEquals(new Value(false, Source.PIN, speed, "CULTAC_CHECKS_OFF"), settings.value(CHECK + SPEED));
-        assertEquals(List.of(observe, speed), settings.records());
+        assertEquals(List.of(observe), settings.records());
     }
 
     @Test

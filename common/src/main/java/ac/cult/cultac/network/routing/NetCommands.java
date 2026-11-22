@@ -202,43 +202,24 @@ final class NetCommands {
             accept = Set.copyOf(accept);
         }
 
-        /**
-         * The {@code network.commands} keys, each overridden by its environment variable when that is set and not
-         * blank: {@code CULTAC_NETWORK_COMMANDS} (true/1/yes, false/0/no), {@code CULTAC_NETWORK_COMMANDS_ACCEPT} (a
-         * comma list) and {@code CULTAC_NETWORK_COMMANDS_WEBHOOK}.
-         */
-        static Options read(ConfigManager config, Function<String, String> env) {
-            Boolean pinned = flag(env.apply("CULTAC_NETWORK_COMMANDS"));
-            String acceptEnv = env.apply("CULTAC_NETWORK_COMMANDS_ACCEPT");
-            List<String> accepted = acceptEnv == null || acceptEnv.isBlank()
-                    ? config.getStringListElse("network.commands.accept", List.copyOf(DEFAULT.accept()))
-                    : List.of(acceptEnv.split(","));
+        /** The {@code network.commands} keys of {@code config}. */
+        static Options read(ConfigManager config) {
+            List<String> accepted = config.getStringListElse("network.commands.accept", List.copyOf(DEFAULT.accept()));
             Set<String> accept = new HashSet<>();
             if (accepted != null) {
                 for (String name : accepted) {
                     if (name != null && !name.isBlank()) accept.add(name.strip().toLowerCase(Locale.ROOT));
                 }
             }
-            String webhook = env.apply("CULTAC_NETWORK_COMMANDS_WEBHOOK");
-            if (webhook == null || webhook.isBlank())
-                webhook = config.getStringElse("network.commands.webhook", "summary");
+            String webhook = config.getStringElse("network.commands.webhook", "summary");
             return new Options(
-                    pinned != null ? pinned : config.getBooleanElse("network.commands.enabled", true),
+                    config.getBooleanElse("network.commands.enabled", true),
                     accept,
                     switch (webhook == null ? "" : webhook.strip().toLowerCase(Locale.ROOT)) {
                         case "every" -> Webhook.EVERY;
                         case "none" -> Webhook.NONE;
                         default -> Webhook.SUMMARY;
                     });
-        }
-
-        private static @Nullable Boolean flag(@Nullable String value) {
-            if (value == null) return null;
-            return switch (value.strip().toLowerCase(Locale.ROOT)) {
-                case "true", "1", "yes" -> true;
-                case "false", "0", "no" -> false;
-                default -> null;
-            };
         }
     }
 
@@ -373,7 +354,7 @@ final class NetCommands {
 
         @Override
         public Options options() {
-            return Options.read(CultAPI.INSTANCE.getConfigManager().getConfig(), System::getenv);
+            return Options.read(CultAPI.INSTANCE.getConfigManager().getConfig());
         }
 
         @Override
@@ -401,10 +382,7 @@ final class NetCommands {
                     config.getConfig().getBooleanElse(BaseConfigManager.OBSERVE_ONLY_KEY, false),
                     config.isPausePunishments(),
                     config.getChecksOff(),
-                    BaseConfigManager.dormantPin(System::getenv),
-                    BaseConfigManager.observeOnlyPin(System::getenv),
-                    BaseConfigManager.pausePunishmentsPin(System::getenv),
-                    BaseConfigManager.checksOffPin(System::getenv));
+                    BaseConfigManager.observeOnlyPin(System::getenv));
         }
 
         @Override
@@ -1112,8 +1090,6 @@ final class NetCommands {
         if (request.args().isEmpty())
             return CompletableFuture.completedFuture(Reply.of(
                     true, "toggle-state", Map.of("players", players, "state", described(key, backends, true))));
-        String pin = service.netSettings().value(key).pin();
-        if (pin != null) return CompletableFuture.completedFuture(Reply.of(false, "pinned", Map.of("env", pin)));
         String code =
                 Boolean.TRUE.equals(onOff(request.args().getFirst())) ? "toggle-on-applied" : "toggle-off-applied";
         return service.netSettings()
@@ -1141,8 +1117,6 @@ final class NetCommands {
             return Reply.of(
                     false, "check-unknown", Map.of("check", request.args().getFirst()));
         String key = NetSettings.CHECK + entry.stableKey();
-        String pin = service.netSettings().value(key).pin();
-        if (pin != null) return Reply.of(false, "pinned", Map.of("env", pin));
         return Reply.of(
                 true,
                 "check-applied",
