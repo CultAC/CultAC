@@ -242,12 +242,17 @@ public class WorldStageBuilder {
                 && (player.swimState.swimming() && player.gamemode != GameMode.SPECTATOR
                         ? (bedrockFluidBounds == null ? isInWater : bedrockFluidBounds.water())
                         : underwater && waterAtFeet);
-        // Portal contact uses the swept inside-block volume.
+        // Portal contact uses the swept inside-block volume. Java Entity#checkInsideBlocks sweeps the box of the pose
+        // travel moved, which reaches a portal at head height.
         player.intersectedWithNetherPortal = Collisions.hasState(
                 player,
-                simulationContext
-                        .getFromMinimumExtent(sweepFromBox)
-                        .union(simulationContext.getToMinimumExtent(sweepToBox)),
+                player.isBedrockMovement()
+                        ? simulationContext
+                                .getFromMinimumExtent(sweepFromBox)
+                                .union(simulationContext.getToMinimumExtent(sweepToBox))
+                        : simulationContext
+                                .getFromActualPose(sweepFromBox)
+                                .union(simulationContext.getToActualPose(sweepToBox)),
                 block -> BlockIds.is(block, BlockIds.NETHER_PORTAL),
                 (block, pos) -> true);
 
