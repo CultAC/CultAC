@@ -124,8 +124,8 @@ public final class NetworkModule {
     }
 
     /**
-     * {@code key}'s value on this instance, one of {@link NetSettings}' keys: what the network's shared settings,
-     * config.yml and the environment make it. Any thread.
+     * {@code key}'s value on this instance, one of {@link NetSettings}' keys: what the network's shared settings and
+     * config.yml make it. Any thread.
      */
     public static NetSettings.Value setting(String key) {
         return setting(key, null);

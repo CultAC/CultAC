@@ -36,7 +36,6 @@ class PortalSyncServiceTest {
                 assertNotNull(in, language);
                 String text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
                 assertTrue(text.contains("\n  team-sync: false"), language);
-                assertTrue(text.contains("CULTAC_CLOUD_TEAM_SYNC"), language);
                 assertFalse(text.contains("cloud at cloud.url"), language);
             }
         }

@@ -1,6 +1,5 @@
 package ac.cult.cultac.command.commands;
 
-import static ac.cult.cultac.manager.config.BaseConfigManager.OBSERVE_ONLY_ENV;
 import static ac.cult.cultac.manager.config.BaseConfigManager.OBSERVE_ONLY_KEY;
 
 import ac.cult.cultac.CultAPI;
@@ -22,7 +21,6 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
@@ -34,7 +32,6 @@ import org.yaml.snakeyaml.Yaml;
 public class CultObserve implements BuildableCommand {
 
     enum Outcome {
-        PINNED,
         FAILED,
         UNRESTORED,
         APPLIED
@@ -50,20 +47,14 @@ public class CultObserve implements BuildableCommand {
     }
 
     private void handleStatus(@NotNull CommandContext<Sender> context) {
-        String source = BaseConfigManager.observeOnlyPin(System::getenv) != null
-                ? "pinned by the " + OBSERVE_ONLY_ENV + " environment variable"
-                : "from " + OBSERVE_ONLY_KEY + " in config.yml";
+        String source = "from " + OBSERVE_ONLY_KEY + " in config.yml";
         context.sender().sendMessage(MessageUtil.miniMessage("%prefix% &f" + mode() + " &7(" + source + ")"));
     }
 
     private void handleSwitch(Sender sender, boolean observeOnly) {
-        switchTo(observeOnly, configFile(), System::getenv, CultReload::reloadAsync)
+        switchTo(observeOnly, configFile(), CultReload::reloadAsync)
                 .thenAccept(outcome -> sender.sendMessage(MessageUtil.miniMessage(
                         switch (outcome) {
-                            case PINNED ->
-                                "%prefix% &cThe " + OBSERVE_ONLY_ENV
-                                        + " environment variable pins the mode to " + mode()
-                                        + "; set it to a value other than true/1/yes/false/0/no and restart to switch here.";
                             case FAILED ->
                                 "%prefix% &cFailed to switch; still " + mode()
                                         + " and config.yml is unchanged. See the console.";
@@ -74,13 +65,9 @@ public class CultObserve implements BuildableCommand {
                         })));
     }
 
-    /** Writes {@code observe-only} and reloads, unless {@code CULTAC_OBSERVE_ONLY} pins the mode. */
+    /** Writes {@code observe-only} and reloads. */
     static CompletableFuture<Outcome> switchTo(
-            boolean observeOnly,
-            File config,
-            Function<String, String> env,
-            Supplier<CompletableFuture<Boolean>> reload) {
-        if (BaseConfigManager.observeOnlyPin(env) != null) return CompletableFuture.completedFuture(Outcome.PINNED);
+            boolean observeOnly, File config, Supplier<CompletableFuture<Boolean>> reload) {
         Path path = config.toPath();
         byte[] original;
         byte[] switched;

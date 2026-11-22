@@ -25,13 +25,7 @@ public record SystemArgumentFactory(
             return this;
         }
 
-        public Builder supportEnv() {
-            this.envSupport = true;
-            return this;
-        }
-
         private final String prefix;
-        private boolean envSupport = false;
         private final Map<Class<?>, Function<String, ?>> parseBuilder;
         private Consumer<ArgumentOptions.Builder<?>> optionModifier = null;
 
@@ -62,24 +56,10 @@ public record SystemArgumentFactory(
             return this;
         }
 
-        private void updateFromEnv(Map<String, String> builder) {
-            for (Map.Entry<String, String> entry : System.getenv().entrySet()) {
-                if (entry.getKey().startsWith(prefix.toUpperCase())) {
-                    builder.put(entry.getKey().toLowerCase(), entry.getValue());
-                }
-            }
-        }
-
         public SystemArgumentFactory build() {
             // Parse arguments from JVM arguments
             final String findPrefix = "-d" + prefix.toLowerCase();
             Map<String, String> builder = getSystemPropertiesMap(findPrefix);
-            if (envSupport) {
-                try {
-                    updateFromEnv(builder);
-                } catch (Exception ignored) {
-                }
-            }
 
             return new SystemArgumentFactory(Map.copyOf(builder), Map.copyOf(parseBuilder), optionModifier);
         }

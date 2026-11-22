@@ -106,7 +106,7 @@ The `cloud:` block in `plugins/CultAC/config.yml` (`plugins/cultac/config.yml` o
 | `cloud.server-id` | `""` | Each upload socket's server id. Empty picks the platform's default, below. |
 | `cloud.proxy-id` | `""` | On Velocity, this proxy's name. On Paper, this server's own name. |
 | `cloud.uncaptured-servers` | `[]` | Backends whose players are not captured while they are on them, below. |
-| `cloud.team-sync` | `false` | Reports staff portal roles to the intake service, below. `CULTAC_CLOUD_TEAM_SYNC` (`true`/`1`/`yes`, `false`/`0`/`no`) overrides it when set. |
+| `cloud.team-sync` | `false` | Reports staff portal roles to the intake service, below. |
 
 Empty means off: the upload stays off while `url` or `api-key` is empty. It also stays off, with one warning, while
 `proxy-id` is empty on Paper, or on Velocity while `server-id` uses `{proxy}`, and while `api-key` holds anything but

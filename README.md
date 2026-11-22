@@ -57,9 +57,8 @@ an unsupported version, a Bedrock client without Geyser, or a player whose conne
 uninspected. The server receives every packet exactly as the client sent it: what a check, crash protection,
 movement integrity, `max-clicks-per-tick` or the plugin message limit would cancel, rewrite or drop is still
 inspected and flagged, then forwarded unchanged, and a client past `packet-spam-threshold` is logged once
-instead of disconnected. `/cult observe <on|off>` (`cult.observe`) writes the key and reloads, unless
-`CULTAC_OBSERVE_ONLY` pins the mode; bare `/cult observe` shows the mode and its source. Observe-only still
-does the following:
+instead of disconnected. `/cult observe <on|off>` (`cult.observe`) writes the key and reloads;
+bare `/cult observe` shows the mode. Observe-only still does the following:
 
 * CultAC sends its own pings, bundled with the packets they follow, and withholds the pong that answers one;
 * a non-finite rotation from the server is sent as 0, and the player's own pose metadata is stripped;
@@ -106,16 +105,17 @@ The installed build number is kept in a state file. On the next start, the loade
 before it activates a runtime, for at most 10 seconds, and starts the bundled build after one warning if that fails.
 Installing a jar with `/cult update <filename.jar>` forgets the number.
 
-The settings live in the `update` section of the plugin's `config.yml`. Each environment variable wins over its key.
+The settings live in the `update` section of the plugin's `config.yml`. `CULTAC_UPDATE_TOKEN` wins over
+`update.token` when set and not blank.
 
-| Key | Environment variable | Default |
-| --- | --- | --- |
-| `update.repository` | `CULTAC_UPDATE_REPOSITORY` | the `owner/repo` the plugin was built from |
-| `update.public-key` | `CULTAC_UPDATE_PUBKEY` | the official signing key; a fork that signs its own builds sets its own |
-| `update.token` | `CULTAC_UPDATE_TOKEN` | none; sent only to `api.github.com`, which allows 60 anonymous requests an hour |
-| `update.webhook` | `CULTAC_UPDATE_WEBHOOK` | none; a Discord-style webhook that receives each install line |
-| `update.state-file` | `CULTAC_UPDATE_STATE` | `update-state.json` in the plugin data directory |
-| `update.build` | `CULTAC_UPDATE_BUILD` | none; the build to start on boot while the state file names none, or `latest` / `latest:<channel>` to start the newest build of the bundled jar's channel, or of `<channel>`, on every boot whatever the state file names; a channel is its branch's name except main's `stable`, a boot never starts a build older than the bundled one, and a `/cult update` install lasts until the next boot (turning follow off later starts the last build it installed) |
+| Key | Default |
+| --- | --- |
+| `update.repository` | the `owner/repo` the plugin was built from |
+| `update.public-key` | the official signing key; a fork that signs its own builds sets its own |
+| `update.token` | none; sent only to `api.github.com`, which allows 60 anonymous requests an hour |
+| `update.webhook` | none; a Discord-style webhook that receives each install line |
+| `update.state-file` | `update-state.json` in the plugin data directory |
+| `update.build` | none; the build to start on boot while the state file names none, or `latest` / `latest:<channel>` to start the newest build of the bundled jar's channel, or of `<channel>`, on every boot whatever the state file names; a channel is its branch's name except main's `stable`, a boot never starts a build older than the bundled one, and a `/cult update` install lasts until the next boot (turning follow off later starts the last build it installed) |
 
 ```yaml
 update:

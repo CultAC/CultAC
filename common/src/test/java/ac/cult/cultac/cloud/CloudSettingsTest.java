@@ -116,27 +116,16 @@ class CloudSettingsTest {
         ConfigManager config = config(Map.of());
         Mockito.when(config.getBooleanElse(Mockito.eq("cloud.team-sync"), Mockito.anyBoolean()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
-        assertFalse(CloudSettings.team(config, name -> null));
-        assertFalse(CloudSettings.team(config, Map.of(CloudSettings.TEAM_ENV, "maybe")::get));
+        assertFalse(CloudSettings.team(config));
         assertFalse(CloudSettings.OFF.team());
     }
 
     @Test
-    void theEnvironmentWinsOverTheConfigForTeamSync() {
-        ConfigManager off = config(Map.of());
-        Mockito.when(off.getBooleanElse(Mockito.eq("cloud.team-sync"), Mockito.anyBoolean()))
-                .thenReturn(false);
+    void theConfigTurnsTeamSyncOn() {
         ConfigManager on = config(Map.of());
         Mockito.when(on.getBooleanElse(Mockito.eq("cloud.team-sync"), Mockito.anyBoolean()))
                 .thenReturn(true);
-        assertTrue(CloudSettings.team(on, name -> null));
-        for (String yes : List.of("true", "1", "yes", " YES ")) {
-            assertTrue(CloudSettings.team(off, Map.of(CloudSettings.TEAM_ENV, yes)::get), yes);
-        }
-        for (String no : List.of("false", "0", "no", "False")) {
-            assertFalse(CloudSettings.team(on, Map.of(CloudSettings.TEAM_ENV, no)::get), no);
-        }
-        assertTrue(CloudSettings.team(on, Map.of(CloudSettings.TEAM_ENV, "")::get));
+        assertTrue(CloudSettings.team(on));
     }
 
     private static CloudSettings read(String url) {
@@ -148,25 +137,15 @@ class CloudSettingsTest {
     }
 
     @Test
-    void theEnvironmentWinsOverTheConfigAndProxyIdFallsBackToTheEnvironment() {
-        Map<String, String> env = Map.of(
-                "CULTAC_CLOUD_URL", "https://env.example",
-                "CULTAC_CLOUD_API_KEY", " env-key ",
-                "CULTAC_PROXY_ID", "p0");
+    void theApiKeyFromTheEnvironmentWinsOverTheConfig() {
+        Map<String, String> env = Map.of("CULTAC_CLOUD_API_KEY", " env-key ");
         CloudSettings settings = CloudSettings.read(
                 config(Map.of("cloud.url", "https://config.example", "cloud.api-key", "config-key")),
                 CloudSettings.PROTOCOLS,
                 CloudSettings.DEFAULT_SERVER_ID,
                 env::get);
-        assertEquals("https://env.example", settings.url());
+        assertEquals("https://config.example", settings.url());
         assertEquals("env-key", settings.apiKey());
-        assertEquals("p0", settings.proxyId());
-        CloudSettings configured = CloudSettings.read(
-                config(Map.of("cloud.proxy-id", "edge-1")),
-                CloudSettings.PROTOCOLS,
-                CloudSettings.DEFAULT_SERVER_ID,
-                env::get);
-        assertEquals("edge-1", configured.proxyId());
         CloudSettings bare = CloudSettings.read(
                 config(Map.of()), CloudSettings.PROTOCOLS, CloudSettings.DEFAULT_SERVER_ID, name -> null);
         assertEquals("", bare.url());

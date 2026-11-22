@@ -75,7 +75,7 @@ ignore-duplicate-packet-rotation: false
 max-clicks-per-tick: 3
 
 # Фіксувати порушення й надсилати сповіщення без жодних дій: без команд покарання, відкатів, скасування пакетів і кіків. Пакети клієнта доходять до сервера в незмінному вигляді.
-# CULTAC_OBSERVE_ONLY має пріоритет над цим ключем, якщо дорівнює true, 1 або yes, чи false, 0 або no. Зміна застосовується через /cult reload.
+# Зміна застосовується через /cult reload.
 observe-only: false
 
 # CultAC нікого не перевіряє і звільняє пам'ять, яку займають перевірки.
@@ -259,11 +259,10 @@ bridge:
   secret: ""
 
 # Вивантаження записаної гри в сервіс прийому даних, який її аналізує. Вимкнено, поки url або api-key порожні;
-# обидва значення надає ваш сервіс прийому. CULTAC_CLOUD_URL і CULTAC_CLOUD_API_KEY мають пріоритет над url та api-key,
-# якщо задані й не порожні, а порожній proxy-id бере CULTAC_PROXY_ID. Що саме вивантажується, описано в
-# docs/cloud-upload.md у вихідному коді CultAC.
+# обидва значення надає ваш сервіс прийому. CULTAC_CLOUD_API_KEY має пріоритет над api-key, якщо заданий і не
+# порожній. Що саме вивантажується, описано в docs/cloud-upload.md у вихідному коді CultAC.
 cloud:
-  # false зупиняє вивантаження, незалежно від CULTAC_CLOUD_*; застосовується через /cult reload.
+  # false зупиняє вивантаження, незалежно від CULTAC_CLOUD_API_KEY; застосовується через /cult reload.
   enabled: true
   url: ""
   api-key: ""
@@ -282,7 +281,7 @@ cloud:
   # Якщо true, сокети вивантаження також передають UUID, ім'я та роль у порталі (viewer, moderator або admin)
   # гравців із дозволами cult.portal.viewer, .moderator або .admin, а також збережену роль синхронізованих гравців, які
   # офлайн, коли сервіс прийому про це запитує, — щоб хмарний портал показував їх в організації цього сервера, поки
-  # в ній увімкнена синхронізація команди. За замовчуванням вимкнено; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) має пріоритет, якщо заданий.
+  # в ній увімкнена синхронізація команди. За замовчуванням вимкнено.
   team-sync: false
   # Бани з панелі: модератори банять гравця в хмарній панелі, а той один сервер, що забрав бан, виконує його один раз
   # від імені консолі, зокрема й у режимі observe-only. Плейсхолдери: %player% %uuid% %reason% %reason_label% (причина
@@ -310,7 +309,10 @@ cloud:
 
 # Дозволяє командам модераторів, автодоповненню та сповіщенням працювати на всіх ваших проксі й серверах.
 # Інструкція з налаштування: docs/network.md у вихідному коді CultAC. Зміни застосовуються через /cult reload.
-# Будь-який параметр тут можна також задати змінною середовища CULTAC_NETWORK_*, яка має пріоритет.
+# Ці змінні середовища мають пріоритет над своїми ключами, якщо задані й не порожні:
+#   CULTAC_NETWORK_TYPE, CULTAC_NETWORK_SECRET
+#   CULTAC_NETWORK_REDIS_ADDRESS, _USERNAME, _PASSWORD, _SSL
+#   CULTAC_NETWORK_NATS_ADDRESS, _USERNAME, _PASSWORD, _TOKEN, _CREDENTIALS_FILE, _SSL
 network:
   # Як ваші сервери спілкуються між собою:
   #   none         Вимкнено. Команди та сповіщення доходять лише до гравців на цьому сервері.
@@ -335,7 +337,7 @@ network:
   # Ім'я цього сервера в мережі. Кожен сервер повинен мати власне.
   # Залиште порожнім, щоб використовувати id проксі RedisBungee, потім cloud.proxy-id, потім IP і порт цього сервера.
   instance-id: ""
-  # /cult net <target> <command> runs a command on several servers at once. These keys have no environment variable.
+  # /cult net <target> <command> runs a command on several servers at once.
   commands:
     # Whether this server runs network commands sent from other servers.
     enabled: true
@@ -346,22 +348,20 @@ network:
     webhook: summary
 
 # Лише для Velocity: нумеровані збірки, що встановлюються через /cult update <build>, /cult update latest [branch] і
-# перелічуються через /cult update builds [branch]. Змінна середовища CULTAC_UPDATE_* кожного параметра має пріоритет, якщо задана й не порожня.
+# перелічуються через /cult update builds [branch]. CULTAC_UPDATE_TOKEN має пріоритет над token, якщо заданий і не порожній.
 update:
   # owner/repo, у релізах GitHub якого лежать збірки. Порожнє значення — репозиторій, з якого зібрано цей jar.
-  # CULTAC_UPDATE_REPOSITORY.
   repository: ""
   # Ключ Ed25519 у форматі X.509 base64, яким мають бути підписані маніфести збірок. Порожнє значення — власний ключ збірок CultAC.
-  # CULTAC_UPDATE_PUBKEY.
   public-key: ""
   # Файл, що запам'ятовує встановлену збірку, яку наступний запуск завантажить знову. Відносно цієї папки; порожнє значення —
-  # update-state.json. CULTAC_UPDATE_STATE.
+  # update-state.json.
   state-file: ""
-  # Збірка для запуску, поки жодна збірка не запам'ятована. Порожнє значення запускає вбудований jar. CULTAC_UPDATE_BUILD.
+  # Збірка для запуску, поки жодна збірка не запам'ятована. Порожнє значення запускає вбудований jar.
   build: ""
-  # Надсилається лише на api.github.com і підвищує погодинний ліміт для latest і builds. CULTAC_UPDATE_TOKEN.
+  # Надсилається лише на api.github.com і підвищує погодинний ліміт для latest і builds.
   token: ""
-  # URL, який отримує рядок результату кожного оновлення. CULTAC_UPDATE_WEBHOOK.
+  # URL, який отримує рядок результату кожного оновлення.
   webhook: ""
 
 # Маркери схеми — змінюйте, лише якщо знаєте, що робите.

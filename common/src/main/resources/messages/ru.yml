@@ -193,9 +193,8 @@ net-refused-busy: "&crefused: too many network commands are running here"
 net-refused-rate: "&crefused: too many network commands from %instance% lately"
 net-failed: "&cfailed: %reason%"
 # Answers to reload, observe, punish and check; reload answers with reloaded or reload-failed. %players% is whom a
-# command ran for, %state% a setting's value (with where it comes from for a bare observe or punish), %check% a check's
-# name, %env% the environment variable pinning a setting.
-net-pinned: "&enot changed: pinned by %env%"
+# command ran for, %state% a setting's value (with where it comes from for a bare observe or punish) and %check% a
+# check's name.
 net-observe-state: "&f%players%: %state%"
 net-observe-applied: "&f%players%: now %state%"
 net-observe-failed: "&c%players%: set to %state%, but reloading failed; see the console"

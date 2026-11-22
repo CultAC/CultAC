@@ -61,8 +61,7 @@ public final class SmoketestControlBridge {
     }
 
     public static boolean enabled() {
-        return Boolean.getBoolean("cult.validation.smoketestControl")
-                || Boolean.parseBoolean(System.getenv().getOrDefault("CULT_VALIDATION_SMOKETEST_CONTROL", "false"));
+        return Boolean.getBoolean("cult.validation.smoketestControl");
     }
 
     private static ControlRequest readRequest(byte[] data) throws IOException {

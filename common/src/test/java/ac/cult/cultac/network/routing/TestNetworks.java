@@ -40,7 +40,7 @@ public final class TestNetworks {
 
     /** Build {@code test}, checking, enforcing, no player, the default options; the same state on every roster. */
     static final NetCommands.Local NET = new NetCommands.Local() {
-        private final RosterCache.State state = new RosterCache.State(true, false, List.of(), List.of(), 0, 0, 0);
+        private final RosterCache.State state = new RosterCache.State(true, false, List.of(), 0, 0, 0);
 
         @Override
         public String build() {
