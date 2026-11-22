@@ -22,7 +22,10 @@ public class MultiActionsR extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onAction(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
-        if (player.intersectedWithNetherPortal && player.openWindow.mustBeOpen() && flag() && shouldModifyPackets()) {
+        boolean portalClosedScreen = player.isBedrockMovement()
+                ? player.intersectedWithNetherPortal
+                : player.localPortalProcess.closedScreen();
+        if (portalClosedScreen && player.openWindow.mustBeOpen() && flag() && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
             player.closeInventorySafely();

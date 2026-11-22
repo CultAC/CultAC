@@ -35,8 +35,8 @@ final class SpawnInfoCodec {
             Wire.readIdentifier(input); // Last-death dimension
             input.skipBytes(Long.BYTES); // Last-death position
         }
-        Wire.readVarInt(input); // Portal cooldown
+        int portalCooldown = Wire.readVarInt(input);
         int seaLevel = Wire.readVarInt(input); // Present on every supported version (1.21.3+).
-        return new PlayerSpawnInfo(dimensionType, dimension, gameMode, seaLevel, biomeZoomSeed);
+        return new PlayerSpawnInfo(dimensionType, dimension, gameMode, seaLevel, biomeZoomSeed, portalCooldown);
     }
 }
