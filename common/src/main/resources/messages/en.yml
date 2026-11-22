@@ -103,6 +103,7 @@ help:
     - "/%command% net <target> observe [on|off] &f- &7Show or switch observe-only for the players the target names"
     - "/%command% net <target> punish [on|off] &f- &7Show or switch punishment commands for the players the target names"
     - "/%command% net <target> check <check> <on|off> &f- &7Switch a check for the players the target names"
+    - "/%command% net <target> update <build>|latest [channel] [--canary] &f- &7Install a build on every proxy the target names; this proxy updates last"
     - "/%command% spectate <player> &f- &7Spectate a player"
     - "/%command% verbose &f- &7Shows every flag to you, without buffers"
     - "/%command% log [0-255] &f- &7Uploads a debug log for prediction flags"
@@ -281,6 +282,16 @@ net-punish-state: "&f%players%: %state%"
 net-punish-applied: "&f%players%: now %state%"
 net-check-applied: "&f%check% %state% &7(%players%)"
 net-check-unknown: "&cno check %check% here"
+# /cult net <target> update. %build% is a build number (b150) or latest with its channel, %line% the loader's install
+# line, %from% and %to% the builds of the loader and of the running engine.
+net-update-accepted: "&7updating to %build%: downloading and verifying..."
+net-update-done: "&a%line%"
+net-update-failed: "&c%line%"
+net-update-not-proxy: "&7skipped: only proxies install builds"
+net-update-old-loader: "&cneeds a proxy restart (loader %from% → %to%)"
+net-update-canary: "%prefix% &7canary %instance% first..."
+net-update-self: "%prefix% &7%instance% updates itself last"
+net-update-canary-failed: "%prefix% &ccanary %instance% did not activate %build%; the rest were not updated"
 # /cult findplayer [brand=<text>]: the client brands online, or the players whose brand contains the text.
 # Brands, %query%, %player% and %server% show as plain text. %count% is a number of players; findplayer-unknown
 # names the players whose brand is not known yet.

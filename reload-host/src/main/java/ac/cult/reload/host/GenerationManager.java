@@ -36,6 +36,7 @@ public final class GenerationManager implements AutoCloseable {
     private final IdentityHashMap<Object, UserBinding> nativeUsers = new IdentityHashMap<>();
     private java.util.function.Function<Object, Object> upstream = ignored -> null;
     private volatile Runnable activated = () -> {};
+    private volatile BuildInstaller installer;
     private long generationOrder, bindingOrder;
     private final Map<String, Object> shared = new LinkedHashMap<>();
     private final HostApiRouter api = new HostApiRouter(this);
@@ -397,6 +398,20 @@ public final class GenerationManager implements AutoCloseable {
 
     public void onActivated(Runnable listener) {
         activated = Objects.requireNonNull(listener);
+    }
+
+    /** Installs numbered builds for the engines' {@link HostContext#installBuild} and {@link HostContext#latestBuild}. */
+    public interface BuildInstaller {
+        /** As {@link HostContext#installBuild}. */
+        CompletionStage<String> install(long number, String branch, String requestedBy);
+
+        /** As {@link HostContext#latestBuild}. */
+        CompletionStage<Long> latest(String branch);
+    }
+
+    /** Lets the engines install numbered builds; without one they are refused. */
+    public void buildInstaller(BuildInstaller installer) {
+        this.installer = Objects.requireNonNull(installer);
     }
 
     /** Native integrations resolve the physical upstream once, before downstream admission. */
@@ -1200,6 +1215,26 @@ public final class GenerationManager implements AutoCloseable {
 
         public List<String> status() {
             return GenerationManager.this.status();
+        }
+
+        public CompletionStage<String> installBuild(long number, String branch, String requestedBy) {
+            var builds = installer;
+            if (builds == null) return HostContext.super.installBuild(number, branch, requestedBy);
+            try {
+                return builds.install(number, branch, requestedBy);
+            } catch (RuntimeException failure) {
+                return CompletableFuture.completedFuture("update refused: " + failure);
+            }
+        }
+
+        public CompletionStage<Long> latestBuild(String branch) {
+            var builds = installer;
+            if (builds == null) return HostContext.super.latestBuild(branch);
+            try {
+                return builds.latest(branch);
+            } catch (RuntimeException failure) {
+                return CompletableFuture.failedFuture(failure);
+            }
         }
     }
 

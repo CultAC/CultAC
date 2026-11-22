@@ -141,7 +141,9 @@ final class NetCommands {
                     args -> switched(NetSettings.PUNISH, args)),
             CHECK,
             new Spec(
-                    CHECK, 10_000, true, args -> args.size() == 2 && onOff(args.get(1)) != null, NetCommands::checked));
+                    CHECK, 10_000, true, args -> args.size() == 2 && onOff(args.get(1)) != null, NetCommands::checked),
+            NetUpdates.NAME,
+            NetUpdates.SPEC);
 
     /** {@code on} or {@code off}, ignoring case, as a value; null for anything else. */
     static @Nullable Boolean onOff(String arg) {
@@ -288,6 +290,11 @@ final class NetCommands {
         default CompletableFuture<Boolean> observeOnly(boolean observeOnly) {
             return CompletableFuture.completedFuture(true);
         }
+
+        /** How this instance's loader installs numbered builds. */
+        default NetUpdates.Builds builds() {
+            return NetUpdates.CULT;
+        }
     }
 
     static final Local CULT = new Local() {
@@ -407,7 +414,7 @@ final class NetCommands {
     };
 
     /** A message key with its English text, which the bundled messages files repeat. */
-    private record Text(String key, String fallback) {
+    record Text(String key, String fallback) {
         String template() {
             return CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse(key, fallback);
         }
@@ -424,7 +431,7 @@ final class NetCommands {
                     + " Name an instance called proxies as id:proxies.");
     private static final Text OFF = new Text(
             "net-off", "%prefix% &eNetwork routing is off on this server, so network commands reach this server only.");
-    private static final Text BUSY =
+    static final Text BUSY =
             new Text("net-busy", "%prefix% &cA network command is still running; try again in a few seconds.");
     private static final Text INVALID_TERM = new Text(
             "net-invalid-term",
@@ -441,11 +448,11 @@ final class NetCommands {
             "%prefix% &cThis server is still loading the network's shared settings; try again in a few seconds.");
     private static final Text BACKEND_TERM =
             new Text("net-backend-term", "%prefix% &c%cmd% runs on CultAC instances only; %term% is a backend server.");
-    private static final Text SENT = new Text("net-sent", "%prefix% &7%cmd% sent to %count% instances (%target%)");
+    static final Text SENT = new Text("net-sent", "%prefix% &7%cmd% sent to %count% instances (%target%)");
     private static final Text LINE = new Text("net-reply", "&b%instance% &8» &f%line%");
-    private static final Text SUMMARY = new Text("net-summary", "%prefix% &7%answered% of %expected% answered");
-    private static final Text NO_ANSWER = new Text("net-no-answer", "%prefix% &cDid not answer: &f%instances%");
-    private static final Text OLDER =
+    static final Text SUMMARY = new Text("net-summary", "%prefix% &7%answered% of %expected% answered");
+    static final Text NO_ANSWER = new Text("net-no-answer", "%prefix% &cDid not answer: &f%instances%");
+    static final Text OLDER =
             new Text("net-older", "%prefix% &eOlder builds (cannot run network commands): &f%instances%");
     private static final Text REFUSED_PERMISSION =
             new Text("net-refused-permission", "&crefused: %sender% lacks %node% here");
@@ -507,6 +514,7 @@ final class NetCommands {
     private final LongSupplier clock;
     private final Local local;
     private final SharedClaims claims;
+    private final NetUpdates updates;
     private final Map<String, Request> pending = new ConcurrentHashMap<>();
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
     private final AtomicInteger running = new AtomicInteger();
@@ -529,6 +537,7 @@ final class NetCommands {
         this.clock = clock;
         this.local = local;
         this.claims = new SharedClaims(host, CLAIMS, clock);
+        this.updates = new NetUpdates(service, local, this::post);
         worker.setRemoveOnCancelPolicy(true);
         worker.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
     }
@@ -536,6 +545,7 @@ final class NetCommands {
     void register() {
         service.on(CMD, this::received);
         service.on(REPLY, this::answered);
+        updates.register();
     }
 
     /** Has the next post read {@code update.webhook} again; called after config.yml reloads. */
@@ -628,6 +638,8 @@ final class NetCommands {
             off(sender);
             if (!here) return none;
         }
+        if (spec == NetUpdates.SPEC)
+            return updates.issue(sender, target, args, expected, proxies(known, expected), older);
         Set<String> remote = new TreeSet<>(expected);
         remote.addAll(possible);
         remote.remove(self);
@@ -813,6 +825,7 @@ final class NetCommands {
         }
         expireAll();
         worker.shutdown();
+        updates.close();
     }
 
     static void usage(Sender sender) {
@@ -842,7 +855,7 @@ final class NetCommands {
     }
 
     /** The {@code cult.net} nodes {@code sender} holds, {@code sent}'s included; all of them for the console. */
-    private static JsonArray granted(Sender sender, Spec sent) {
+    static JsonArray granted(Sender sender, Spec sent) {
         Set<String> nodes = new TreeSet<>();
         nodes.add(PERMISSION);
         nodes.add(sent.permission());
@@ -946,6 +959,7 @@ final class NetCommands {
                         .thenApply(ok -> Reply.of(ok, ok ? "reloaded" : "reload-failed", Map.of()));
             case NetSettings.OBSERVE, NetSettings.PUNISH -> switched(request, backends);
             case CHECK -> CompletableFuture.completedFuture(check(request, backends));
+            case NetUpdates.NAME -> updates.run(request.id(), request.origin(), request.name(), request.args());
             default ->
                 CompletableFuture.completedFuture(Reply.of(false, "refused-unsupported", Map.of("cmd", request.cmd())));
         };
@@ -1188,8 +1202,8 @@ final class NetCommands {
         return minutes + "m";
     }
 
-    private static Component line(Sender sender, String instance, Reply reply) {
-        Text text = REPLIES.get(reply.code());
+    static Component line(Sender sender, String instance, Reply reply) {
+        Text text = replyText(reply.code());
         String line = text == null
                 ? MessageUtil.miniMessageSafe(reply.text())
                 : fill(unprefixed(text.template()), reply.params());
@@ -1204,6 +1218,12 @@ final class NetCommands {
         return template.replace("%prefix%", "").strip();
     }
 
+    /** What result {@code code} reads as; null for a code this build does not know. */
+    private static @Nullable Text replyText(String code) {
+        Text text = REPLIES.get(code);
+        return text != null ? text : NetUpdates.REPLIES.get(code);
+    }
+
     private static String fill(String template, Map<String, String> values) {
         for (Map.Entry<String, String> value : values.entrySet())
             template = template.replace("%" + value.getKey() + "%", MessageUtil.miniMessageSafe(value.getValue()));
@@ -1215,6 +1235,15 @@ final class NetCommands {
      * backends are not known yet.
      */
     private record Known(String id, boolean proxy, boolean older, boolean undescribed, List<String> backends) {}
+
+    /** The proxies of {@code known} among {@code expected}, by id. */
+    private static Set<String> proxies(List<Known> known, Set<String> expected) {
+        Set<String> proxies = new TreeSet<>();
+        for (Known instance : known) {
+            if (instance.proxy() && expected.contains(instance.id())) proxies.add(instance.id());
+        }
+        return proxies;
+    }
 
     /** One term of a target: {@code all}, {@code proxies}, {@code id:<instance id>}, or a name or pattern. */
     record Term(Kind kind, String value) {
@@ -1429,7 +1458,7 @@ final class NetCommands {
         }
 
         private static String english(String code, Map<String, String> params) {
-            Text text = REPLIES.get(code);
+            Text text = replyText(code);
             String line = text == null ? code : unprefixed(text.fallback());
             for (Map.Entry<String, String> value : params.entrySet())
                 line = line.replace("%" + value.getKey() + "%", value.getValue());

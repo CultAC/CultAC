@@ -128,6 +128,15 @@ public final class CultVelocityPlugin {
             } catch (IOException | RuntimeException failure) {
                 logger.warn("Starting the bundled CultAC runtime; the update settings are unusable: " + failure);
             }
+            engine.buildInstaller(new GenerationManager.BuildInstaller() {
+                public CompletionStage<String> install(long number, String branch, String requestedBy) {
+                    return networkUpdate(number, branch, requestedBy);
+                }
+
+                public CompletionStage<Long> latest(String branch) {
+                    return new BuildUpdates(updateSettings(), bundledVersion).newest(branch, UPDATE_WORKER);
+                }
+            });
             engine.loadInitial(getClass().getResourceAsStream("/cult-runtime/default.jar"), bootBuild);
             engine.startInitial();
             proxy.getScheduler()
@@ -327,6 +336,31 @@ public final class CultVelocityPlugin {
                         NamedTextColor.GRAY);
             webhook.post(settings.webhook(), line, logger::warn);
         });
+    }
+
+    /**
+     * A {@code /cult net ... update} of this proxy to build {@code number}: installed, logged and posted to the update
+     * webhook as {@code /cult update <number>} is, the log and webhook lines naming who asked for it. Completes with the
+     * install line.
+     */
+    private CompletionStage<String> networkUpdate(long number, String branch, String requestedBy) {
+        UpdateSettings settings;
+        try {
+            settings = updateSettings();
+        } catch (RuntimeException unusable) {
+            String line = "update refused: " + unusable;
+            logger.warn(line + " (network update by " + requestedBy + ")");
+            return CompletableFuture.completedFuture(line);
+        }
+        return new BuildUpdates(settings, bundledVersion)
+                .install(engine, number, branch, UPDATE_WORKER)
+                .exceptionally(failure -> "update refused: " + failure)
+                .thenApply(line -> {
+                    String recorded = line + " (network update by " + requestedBy + ")";
+                    logger.info(recorded);
+                    webhook.post(settings.webhook(), recorded, logger::warn);
+                    return line;
+                });
     }
 
     private static NamedTextColor updateColor(String line) {
