@@ -32,16 +32,6 @@ public final class RiptideUtil {
         return isFullyCharged(player, hand) && canUseRiptideAtCurrentState(player);
     }
 
-    public static String invalidReleaseReason(CultPlayer player, Hand hand) {
-        if (!isFullyCharged(player, hand)) {
-            return "charge=" + getTrackedUseTicks(player, hand);
-        }
-        if (refusesPassenger(player)) {
-            return "passenger";
-        }
-        return "dry";
-    }
-
     public static boolean isFullyCharged(CultPlayer player, Hand hand) {
         return hasFullCharge(getTrackedUseTicks(player, hand));
     }

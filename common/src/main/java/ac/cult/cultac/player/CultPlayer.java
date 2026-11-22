@@ -26,7 +26,6 @@ import ac.cult.cultac.manager.LastInstanceManager;
 import ac.cult.cultac.manager.PunishmentManager;
 import ac.cult.cultac.manager.player.ActionManager;
 import ac.cult.cultac.manager.player.CheckManager;
-import ac.cult.cultac.manager.player.MovementData;
 import ac.cult.cultac.manager.player.PluginChannelManager;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.manager.player.features.FeatureManagerImpl;
@@ -172,7 +171,6 @@ public class CultPlayer implements GrimUser {
     public final long timeJoined;
     public @NotNull MovementPlatform movementPlatform = MovementPlatform.JAVA;
     public @Nullable BedrockPlayerState bedrockState;
-    public long lastJoinedWorld;
 
     public int entityID;
     public @MonotonicNonNull PlatformPlayer platformPlayer;
@@ -315,7 +313,6 @@ public class CultPlayer implements GrimUser {
     public boolean isInBed = false;
     public final CompensatedOpenWindow openWindow;
     public boolean hasInventoryOpen = false;
-    public long lastOpenedInventory;
     public int food = 20;
     public float flySpeed;
     public final ClientItemUseState clientItemUse = new ClientItemUseState();
@@ -369,9 +366,6 @@ public class CultPlayer implements GrimUser {
     // Whether this tick's movement intersected a nether portal block (see MultiActionsD)
     public boolean intersectedWithNetherPortal;
     public final LocalPortalProcess localPortalProcess = new LocalPortalProcess();
-
-    @Getter
-    private final @NotNull MovementData movementData;
 
     public int minPlayerAttackSlow = 0;
     public int maxPlayerAttackSlow = 0;
@@ -652,7 +646,6 @@ public class CultPlayer implements GrimUser {
         this.ghostBlockMitigator = new GhostBlockMitigator(this);
         this.itemUseDesync = new ItemUseDesync(this);
         this.itemUseBurst = new ItemUseBurst(this);
-        this.movementData = new MovementData(this);
         this.knockbackHandler = new KnockbackHandler(this);
         this.explosionHandler = new ExplosionHandler(this);
         this.keepSprint = new KeepSprint(this);
@@ -1111,9 +1104,7 @@ public class CultPlayer implements GrimUser {
         // Replacement bundles created inside a packet-send handler are flattened
         // after handler dispatch, so the generated ping sub-packet may not pass
         // through the outbound ping listener. Mirror the send-side tracking here.
-        if (markTransactionPacketSent(transaction.packet())) {
-            packetStateData.lastServerTransWasValid = true;
-        }
+        markTransactionPacketSent(transaction.packet());
     }
 
     public boolean markTransactionPacketSent(CultWrite packet) {

@@ -67,7 +67,6 @@ public class PacketStateData {
     public int riptideUseStartClientTick = Integer.MIN_VALUE;
     public Hand riptideUseHand = null;
     public boolean invalidRiptideRelease = false;
-    public String invalidRiptideReleaseReason = "";
     public float serverTickRate = 20.0F;
     public boolean serverTicksFrozen = false;
     public int serverFrozenTickStepsRemaining = 0;
@@ -182,14 +181,8 @@ public class PacketStateData {
         vehicleMovementFromClientTick = false;
     }
 
-    // For future checks
-    public float lastHealth, lastSaturation;
-    public int lastFood;
-
     // Client-visible login/game-event option used by the death/respawn state machine.
     public boolean showsDeathScreen = true;
-
-    public boolean lastServerTransWasValid = false;
 
     public void setSlowedByUsingItem(boolean slowedByUsingItem) {
         slowedByUsingItemSlot = slowedByUsingItem ? lastSlotSelected : Integer.MIN_VALUE;

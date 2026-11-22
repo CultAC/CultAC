@@ -1168,11 +1168,11 @@ public class CheckManagerListener implements OpaqueReceiveListener {
 
                 player.blockActionReconciler.rejectPlace(packet);
             } else { // Legit place
-                ghostBlockMitigator.handlePseudoPlace(new GhostBlock(placedAgainst, placedWith, blockPlace.isBlock()));
+                ghostBlockMitigator.handlePseudoPlace(new GhostBlock(placedAgainst, placedWith));
                 player.compensatedWorld.markForBlockPrediction(placedAgainst);
                 BlockPos normal = blockPlace.getNormalBlockFace();
                 BlockPos relative = placedAgainst.offset(normal.getX(), normal.getY(), normal.getZ());
-                ghostBlockMitigator.handlePseudoPlace(new GhostBlock(relative, placedWith, blockPlace.isBlock()));
+                ghostBlockMitigator.handlePseudoPlace(new GhostBlock(relative, placedWith));
                 player.compensatedWorld.markForBlockPrediction(relative);
                 applied = PlaceHandler.handleQueuedUseItemOn(player, packet);
             }
@@ -1415,7 +1415,6 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         // We can set the new pos after the places
         if (hasPosition) {
             player.packetStateData.clientSidePosition = VectorUtils.clampVector(new Vec3(x, y, z));
-            player.getMovementData().handle(x, y, z);
         }
 
         if (!teleport) player.packetStateData.packetPlayerOnGround = onGround;

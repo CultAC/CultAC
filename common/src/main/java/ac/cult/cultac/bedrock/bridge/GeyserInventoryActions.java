@@ -52,7 +52,6 @@ final class GeyserInventoryActions {
         if (selected != inventory.getHeldItemSlot()) {
             int slot = inventory.getHeldItemSlot();
             PacketPlayerDigging.selectHotbarSlot(player, slot);
-            player.actionManager.selectHotbarSlot();
             target.selectHotbarSlot(slot);
         }
         if (packet instanceof ContainerClosePacket && session.getInventoryHolder() == null) {

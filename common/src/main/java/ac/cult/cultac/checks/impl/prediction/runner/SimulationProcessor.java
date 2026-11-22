@@ -1507,7 +1507,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.player.y = clampedPosition.y;
         this.player.z = clampedPosition.z;
         this.player.packetStateData.clientSidePosition = clampedPosition;
-        this.player.getMovementData().handle(clampedPosition.x, clampedPosition.y, clampedPosition.z);
     }
 
     private boolean movementStartOnGround(boolean packetOnGround) {

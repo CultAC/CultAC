@@ -53,11 +53,6 @@ public class PacketPlayerRespawn {
     @CultPacketHandler
     public void onSetHealth(
             PacketSendEvent<ClientboundSetHealth> event, CultPlayer player, ClientboundSetHealth packet) {
-        //
-        player.packetStateData.lastFood = packet.food();
-        player.packetStateData.lastHealth = packet.health();
-        player.packetStateData.lastSaturation = packet.saturation();
-
         player.sendTransaction();
         int preceding = player.lastTransactionSent.get();
 
@@ -243,8 +238,6 @@ public class PacketPlayerRespawn {
         player.blockActionReconciler.loginSent();
         player.checkManager.getListener(BadPacketsH.class).resetLevel();
         player.getGhostBlockMitigator().clearLevel();
-        final long joinedAt = System.currentTimeMillis();
-        player.lastJoinedWorld = joinedAt;
     }
 
     /**
@@ -407,8 +400,6 @@ public class PacketPlayerRespawn {
                 player.compensatedWorld.resetClientPredictions();
                 player.getGhostBlockMitigator().clearLevel();
                 player.compensatedWorld.isRaining = false;
-                final long worldJoinTime = System.currentTimeMillis();
-                player.lastJoinedWorld = worldJoinTime;
             }
             player.dimension = dimension;
             player.world = worldName;

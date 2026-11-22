@@ -26,8 +26,8 @@ public class GhostBlockRetentionTest {
             var pos = new BlockPos(2901, 69, -30);
             var other = new BlockPos(2902, 69, -30);
             world.ensureValidationChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4);
-            mitigator.handlePseudoPlace(new GhostBlock(pos, null, true));
-            mitigator.handlePseudoPlace(new GhostBlock(other, null, true));
+            mitigator.handlePseudoPlace(new GhostBlock(pos, null));
+            mitigator.handlePseudoPlace(new GhostBlock(other, null));
 
             int stone =
                     DataTables.defaults().registry().block("minecraft:stone").defaultState();
@@ -50,8 +50,8 @@ public class GhostBlockRetentionTest {
             var mitigator = player.getGhostBlockMitigator();
             int cap = cap();
             for (int i = 0; i < cap * 4; i++) {
-                mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(i, 64, 0), null, true));
-                mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(i, 64, 0), null, true));
+                mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(i, 64, 0), null));
+                mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(i, 64, 0), null));
             }
 
             Map<BlockPos, GhostBlock> places = pseudoPlaces(mitigator);
@@ -71,10 +71,10 @@ public class GhostBlockRetentionTest {
             var mitigator = player.getGhostBlockMitigator();
             int cap = cap();
             for (int i = 0; i < cap; i++) {
-                mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(i, 64, 0), null, true));
+                mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(i, 64, 0), null));
             }
-            mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(0, 64, 0), null, true));
-            mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(cap, 64, 0), null, true));
+            mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(0, 64, 0), null));
+            mitigator.handlePseudoPlace(new GhostBlock(new BlockPos(cap, 64, 0), null));
 
             Map<BlockPos, GhostBlock> places = pseudoPlaces(mitigator);
             assertEquals(cap, places.size());
@@ -93,16 +93,16 @@ public class GhostBlockRetentionTest {
         try {
             var mitigator = player.getGhostBlockMitigator();
             var pos = new BlockPos(0, 64, 0);
-            GhostBlock block = new GhostBlock(pos, null, true);
+            GhostBlock block = new GhostBlock(pos, null);
             mitigator.handlePseudoPlace(block);
             mitigator.handlePseudoPlace(
-                    new GhostBlock(pos, new SimItemStack(ItemTypes.END_CRYSTAL, 1, Components.EMPTY), false));
+                    new GhostBlock(pos, new SimItemStack(ItemTypes.END_CRYSTAL, 1, Components.EMPTY)));
 
             Map<BlockPos, GhostBlock> places = pseudoPlaces(mitigator);
             assertEquals(1, places.size());
             assertSame(block, places.get(pos));
 
-            GhostBlock replacement = new GhostBlock(pos, null, true);
+            GhostBlock replacement = new GhostBlock(pos, null);
             mitigator.handlePseudoPlace(replacement);
             assertSame(replacement, places.get(pos));
         } finally {
@@ -118,9 +118,8 @@ public class GhostBlockRetentionTest {
             var mitigator = player.getGhostBlockMitigator();
             var pos = new BlockPos(0, 64, 0);
             mitigator.handlePseudoPlace(
-                    new GhostBlock(pos, new SimItemStack(ItemTypes.END_CRYSTAL, 1, Components.EMPTY), false));
-            GhostBlock second =
-                    new GhostBlock(pos, new SimItemStack(ItemTypes.END_CRYSTAL, 1, Components.EMPTY), false);
+                    new GhostBlock(pos, new SimItemStack(ItemTypes.END_CRYSTAL, 1, Components.EMPTY)));
+            GhostBlock second = new GhostBlock(pos, new SimItemStack(ItemTypes.END_CRYSTAL, 1, Components.EMPTY));
             mitigator.handlePseudoPlace(second);
 
             Map<BlockPos, GhostBlock> places = pseudoPlaces(mitigator);

@@ -206,7 +206,6 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
         var dimension = target.getWorldRegistries().dimension(dimensions.getId(level.dimensionType()));
         target.compensatedWorld.setLastClientboundDimension(target.world, dimension.dimension());
         target.compensatedWorld.setDimension(target.world, dimension);
-        target.lastJoinedWorld = System.currentTimeMillis();
     }
 
     private static Field configurationProfileField() {

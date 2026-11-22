@@ -154,11 +154,6 @@ public class CultMath {
         return num * num;
     }
 
-    @Contract(pure = true)
-    public static double magnitude(double x, double z) {
-        return Math.sqrt(x * x + z * z);
-    }
-
     /** Calculates clicks per second without undercounting same-millisecond samples. */
     @Contract(pure = true)
     public static double getCps(List<Long> samples) {

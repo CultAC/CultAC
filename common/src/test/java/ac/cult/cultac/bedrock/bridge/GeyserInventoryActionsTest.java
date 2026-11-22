@@ -4,7 +4,6 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
-import ac.cult.cultac.manager.player.ActionManager;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.PacketStateData;
@@ -57,7 +56,6 @@ public class GeyserInventoryActionsTest {
     private static CultPlayer player() throws Exception {
         var player = mock(CultPlayer.class);
         player.packetStateData = new PacketStateData();
-        player.actionManager = mock(ActionManager.class);
         var transactions = CultPlayer.class.getDeclaredField("lastTransactionSent");
         transactions.setAccessible(true);
         transactions.set(player, new AtomicInteger());
@@ -110,7 +108,6 @@ public class GeyserInventoryActionsTest {
                 () -> when(session.getPlayerInventory().getHeldItemSlot()).thenReturn(4));
         assertEquals(4, player.packetStateData.lastSlotSelected);
         assertEquals(4, player.getInventory().inventory.selected);
-        verify(player.actionManager).selectHotbarSlot();
     }
 
     private static ItemStackRequestSlotData slot(ContainerSlotType container, int slot) {

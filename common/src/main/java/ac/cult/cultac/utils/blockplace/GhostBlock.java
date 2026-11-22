@@ -12,7 +12,6 @@ public class GhostBlock {
 
     private final BlockPos position;
     private final SimItemStack itemUsed;
-    private final boolean placeTypeBlock;
     /** Client block prediction sequence of the newest action that clicked this position. */
     @Setter
     private int sequence;

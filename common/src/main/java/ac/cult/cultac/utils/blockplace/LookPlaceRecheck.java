@@ -147,8 +147,8 @@ public final class LookPlaceRecheck {
             BlockPos normal = place.getNormalBlockFace();
             BlockPos relative = against.offset(normal.getX(), normal.getY(), normal.getZ());
             var ghosts = player.getGhostBlockMitigator();
-            ghosts.handlePseudoPlace(new GhostBlock(against, place.getItemStack(), place.isBlock()));
-            ghosts.handlePseudoPlace(new GhostBlock(relative, place.getItemStack(), place.isBlock()));
+            ghosts.handlePseudoPlace(new GhostBlock(against, place.getItemStack()));
+            ghosts.handlePseudoPlace(new GhostBlock(relative, place.getItemStack()));
         }
     }
 }
