@@ -2024,6 +2024,15 @@ public class CultPlayer implements GrimUser {
         return user.getCultConnection().platform().backendTicks();
     }
 
+    @Nullable
+    public String compressedForwardStats() {
+        return user.getCultConnection().platform().compressedForwardStats();
+    }
+
+    public void resetCompressedForwardStats() {
+        user.getCultConnection().platform().resetCompressedForwardStats();
+    }
+
     /** True when a debug interaction pause drops this serverbound packet. Owner thread only. */
     public boolean discardsPausedInteraction(Object packet) {
         return interactionPause.discards(packet);
