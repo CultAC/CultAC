@@ -9,8 +9,10 @@ import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
@@ -82,6 +84,19 @@ class PacketOrderJInteractionRangeTest {
             ticks(f, 25);
             sendPeek(f, 0);
             ticks(f, 3);
+        }));
+    }
+
+    /**
+     * A wall-attached shulker opening away from the player: every shell its unanswered opening may leave contains the
+     * closed box, which lies within interaction range.
+     */
+    @Test
+    void attackingAndUsingWithoutInteractingWithAShulkerOpeningAwayInRangeFlags() throws Exception {
+        assertEquals(1, violations(EntityTypeIds.SHULKER, new Vec3(3, 0.5, 0), f -> {
+            ((PacketEntityShulker) f.player.compensatedEntities.getEntity(TARGET)).facing = Direction.WEST;
+            sendPeek(f, 100);
+            ticks(f, 25);
         }));
     }
 
