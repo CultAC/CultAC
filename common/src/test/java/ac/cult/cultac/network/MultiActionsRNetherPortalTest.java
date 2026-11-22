@@ -27,7 +27,8 @@ import org.mockito.Mockito;
 
 /**
  * LocalPlayer#handlePortalTransitionEffect closes the screen only for a nether PortalProcessor that the last tick's
- * Entity#setAsInsidePortal marked inside. A running portal cooldown keeps it from starting.
+ * Entity#setAsInsidePortal marked inside. A running portal cooldown keeps it from starting, and a spectator's
+ * Entity#isAffectedByBlocks keeps NetherPortalBlock#entityInside from running at all.
  */
 class MultiActionsRNetherPortalTest {
     private static final Vec3 IN_PORTAL = new Vec3(0.5, JavaTickFixture.FLOOR_Y, 0.5);
@@ -49,6 +50,15 @@ class MultiActionsRNetherPortalTest {
             assertEquals(0, clickViolations(f));
             f.tickEnd();
             assertEquals(1, clickViolations(f));
+        }
+    }
+
+    @Test
+    void aSpectatorClickingInsideANetherPortalDoesNotFlag() throws Exception {
+        try (var f = respawnedInPortal(GameMode.SPECTATOR, 0)) {
+            f.tick(IN_PORTAL, true);
+            for (int tick = 0; tick < 3; tick++) f.tickEnd();
+            assertEquals(0, clickViolations(f));
         }
     }
 
