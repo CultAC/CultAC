@@ -32,7 +32,8 @@ import org.jetbrains.annotations.Nullable;
  * {@value #EXPIRY_MILLIS} ms. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any type
  * heard from it. Builds that run network commands add {@code role} ({@value #PROXY} or {@value #SERVER}),
  * {@code build} and {@code state} ({@link State}) to every body; a full body without {@code role} comes from an older
- * build, and a delta without it keeps what the instance last said. Any thread.
+ * build, and a delta without it keeps what the instance last said. {@code settings}, the shared settings' records, is
+ * {@link NetSettings}'s to read. Any thread.
  */
 final class RosterCache {
     static final String TYPE = "roster";
