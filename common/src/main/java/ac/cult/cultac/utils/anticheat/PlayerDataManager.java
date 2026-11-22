@@ -5,11 +5,13 @@ import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.dialog.Dialogs;
+import ac.cult.cultac.manager.datastore.SessionTracker;
 import ac.cult.cultac.network.netty.channel.ChannelHelper;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.player.PlatformPlayerCache;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.floodgate.FloodgateUtil;
 import ac.cult.cultac.utils.floodgate.GeyserUtil;
 import ac.grim.grimac.api.event.events.GrimJoinEvent;
@@ -170,7 +172,7 @@ public class PlayerDataManager {
     public void detachDormant(final User user, boolean loginNotified) {
         CultPlayer tracked = user.getCultPlayer();
         if (remove(user)) {
-            Channels.QUIT.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(tracked));
+            Channels.QUIT.fire(RuntimeEnvironment.outwardUser(tracked));
             Dialogs.forget(user.getUUID(), tracked);
         }
         if (loginNotified && user.getUUID() != null && CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
@@ -179,6 +181,21 @@ public class PlayerDataManager {
                     .liveWriteHooks()
                     .onQuitFromUserDisconnect(user, tracked, System.currentTimeMillis());
         }
+    }
+
+    /**
+     * Another engine handed over a connection it inspected and this one watches it uninspected: closes the session row,
+     * {@code connectionId}'s, that the handing engine kept open for it.
+     */
+    public void dormantAdopted(UUID uuid, UUID connectionId) {
+        if (CultAPI.INSTANCE.getDataStoreLifecycle() == null) return;
+        CultAPI.INSTANCE
+                .getDataStoreLifecycle()
+                .liveWriteHooks()
+                .onQuit(
+                        uuid,
+                        System.currentTimeMillis(),
+                        new SessionTracker.ClientMeta(null, null, -1, null, connectionId));
     }
 
     /**

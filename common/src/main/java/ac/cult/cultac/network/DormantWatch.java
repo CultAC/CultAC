@@ -140,6 +140,11 @@ public final class DormantWatch extends ChannelInboundHandlerAdapter {
         return retired.toIntArray();
     }
 
+    /** Adds {@code ids} to the CultAC pings the client may still answer. On the channel's event loop. */
+    void retire(int[] ids) {
+        for (int id : ids) retired.add(id);
+    }
+
     /** Whether the client's serverbound stream is in play. On the channel's event loop. */
     public boolean play() {
         return play;
