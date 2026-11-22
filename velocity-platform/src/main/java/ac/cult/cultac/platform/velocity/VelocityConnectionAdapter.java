@@ -167,10 +167,6 @@ final class VelocityConnectionAdapter implements PlatformConnection {
         compressedForwarder = forwarder;
     }
 
-    CompressedForwarder compressedForwarder() {
-        return compressedForwarder;
-    }
-
     /** Read on the connection owner, which is the forwarder's event loop. */
     @Override
     public String compressedForwardStats() {

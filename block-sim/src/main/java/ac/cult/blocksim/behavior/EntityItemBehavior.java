@@ -1,6 +1,7 @@
 package ac.cult.blocksim.behavior;
 
 import ac.cult.blocksim.data.Box;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockRaycast;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.Vec3;
@@ -36,7 +37,7 @@ public final class EntityItemBehavior implements ItemBehavior {
             String support = level.registry().block(level.stateAt(context.clickedPos())).key();
             if (!support.equals("minecraft:obsidian") && !support.equals("minecraft:bedrock")) return SimInteraction.FAIL;
             var target = context.clickedPos().relative(Direction.UP);
-            if (!level.registry().facts(level.stateAt(target)).has(ac.cult.blocksim.data.StateFacts.AIR)
+            if (!level.registry().facts(level.stateAt(target)).has(StateFacts.AIR)
                 || level.hasEntityIn(new Box(target.x(), target.y(), target.z(), target.x() + 1, target.y() + 2, target.z() + 1)))
                 return SimInteraction.FAIL;
         }

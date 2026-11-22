@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.logging.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -254,7 +255,7 @@ final class V2InstanceRegistry {
         return adapter.writeHandler(route.storeId(), route.kind(), category);
     }
 
-    private static <T> T await(@NotNull java.util.concurrent.CompletionStage<T> stage, @NotNull String action) {
+    private static <T> T await(@NotNull CompletionStage<T> stage, @NotNull String action) {
         try {
             return stage.toCompletableFuture().get();
         } catch (InterruptedException e) {

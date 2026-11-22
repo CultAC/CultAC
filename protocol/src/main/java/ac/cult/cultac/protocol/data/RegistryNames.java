@@ -3,6 +3,7 @@ package ac.cult.cultac.protocol.data;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Immutable name/ID snapshot. No native values or live registries cross the boundary. */
 public final class RegistryNames {
@@ -46,8 +47,7 @@ public final class RegistryNames {
     }
 
     private IdTable table(String registry) {
-        return java.util.Objects.requireNonNull(
-                registries.get(identifier(registry)), "Missing model registry " + registry);
+        return Objects.requireNonNull(registries.get(identifier(registry)), "Missing model registry " + registry);
     }
 
     private static String identifier(String name) {

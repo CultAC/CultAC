@@ -1,16 +1,23 @@
 package ac.cult.blocksim.behavior;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.InteractionRegistries;
 import ac.cult.blocksim.data.ItemDefinition;
 import ac.cult.blocksim.data.ItemRegistry;
 import ac.cult.blocksim.engine.BlockEntityComponentWriter;
+import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.engine.SimPlayer;
+import ac.cult.blocksim.entity.EntityTypes;
+import ac.cult.blocksim.interaction.AdventurePredicates;
 import ac.cult.blocksim.interaction.PlacementObstruction;
-import java.util.Map;
+import ac.cult.blocksim.interaction.UseContext;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.Map;
 
 /** Item ancestry is generated; family dispatch is resolved once for each item definition. */
 public final class ItemBehaviorRegistry {
-    private final Map<ItemDefinition, ItemBehavior> byItem = new java.util.IdentityHashMap<>();
+    private final Map<ItemDefinition, ItemBehavior> byItem = new IdentityHashMap<>();
     private final ItemDefinition air;
     private final ItemBehavior generalItem;
     public ItemBehaviorRegistry(DataTables data, ItemBehavior generalItem, PlacementObstruction obstruction, BlockEntityComponentWriter components) {
@@ -42,7 +49,7 @@ public final class ItemBehaviorRegistry {
         families.put("net.minecraft.world.item.BowItem", new ProjectileWeaponBehavior(data, generalItem, false));
         families.put("net.minecraft.world.item.CrossbowItem", new ProjectileWeaponBehavior(data, generalItem, true));
         families.put("net.minecraft.world.item.TridentItem", new TridentItemBehavior(generalItem));
-        families.put("net.minecraft.world.item.InstrumentItem", new InstrumentItemBehavior(generalItem, ac.cult.blocksim.data.InteractionRegistries.defaults()));
+        families.put("net.minecraft.world.item.InstrumentItem", new InstrumentItemBehavior(generalItem, InteractionRegistries.defaults()));
         families.put("net.minecraft.world.item.ShearsItem", new ShearsItemBehavior(generalItem));
         families.put("net.minecraft.world.item.BoneMealItem", new BoneMealItemBehavior(data, generalItem));
         families.put("net.minecraft.world.item.BrushItem", new BrushItemBehavior(generalItem));
@@ -55,7 +62,7 @@ public final class ItemBehaviorRegistry {
         families.put("net.minecraft.world.item.MapItem", new ContextualItemBehavior(data, generalItem, ContextualItemBehavior.Kind.FILLED_MAP));
         families.put("net.minecraft.world.item.EnderEyeItem", new ContextualItemBehavior(data, generalItem, ContextualItemBehavior.Kind.ENDER_EYE));
         families.put("net.minecraft.world.item.FireworkRocketItem", new ContextualItemBehavior(data, generalItem, ContextualItemBehavior.Kind.FIREWORK));
-        var entityTypes = ac.cult.blocksim.entity.EntityTypes.defaults();
+        var entityTypes = EntityTypes.defaults();
         families.put("net.minecraft.world.item.BoatItem", new BoatItemBehavior(generalItem, entityTypes));
         families.put("net.minecraft.world.item.MinecartItem", new MinecartItemBehavior(data, generalItem, entityTypes));
         families.put("net.minecraft.world.item.HangingEntityItem", new HangingItemBehavior(data, generalItem));
@@ -67,7 +74,7 @@ public final class ItemBehaviorRegistry {
         families.put("net.minecraft.world.item.FlintAndSteelItem", new BlockUseItemBehavior(data, generalItem, BlockUseItemBehavior.Kind.FLINT_AND_STEEL));
         families.put("net.minecraft.world.item.FireChargeItem", new BlockUseItemBehavior(data, generalItem, BlockUseItemBehavior.Kind.FIRE_CHARGE));
         families.put("net.minecraft.world.item.HoneycombItem", new BlockUseItemBehavior(data, generalItem, BlockUseItemBehavior.Kind.HONEYCOMB));
-        families.put("net.minecraft.world.item.BucketItem", new BucketItemBehavior(generalItem, items, new ac.cult.blocksim.interaction.AdventurePredicates(data)));
+        families.put("net.minecraft.world.item.BucketItem", new BucketItemBehavior(generalItem, items, new AdventurePredicates(data)));
         families.put("net.minecraft.world.item.BlockItem", new BlockItemBehavior(data, items, generalItem, obstruction, components, BlockItemBehavior.Kind.BLOCK));
         families.put("net.minecraft.world.item.DoubleHighBlockItem", new BlockItemBehavior(data, items, generalItem, obstruction, components, BlockItemBehavior.Kind.DOUBLE_HIGH));
         families.put("net.minecraft.world.item.GameMasterBlockItem", new BlockItemBehavior(data, items, generalItem, obstruction, components, BlockItemBehavior.Kind.GAME_MASTER));
@@ -86,17 +93,17 @@ public final class ItemBehaviorRegistry {
         }
     }
     public ItemBehavior behavior(ItemDefinition item) { return byItem.get(item); }
-    public ac.cult.blocksim.engine.SimItemStack finishUsingItem(ac.cult.blocksim.interaction.UseContext context) {
+    public SimItemStack finishUsingItem(UseContext context) {
         // 1.21.2+ Item#finishUsingItem is inherited by every family except SpyglassItem,
         // whose override only plays the stop sound and returns the unchanged stack.
         return itemForStack(context.stack()).vanillaClass().equals("net.minecraft.world.item.SpyglassItem")
                 ? context.stack() : generalItem.finishUsingItem(context);
     }
-    public boolean canDestroyBlock(ac.cult.blocksim.engine.SimItemStack stack, ac.cult.blocksim.engine.SimPlayer player) {
+    public boolean canDestroyBlock(SimItemStack stack, SimPlayer player) {
         var item = itemForStack(stack);
         // DebugStickItem's client branch has no interaction side effect and always returns false.
         return !item.vanillaClass().equals("net.minecraft.world.item.DebugStickItem") && behavior(item).canDestroyBlock(stack, player);
     }
-    public ItemDefinition itemForStack(ac.cult.blocksim.engine.SimItemStack stack) { return typeHolder(stack); }
-    private ItemDefinition typeHolder(ac.cult.blocksim.engine.SimItemStack stack) { return stack.isEmpty() ? air : stack.definition(); }
+    public ItemDefinition itemForStack(SimItemStack stack) { return typeHolder(stack); }
+    private ItemDefinition typeHolder(SimItemStack stack) { return stack.isEmpty() ? air : stack.definition(); }
 }

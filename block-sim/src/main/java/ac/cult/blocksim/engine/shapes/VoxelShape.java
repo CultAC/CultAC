@@ -1,11 +1,12 @@
 package ac.cult.blocksim.engine.shapes;
 
 import ac.cult.blocksim.data.Box;
-import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.BlockPos;
+import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.Vec3;
 import ac.cult.blocksim.interaction.BlockHit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 
@@ -30,7 +31,7 @@ public final class VoxelShape {
     public double coordinateAt(int axis, int index) { return coords[axis][index]; }
     boolean cubeCoordinates(int axis) { return (cubeCoordinateAxes & (1 << axis)) != 0; }
     public boolean sameGrid(VoxelShape other) {
-        for (int axis = 0; axis < 3; axis++) if (!java.util.Arrays.equals(coords[axis], other.coords[axis])) return false;
+        for (int axis = 0; axis < 3; axis++) if (!Arrays.equals(coords[axis], other.coords[axis])) return false;
         return true;
     }
 

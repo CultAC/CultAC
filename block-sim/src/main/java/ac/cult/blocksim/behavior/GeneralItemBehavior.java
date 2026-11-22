@@ -1,10 +1,12 @@
 package ac.cult.blocksim.behavior;
 
-import ac.cult.blocksim.interaction.SimInteraction;
-import ac.cult.blocksim.interaction.UseContext;
 import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.blocksim.engine.BlockSimClientVersion;
+import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.interaction.SimInteraction;
+import ac.cult.blocksim.interaction.UseContext;
 import com.google.gson.JsonElement;
+import java.util.Objects;
 import java.util.function.BiFunction;
 
 /** Item's component-driven defaults; transformer and equipment mechanics have their own handlers. */
@@ -15,9 +17,9 @@ public final class GeneralItemBehavior implements ItemBehavior {
     private final LegacyToolBehavior legacyTools;
     public GeneralItemBehavior(ConsumableBehavior consumables, BiFunction<UseContext, JsonElement, SimInteraction> transformers,
                                BiFunction<UseContext, ItemComponents.Equippable, SimInteraction> equipment, LegacyToolBehavior legacyTools) {
-        this.consumables = java.util.Objects.requireNonNull(consumables); this.transformers = java.util.Objects.requireNonNull(transformers);
-        this.equipment = java.util.Objects.requireNonNull(equipment);
-        this.legacyTools = java.util.Objects.requireNonNull(legacyTools);
+        this.consumables = Objects.requireNonNull(consumables); this.transformers = Objects.requireNonNull(transformers);
+        this.equipment = Objects.requireNonNull(equipment);
+        this.legacyTools = Objects.requireNonNull(legacyTools);
     }
     @Override
     public SimInteraction useOn(UseContext context) {
@@ -41,7 +43,7 @@ public final class GeneralItemBehavior implements ItemBehavior {
     }
 
     @Override
-    public ac.cult.blocksim.engine.SimItemStack finishUsingItem(UseContext context) {
+    public SimItemStack finishUsingItem(UseContext context) {
         if (context.stack().components().has("minecraft:consumable")) consumables.onConsume(context);
         return context.stack();
     }

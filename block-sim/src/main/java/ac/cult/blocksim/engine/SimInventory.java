@@ -2,6 +2,7 @@ package ac.cult.blocksim.engine;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /** Native inventory indices 0–35 and equipment indices 36–42, including offhand at 40. */
 public final class SimInventory {
@@ -12,7 +13,7 @@ public final class SimInventory {
     public SimInventory(List<SimItemStack> slots, int selected, boolean infiniteMaterials, SimItemStack empty) {
         if (slots.size() != 43 || selected < 0 || selected >= 9 || !empty.isEmpty()) throw new IllegalArgumentException("Invalid native inventory snapshot");
         this.slots = new ArrayList<>(slots); this.selected = selected; this.infiniteMaterials = infiniteMaterials; this.empty = empty;
-        this.slots.forEach(java.util.Objects::requireNonNull);
+        this.slots.forEach(Objects::requireNonNull);
     }
     public int selected() { return selected; }
     public boolean infiniteMaterials() { return infiniteMaterials; }
@@ -28,7 +29,7 @@ public final class SimInventory {
     }
     public List<SimItemStack> slots() { return List.copyOf(slots); }
     public SimItemStack get(int index) { return index < slots.size() ? slots.get(index) : empty; }
-    public void set(int index, SimItemStack stack) { if (index < slots.size()) slots.set(index, java.util.Objects.requireNonNull(stack)); }
+    public void set(int index, SimItemStack stack) { if (index < slots.size()) slots.set(index, Objects.requireNonNull(stack)); }
     private boolean hasSpace(SimItemStack current, SimItemStack incoming) {
         return !current.isEmpty() && current.sameItemSameComponents(incoming) && current.isStackable() && current.count() < maxStackSize(current);
     }

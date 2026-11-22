@@ -1,5 +1,6 @@
 package ac.cult.blocksim.data;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.apache.commons.lang3.math.Fraction;
 
@@ -16,7 +17,7 @@ public final class BundleContents {
         this.selectedItem = selectedItem;
     }
     BundleContents withItemEncodings(ComponentWireEncoding encoding) {
-        var children = new java.util.ArrayList<ItemTemplate>(items.size());
+        var children = new ArrayList<ItemTemplate>(items.size());
         for (int index = 0; index < items.size(); index++)
             children.add(items.get(index).withWireEncodings(encoding.item(Integer.toString(index))));
         var result = new BundleContents(children, selectedItem);

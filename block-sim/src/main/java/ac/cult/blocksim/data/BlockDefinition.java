@@ -14,10 +14,5 @@ public record BlockDefinition(String key, String vanillaClass, int firstState, i
 
     public record Property(String name, int stride, List<String> values) {
         public Property { values = List.copyOf(values); }
-        public int indexOf(String value) {
-            int index = values.indexOf(value);
-            if (index < 0) throw new IllegalArgumentException("Unknown " + name + " value " + value);
-            return index;
-        }
     }
 }

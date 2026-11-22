@@ -2,10 +2,11 @@ package ac.cult.blocksim.behavior;
 
 import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
-import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.SimFluidState;
+import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.interaction.PlacementContext;
 import ac.cult.blocksim.interaction.SimInteraction;
 import ac.cult.blocksim.interaction.UseContext;
@@ -55,7 +56,7 @@ public final class GrowingPlantBehavior extends BlockBehavior {
         if (next.y() < level.minY() || next.y() > level.maxY()) return false;
         int neighbor = level.stateAt(next);
         return kind == Kind.KELP ? level.registry().block(neighbor).key().equals("minecraft:water")
-                : level.registry().facts(neighbor).has(ac.cult.blocksim.data.StateFacts.AIR);
+                : level.registry().facts(neighbor).has(StateFacts.AIR);
     }
 
     @Override

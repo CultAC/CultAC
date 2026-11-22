@@ -1,5 +1,7 @@
 package ac.cult.blocksim.data;
 
+import java.util.Set;
+
 /** Immutable model tag memberships compiled once from the generated defaults. */
 public enum BlockTags {
     CLIMBABLE("climbable"), STAIRS("stairs"), FENCES("fences"), BARS("bars"), SHULKER_BOXES("shulker_boxes"),
@@ -19,7 +21,7 @@ public enum BlockTags {
         int[] result = new int[REGISTRY.blocks().size()];
         var tags = DataTables.defaults().tags();
         for (var tag : values()) {
-            var members = tags.getOrDefault(tag.key, java.util.Set.of());
+            var members = tags.getOrDefault(tag.key, Set.of());
             for (int index = 0; index < result.length; index++)
                 if (members.contains(REGISTRY.blocks().get(index).key())) result[index] |= 1 << tag.ordinal();
         }

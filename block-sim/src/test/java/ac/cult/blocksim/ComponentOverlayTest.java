@@ -13,6 +13,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ class ComponentOverlayTest {
         assertEquals(expected.keys(), actual.keys());
         assertEquals(JsonParser.parseString(expected.json()), JsonParser.parseString(actual.json()));
         assertSame(expected.bundle(), actual.bundle());
-        for (String name : java.util.List.of("values", "encodedNbt", "layouts", "wireEncodings"))
+        for (String name : List.of("values", "encodedNbt", "layouts", "wireEncodings"))
             assertEquals(field(expected, name), field(actual, name), name);
         for (String key : expected.keys()) {
             assertEquals(expected.get(key), actual.get(key), key);
@@ -136,10 +137,10 @@ class ComponentOverlayTest {
     }
 
     private static void assertBounded(Components value) throws Exception {
-        for (String name : java.util.List.of("values", "encodedNbt", "layouts", "wireEncodings")) {
+        for (String name : List.of("values", "encodedNbt", "layouts", "wireEncodings")) {
             var map = field(value, name);
             if (!map.getClass().getSimpleName().equals("OverlayMap")) continue;
-            for (String parent : java.util.List.of("prototype", "added")) {
+            for (String parent : List.of("prototype", "added")) {
                 var field = map.getClass().getDeclaredField(parent);
                 field.setAccessible(true);
                 assertNotEquals("OverlayMap", field.get(map).getClass().getSimpleName());
@@ -153,7 +154,7 @@ class ComponentOverlayTest {
         var added = Components.parse("{\"test:replaced\":1}");
         var ordinary = original.overlay(added, Set.of("test:removed"));
         equivalent(materialized(original, added, Set.of("test:removed")), ordinary);
-        for (String name : java.util.List.of("values", "encodedNbt", "layouts", "wireEncodings"))
+        for (String name : List.of("values", "encodedNbt", "layouts", "wireEncodings"))
             assertNotEquals("OverlayMap", field(ordinary, name).getClass().getSimpleName(), name);
     }
 }

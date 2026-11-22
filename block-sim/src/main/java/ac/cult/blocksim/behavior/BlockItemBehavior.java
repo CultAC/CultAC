@@ -11,6 +11,7 @@ import ac.cult.blocksim.interaction.PlacementContext;
 import ac.cult.blocksim.interaction.PlacementObstruction;
 import ac.cult.blocksim.interaction.SimInteraction;
 import ac.cult.blocksim.interaction.UseContext;
+import java.util.Objects;
 import java.util.Set;
 
 /** One placement workflow, with the small vanilla item-family differences kept explicit. */
@@ -31,10 +32,10 @@ public final class BlockItemBehavior implements ItemBehavior {
         this(data, kind == Kind.SOLID_BUCKET ? new ItemRegistry(data) : null, generalItem, obstruction, blockEntityComponents, kind);
     }
     public BlockItemBehavior(DataTables data, ItemRegistry items, ItemBehavior generalItem, PlacementObstruction obstruction, BlockEntityComponentWriter blockEntityComponents, Kind kind) {
-        this.kind = java.util.Objects.requireNonNull(kind); water = data.tags().get("fluid:minecraft:water");
+        this.kind = Objects.requireNonNull(kind); water = data.tags().get("fluid:minecraft:water");
         this.items = items;
-        enabledFeatures = data.enabledFeatures(); this.generalItem = java.util.Objects.requireNonNull(generalItem);
-        this.obstruction = java.util.Objects.requireNonNull(obstruction); this.blockEntityComponents = java.util.Objects.requireNonNull(blockEntityComponents);
+        enabledFeatures = data.enabledFeatures(); this.generalItem = Objects.requireNonNull(generalItem);
+        this.obstruction = Objects.requireNonNull(obstruction); this.blockEntityComponents = Objects.requireNonNull(blockEntityComponents);
     }
     private BlockDefinition block(UseContext context) { return context.level().registry().block(context.usedItem().block()); }
 

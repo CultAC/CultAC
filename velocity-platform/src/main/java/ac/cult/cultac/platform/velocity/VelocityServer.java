@@ -204,8 +204,7 @@ final class VelocityServer implements PlatformServer {
     public double getTPS() {
         double total = 0;
         int measured = 0;
-        for (var connection :
-                ac.cult.cultac.CultAPI.INSTANCE.getNetworkManager().connections()) {
+        for (var connection : CultAPI.INSTANCE.getNetworkManager().connections()) {
             var ticks = connection.platform().backendTicks();
             double rate = ticks == null ? Double.NaN : ticks.ticksPerSecond();
             if (!Double.isNaN(rate)) {

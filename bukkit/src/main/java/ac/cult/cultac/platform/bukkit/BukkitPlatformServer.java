@@ -105,13 +105,7 @@ public class BukkitPlatformServer implements PlatformServer {
     }
 
     @Override
-    public void applyValidationBlock(
-            ac.cult.cultac.platform.api.player.PlatformPlayer player,
-            int x,
-            int y,
-            int z,
-            String state,
-            Runnable applied) {
+    public void applyValidationBlock(PlatformPlayer player, int x, int y, int z, String state, Runnable applied) {
         BukkitValidationBlocks.apply(player, x, y, z, state, applied);
     }
 

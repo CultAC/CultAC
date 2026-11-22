@@ -12,11 +12,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.GZIPInputStream;
 
 /** Exact static vanilla IDs. Dynamic/custom registries still come from connection configuration. */
 public final class ModelRegistryData {
-    private static final Map<ProtocolVersion, ModelRegistryData> CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<ProtocolVersion, ModelRegistryData> CACHE = new ConcurrentHashMap<>();
     private final ProtocolVersion version;
     private final Map<String, IdTable> registries;
     private final List<String> states;
@@ -152,15 +153,5 @@ public final class ModelRegistryData {
     public String blockStateName(int id) {
         if (id < 0 || id >= states.size()) throw new MalformedPacketException("Unknown block state ID " + id);
         return states.get(id);
-    }
-
-    /** -1 means absent in the target; callers must not silently substitute air or an unrelated ID. */
-    public int translateBlockState(int id, ModelRegistryData target) {
-        return target.blockStateId(blockStateName(id));
-    }
-
-    /** Translates IDs only; component payloads require the exact source protocol's codecs. */
-    public int translateRegistryId(String registry, int id, ModelRegistryData target) {
-        return target.registry(registry).id(registry(registry).name(id));
     }
 }

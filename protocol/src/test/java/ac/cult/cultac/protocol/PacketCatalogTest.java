@@ -13,6 +13,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -39,7 +40,7 @@ class PacketCatalogTest {
         for (var catalog : List.of(ServerboundPackets.class, ClientboundPackets.class)) {
             PacketDirection direction =
                     catalog == ServerboundPackets.class ? PacketDirection.SERVERBOUND : PacketDirection.CLIENTBOUND;
-            List<PacketType<?>> declared = new java.util.ArrayList<>();
+            List<PacketType<?>> declared = new ArrayList<>();
             for (Field field : catalog.getDeclaredFields()) {
                 if (Modifier.isPublic(field.getModifiers()) && field.getType() == PacketType.class) {
                     declared.add((PacketType<?>) field.get(null));

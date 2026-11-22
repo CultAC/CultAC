@@ -1,6 +1,7 @@
 package ac.cult.blocksim.engine.shapes;
 
 import ac.cult.blocksim.data.Box;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 
@@ -35,9 +36,9 @@ public final class Shapes {
         if (count > Integer.MAX_VALUE || cells.length() > count) throw new IllegalArgumentException("Invalid occupancy");
         if (cells.isEmpty()) return EMPTY;
         if (cube && cells.cardinality() == 1
-                && java.util.Arrays.equals(copy[0], new double[]{0, 1})
-                && java.util.Arrays.equals(copy[1], new double[]{0, 1})
-                && java.util.Arrays.equals(copy[2], new double[]{0, 1})) return BLOCK;
+                && Arrays.equals(copy[0], new double[]{0, 1})
+                && Arrays.equals(copy[1], new double[]{0, 1})
+                && Arrays.equals(copy[2], new double[]{0, 1})) return BLOCK;
         return new VoxelShape(copy, cube ? 7 : 0, cube, (BitSet) cells.clone());
     }
 

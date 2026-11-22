@@ -6,6 +6,7 @@ import ac.cult.blocksim.data.nbt.NbtValue;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -99,7 +100,7 @@ public final class AdventurePredicateData {
                         .map(value -> HolderSets.identifier(value.getAsString())).toList();
             }
             // Retain typed component matcher payloads. Empty exact/partial maps are their codec defaults.
-            var matchers = new java.util.HashMap<String, Object>();
+            var matchers = new HashMap<String, Object>();
             var partial = fields.get("predicates");
             if (partial != null && !partial.getAsJsonObject().isEmpty())
                 matchers.put("predicates", index < encoded.size()
@@ -125,7 +126,7 @@ public final class AdventurePredicateData {
             }
             result.add(new Identity(holders, predicate.properties(), predicate.nbt(), List.copyOf(exact), Map.copyOf(matchers)));
         }
-        var other = layout == null ? new java.util.HashMap<String, NbtValue>() : new java.util.HashMap<>(layout.values());
+        var other = layout == null ? new HashMap<String, NbtValue>() : new HashMap<>(layout.values());
         other.remove("states");
         other.remove("exact");
         return new ValueIdentity(List.copyOf(result), Map.copyOf(other));

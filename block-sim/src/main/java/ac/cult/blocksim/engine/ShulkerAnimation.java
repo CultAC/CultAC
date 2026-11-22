@@ -1,5 +1,6 @@
 package ac.cult.blocksim.engine;
 
+import ac.cult.blocksim.data.Components;
 import com.google.gson.JsonPrimitive;
 
 /** ShulkerBoxBlockEntity.triggerEvent and updateAnimation, without entity movement. */
@@ -24,7 +25,7 @@ public final class ShulkerAnimation {
         fields = fields.with("animation_status", new JsonPrimitive(status)).with("progress", new JsonPrimitive(progress)).with("progress_old", new JsonPrimitive(previous));
         return fields(entity, fields);
     }
-    private static BlockEntityData fields(BlockEntityData entity, ac.cult.blocksim.data.Components fields) {
+    private static BlockEntityData fields(BlockEntityData entity, Components fields) {
         return fields.equals(entity.data()) ? entity : new BlockEntityData(entity.type(), fields, entity.savedData());
     }
 }

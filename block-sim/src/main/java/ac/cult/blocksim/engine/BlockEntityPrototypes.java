@@ -2,6 +2,7 @@ package ac.cult.blocksim.engine;
 
 import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.Components;
+import ac.cult.blocksim.data.nbt.CanonicalSnbt;
 import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import java.util.HashMap;
@@ -16,7 +17,7 @@ public final class BlockEntityPrototypes {
         var fields = new HashMap<String, NbtValue>();
         switch (type) {
             case "minecraft:piston" -> {
-                var tag = (NbtValue.Compound) ac.cult.blocksim.data.nbt.CanonicalSnbt.parse(block.bindings().get("blockEntity.defaultNbt"));
+                var tag = (NbtValue.Compound) CanonicalSnbt.parse(block.bindings().get("blockEntity.defaultNbt"));
                 fields.putAll(tag.values()); fields.remove("components");
             }
             case "minecraft:test_block" -> fields.put("powered", new NbtValue.Numeric(NbtValue.Kind.BYTE, (byte) 0));

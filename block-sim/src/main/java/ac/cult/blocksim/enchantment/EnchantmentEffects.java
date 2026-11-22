@@ -3,6 +3,10 @@ package ac.cult.blocksim.enchantment;
 import ac.cult.blocksim.data.InteractionRegistries;
 import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.blocksim.engine.SimItemStack;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
+import java.util.Objects;
 
 /** Immutable per-connection effects from the received enchantment registry. */
 public final class EnchantmentEffects {
@@ -12,7 +16,7 @@ public final class EnchantmentEffects {
     private final InteractionRegistries registries;
 
     public EnchantmentEffects(InteractionRegistries registries) {
-        this.registries = java.util.Objects.requireNonNull(registries);
+        this.registries = Objects.requireNonNull(registries);
     }
 
     /** Presence is independent of level, including a stream-decoded zero level. */
@@ -33,7 +37,7 @@ public final class EnchantmentEffects {
         if (!component.equals(TRIDENT_SPIN_ATTACK_STRENGTH) && !component.equals(CROSSBOW_CHARGE_TIME))
             throw new IllegalArgumentException("Not an unfiltered value component " + component);
         var effects = effects(enchantment);
-        com.google.gson.JsonElement value = null;
+        JsonElement value = null;
         if (effects != null) for (var entry : effects.entrySet()) {
             if (name(entry.getKey()).equals(component)) value = entry.getValue();
         }
@@ -41,8 +45,8 @@ public final class EnchantmentEffects {
     }
 
     /** An unused enchantment never builds an effect table or decodes its wire definition. */
-    private com.google.gson.JsonObject effects(String key) {
-        return registries.resolve("enchantment", new com.google.gson.JsonPrimitive(name(key)))
+    private JsonObject effects(String key) {
+        return registries.resolve("enchantment", new JsonPrimitive(name(key)))
             .getAsJsonObject().getAsJsonObject("effects");
     }
 

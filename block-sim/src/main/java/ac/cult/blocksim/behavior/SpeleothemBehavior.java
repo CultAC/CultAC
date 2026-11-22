@@ -7,13 +7,14 @@ import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.blocksim.interaction.PlacementContext;
+import java.util.Locale;
 import java.util.Set;
 
 public final class SpeleothemBehavior extends BlockBehavior {
     private final Set<String> speleothems;
     private final OffsetShapeTable collisions = new OffsetShapeTable(SpeleothemBehavior::shape);
     public SpeleothemBehavior(Set<String> speleothems) { this.speleothems = Set.copyOf(speleothems); }
-    private static Direction tip(SimLevel level, int state) { return Direction.valueOf(level.registry().value(state, "vertical_direction").toUpperCase(java.util.Locale.ROOT)); }
+    private static Direction tip(SimLevel level, int state) { return Direction.valueOf(level.registry().value(state, "vertical_direction").toUpperCase(Locale.ROOT)); }
 
     private boolean sameDirection(SimLevel level, int state, Direction direction) {
         return speleothems.contains(level.registry().block(state).key()) && tip(level, state) == direction;
@@ -57,7 +58,7 @@ public final class SpeleothemBehavior extends BlockBehavior {
         SimLevel level = context.level(); var pos = context.clickedPos(); int state = block.defaultState();
         Direction direction = placementDirection(level, state, pos, context.nearestLookingVerticalDirection().opposite());
         if (direction == null) return -1;
-        state = level.registry().with(state, "vertical_direction", direction.name().toLowerCase(java.util.Locale.ROOT));
+        state = level.registry().with(state, "vertical_direction", direction.name().toLowerCase(Locale.ROOT));
         state = level.registry().with(state, "thickness", thickness(level, state, pos, direction, !context.secondaryUseActive()));
         return level.registry().with(state, "waterlogged", Boolean.toString(level.fluidAt(pos).is("minecraft:water")));
     }

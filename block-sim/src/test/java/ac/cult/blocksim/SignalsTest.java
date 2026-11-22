@@ -1,16 +1,18 @@
 package ac.cult.blocksim;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ac.cult.blocksim.behavior.BehaviorRegistry;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.Signals;
 import ac.cult.blocksim.engine.SimLevel;
-import ac.cult.blocksim.engine.SimWorldView;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
 
 class SignalsTest {
     private static final DataTables DATA;
@@ -27,7 +29,7 @@ class SignalsTest {
         for (String block : new String[]{"stone_button", "lever"}) {
             for (String face : new String[]{"floor", "ceiling", "wall"}) {
                 for (Direction facing : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST}) {
-                    int source = with(with(with(state(block), "face", face), "facing", facing.name().toLowerCase(java.util.Locale.ROOT)), "powered", "true");
+                    int source = with(with(with(state(block), "face", face), "facing", facing.name().toLowerCase(Locale.ROOT)), "powered", "true");
                     world.states.put(POS, source);
                     Direction attachment = face.equals("floor") ? Direction.UP : face.equals("ceiling") ? Direction.DOWN : facing;
                     for (Direction query : Direction.values()) {
@@ -90,9 +92,9 @@ class SignalsTest {
         public boolean isSectionEmpty(BlockPos pos) { return false; }
         public int minY() { return -64; }
         public int height() { return 384; }
-        public boolean isWithinBorder(ac.cult.blocksim.engine.BlockPos pos) { return true; }
-        public boolean creakingActiveAt(ac.cult.blocksim.engine.BlockPos pos) { return false; }
-        public boolean waterEvaporatesAt(ac.cult.blocksim.engine.BlockPos pos) { return false; }
-        public ac.cult.blocksim.engine.BlockEntityData blockEntityAt(ac.cult.blocksim.engine.BlockPos pos) { return null; }
+        public boolean isWithinBorder(BlockPos pos) { return true; }
+        public boolean creakingActiveAt(BlockPos pos) { return false; }
+        public boolean waterEvaporatesAt(BlockPos pos) { return false; }
+        public BlockEntityData blockEntityAt(BlockPos pos) { return null; }
     }
 }

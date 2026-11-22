@@ -1,21 +1,24 @@
 package ac.cult.blocksim;
 
-import ac.cult.blocksim.behavior.BlockBehavior;
+import static org.junit.jupiter.api.Assertions.*;
+
 import ac.cult.blocksim.behavior.BehaviorRegistry;
+import ac.cult.blocksim.behavior.BlockBehavior;
 import ac.cult.blocksim.behavior.SnowyBehavior;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.Signals;
 import ac.cult.blocksim.engine.SimLevel;
-import ac.cult.blocksim.engine.SimWorldView;
+import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
 
 class SimLevelTest {
     private static final DataTables DATA;
@@ -47,13 +50,13 @@ class SimLevelTest {
         var fence = piston.relative(Direction.EAST);
         World world = new World();
         world.states.put(fence, state("oak_fence"));
-        world.movingPiston = ac.cult.blocksim.engine.shapes.Shapes.empty();
+        world.movingPiston = Shapes.empty();
         SimLevel level = new SimLevel(world, DATA.registry(), new BehaviorRegistry(DATA));
         int moving = state("moving_piston");
         assertTrue(level.setBlock(piston, moving, 3));
         assertEquals("false", DATA.registry().value(level.stateAt(fence), "west"));
         // PistonBaseBlock#triggerEvent updates the source's neighbors once its block entity collides as the base.
-        world.movingPiston = ac.cult.blocksim.engine.shapes.Shapes.block();
+        world.movingPiston = Shapes.block();
         level.updateNeighborShapes(moving, piston, 2);
         assertEquals("true", DATA.registry().value(level.stateAt(fence), "west"));
     }
@@ -171,9 +174,9 @@ class SimLevelTest {
 
     private final class World implements StubWorldView {
         private final Map<BlockPos, Integer> states = new HashMap<>();
-        private ac.cult.blocksim.engine.shapes.VoxelShape movingPiston;
+        private VoxelShape movingPiston;
         public int stateAt(BlockPos pos) { return states.getOrDefault(pos, state("air")); }
-        @Override public ac.cult.blocksim.engine.shapes.VoxelShape movingPistonCollisionAt(BlockPos pos) {
+        @Override public VoxelShape movingPistonCollisionAt(BlockPos pos) {
             return movingPiston == null ? StubWorldView.super.movingPistonCollisionAt(pos) : movingPiston;
         }
         public boolean isLoaded(BlockPos pos) { return true; }
@@ -184,9 +187,9 @@ class SimLevelTest {
         }
         public int minY() { return -64; }
         public int height() { return 384; }
-        public boolean isWithinBorder(ac.cult.blocksim.engine.BlockPos pos) { return true; }
-        public boolean creakingActiveAt(ac.cult.blocksim.engine.BlockPos pos) { return false; }
-        public boolean waterEvaporatesAt(ac.cult.blocksim.engine.BlockPos pos) { return false; }
-        public ac.cult.blocksim.engine.BlockEntityData blockEntityAt(ac.cult.blocksim.engine.BlockPos pos) { return null; }
+        public boolean isWithinBorder(BlockPos pos) { return true; }
+        public boolean creakingActiveAt(BlockPos pos) { return false; }
+        public boolean waterEvaporatesAt(BlockPos pos) { return false; }
+        public BlockEntityData blockEntityAt(BlockPos pos) { return null; }
     }
 }

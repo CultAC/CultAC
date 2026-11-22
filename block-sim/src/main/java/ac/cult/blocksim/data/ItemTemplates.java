@@ -1,13 +1,15 @@
 package ac.cult.blocksim.data;
 
-import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.data.nbt.NbtValue;
+import ac.cult.blocksim.engine.SimItemStack;
 import com.google.gson.JsonElement;
+import java.util.HashMap;
+import java.util.Objects;
 
 /** Template creation and strict component validation, including raw nested template counts. */
 public final class ItemTemplates {
     private final ItemRegistry items;
-    public ItemTemplates(ItemRegistry items) { this.items = java.util.Objects.requireNonNull(items); }
+    public ItemTemplates(ItemRegistry items) { this.items = Objects.requireNonNull(items); }
 
     public SimItemStack create(JsonElement value) {
         return create(value, null);
@@ -44,7 +46,7 @@ public final class ItemTemplates {
         var container = components.get("minecraft:container");
         if (container != null) {
             // ItemContainerContents.fromSlots keeps only the last template at each slot.
-            var slots = new java.util.HashMap<Integer, ItemTemplate>();
+            var slots = new HashMap<Integer, ItemTemplate>();
             if (components.hasEncodedNbt("minecraft:container")) {
                 for (var entry : ((NbtValue.Sequence)components.encodedNbt("minecraft:container")).values()) {
                     var fields = ((NbtValue.Compound)entry).values();

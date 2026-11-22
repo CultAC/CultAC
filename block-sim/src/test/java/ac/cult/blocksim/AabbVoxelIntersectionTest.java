@@ -6,6 +6,7 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.shapes.BooleanOp;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -41,8 +42,8 @@ class AabbVoxelIntersectionTest {
                         var query = Shapes.create(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
                         boolean expected = Shapes.joinIsNotEmpty(moved, query, BooleanOp.AND);
                         boolean actual = root.intersectsAabb(query, offset[0], offset[1], offset[2], true);
-                        if (expected != actual) fail("state=" + state + " offset=" + java.util.Arrays.toString(offset)
-                                + " lo=" + java.util.Arrays.toString(lo) + " hi=" + java.util.Arrays.toString(hi));
+                        if (expected != actual) fail("state=" + state + " offset=" + Arrays.toString(offset)
+                                + " lo=" + Arrays.toString(lo) + " hi=" + Arrays.toString(hi));
                     }
                 }
             }

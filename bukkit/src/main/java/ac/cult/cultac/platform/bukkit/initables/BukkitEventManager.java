@@ -9,8 +9,7 @@ import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
 
 public class BukkitEventManager implements StartableInitable {
     public void start() {
-        ac.cult.cultac.platform.bukkit.BukkitRuntimeRegistrations.registerEvents(
-                new QuitEvent(), CultACBukkitLoaderPlugin.LOADER);
+        BukkitRuntimeRegistrations.registerEvents(new QuitEvent(), CultACBukkitLoaderPlugin.LOADER);
         BukkitNetwork network = new BukkitNetwork();
         NetworkModule.platform(network);
         BukkitRuntimeRegistrations.registerEvents(network, CultACBukkitLoaderPlugin.LOADER);

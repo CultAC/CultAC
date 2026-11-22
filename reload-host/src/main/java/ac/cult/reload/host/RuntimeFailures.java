@@ -1,5 +1,10 @@
 package ac.cult.reload.host;
 
+import java.lang.reflect.InvocationTargetException;
+import java.util.Arrays;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+
 /** Exceptions crossing the SPI must not retain a retired loader through VM backtraces. */
 final class RuntimeFailures {
     private RuntimeFailures() {}
@@ -9,16 +14,16 @@ final class RuntimeFailures {
     }
 
     static RuntimeException detached(Throwable failure) {
-        while ((failure instanceof java.lang.reflect.InvocationTargetException
-                        || failure instanceof java.util.concurrent.CompletionException
-                        || failure instanceof java.util.concurrent.ExecutionException)
+        while ((failure instanceof InvocationTargetException
+                        || failure instanceof CompletionException
+                        || failure instanceof ExecutionException)
                 && failure.getCause() != null
                 && failure.getCause() != failure) failure = failure.getCause();
         String message = failure.getClass().getName() + ": " + failure.getMessage();
         RuntimeException result = failure instanceof IllegalArgumentException
                 ? new ArgumentFailure(message)
                 : failure instanceof NullPointerException ? new NullFailure(message) : new StateFailure(message);
-        result.setStackTrace(java.util.Arrays.stream(failure.getStackTrace())
+        result.setStackTrace(Arrays.stream(failure.getStackTrace())
                 .map(frame -> new StackTraceElement(
                         frame.getClassLoaderName(),
                         frame.getModuleName(),

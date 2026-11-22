@@ -10,6 +10,7 @@ import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.interaction.PlacementContext;
 import ac.cult.blocksim.interaction.SimInteraction;
 import ac.cult.blocksim.interaction.UseContext;
+import java.util.Locale;
 
 public final class DoorBehavior extends BlockBehavior {
     @Override
@@ -19,7 +20,7 @@ public final class DoorBehavior extends BlockBehavior {
         if (pos.y() >= level.maxY() || !level.behavior(aboveState).canBeReplaced(level, aboveState, context)) return -1;
         var signals = new Signals(level);
         boolean powered = signals.hasNeighborSignal(pos) || signals.hasNeighborSignal(above);
-        int state = level.registry().with(block.defaultState(), "facing", context.horizontalDirection().name().toLowerCase(java.util.Locale.ROOT));
+        int state = level.registry().with(block.defaultState(), "facing", context.horizontalDirection().name().toLowerCase(Locale.ROOT));
         state = level.registry().with(state, "hinge", hinge(context));
         state = level.registry().with(state, "powered", Boolean.toString(powered));
         state = level.registry().with(state, "open", Boolean.toString(powered));

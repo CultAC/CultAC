@@ -1,6 +1,7 @@
 package ac.cult.blocksim.behavior;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.HolderSets;
 import ac.cult.blocksim.data.ItemRegistry;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.interaction.ItemResults;
@@ -22,7 +23,7 @@ public final class PotionItemBehavior implements ItemBehavior {
         var contents = context.stack().components().get("minecraft:potion_contents");
         if (context.hit().face() == Direction.DOWN || contents == null || !contents.isJsonObject()) return SimInteraction.PASS;
         var potion = contents.getAsJsonObject();
-        if (!potion.has("potion") || !ac.cult.blocksim.data.HolderSets.identifier(potion.get("potion").getAsString()).equals("minecraft:water")
+        if (!potion.has("potion") || !HolderSets.identifier(potion.get("potion").getAsString()).equals("minecraft:water")
             || potion.has("custom_effects") && !potion.getAsJsonArray("custom_effects").isEmpty()
             || !convertible.contains(level.registry().block(level.stateAt(context.clickedPos())).key())) return SimInteraction.PASS;
         context.player().hand(context.hand(), ItemResults.filled(context.stack(), context.player(), items.stack("minecraft:glass_bottle", 1)));

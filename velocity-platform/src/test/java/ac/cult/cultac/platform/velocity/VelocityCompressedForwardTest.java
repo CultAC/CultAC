@@ -1812,14 +1812,10 @@ class VelocityCompressedForwardTest {
     }
 
     /**
-     * A backend frame of a class netty does not provide whose release runs {@code hook}: the client gets {@code
-     * expected}, with the same bytes as with the switch off, and nothing is forwarded.
+     * A backend frame of a class netty does not provide whose release runs {@code hook}, passed on as {@code wrap}
+     * returns it: the client gets {@code expected}, with the same bytes as with the switch off, and nothing is
+     * forwarded.
      */
-    private void checkInputReleaseHook(Function<Fixture, Runnable> hook, List<byte[]> expected) {
-        checkInputReleaseHook(hook, expected, Function.identity());
-    }
-
-    /** As {@link #checkInputReleaseHook(Function, List)}, the frame passed on as {@code wrap} returns it. */
     private void checkInputReleaseHook(
             Function<Fixture, Runnable> hook, List<byte[]> expected, Function<ByteBuf, ByteBuf> wrap) {
         byte[] read = frame(body(packet(3000, 108), THRESHOLD));

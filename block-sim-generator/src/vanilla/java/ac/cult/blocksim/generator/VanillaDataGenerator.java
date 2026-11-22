@@ -6,7 +6,6 @@ import com.google.gson.JsonParser;
 import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
