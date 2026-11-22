@@ -4,7 +4,9 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.routing.NetSettings;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.player.CultPlayer;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /**
  * Applies the network's shared observe, punish and check settings to the players this generation inspects: to every
@@ -24,10 +26,12 @@ public final class PlayerNetworkSettings {
                 return;
             for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) apply(player);
         });
-        NetworkModule.onPlayerChanged(uuid -> {
+        Consumer<UUID> changed = uuid -> {
             CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(uuid);
             if (player != null) apply(player);
-        });
+        };
+        NetworkModule.onPlayerChanged(changed);
+        NetworkModule.onPlayerConnected(changed);
     }
 
     private static void apply(CultPlayer player) {

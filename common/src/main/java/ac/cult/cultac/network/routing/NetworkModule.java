@@ -32,7 +32,11 @@ public final class NetworkModule {
     private static final List<Consumer<NetworkService>> startHooks = new CopyOnWriteArrayList<>();
     private static final List<NetSettings.Listener> settingsListeners = new CopyOnWriteArrayList<>();
     private static final List<Consumer<UUID>> playerListeners = new CopyOnWriteArrayList<>();
-    /** Per player on this instance, the backend server their proxy last connected them to, until they leave. */
+    private static final List<Consumer<UUID>> connectListeners = new CopyOnWriteArrayList<>();
+    /**
+     * Per player on this instance, the backend server their proxy last connected them to, until they leave or join
+     * again.
+     */
     private static final Map<UUID, String> connected = new ConcurrentHashMap<>();
 
     private static volatile @Nullable NetworkPlatform platform;
@@ -194,20 +198,33 @@ public final class NetworkModule {
     }
 
     /**
-     * Calls {@code listener} with each player who joins, is connected to a backend server or switches backend server on
-     * this instance, until closed.
+     * Calls {@code listener} with each player who joins on this instance or whose connection to a backend server
+     * completed, until closed.
      */
     public static NetworkService.Registration onPlayerChanged(Consumer<UUID> listener) {
         playerListeners.add(listener);
         return () -> playerListeners.remove(listener);
     }
 
-    /** A join or backend switch on this instance; {@code brand} is the client brand, null while it is not known. */
+    /**
+     * Calls {@code listener} with each player on this instance the proxy connects to a backend server, ahead of that
+     * connection completing, until closed. The server can still change before it completes.
+     */
+    public static NetworkService.Registration onPlayerConnected(Consumer<UUID> listener) {
+        connectListeners.add(listener);
+        return () -> connectListeners.remove(listener);
+    }
+
+    /**
+     * A join or backend switch on this instance; {@code server} is null at a join that has no backend server yet, and
+     * {@code brand} is the client brand, null while it is not known.
+     */
     public static void playerChanged(UUID uuid, String name, @Nullable String server, @Nullable String brand) {
         if (server != null) connected.put(uuid, server);
+        else connected.remove(uuid);
         NetworkService running = service;
         if (running != null) running.playerChanged(new OnlinePlayer(uuid, name, server, brand));
-        tellPlayerListeners(uuid);
+        tell(playerListeners, uuid);
     }
 
     /**
@@ -216,7 +233,7 @@ public final class NetworkModule {
      */
     public static void playerConnected(UUID uuid, String server) {
         connected.put(uuid, server);
-        tellPlayerListeners(uuid);
+        tell(connectListeners, uuid);
     }
 
     /**
@@ -228,8 +245,8 @@ public final class NetworkModule {
         return target != null ? target : current;
     }
 
-    private static void tellPlayerListeners(UUID uuid) {
-        for (Consumer<UUID> listener : playerListeners) {
+    private static void tell(List<Consumer<UUID>> listeners, UUID uuid) {
+        for (Consumer<UUID> listener : listeners) {
             try {
                 listener.accept(uuid);
             } catch (RuntimeException failure) {

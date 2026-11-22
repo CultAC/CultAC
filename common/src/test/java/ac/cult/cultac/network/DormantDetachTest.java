@@ -299,6 +299,29 @@ class DormantDetachTest {
         assertFalse(c.watch().play());
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2})
+    void aConnectionNeverKeepsAWatchNextToCultHandlers(int failedRemovals) throws Exception {
+        Client c = new Client("lobby");
+        platform.failedRemovals = failedRemovals;
+        try (var ignored = RecordReceiveFixture.failOpen(true)) {
+            toggle("all", NetSettings.OFF);
+            settle();
+        }
+
+        List<String> cult = c.f.channel.pipeline().names().stream()
+                .filter(name -> name.startsWith("cult-"))
+                .toList();
+        if (failedRemovals == 1) {
+            assertEquals(List.of(DormantWatch.NAME), cult, "a second removal that succeeds keeps the watch");
+            assertTrue(c.f.channel.isActive());
+            assertNull(CultAPI.INSTANCE.getNetworkManager().connection(c.f.channel));
+        } else {
+            assertFalse(c.f.channel.isActive(), "a connection left with CultAC handlers is closed: " + cult);
+            assertNull(c.f.channel.pipeline().get(DormantWatch.NAME));
+        }
+    }
+
     private void toggle(String target, String value) {
         TestNetworks.merge(
                 network,
@@ -459,6 +482,8 @@ class DormantDetachTest {
         final Probe probe = new Probe();
         /** How many of the next watches to refuse. */
         int refusedWatches;
+        /** How many of the next handler removals fail before removing anything. */
+        int failedRemovals;
 
         @Override
         public @Nullable UUID player(CultConnection connection) {
@@ -502,6 +527,10 @@ class DormantDetachTest {
 
         @Override
         public void removeHandlers(CultConnection connection) {
+            if (failedRemovals > 0) {
+                failedRemovals--;
+                throw new IllegalStateException("removal refused");
+            }
             CultDecoder.uninstall(connection.channel());
             CultEncoder.uninstall(connection.channel());
         }
