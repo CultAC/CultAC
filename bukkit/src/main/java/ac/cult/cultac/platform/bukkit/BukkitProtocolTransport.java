@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.network.CultNetworkManager;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -25,8 +26,10 @@ final class BukkitProtocolTransport {
                         context -> context.state().require(ac.cult.cultac.protocol.data.RegistryNames.class),
                         context -> context.state().require(ac.cult.cultac.utils.latency.ClientWorldRegistries.class)),
                 commandInputLimit(version));
-        var injector = new PaperInjector(manager);
-        var listener = new BukkitConnectionListener(manager);
+        var dormancy = new PaperDormancy();
+        DormancyController.platform(dormancy);
+        var injector = new PaperInjector(manager, dormancy);
+        var listener = new BukkitConnectionListener(manager, dormancy);
         manager.configureTransport(
                 runtime,
                 injector::enable,
@@ -35,7 +38,7 @@ final class BukkitProtocolTransport {
                 },
                 () -> {
                     HandlerList.unregisterAll(listener);
-                    return injector.unregister();
+                    return injector.unregister().thenCompose(ignored -> dormancy.remove());
                 });
         return injector;
     }

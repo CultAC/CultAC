@@ -29,9 +29,10 @@ import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Dormant mode for Java players on this proxy, through {@link DormancyController}. The setting for the backend server
+ * Dormant mode for the players on this proxy, through {@link DormancyController}. The setting for the backend server
  * a player is switching to decides at each reconfiguration acknowledgement; a dormant player attached again gets the
- * brand, client settings and plugin channels Velocity holds for them. Bedrock players stay inspected.
+ * brand, client settings and plugin channels Velocity holds for them. A dormant Bedrock player loses only their CultAC
+ * player and is checked again when they reconnect.
  */
 final class VelocityDormancy implements DormancyController.Platform {
     private final ProxyServer proxy;
@@ -54,9 +55,14 @@ final class VelocityDormancy implements DormancyController.Platform {
 
     @Override
     public @Nullable UUID player(CultConnection connection) {
-        if (connection.bedrockBridge() != null || !(connection.platform() instanceof VelocityConnectionAdapter adapter))
-            return null;
+        if (!(connection.platform() instanceof VelocityConnectionAdapter adapter)) return null;
         return adapter.nativePlayer().getUniqueId();
+    }
+
+    /** A Bedrock connection keeps CultAC's handlers and its Geyser session tap until it closes. */
+    @Override
+    public boolean swaps(CultConnection connection) {
+        return connection.bedrockBridge() == null;
     }
 
     @Override

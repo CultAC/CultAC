@@ -258,7 +258,7 @@ net-older: "%prefix% &eOlder builds (cannot run network commands): &f%instances%
 # punishments paused, %checks% the checks switched off. net-status-backends-line is a proxy's status for the players on
 # %backends%, the backend servers named.
 net-status-line: "&f%build% &8· &7%role% &8· &f%players% &7players, &f%inspected% &7inspected, &f%dormant% &7dormant &8· &7%toggle% &8· &7%observe% &8· &7%punish% &8· &7checks off: &f%checks% &8· &f%prediction% &7ms/prediction &8· &7up &f%uptime% &7(engine &f%engine_uptime%&7, %generations% generations)"
-net-status-backends-line: "&f%build% &8· &7%role% &8· &7on &f%backends%&7: &f%players% &7players, &f%inspected% &7inspected &8· &7%toggle% &8· &7%observe% &8· &7%punish% &8· &7checks off: &f%checks%"
+net-status-backends-line: "&f%build% &8· &7%role% &8· &7on &f%backends%&7: &f%players% &7players, &f%inspected% &7inspected, &f%dormant% &7dormant &8· &7%toggle% &8· &7%observe% &8· &7%punish% &8· &7checks off: &f%checks%"
 net-refused-permission: "&crefused: %sender% lacks %node% here"
 net-refused-disabled: "&crefused: this server does not take network commands"
 net-refused-not-accepted: "&crefused: this server does not take %cmd% over the network"

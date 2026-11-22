@@ -10,6 +10,7 @@ import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.cloud.Generation;
 import ac.cult.cultac.cloud.Pace;
 import ac.cult.cultac.platform.api.CommandOutcome;
+import ac.cult.cultac.platform.api.player.FakePlatformPlayers;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -82,10 +83,14 @@ class StaffBansTest {
     private final StaffBans.Handled handled = new StaffBans.Handled(StaffBans.MAX_HANDLED);
     private final Pace<Object> pace = new Pace<>(60_000, StaffBans.DEFAULT_MAX_PER_MINUTE, clock::get);
 
+    /** Who is online here when set; else {@link #online}. */
+    private volatile StaffBans.Host presence;
+
     private final StaffBans.Host host = new StaffBans.Host() {
         @Override
         public boolean online(UUID player) {
-            return online.contains(player);
+            StaffBans.Host listed = presence;
+            return listed != null ? listed.online(player) : online.contains(player);
         }
 
         @Override
@@ -298,6 +303,19 @@ class StaffBansTest {
         clock.set(NOW + 15_000);
         bans.pollOnce().get(5, TimeUnit.SECONDS);
         assertEquals(List.of("ban Notch fly hacks", "tempban Other 1h fly hacks"), dispatched);
+    }
+
+    @Test
+    void aPlayerThePlatformListsOnlineIsClaimedAtOnceWithoutAConnectionCultAcInspects() throws Exception {
+        try (var players = new FakePlatformPlayers()) {
+            players.online.add(new FakePlatformPlayers.Native(PLAYER));
+            presence = new StaffBans.PlatformHost();
+            pending(ban(BAN, PLAYER, null, NOW), ban(TIMED, OTHER, 3600L, NOW));
+
+            bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+            assertEquals(List.of("ban Notch fly hacks"), dispatched, "a dormant player is banned at once");
+        }
     }
 
     @Test
