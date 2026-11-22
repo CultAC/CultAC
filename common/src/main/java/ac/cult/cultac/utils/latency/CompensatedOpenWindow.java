@@ -19,6 +19,10 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     private final Set<@Nullable Window> possibleOpenWindows = new HashSet<>(2);
     private long openPlayerInventoryTransaction = Long.MIN_VALUE;
     private long closeTransaction = Long.MIN_VALUE;
+    private int newestServerWindow = Integer.MIN_VALUE;
+    // A show_dialog that may cover a container screen, and the newest transaction written before it.
+    private boolean dialogMayCover;
+    private int dialogTransaction;
     // An acknowledged open_sign_editor whose editor has not yet sent its sign_update.
     private boolean signEditorOpen;
     private int signEditorTransaction;
@@ -32,6 +36,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     }
 
     public void onClientOpenOrCloseWindow(boolean open) {
+        onClientContainerScreen();
         int transaction = player.lastTransactionReceived.get();
         possibleOpenWindows.removeIf(
                 window -> window == null || window == PLAYER_INVENTORY || window.transaction < transaction);
@@ -50,6 +55,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         CultPlayer.TrackedTransaction after = player.createTrackedTransactionPacketForDeferredSend();
         if (before == null || after == null) return;
         Window window = type == null ? null : new Window(id, before.transaction(), type);
+        if (window != null) newestServerWindow = before.transaction();
         // Both proofs stay inside the outbound group. Vanilla processes bundles
         // before a client tick, so no ping is inserted midway through a bundle.
         event.getWritesBeforeSend().add(before.packet());
@@ -64,6 +70,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
             // A vanilla editor sends its sign_update between these proofs when this window replaces it.
             if (signEditorTransaction < before.transaction()) signEditorOpen = false;
             closeBefore(before.transaction(), window != null);
+            closeDialogBefore(before.transaction());
             if (window != null) player.serverOpenedInventoryThisTick = true;
         });
     }
@@ -119,6 +126,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     public void maybeClose() {
         possibleOpenWindows.add(null);
         closeTransaction = player.lastTransactionReceived.get();
+        closeDialogBefore(player.lastTransactionReceived.get());
         onClose();
     }
 
@@ -158,6 +166,52 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     public boolean mayShowBookDialog() {
         for (Window window : possibleOpenWindows) {
             if (window != null && window.type() == MenuType.LECTERN) return true;
+        }
+        return false;
+    }
+
+    /**
+     * ClientCommonPacketListenerImpl#showDialog sets the dialog in place of the current screen and keeps that screen
+     * as its previous screen; a container screen it covers sends no container_close, and the dialog's run_command
+     * reaches ClientPacketListener#sendUnattendedCommand.
+     */
+    public void onServerDialog() {
+        if (!containerMayShow()) return;
+        dialogMayCover = true;
+        dialogTransaction = player.lastTransactionSent.get();
+    }
+
+    /** ClientCommonPacketListenerImpl#clearDialog sets the dialog's previous screen back on top. */
+    public void onServerClearDialog(PacketSendEvent<?> event) {
+        if (!dialogMayCover) return;
+        CultPlayer.TrackedTransaction proof = player.appendTrailingProofTransaction(event);
+        if (proof == null) return;
+        player.latencyUtils.addRealTimeTask(proof.transaction(), () -> closeDialogBefore(proof.transaction()));
+    }
+
+    /** Only a container screen on top sends container_click and container_close. */
+    public void onClientContainerScreen() {
+        closeDialogBefore(player.lastTransactionReceived.get());
+    }
+
+    // The client has handled every show_dialog written before this transaction.
+    private void closeDialogBefore(int transaction) {
+        if (dialogTransaction < transaction) dialogMayCover = false;
+    }
+
+    public boolean mayShowServerDialog() {
+        return dialogMayCover;
+    }
+
+    /**
+     * Whether a container screen may be shown, or set by an open_screen the client has not handled yet. Without one, a
+     * dialog never covers a container: ClientPacketListener#handleOpenScreen and #handleMountScreenOpen set the next
+     * container screen in place of the dialog.
+     */
+    private boolean containerMayShow() {
+        if (player.lastTransactionReceived.get() < newestServerWindow) return true;
+        for (Window window : possibleOpenWindows) {
+            if (window != null) return true;
         }
         return false;
     }

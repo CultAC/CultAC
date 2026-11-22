@@ -28,6 +28,7 @@ public class ChatE extends Check implements CheckListener {
             PacketReceiveEvent<ServerboundChatCommand> event, CultPlayer player, ServerboundChatCommand packet) {
         if (player.openWindow.mustBeOpen()
                 && !player.openWindow.mayShowBookDialog()
+                && !player.openWindow.mayShowServerDialog()
                 && flag()
                 && shouldModifyPackets()) {
             event.setCancelled(true);

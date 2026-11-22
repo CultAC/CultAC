@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
@@ -38,6 +39,18 @@ public class PacketPlayerWindow {
     public void onContainerClick(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
         if (player.isBedrockMovement()) handleInventory(player, true);
         else if (packet.windowId() == 0 && !event.isCancelled()) player.openWindow.onClientOpenOrCloseWindow(true);
+        else player.openWindow.onClientContainerScreen();
+    }
+
+    @CultPacketHandler
+    public void onShowDialog(
+            PacketSendEvent<ClientboundShowDialog> event, CultPlayer player, ClientboundShowDialog packet) {
+        if (!player.isBedrockMovement()) player.openWindow.onServerDialog();
+    }
+
+    @CultPacketHandler("clientbound.clear_dialog")
+    public void onClearDialog(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (!player.isBedrockMovement()) player.openWindow.onServerClearDialog(event);
     }
 
     @CultPacketHandler
