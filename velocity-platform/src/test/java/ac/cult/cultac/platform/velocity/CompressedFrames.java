@@ -438,7 +438,6 @@ final class CompressedFrames {
         private final boolean consume;
         private final SharedCompressor compressor;
         private int level = CLIENT_LEVEL;
-        private boolean heap;
         /** Every buffer {@link #allocateBuffer} returned. */
         final List<ByteBuf> outputs = new ArrayList<>();
 
@@ -464,11 +463,6 @@ final class CompressedFrames {
             this.level = level;
         }
 
-        /** Frames below the threshold go into heap buffers, as under Velocity's Java cipher. */
-        void setHeap(boolean heap) {
-            this.heap = heap;
-        }
-
         @Override
         protected ByteBuf allocateBuffer(ChannelHandlerContext ctx, ByteBuf msg, boolean preferDirect) {
             int uncompressed = msg.readableBytes();
@@ -476,7 +470,7 @@ final class CompressedFrames {
             if (uncompressed < threshold) {
                 int size = uncompressed + 1;
                 size += CompressedForwarder.varIntSize(size);
-                out = heap ? ctx.alloc().heapBuffer(size) : ctx.alloc().directBuffer(size);
+                out = ctx.alloc().directBuffer(size);
             } else {
                 out = ctx.alloc().directBuffer(uncompressed - 1 + 3 + CompressedForwarder.varIntSize(uncompressed));
             }
