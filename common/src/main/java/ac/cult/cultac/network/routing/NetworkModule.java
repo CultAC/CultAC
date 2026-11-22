@@ -204,6 +204,7 @@ public final class NetworkModule {
 
     /** A join or backend switch on this instance; {@code brand} is the client brand, null while it is not known. */
     public static void playerChanged(UUID uuid, String name, @Nullable String server, @Nullable String brand) {
+        if (server != null) connected.put(uuid, server);
         NetworkService running = service;
         if (running != null) running.playerChanged(new OnlinePlayer(uuid, name, server, brand));
         tellPlayerListeners(uuid);

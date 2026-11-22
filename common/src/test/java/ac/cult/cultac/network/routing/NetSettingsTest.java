@@ -515,6 +515,14 @@ class NetSettingsTest {
             assertTrue(player.isObserveOnly());
             assertTrue(player.isPunishmentsPaused());
             assertFalse(probe.isEnabled());
+
+            NetworkModule.playerChanged(id, "Probe", "lobby", null);
+            player.applyNetworkSettings();
+            assertFalse(player.isObserveOnly());
+
+            NetworkModule.playerConnected(id, "BRG_1");
+            NetworkModule.playerLeft(id);
+            assertEquals("lobby", NetworkModule.backend(id, "lobby"));
         } finally {
             NetworkModule.stop();
         }
