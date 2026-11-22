@@ -3,14 +3,15 @@ package ac.cult.cultac.platform.velocity;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.ConnectionContinuation;
 import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.DormantWatch;
 import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.velocity.bridge.BridgeService;
-import ac.cult.cultac.platform.velocity.cloud.CloudBackends;
 import ac.cult.cultac.protocol.netty.CultDecoder;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
@@ -26,7 +27,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Supplier;
+import java.util.function.Consumer;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -39,19 +40,18 @@ final class VelocityDormancy implements DormancyController.Platform {
     private final ProxyServer proxy;
     private final VelocityTransport transport;
     private final BridgeService bridge;
-    private final Supplier<@Nullable CloudBackends> cloudBackends;
+    /** Tells the cloud upload's backends that a player's connection is attached again. */
+    private final Consumer<Player> cloudAdopted;
+
     private volatile @Nullable Method inFlight;
     private volatile @Nullable Method clientChannels;
 
     VelocityDormancy(
-            ProxyServer proxy,
-            VelocityTransport transport,
-            BridgeService bridge,
-            Supplier<@Nullable CloudBackends> cloudBackends) {
+            ProxyServer proxy, VelocityTransport transport, BridgeService bridge, Consumer<Player> cloudAdopted) {
         this.proxy = proxy;
         this.transport = transport;
         this.bridge = bridge;
-        this.cloudBackends = cloudBackends;
+        this.cloudAdopted = cloudAdopted;
     }
 
     @Override
@@ -121,19 +121,28 @@ final class VelocityDormancy implements DormancyController.Platform {
 
     @Override
     public void resume(DormantWatch watch) {
-        if (watch.nativePlayer() instanceof Player player) attach(player, watch.channel(), watch.state());
+        if (watch.nativePlayer() instanceof Player player)
+            attach(player, watch.channel(), watch.state(), watch.platformPlayer());
     }
 
     @Override
     public void closed(DormantWatch watch) {
-        UUID player = watch.player();
+        release(watch.player(), watch.state(), watch.platformPlayer(), watch.nativePlayer());
+    }
+
+    /**
+     * Releases what a connection CultAC held uninspected kept, by its {@code state}, as a disconnect does.
+     * {@code known} is the platform player it had while inspected, if any.
+     */
+    private void release(
+            UUID player, Map<String, Object> state, @Nullable Object known, @Nullable Object nativePlayer) {
         bridge.awake(player);
-        UUID connectionId = watch.state().get("connection-id") instanceof String id ? UUID.fromString(id) : null;
-        PlatformPlayer platformPlayer = watch.platformPlayer() instanceof PlatformPlayer known
-                ? known
-                : watch.nativePlayer() == null
+        UUID connectionId = state.get("connection-id") instanceof String id ? UUID.fromString(id) : null;
+        PlatformPlayer platformPlayer = known instanceof PlatformPlayer inspected
+                ? inspected
+                : nativePlayer == null
                         ? null
-                        : CultAPI.INSTANCE.getPlatformPlayerFactory().getFromNativePlayerType(watch.nativePlayer());
+                        : CultAPI.INSTANCE.getPlatformPlayerFactory().getFromNativePlayerType(nativePlayer);
         CultAPI.INSTANCE.getPlayerDataManager().dormantQuit(player, connectionId, platformPlayer);
     }
 
@@ -154,10 +163,13 @@ final class VelocityDormancy implements DormancyController.Platform {
         if (VelocityProtocols.disconnectUnsupportedClient(player, channel)) return true;
         UUID connectionId = UUID.randomUUID();
         Map<String, Object> state = Map.of(DormantWatch.LOGIN_NOTIFIED, true, "connection-id", connectionId.toString());
-        watch(player, channel, state, new int[0]);
+        DormantWatch watch = watch(player, channel, state, new int[0]);
         PlatformPlayer platformPlayer =
                 CultAPI.INSTANCE.getPlatformPlayerFactory().getFromNativePlayerType(player);
-        CultAPI.INSTANCE.getPlayerDataManager().dormantJoin(platformPlayer, connectionId);
+        CultAPI.INSTANCE.getPlayerDataManager().dormantJoin(platformPlayer, connectionId, channel);
+        // The inactive event may have passed before the watch was added; leaving first keeps a pending one from
+        // releasing again.
+        if (!channel.isActive() && watch.leave()) closed(watch);
         return true;
     }
 
@@ -178,7 +190,7 @@ final class VelocityDormancy implements DormancyController.Platform {
             watch(player, channel, state, retired);
             return;
         }
-        attach(player, channel, state);
+        attach(player, channel, state, null);
     }
 
     /**
@@ -196,13 +208,17 @@ final class VelocityDormancy implements DormancyController.Platform {
         return true;
     }
 
-    /** Removes every watch of this generation. */
+    /**
+     * Removes every watch of this generation, releasing what each watched connection held as its close would. A
+     * generation stops with an open watched connection only when CultAC stops: each holds an engine lease until it
+     * closes or a newer generation adopts it at a reconfiguration acknowledgement.
+     */
     CompletableFuture<Void> remove() {
         List<CompletableFuture<Void>> removed = new ArrayList<>();
         for (DormantWatch watch : List.copyOf(DormantWatch.all())) {
             try {
-                removed.add(
-                        CompletableFuture.runAsync(watch::leave, watch.channel().eventLoop()));
+                removed.add(CompletableFuture.runAsync(
+                        () -> leave(watch), watch.channel().eventLoop()));
             } catch (RuntimeException closed) {
                 // A stopped loop has no pipeline to clean.
             }
@@ -210,7 +226,36 @@ final class VelocityDormancy implements DormancyController.Platform {
         return CompletableFuture.allOf(removed.toArray(CompletableFuture[]::new));
     }
 
-    private void watch(Player player, Channel channel, Map<String, Object> state, int[] retired) {
+    /** Takes {@code watch} out of its pipeline and releases what its connection held; on the channel's event loop. */
+    private void leave(DormantWatch watch) {
+        if (!watch.leave()) return;
+        try {
+            closed(watch);
+        } catch (RuntimeException failure) {
+            CultNetworkManager.reportFailure("dormant watch removal", failure);
+        }
+    }
+
+    /** Runs {@code release} once {@code channel} closes; at once when this generation is ending. */
+    private static void releaseOnClose(Channel channel, Runnable release) {
+        Runnable reported = () -> {
+            try {
+                release.run();
+            } catch (RuntimeException failure) {
+                CultNetworkManager.reportFailure("dormant connection close", failure);
+            }
+        };
+        Runnable guarded;
+        try {
+            guarded = RuntimeEnvironment.guard(reported);
+        } catch (RuntimeException ended) {
+            reported.run();
+            return;
+        }
+        channel.closeFuture().addListener(ignored -> guarded.run());
+    }
+
+    private DormantWatch watch(Player player, Channel channel, Map<String, Object> state, int[] retired) {
         var watch = new DormantWatch(
                 channel,
                 VelocityProtocols.read(player, channel).observed(),
@@ -223,16 +268,27 @@ final class VelocityDormancy implements DormancyController.Platform {
                 DormancyController.hooks());
         VelocityPacketPipeline.watch(channel.pipeline(), watch);
         bridge.dormant(player.getUniqueId());
+        return watch;
     }
 
-    private void attach(Player player, Channel channel, Map<String, Object> state) {
+    /**
+     * Attaches a connection a watch or an older generation held uninspected, by its {@code state}. An attached
+     * connection that continues it and completed its login releases what it held at its disconnect; otherwise that is
+     * released once the channel closes, as no watch or CultAC player is left to do it.
+     */
+    private void attach(Player player, Channel channel, Map<String, Object> state, @Nullable Object known) {
         boolean continued = Boolean.TRUE.equals(state.get(DormantWatch.LOGIN_NOTIFIED));
-        bridge.awake(player.getUniqueId());
-        transport.attach(
-                player, channel, null, continued ? ConnectionContinuation.from(refreshed(state, player)) : null);
-        bridge.adopted(player);
-        CloudBackends backends = cloudBackends.get();
-        if (backends != null) backends.adopted(player);
+        try {
+            bridge.awake(player.getUniqueId());
+            transport.attach(
+                    player, channel, null, continued ? ConnectionContinuation.from(refreshed(state, player)) : null);
+            bridge.adopted(player);
+            cloudAdopted.accept(player);
+        } finally {
+            CultConnection attached = CultAPI.INSTANCE.getNetworkManager().connection(channel);
+            if (!continued || attached == null || !attached.loginNotified())
+                releaseOnClose(channel, () -> release(player.getUniqueId(), state, known, player));
+        }
     }
 
     /** {@code captured} with the brand, client settings and plugin channels Velocity holds for the client. */
