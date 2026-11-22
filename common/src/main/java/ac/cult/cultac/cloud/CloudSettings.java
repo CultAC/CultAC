@@ -55,7 +55,7 @@ public record CloudSettings(
     static CloudSettings read(
             ConfigManager config, List<Integer> protocols, String defaultServerId, Function<String, String> env) {
         String serverId = config.getStringElse("cloud.server-id", "");
-        String url = url(config);
+        String url = CloudModule.url(config);
         if (!url.isEmpty() && !allowedUrl(url)) {
             LogUtil.warn("Cloud upload off: cloud.url must be https, or http to a loopback host, with a host and no"
                     + " user info, query or fragment");
@@ -77,12 +77,6 @@ public record CloudSettings(
                 proxyId,
                 protocols,
                 team(config));
-    }
-
-    /** The service's address, {@code cloud.url}; empty is off. */
-    static String url(ConfigManager config) {
-        String value = config.getStringElse("cloud.url", "");
-        return value == null ? "" : value.strip();
     }
 
     /** Whether connect offers team sync: {@code cloud.team-sync}, off by default. */

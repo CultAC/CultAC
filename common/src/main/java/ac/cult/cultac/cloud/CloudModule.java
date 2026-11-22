@@ -29,12 +29,18 @@ public final class CloudModule {
         if (!loaded) {
             if (superseded) return;
             ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
-            if (CloudSettings.url(config).isEmpty() && apiKey(config, System::getenv).isEmpty()) return;
+            if (url(config).isEmpty() && apiKey(config, System::getenv).isEmpty()) return;
             CloudService.listenForTeam();
             loaded = true;
         }
         CloudService.configReloaded();
         PredictionDiagnostics.readServerFields();
+    }
+
+    /** The service's address, {@code cloud.url}; empty is off. */
+    static String url(ConfigManager config) {
+        String value = config.getStringElse("cloud.url", "");
+        return value == null ? "" : value.strip();
     }
 
     /** This server's intake key: {@code CULTAC_CLOUD_API_KEY}, else {@code cloud.api-key}; empty is off. */
