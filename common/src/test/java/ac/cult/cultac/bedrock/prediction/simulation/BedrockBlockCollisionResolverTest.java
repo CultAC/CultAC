@@ -23,6 +23,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockEntityMove;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInput;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
+import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
@@ -365,7 +366,7 @@ public final class BedrockBlockCollisionResolverTest {
                 previous,
                 frame,
                 frame.intent(),
-                ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot.fromContext(airContext(world)),
+                BedrockWorldSnapshot.fromContext(airContext(world)),
                 true,
                 BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                 null,
@@ -410,7 +411,7 @@ public final class BedrockBlockCollisionResolverTest {
                         previous,
                         frame,
                         frame.intent(),
-                        ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot.fromContext(airContext(world)),
+                        BedrockWorldSnapshot.fromContext(airContext(world)),
                         true,
                         BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                         null,
@@ -534,7 +535,7 @@ public final class BedrockBlockCollisionResolverTest {
                         previous,
                         frame,
                         frame.intent(),
-                        ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot.fromContext(airContext(world)),
+                        BedrockWorldSnapshot.fromContext(airContext(world)),
                         true,
                         BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                         null,

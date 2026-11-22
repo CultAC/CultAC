@@ -3,6 +3,8 @@ package ac.cult.cultac.bedrock.prediction.integration;
 import ac.cult.cultac.bedrock.prediction.BedrockMovementObservation;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
 import ac.cult.cultac.utils.math.Vec3;
 
@@ -12,7 +14,7 @@ final class BedrockMovementObservationFactory {
     static BedrockMovementObservation fromForwardSelection(
             BedrockMovementResult result,
             Vec3 actual,
-            ac.cult.cultac.bedrock.prediction.state.BedrockMovementState selected,
+            BedrockMovementState selected,
             Vec3 reportedVelocity,
             BedrockMoveVector controls) {
         Vec3d position = selected.physicalFeetPosition();
@@ -20,7 +22,7 @@ final class BedrockMovementObservationFactory {
         double horizontal = Math.hypot(error.x(), error.z());
         double velocity = reportedVelocity == null
                 ? 0
-                : ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(result, selected)
+                : BedrockForwardTick.finish(result, selected)
                         .velocity()
                         .subtract(BedrockVectorAdapter.toBedrock(reportedVelocity))
                         .length();

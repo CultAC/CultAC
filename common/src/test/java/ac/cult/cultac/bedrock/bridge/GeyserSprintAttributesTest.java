@@ -5,6 +5,7 @@ import static org.junit.Assert.*;
 import java.util.ArrayList;
 import java.util.List;
 import net.kyori.adventure.key.Key;
+import org.cloudburstmc.protocol.bedrock.data.AttributeData;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.attribute.*;
 import org.junit.Test;
@@ -103,8 +104,7 @@ public class GeyserSprintAttributesTest {
     private static UpdateAttributesPacket bedrockDefault() {
         var packet = new UpdateAttributesPacket();
         packet.setRuntimeEntityId(12);
-        packet.setAttributes(List.of(new org.cloudburstmc.protocol.bedrock.data.AttributeData(
-                "minecraft:movement", 0, 1024, 0.1F, 0, 1024, 0.1F, List.of())));
+        packet.setAttributes(List.of(new AttributeData("minecraft:movement", 0, 1024, 0.1F, 0, 1024, 0.1F, List.of())));
         return packet;
     }
 

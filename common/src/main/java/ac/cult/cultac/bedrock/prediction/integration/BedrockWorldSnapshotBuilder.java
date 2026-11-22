@@ -25,6 +25,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 final class BedrockWorldSnapshotBuilder {
     private final BedrockBlockCollisionWorldSampler blockWorld = new BedrockBlockCollisionWorldSampler();
@@ -49,7 +50,7 @@ final class BedrockWorldSnapshotBuilder {
                 movementContext.playerDimensionsState(),
                 BedrockClimbableContact.NONE,
                 PowderSnowContactState.NONE,
-                new StandingSurfaceState(java.util.Set.of()),
+                new StandingSurfaceState(Set.of()),
                 BlockMovementSlowdownState.NONE,
                 HoneySlideState.NONE);
     }

@@ -10,6 +10,8 @@ import ac.cult.cultac.manager.player.CheckManager;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.PacketHandlerScanner;
 import ac.cult.cultac.network.PacketReceiveHandler;
+import ac.cult.cultac.network.TestProtocolRuntime;
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
@@ -153,12 +155,12 @@ class RecordCheckManagerDispatchTest {
                     f.exchange(
                                     ServerboundPackets.CLIENT_TICK_END,
                                     "client_tick_end",
-                                    ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END.opaqueValue())
+                                    ServerboundPackets.CLIENT_TICK_END.opaqueValue())
                             .type(),
                     f.exchange(
                                     ServerboundPackets.CLIENT_TICK_END,
                                     "client_tick_end",
-                                    ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END.opaqueValue())
+                                    ServerboundPackets.CLIENT_TICK_END.opaqueValue())
                             .packet());
             f.manager.dispatchReceiveHandlers(event);
             assertEquals(List.of("decoded", "typed", "non-async", "world", "first-tick", "second-tick"), trace);
@@ -197,7 +199,7 @@ class RecordCheckManagerDispatchTest {
                 var sample = f.exchange(
                         ServerboundPackets.CLIENT_TICK_END,
                         "client_tick_end",
-                        ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END.opaqueValue());
+                        ServerboundPackets.CLIENT_TICK_END.opaqueValue());
                 f.manager.dispatchReceiveHandlers(
                         new PacketReceiveEvent<>(f.player.user, ConnectionPhase.PLAY, sample.type(), sample.packet()));
             }
@@ -347,8 +349,8 @@ class RecordCheckManagerDispatchTest {
         Fixture(ProtocolVersion version) throws Exception {
             OfflineCultTestBootstrap.installConfig();
             data = ProtocolData.load(version);
-            scanner = new PacketHandlerScanner(ac.cult.cultac.network.TestProtocolRuntime.create(data));
-            player = new CultPlayer(ac.cult.cultac.network.TestUsers.create(
+            scanner = new PacketHandlerScanner(TestProtocolRuntime.create(data));
+            player = new CultPlayer(TestUsers.create(
                     new User.Profile(UUID.randomUUID(), ".Record_Dispatch_Test"), new EmbeddedChannel()));
             manager = player.checkManager;
             field("recordScanner").set(manager, scanner);

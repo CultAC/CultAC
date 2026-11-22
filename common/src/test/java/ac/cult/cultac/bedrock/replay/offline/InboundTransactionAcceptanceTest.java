@@ -6,18 +6,44 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
+import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
+import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.prediction.runner.PacketModHandler;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
+import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.CultWrite;
+import ac.cult.cultac.network.TestUsers;
+import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.reload.integrations.GeyserQueue;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
+import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.translator.protocol.bedrock.BedrockNetworkStackLatencyTranslator;
+import org.geysermc.geyser.translator.protocol.java.JavaPingTranslator;
+import org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundPingPacket;
+import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket;
+import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 public final class InboundTransactionAcceptanceTest {
     @Test
@@ -27,18 +53,17 @@ public final class InboundTransactionAcceptanceTest {
         try {
             var first = createTrackedTransaction(player);
             var second = createTrackedTransaction(player);
-            var completed = new java.util.ArrayList<Integer>();
+            var completed = new ArrayList<Integer>();
             player.latencyUtils.addRealTimeTask(first.transaction(), () -> completed.add(first.transaction()));
             player.latencyUtils.addRealTimeTask(second.transaction(), () -> completed.add(second.transaction()));
             // A decoded or re-encoded ping has the same wire ID and a different Java identity.
-            var decoded = new ac.cult.cultac.network.CultWrite(
-                    new ac.cult.cultac.protocol.packet.clientbound.ClientboundPing(first.id()), false);
+            var decoded = new CultWrite(new ClientboundPing(first.id()), false);
             assertTrue(player.markTransactionPacketSent(decoded));
             assertFalse(player.markTransactionPacketSent(first.packet()));
             assertFalse(player.markTransactionPacketSent(first.id(), 0));
             assertTrue(player.markTransactionPacketSent(second.id(), 0));
             assertTrue(player.addTransactionResponse(second.id()));
-            assertEquals(java.util.List.of(first.transaction(), second.transaction()), completed);
+            assertEquals(List.of(first.transaction(), second.transaction()), completed);
             assertFalse(player.addTransactionResponse(second.id()));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -85,7 +110,7 @@ public final class InboundTransactionAcceptanceTest {
             assertNull(kb.secondBread);
             assertTrue(player.addTransactionResponse(before.id()));
             var pending = kb.firstBread;
-            org.junit.Assert.assertNotNull(pending);
+            Assert.assertNotNull(pending);
             assertNull(kb.secondBread);
             assertFalse(player.addTransactionResponse(before.id()));
             assertNull(kb.secondBread);
@@ -122,7 +147,7 @@ public final class InboundTransactionAcceptanceTest {
     public void nativeBoundariesCanPrecedeAnAlreadyAllocatedJavaPing() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
-        var replies = new ac.cult.reload.integrations.GeyserQueue();
+        var replies = new GeyserQueue();
         try {
             var first = createTrackedTransaction(player);
             player.markTrackedTransactionPacketSent(first);
@@ -132,7 +157,7 @@ public final class InboundTransactionAcceptanceTest {
             var future = createTrackedTransaction(player);
             player.markTrackedTransactionPacketSent(future);
             replies.add(() -> player.addTransactionResponse(future.id()));
-            var completed = new java.util.ArrayList<String>();
+            var completed = new ArrayList<String>();
             player.latencyUtils.addRealTimeTask(future.transaction(), () -> completed.add("future"));
 
             var a = player.createBedrockTransactionAfterClientbound();
@@ -146,17 +171,17 @@ public final class InboundTransactionAcceptanceTest {
             player.addBedrockTransactionTask(b, () -> completed.add("B"));
             player.addBedrockTransactionTask(a, () -> completed.add("A"));
             reply(replies, Long.MIN_VALUE);
-            org.junit.Assert.assertEquals(java.util.List.of("A"), completed);
-            org.junit.Assert.assertEquals(first.transaction(), player.lastTransactionReceived.get());
-            org.junit.Assert.assertEquals(future.transaction(), player.lastTransactionSent.get());
+            Assert.assertEquals(List.of("A"), completed);
+            Assert.assertEquals(first.transaction(), player.lastTransactionReceived.get());
+            Assert.assertEquals(future.transaction(), player.lastTransactionSent.get());
             reply(replies, Long.MIN_VALUE);
-            org.junit.Assert.assertEquals(java.util.List.of("A", "B"), completed);
+            Assert.assertEquals(List.of("A", "B"), completed);
             // Unwritten Java callbacks cannot be consumed, regardless of the returned timestamp.
             reply(replies, future.id());
-            org.junit.Assert.assertEquals(java.util.List.of("A", "B"), completed);
+            Assert.assertEquals(List.of("A", "B"), completed);
             replies.write(() -> player.markBedrockTransactionClientbound(future.id()));
             reply(replies, 1);
-            org.junit.Assert.assertEquals(java.util.List.of("A", "B", "future"), completed);
+            Assert.assertEquals(List.of("A", "B", "future"), completed);
             assertFalse(player.addTransactionResponse(a.id()));
             assertTrue(replies.isEmpty());
         } finally {
@@ -168,24 +193,24 @@ public final class InboundTransactionAcceptanceTest {
     public void nativeReplyBeforeWriteCannotConfirmAnything() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
-        var replies = new ac.cult.reload.integrations.GeyserQueue();
+        var replies = new GeyserQueue();
         try {
             var marker = player.createBedrockTransactionAfterClientbound();
-            var completed = new java.util.ArrayList<String>();
+            var completed = new ArrayList<String>();
             player.addBedrockTransactionTask(marker, () -> completed.add("received"));
             long clock = player.getPlayerClockAtLeast();
             reply(replies, marker.id());
             assertTrue(completed.isEmpty());
-            org.junit.Assert.assertEquals(clock, player.getPlayerClockAtLeast());
+            Assert.assertEquals(clock, player.getPlayerClockAtLeast());
             replies.insert(() -> player.addTransactionResponse(marker.id()), () -> {
                 reply(replies, marker.id());
                 assertTrue(completed.isEmpty());
                 player.markBedrockTransactionClientbound(marker.id());
             });
             reply(replies, 0);
-            org.junit.Assert.assertEquals(java.util.List.of("received"), completed);
+            Assert.assertEquals(List.of("received"), completed);
             reply(replies, 0);
-            org.junit.Assert.assertEquals(java.util.List.of("received"), completed);
+            Assert.assertEquals(List.of("received"), completed);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -196,9 +221,9 @@ public final class InboundTransactionAcceptanceTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
-            var completed = new java.util.ArrayList<String>();
+            var completed = new ArrayList<String>();
             var ping = new DeferredJavaPing(player, () -> {
-                assertEquals(java.util.List.of("chunk", "attributes", "metadata"), completed);
+                assertEquals(List.of("chunk", "attributes", "metadata"), completed);
                 completed.add("forward-pong");
             });
             player.latencyUtils.addRealTimeTask(ping.transaction.transaction(), () -> completed.add("chunk"));
@@ -215,14 +240,12 @@ public final class InboundTransactionAcceptanceTest {
             // Deployed Geyser matches the actual written callback FIFO, not this returned timestamp.
             ping.reply(Long.MIN_VALUE);
             assertEquals(ping.transaction.transaction(), player.lastTransactionReceived.get());
-            assertEquals(java.util.List.of("chunk", "attributes", "metadata", "forward-pong"), completed);
+            assertEquals(List.of("chunk", "attributes", "metadata", "forward-pong"), completed);
             assertEquals(1, ping.pongs.size());
             assertEquals(ping.transaction.id(), ping.pongs.getFirst().getId());
 
             long clock = player.getPlayerClockAtLeast();
-            player.checkManager
-                    .getCheck(ac.cult.cultac.checks.impl.movement.timer.TimerCheck.class)
-                    .onBedrockAuthInput();
+            player.checkManager.getCheck(TimerCheck.class).onBedrockAuthInput();
             var late = RecordReceiveTestEvents.pong(
                     player, ping.pongs.removeFirst().getId());
             dispatchLocalBridgePong(player, late);
@@ -243,8 +266,8 @@ public final class InboundTransactionAcceptanceTest {
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             var ping = new DeferredJavaPing(player, () -> {});
-            var receipts = new java.util.concurrent.atomic.AtomicInteger();
-            org.junit.Assert.assertThrows(
+            var receipts = new AtomicInteger();
+            Assert.assertThrows(
                     IllegalStateException.class,
                     () -> ping.replies.writeWithReceipt(() -> {
                         ping.reply(ping.transaction.id());
@@ -289,7 +312,7 @@ public final class InboundTransactionAcceptanceTest {
             assertEquals(1, ping.pongs.size());
             assertEquals(unknown, ping.pongs.getFirst().getId());
             player.markBedrockTransactionClientbound(ping.transaction.id());
-            org.junit.Assert.assertNotNull(ping.writtenReceipt(ping.transaction.id()));
+            Assert.assertNotNull(ping.writtenReceipt(ping.transaction.id()));
             assertTrue(PacketPingListener.acceptBedrockResponse(player, ping.transaction.id()));
             long clock = player.getPlayerClockAtLeast();
             assertNull(ping.writtenReceipt(ping.transaction.id()));
@@ -330,55 +353,42 @@ public final class InboundTransactionAcceptanceTest {
 
     @Test
     public void localReceiptFailureStillRunsTheOriginalWrittenCallbackOnce() {
-        var replies = new ac.cult.reload.integrations.GeyserQueue();
-        var forwarded = new java.util.concurrent.atomic.AtomicInteger();
+        var replies = new GeyserQueue();
+        var forwarded = new AtomicInteger();
         replies.add(forwarded::incrementAndGet);
         replies.writeWithReceipt(() -> () -> {
             throw new IllegalStateException("receipt failed");
         });
-        org.junit.Assert.assertThrows(
-                IllegalStateException.class, () -> replies.poll().run());
+        Assert.assertThrows(IllegalStateException.class, () -> replies.poll().run());
         assertEquals(1, forwarded.get());
         assertNull(replies.poll());
     }
 
-    static void dispatchLocalBridgePong(
-            CultPlayer player, PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundPong> event)
-            throws Exception {
+    static void dispatchLocalBridgePong(CultPlayer player, PacketReceiveEvent<ServerboundPong> event) throws Exception {
         var connection = player.user.getCultConnection();
         var dispatcher = connection.dispatcher();
-        var timer = player.checkManager.getCheck(ac.cult.cultac.checks.impl.movement.timer.TimerCheck.class);
-        var reached = new java.util.concurrent.atomic.AtomicInteger();
+        var timer = player.checkManager.getCheck(TimerCheck.class);
+        var reached = new AtomicInteger();
         dispatcher.register(routes -> {
+            routes.receive(ServerboundPackets.PONG, PacketListenerPriority.LOWEST, new PacketPingListener()::onPong);
+            routes.receive(ServerboundPackets.PONG, PacketListenerPriority.LOW, timer::onPong);
             routes.receive(
-                    ac.cult.cultac.protocol.packet.ServerboundPackets.PONG,
-                    ac.cult.cultac.network.event.PacketListenerPriority.LOWEST,
-                    new PacketPingListener()::onPong);
-            routes.receive(
-                    ac.cult.cultac.protocol.packet.ServerboundPackets.PONG,
-                    ac.cult.cultac.network.event.PacketListenerPriority.LOW,
-                    timer::onPong);
-            routes.receive(
-                    ac.cult.cultac.protocol.packet.ServerboundPackets.PONG,
-                    ac.cult.cultac.network.event.PacketListenerPriority.MONITOR,
+                    ServerboundPackets.PONG,
+                    PacketListenerPriority.MONITOR,
                     (received, owner, packet) -> reached.incrementAndGet());
         });
         var previousPlayer = connection.player();
         synchronized (connection) {
             connection.player(player);
         }
-        var bridge = ac.cult.cultac.network.CultConnection.class.getDeclaredMethod("bedrockBridge", Object.class);
+        var bridge = CultConnection.class.getDeclaredMethod("bedrockBridge", Object.class);
         bridge.setAccessible(true);
         Object previousBridge = connection.bedrockBridge();
         bridge.invoke(connection, new Object());
         try {
             var before = timerReceiptState(timer);
             assertEquals(Boolean.TRUE, before.getFirst());
-            dispatcher.receive(
-                    event,
-                    dispatcher
-                            .get(ac.cult.cultac.protocol.packet.ServerboundPackets.PONG)
-                            .receive());
+            dispatcher.receive(event, dispatcher.get(ServerboundPackets.PONG).receive());
             assertEquals(0, reached.get());
             assertFalse(event.isAcceptedTransactionResponse());
             assertEquals(before, timerReceiptState(timer));
@@ -390,12 +400,11 @@ public final class InboundTransactionAcceptanceTest {
         }
     }
 
-    private static java.util.List<Object> timerReceiptState(ac.cult.cultac.checks.impl.movement.timer.TimerCheck timer)
-            throws Exception {
-        var values = new java.util.ArrayList<Object>();
-        for (String name : java.util.List.of(
-                "hasGottenMovementAfterTransaction", "knownPlayerClockTime", "lastMovementPlayerClock")) {
-            var field = ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck.class.getDeclaredField(name);
+    private static List<Object> timerReceiptState(TimerCheck timer) throws Exception {
+        var values = new ArrayList<Object>();
+        for (String name :
+                List.of("hasGottenMovementAfterTransaction", "knownPlayerClockTime", "lastMovementPlayerClock")) {
+            var field = AbstractTimerCheck.class.getDeclaredField(name);
             field.setAccessible(true);
             values.add(field.get(timer));
         }
@@ -406,45 +415,41 @@ public final class InboundTransactionAcceptanceTest {
     static final class DeferredJavaPing {
         final CultPlayer player;
         final CultPlayer.TrackedTransaction transaction;
-        final ac.cult.reload.integrations.GeyserQueue replies = new ac.cult.reload.integrations.GeyserQueue();
-        final java.util.Deque<org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket>
-                pongs = new java.util.ArrayDeque<>();
-        final org.geysermc.geyser.session.GeyserSession session;
-        org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket packet;
+        final GeyserQueue replies = new GeyserQueue();
+        final Deque<ServerboundPongPacket> pongs = new ArrayDeque<>();
+        final GeyserSession session;
+        NetworkStackLatencyPacket packet;
 
         DeferredJavaPing(CultPlayer player, Runnable beforeForward) throws Exception {
             this.player = player;
             transaction = createTrackedTransaction(player);
             player.markTrackedTransactionPacketSent(transaction);
-            session = org.mockito.Mockito.mock(
-                    org.geysermc.geyser.session.GeyserSession.class, org.mockito.Mockito.CALLS_REAL_METHODS);
-            var cache = org.geysermc.geyser.session.GeyserSession.class.getDeclaredField("latencyPingCache");
+            session = Mockito.mock(GeyserSession.class, Mockito.CALLS_REAL_METHODS);
+            var cache = GeyserSession.class.getDeclaredField("latencyPingCache");
             cache.setAccessible(true);
             cache.set(session, replies);
-            var geyser = org.mockito.Mockito.mock(
-                    org.geysermc.geyser.GeyserImpl.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
-            org.mockito.Mockito.doReturn(geyser).when(session).getGeyser();
-            org.mockito.Mockito.when(geyser.config().gameplay().forwardPlayerPing())
-                    .thenReturn(true);
-            org.mockito.Mockito.doAnswer(invocation -> {
+            var geyser = Mockito.mock(GeyserImpl.class, Mockito.RETURNS_DEEP_STUBS);
+            Mockito.doReturn(geyser).when(session).getGeyser();
+            Mockito.when(geyser.config().gameplay().forwardPlayerPing()).thenReturn(true);
+            Mockito.doAnswer(invocation -> {
                         packet = invocation.getArgument(0);
                         return null;
                     })
                     .when(session)
-                    .sendUpstreamPacket(org.mockito.Mockito.any());
-            org.mockito.Mockito.doAnswer(invocation -> {
+                    .sendUpstreamPacket(Mockito.any());
+            Mockito.doAnswer(invocation -> {
                         invocation.<Runnable>getArgument(0).run();
                         return null;
                     })
                     .when(session)
-                    .ensureInEventLoop(org.mockito.Mockito.any(Runnable.class));
-            org.mockito.Mockito.doAnswer(invocation -> {
+                    .ensureInEventLoop(Mockito.any(Runnable.class));
+            Mockito.doAnswer(invocation -> {
                         beforeForward.run();
                         pongs.add(invocation.getArgument(0));
                         return null;
                     })
                     .when(session)
-                    .sendDownstreamPacket(org.mockito.Mockito.any());
+                    .sendDownstreamPacket(Mockito.any());
             translate(transaction.id());
             assertTrue(packet.isFromServer());
             assertEquals((long) transaction.id(), packet.getTimestamp());
@@ -452,11 +457,7 @@ public final class InboundTransactionAcceptanceTest {
         }
 
         void translate(int id) {
-            new org.geysermc.geyser.translator.protocol.java.JavaPingTranslator()
-                    .translate(
-                            session,
-                            new org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundPingPacket(
-                                    id));
+            new JavaPingTranslator().translate(session, new ClientboundPingPacket(id));
             assertEquals((long) id, packet.getTimestamp());
         }
 
@@ -465,18 +466,15 @@ public final class InboundTransactionAcceptanceTest {
                 player.markBedrockTransactionClientbound(packet.getTimestamp());
                 assertEquals(packet.getTimestamp(), (long)
                         player.getLastClientboundBedrockTransaction().id());
-                org.junit.Assert.assertNotNull(writtenReceipt(packet.getTimestamp()));
+                Assert.assertNotNull(writtenReceipt(packet.getTimestamp()));
                 return receipt;
             });
         }
 
         Runnable writtenReceipt(long timestamp) {
             try {
-                var method = ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime.class.getDeclaredMethod(
-                        "writtenJavaLatencyCallback",
-                        org.geysermc.geyser.session.GeyserSession.class,
-                        CultPlayer.class,
-                        long.class);
+                var method = GeyserBedrockBridgeRuntime.class.getDeclaredMethod(
+                        "writtenJavaLatencyCallback", GeyserSession.class, CultPlayer.class, long.class);
                 method.setAccessible(true);
                 return (Runnable) method.invoke(null, session, player, timestamp);
             } catch (ReflectiveOperationException failure) {
@@ -485,21 +483,18 @@ public final class InboundTransactionAcceptanceTest {
         }
 
         void reply(long timestamp) {
-            var response = new org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket();
+            var response = new NetworkStackLatencyPacket();
             response.setTimestamp(timestamp);
-            new org.geysermc.geyser.translator.protocol.bedrock.BedrockNetworkStackLatencyTranslator()
-                    .translate(session, response);
+            new BedrockNetworkStackLatencyTranslator().translate(session, response);
         }
     }
 
-    private static void reply(ac.cult.reload.integrations.GeyserQueue replies, long timestamp) {
-        var session = org.mockito.Mockito.mock(
-                org.geysermc.geyser.session.GeyserSession.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
-        org.mockito.Mockito.when(session.getLatencyPingCache()).thenReturn(replies);
-        var packet = new org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket();
+    private static void reply(GeyserQueue replies, long timestamp) {
+        var session = Mockito.mock(GeyserSession.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(session.getLatencyPingCache()).thenReturn(replies);
+        var packet = new NetworkStackLatencyPacket();
         packet.setTimestamp(timestamp);
-        new org.geysermc.geyser.translator.protocol.bedrock.BedrockNetworkStackLatencyTranslator()
-                .translate(session, packet);
+        new BedrockNetworkStackLatencyTranslator().translate(session, packet);
     }
 
     @Test
@@ -515,13 +510,13 @@ public final class InboundTransactionAcceptanceTest {
             var later = createTrackedTransaction(player);
             player.markTrackedTransactionPacketSent(later);
             player.markBedrockTransactionClientbound(later.id());
-            var completed = new java.util.ArrayList<String>();
+            var completed = new ArrayList<String>();
             player.latencyUtils.addRealTimeTaskWithNextTransaction(
                     first.transaction(), () -> completed.add("first"), () -> completed.add("confirmed"));
             player.latencyUtils.addRealTimeTask(later.transaction(), () -> completed.add("later"));
             player.addBedrockTransactionTask(inserted, () -> completed.add("inserted"));
             assertTrue(player.addTransactionResponse(later.id()));
-            org.junit.Assert.assertEquals(java.util.List.of("first", "inserted", "confirmed", "later"), completed);
+            Assert.assertEquals(List.of("first", "inserted", "confirmed", "later"), completed);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -532,9 +527,9 @@ public final class InboundTransactionAcceptanceTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
-            var markers = new java.util.ArrayList<CultPlayer.BedrockTransaction>();
-            var actual = new java.util.ArrayList<String>();
-            var expected = new java.util.ArrayList<java.util.List<String>>();
+            var markers = new ArrayList<CultPlayer.BedrockTransaction>();
+            var actual = new ArrayList<String>();
+            var expected = new ArrayList<List<String>>();
             for (int i = 0; i < 8; i++) {
                 var ping = createTrackedTransaction(player);
                 player.markTrackedTransactionPacketSent(ping);
@@ -545,37 +540,37 @@ public final class InboundTransactionAcceptanceTest {
                 var marker = player.createBedrockTransactionAfterClientbound();
                 player.markBedrockTransactionClientbound(marker.id());
                 markers.add(marker);
-                expected.add(new java.util.ArrayList<>());
+                expected.add(new ArrayList<>());
             }
-            var random = new java.util.Random(42);
+            var random = new Random(42);
             for (int i = 0; i < 256; i++) {
                 int index = random.nextInt(markers.size());
                 String label = Integer.toString(i);
                 player.addBedrockTransactionTask(markers.get(index), () -> actual.add(label));
                 expected.get(index).add(label);
             }
-            var completed = new java.util.ArrayList<String>();
+            var completed = new ArrayList<String>();
             for (int i = 0; i < markers.size(); i++) {
                 var marker = markers.get(i);
                 assertTrue(player.addTransactionResponse(marker.id()));
                 if (i > 0) completed.add("next-" + (i - 1));
                 completed.add("java-" + i);
                 completed.addAll(expected.get(i));
-                org.junit.Assert.assertEquals(completed, actual);
+                Assert.assertEquals(completed, actual);
                 assertFalse(player.addTransactionResponse(marker.id()));
-                org.junit.Assert.assertEquals(completed, actual);
+                Assert.assertEquals(completed, actual);
             }
             // Registering after acknowledgement runs once immediately.
             player.addBedrockTransactionTask(markers.get(0), () -> actual.add("late"));
             completed.add("late");
-            org.junit.Assert.assertEquals(completed, actual);
+            Assert.assertEquals(completed, actual);
             // The final continuation still requires the next real Java ping.
             var last = createTrackedTransaction(player);
             player.markTrackedTransactionPacketSent(last);
             player.markBedrockTransactionClientbound(last.id());
             assertTrue(player.addTransactionResponse(last.id()));
             completed.add("next-7");
-            org.junit.Assert.assertEquals(completed, actual);
+            Assert.assertEquals(completed, actual);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -599,14 +594,12 @@ public final class InboundTransactionAcceptanceTest {
     }
 
     private static CultPlayer offlineJavaPlayer() {
-        return offlineJavaPlayer(
-                ClientVersion.fromProtocolVersion(ac.cult.cultac.protocol.ProtocolVersion.V26_3.protocol()));
+        return offlineJavaPlayer(ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol()));
     }
 
     private static CultPlayer offlineJavaPlayer(ClientVersion version) {
         UUID playerId = UUID.fromString("9c5e440b-265d-435f-98f1-1f539659c003");
-        User user = ac.cult.cultac.network.TestUsers.create(
-                new User.Profile(playerId, ".Transaction_Test"), new EmbeddedChannel());
+        User user = TestUsers.create(new User.Profile(playerId, ".Transaction_Test"), new EmbeddedChannel());
         return new CultPlayer(user) {
             @Override
             public ClientVersion getClientVersion() {

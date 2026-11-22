@@ -13,6 +13,7 @@ import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementUpdate;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
@@ -32,8 +33,7 @@ public final class BedrockRiptideMovementTest {
                 2, 0.0F, -40.0F, false, false, false, Set.of("RELEASE_USING_ITEM", "START_SPIN_ATTACK"));
         var above = tick(current, release, context(false, false, 3));
         var submerged = tick(
-                current.withCameraWater(
-                        new ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState(0, 0, true, false)),
+                current.withCameraWater(new BedrockCameraWaterState(0, 0, true, false)),
                 release,
                 context(false, false, 3));
         assertEquals(

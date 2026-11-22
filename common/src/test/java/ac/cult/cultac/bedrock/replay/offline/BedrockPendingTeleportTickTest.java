@@ -10,9 +10,16 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
 import ac.cult.cultac.bedrock.protocol.*;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
+import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
+import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.profile.MovementProfile;
+import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
+import ac.cult.cultac.events.packets.listeners.PacketPingListener;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -49,8 +56,7 @@ public class BedrockPendingTeleportTickTest {
                 assertEquals(player.lastTransactionSent.get(), player.lastTransactionReceived.get());
             });
             int transaction = ping.transaction.transaction();
-            var chunk = new ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk(
-                    new ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection[16], transaction);
+            var chunk = new CompensatedWorld.CachedChunk(new CompensatedWorld.CachedSection[16], transaction);
             player.compensatedWorld.addToCache(chunk, "minecraft:overworld", transaction, 0, 0);
             player.latencyUtils.addRealTimeTask(transaction, () -> {
                 for (int x = 0; x < 4; x++)
@@ -74,9 +80,7 @@ public class BedrockPendingTeleportTickTest {
             assertNull(player.compensatedWorld.getChunk(0, 0));
             assertTrue(ping.pongs.isEmpty());
 
-            ping.write(
-                    () -> assertTrue(ac.cult.cultac.events.packets.listeners.PacketPingListener.acceptBedrockResponse(
-                            player, ping.transaction.id())));
+            ping.write(() -> assertTrue(PacketPingListener.acceptBedrockResponse(player, ping.transaction.id())));
             player.addBedrockTransactionTask(player.getLastClientboundBedrockTransaction(), () -> {
                 player.bedrockState.applyAcknowledgedBoundingBoxMetadata(0.6F, 1.8F);
                 player.checkManager
@@ -258,7 +262,7 @@ public class BedrockPendingTeleportTickTest {
             // The first teleport a client accepts is its spawn teleport, which opens the window at any distance.
             acceptTeleport(player, ground, 701, 10);
             Vec3 target = ground.add(distance, 0, 0);
-            var timer = player.checkManager.getListener(ac.cult.cultac.checks.impl.movement.timer.DumbTimer.class);
+            var timer = player.checkManager.getListener(DumbTimer.class);
             var lastLongTeleport = timer.getClass().getDeclaredField("lastLongTeleport");
             lastLongTeleport.setAccessible(true);
             double before = System.nanoTime();
@@ -725,9 +729,7 @@ public class BedrockPendingTeleportTickTest {
     }
 
     private static void commitWithPendingTeleport(
-            CultPlayer player,
-            ac.cult.cultac.checks.impl.prediction.PredictionCommit before,
-            ac.cult.cultac.checks.impl.prediction.PredictionCommit completed) {
+            CultPlayer player, PredictionCommit before, PredictionCommit completed) {
         var processor = player.checkManager.getSimulationProcessor();
         try {
             var carry = processor.getClass().getDeclaredField("profileCarry");
@@ -737,13 +739,13 @@ public class BedrockPendingTeleportTickTest {
                     .getClass()
                     .getDeclaredMethod(
                             "commitPredictionState",
-                            ac.cult.cultac.checks.impl.prediction.PredictionResult.class,
+                            PredictionResult.class,
                             Vec3.class,
                             Vec3.class,
                             float.class,
                             float.class,
-                            ac.cult.cultac.checks.impl.prediction.profile.MovementProfile.class,
-                            ac.cult.cultac.checks.impl.prediction.PredictionCommit.class);
+                            MovementProfile.class,
+                            PredictionCommit.class);
             commit.setAccessible(true);
             commit.invoke(
                     processor,
@@ -752,7 +754,7 @@ public class BedrockPendingTeleportTickTest {
                     Vec3.ZERO,
                     0F,
                     0F,
-                    ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles.forPlayer(player),
+                    MovementProfiles.forPlayer(player),
                     completed);
         } catch (ReflectiveOperationException error) {
             throw new AssertionError(error);

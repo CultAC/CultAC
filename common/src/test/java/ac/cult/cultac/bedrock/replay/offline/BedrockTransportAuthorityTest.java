@@ -5,9 +5,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
+import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
@@ -18,6 +18,7 @@ import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
@@ -31,8 +32,11 @@ import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.util.ReferenceCountUtil;
 import java.lang.reflect.Field;
+import java.util.Arrays;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -257,7 +261,7 @@ public final class BedrockTransportAuthorityTest {
             Object outbound;
             while ((outbound = channel.readOutbound()) != null) {
                 try {
-                    if (outbound instanceof io.netty.buffer.ByteBuf frame) {
+                    if (outbound instanceof ByteBuf frame) {
                         var decoded = runtime.decode(
                                 ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND, Wire.readVarInt(frame), frame);
                         assertFalse(frame.isReadable());
@@ -270,7 +274,7 @@ public final class BedrockTransportAuthorityTest {
                         }
                     }
                 } finally {
-                    io.netty.util.ReferenceCountUtil.release(outbound);
+                    ReferenceCountUtil.release(outbound);
                 }
             }
             assertEquals(1, sentVehicleSetbacks);
@@ -494,7 +498,7 @@ public final class BedrockTransportAuthorityTest {
     }
 
     private static void enableTransactionPackets(CultPlayer player) throws ReflectiveOperationException {
-        player.user.bind(Mockito.mock(ac.cult.cultac.platform.api.player.PlatformPlayer.class));
+        player.user.bind(Mockito.mock(PlatformPlayer.class));
     }
 
     private static PacketSendEvent<ClientboundSetPassengers> sendEvent(
@@ -505,7 +509,7 @@ public final class BedrockTransportAuthorityTest {
 
     private static ClientboundSetPassengers passengersPacket(int vehicleId, int... passengers) {
         return new ClientboundSetPassengers(
-                vehicleId, java.util.Arrays.stream(passengers).boxed().toList());
+                vehicleId, Arrays.stream(passengers).boxed().toList());
     }
 
     private static void setTimerBalance(TimerCheck timer, long balance) throws ReflectiveOperationException {

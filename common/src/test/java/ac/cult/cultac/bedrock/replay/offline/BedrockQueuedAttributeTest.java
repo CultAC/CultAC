@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
@@ -98,7 +99,7 @@ public class BedrockQueuedAttributeTest {
         }
     }
 
-    private static ac.cult.cultac.checks.impl.prediction.PredictionResult process(CultPlayer player, long tick) {
+    private static PredictionResult process(CultPlayer player, long tick) {
         var position = new Vec3(2, 65, 3);
         var frame = BedrockAuthInputFrame.builder(player.user.getUUID())
                 .protocolVersion(0)

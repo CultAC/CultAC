@@ -6,11 +6,13 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.player.BedrockShulkerBoxLids;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext;
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
@@ -117,11 +119,11 @@ public class BedrockShulkerBoxLidTest {
 
     private static void assertLidFace(String facing, float openness, double lift) {
         float shown = BedrockShulkerBoxLids.lift(openness);
-        var context = new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext(
+        var context = new BedrockBlockShapeContext(
                 position -> shown,
-                ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.NONE.movingBlockBoxes(),
-                ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.NONE.pistonProgress(),
-                ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY);
+                BedrockBlockShapeContext.NONE.movingBlockBoxes(),
+                BedrockBlockShapeContext.NONE.pistonProgress(),
+                BedrockCoordinateFrame.IDENTITY);
         var builder = new BedrockCollisionWorldBuilder(BedrockClientBlockShapeMappings.catalog(), context);
         var position = new BlockPosition(BOX.getX(), BOX.getY(), BOX.getZ());
         var boxes = builder.block(position, shulkerBox(facing), BedrockCollisionShapeQuery.NONE)

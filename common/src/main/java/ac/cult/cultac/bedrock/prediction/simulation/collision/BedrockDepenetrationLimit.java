@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.prediction.simulation.collision;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -61,7 +62,7 @@ public record BedrockDepenetrationLimit(float x, float y, float z) {
      */
     public static PlacedBlockCollision replayed(PlacedBlockCollision shape) {
         if (!shape.isEntityCollision() || !shape.bedrockState().containsKey(SOLID_ACTOR_BUFFER)) return shape;
-        var state = new java.util.HashMap<>(shape.bedrockState());
+        var state = new HashMap<>(shape.bedrockState());
         state.remove(SOLID_ACTOR_BUFFER);
         return new PlacedBlockCollision(
                 shape.position(),

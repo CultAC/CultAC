@@ -41,6 +41,7 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -49,6 +50,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -1059,7 +1061,7 @@ public final class OfflineBedrockReplayRunnerTest {
 
     private static void setArmor(CultPlayer player, int slot, JsonObject armor, String key) {
         String materialName = stringValue(armor, key, "AIR");
-        var stack = OfflineCultTestBootstrap.item("minecraft:" + materialName.toLowerCase(java.util.Locale.ROOT));
+        var stack = OfflineCultTestBootstrap.item("minecraft:" + materialName.toLowerCase(Locale.ROOT));
         player.getInventory().inventory.getInventoryStorage().setItem(slot, stack);
     }
 
@@ -1097,7 +1099,7 @@ public final class OfflineBedrockReplayRunnerTest {
                 if (line.isBlank()) {
                     continue;
                 }
-                JsonObject packet = com.google.gson.JsonParser.parseString(line).getAsJsonObject();
+                JsonObject packet = JsonParser.parseString(line).getAsJsonObject();
                 if (!"PLAYER_AUTH_INPUT".equals(stringValue(packet, "packetType", ""))) {
                     continue;
                 }

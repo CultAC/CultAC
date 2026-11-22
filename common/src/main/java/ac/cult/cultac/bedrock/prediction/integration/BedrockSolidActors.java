@@ -9,9 +9,11 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -59,7 +61,7 @@ public final class BedrockSolidActors {
             if (entities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
             entity.bedrockShownBox(player, box);
             float actorBuffer = 0.0F;
-            List<ac.cult.cultac.utils.math.Vec3> elsewhere = List.of();
+            List<Vec3> elsewhere = List.of();
             // A rider is seated from the vehicle its chain ends at, a client tick behind it for each seat between
             // them, so it may stand off Cult's box wherever that vehicle may.
             PacketEntity carrier = entity;
@@ -130,7 +132,7 @@ public final class BedrockSolidActors {
         }
         player.bedrockState.clientActors.colliders(reach, (runtimeId, actor, placed, sent, shown, stepsLeft) -> {
             float actorBuffer = 0.0F;
-            List<ac.cult.cultac.utils.math.Vec3> elsewhere = List.of();
+            List<Vec3> elsewhere = List.of();
             if (!legacy && context.getBedrockInput() != null) {
                 var envelope = player.bedrockState.solidActorBuffer.stepsClientOnly;
                 int key = (int) (runtimeId ^ (runtimeId >>> 32));
@@ -282,8 +284,8 @@ public final class BedrockSolidActors {
         }
 
         /** Which of the actors whose reach depends on the delay the tick met at {@code delay} ticks. */
-        java.util.BitSet met(int delay) {
-            var met = new java.util.BitSet();
+        BitSet met(int delay) {
+            var met = new BitSet();
             int index = 0;
             for (int near : delays.values()) {
                 if ((near >>> delay & 1) != 0) met.set(index);

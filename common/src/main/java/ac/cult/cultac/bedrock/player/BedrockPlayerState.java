@@ -1,8 +1,12 @@
 package ac.cult.cultac.bedrock.player;
 
+import ac.cult.cultac.bedrock.bridge.GeyserWorldView;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockControlInput;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActorBuffer;
 import ac.cult.cultac.bedrock.prediction.model.BedrockBoundingBoxMode;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
@@ -11,8 +15,13 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockRidingJumpState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientAction;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.utils.collisions.BedrockMovingBlockShape;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import java.util.Set;
 import java.util.UUID;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -27,17 +36,14 @@ public final class BedrockPlayerState {
     public final BedrockClientChunks clientChunks = new BedrockClientChunks();
     public final BedrockShulkerBoxLids shulkerBoxLids = new BedrockShulkerBoxLids();
     public final BedrockPistonBlocks pistonBlocks = new BedrockPistonBlocks();
-    public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =
-            new ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections();
-    public final ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActorBuffer solidActorBuffer =
-            new ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActorBuffer();
+    public final BedrockMovementCorrections movementCorrections = new BedrockMovementCorrections();
+    public final BedrockSolidActorBuffer solidActorBuffer = new BedrockSolidActorBuffer();
     /** The session's view of its world registries through Geyser. */
-    public final ac.cult.cultac.bedrock.bridge.GeyserWorldView worldView =
-            new ac.cult.cultac.bedrock.bridge.GeyserWorldView();
+    public final GeyserWorldView worldView = new GeyserWorldView();
     // Accessed under the CultPlayer transaction lock.
-    public ac.cult.cultac.player.CultPlayer.BedrockTransaction lastClientboundTransaction;
+    public CultPlayer.BedrockTransaction lastClientboundTransaction;
     // The vehicle the client predicted on its last tick; null after a tick it predicted none.
-    public ac.cult.cultac.utils.data.packetentity.PacketEntity predictedVehicle;
+    public PacketEntity predictedVehicle;
     // The last tick the client ran before it took a link that seated it on a vehicle it was not riding.
     private long riderSeatedAfterTick = Long.MIN_VALUE;
     // The angular velocity that link gives the vehicle.
@@ -58,8 +64,7 @@ public final class BedrockPlayerState {
     private boolean stairCornersFromNeighbours;
     private boolean chorusConnectionsFromNeighbours;
     private boolean fenceConnectionsFromNeighbours;
-    private ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.Connections connections =
-            ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.Connections.NONE;
+    private BedrockBlockShapeContext.Connections connections = BedrockBlockShapeContext.Connections.NONE;
 
     public boolean derivedShapesKnown() {
         return derivedShapesKnown;
@@ -73,7 +78,7 @@ public final class BedrockPlayerState {
             boolean stairCorners,
             boolean chorusConnections,
             boolean fenceConnections,
-            ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.Connections connections) {
+            BedrockBlockShapeContext.Connections connections) {
         derivedShapesKnown = true;
         stairCornersFromNeighbours = stairCorners;
         chorusConnectionsFromNeighbours = chorusConnections;
@@ -82,28 +87,24 @@ public final class BedrockPlayerState {
     }
 
     /** The client state this player's block collision shapes read, in the coordinate frame of its latest input. */
-    public ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext blockShapeContext(
-            ac.cult.cultac.player.CultPlayer player) {
-        return new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext(
-                position -> shulkerBoxLids.lift(
-                        ac.cult.cultac.protocol.value.BlockPos.asLong(position.x(), position.y(), position.z())),
-                position -> ac.cult.cultac.utils.collisions.BedrockMovingBlockShape.boxes(player, position),
+    public BedrockBlockShapeContext blockShapeContext(CultPlayer player) {
+        return new BedrockBlockShapeContext(
+                position -> shulkerBoxLids.lift(BlockPos.asLong(position.x(), position.y(), position.z())),
+                position -> BedrockMovingBlockShape.boxes(player, position),
                 position -> pistonBlocks.progress(
-                        new ac.cult.cultac.protocol.value.BlockPos(position.x(), position.y(), position.z()),
+                        new BlockPos(position.x(), position.y(), position.z()),
                         player.compensatedWorld::getBlockStateIdAt),
-                lastOfferedFrame == null
-                        ? ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY
-                        : lastOfferedFrame.getCoordinateFrame(),
-                position -> ac.cult.cultac.utils.collisions.BedrockMovingBlockShape.carried(player, position),
+                lastOfferedFrame == null ? BedrockCoordinateFrame.IDENTITY : lastOfferedFrame.getCoordinateFrame(),
+                position -> BedrockMovingBlockShape.carried(player, position),
                 derivesShapesFromNeighbours()
-                        ? new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.DerivedShapes(
+                        ? new BedrockBlockShapeContext.DerivedShapes(
                                 position -> player.compensatedWorld.getBlockStateIdAt(
                                         position.x(), position.y(), position.z()),
                                 stairCornersFromNeighbours,
                                 chorusConnectionsFromNeighbours,
                                 fenceConnectionsFromNeighbours,
                                 connections)
-                        : ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.DerivedShapes.OWN_STATE);
+                        : BedrockBlockShapeContext.DerivedShapes.OWN_STATE);
     }
 
     public long lastMovementTick() {

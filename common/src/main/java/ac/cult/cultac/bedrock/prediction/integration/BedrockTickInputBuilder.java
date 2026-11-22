@@ -6,6 +6,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockHorseMovement;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import java.util.Set;
 
@@ -13,10 +14,7 @@ final class BedrockTickInputBuilder {
     private final BedrockProtocolInputFrameFactory inputFrames = new BedrockProtocolInputFrameFactory();
 
     BedrockTickInput createBoat(
-            CultPlayer player,
-            BedrockAuthInputFrame frame,
-            BedrockMovementState previous,
-            ac.cult.cultac.utils.data.packetentity.PacketEntity boat) {
+            CultPlayer player, BedrockAuthInputFrame frame, BedrockMovementState previous, PacketEntity boat) {
         float yaw = previous == null
                 ? boat.clientPhysicalYaw + 90.0F
                 : previous.inputFrame().yaw();

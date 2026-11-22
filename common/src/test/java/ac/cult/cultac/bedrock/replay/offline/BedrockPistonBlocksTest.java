@@ -13,6 +13,7 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import java.util.function.Consumer;
 import org.junit.Test;
 
 /**
@@ -70,7 +71,7 @@ public class BedrockPistonBlocksTest {
         });
     }
 
-    private static void run(java.util.function.Consumer<CultPlayer> body) {
+    private static void run(Consumer<CultPlayer> body) {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {

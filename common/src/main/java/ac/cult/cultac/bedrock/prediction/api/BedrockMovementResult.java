@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.prediction.api;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockSolidActorOrders;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.HoneySlideState;
@@ -213,7 +214,7 @@ public record BedrockMovementResult(
 
     /** How many current-tick moves its solid actors' orders and bounded contact-position states can produce. */
     public int solidActorOrders() {
-        return ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockSolidActorOrders.variants(solidActorOrder);
+        return BedrockSolidActorOrders.variants(solidActorOrder);
     }
 
     public Vec3d predictedPosition() {

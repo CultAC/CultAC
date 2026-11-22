@@ -1,7 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.player.BedrockClientChunks;
-
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
@@ -17,7 +16,11 @@ import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import java.util.Objects;
+import org.cloudburstmc.protocol.bedrock.data.InputInteractionModel;
+import org.cloudburstmc.protocol.bedrock.data.InputMode;
 
 final class BedrockMovementInputFactory {
     private final BedrockTickInputBuilder tickInputs;
@@ -122,9 +125,8 @@ final class BedrockMovementInputFactory {
     private static BedrockBoatState.PaddleInput paddleInput(CultPlayer player, BedrockAuthInputFrame frame) {
         // The rider's input reaches the boat from the tick after the one that seats it.
         if (player.bedrockState.seatsRider(frame.getClientTick())) return BedrockBoatState.PaddleInput.NONE;
-        return frame.getInputMode() != org.cloudburstmc.protocol.bedrock.data.InputMode.TOUCH.ordinal()
-                        || frame.getInteractionModel()
-                                != org.cloudburstmc.protocol.bedrock.data.InputInteractionModel.CLASSIC.ordinal()
+        return frame.getInputMode() != InputMode.TOUCH.ordinal()
+                        || frame.getInteractionModel() != InputInteractionModel.CLASSIC.ordinal()
                 ? BedrockBoatState.PaddleInput.ANALOG
                 : BedrockBoatState.PaddleInput.DIGITAL;
     }
@@ -205,12 +207,12 @@ final class BedrockMovementInputFactory {
         }
 
         public Input {
-            java.util.Objects.requireNonNull(authFrame, "authFrame");
-            java.util.Objects.requireNonNull(previousState, "previousState");
-            java.util.Objects.requireNonNull(tickInput, "tickInput");
+            Objects.requireNonNull(authFrame, "authFrame");
+            Objects.requireNonNull(previousState, "previousState");
+            Objects.requireNonNull(tickInput, "tickInput");
             inputIntent = inputIntent == null ? tickInput.inputFrame().intent() : inputIntent;
-            java.util.Objects.requireNonNull(worldSnapshot, "worldSnapshot");
-            java.util.Objects.requireNonNull(mobJumpComponent, "mobJumpComponent");
+            Objects.requireNonNull(worldSnapshot, "worldSnapshot");
+            Objects.requireNonNull(mobJumpComponent, "mobJumpComponent");
             if (!Double.isFinite(maxUpStep) || maxUpStep < 0.0D) {
                 maxUpStep = 0.0D;
             }
@@ -243,8 +245,8 @@ final class BedrockMovementInputFactory {
                         .withBoat(boat)
                         .withPlayerDimensions(frameBoat.properties().dimensions(), true);
             }
-            if (java.util.Objects.equals(this.previousState, previousState)) {
-                if (java.util.Objects.equals(this.mobJumpComponent, mobJumpComponent)) {
+            if (Objects.equals(this.previousState, previousState)) {
+                if (Objects.equals(this.mobJumpComponent, mobJumpComponent)) {
                     return this;
                 }
             }
@@ -299,6 +301,6 @@ final class BedrockMovementInputFactory {
     }
 
     private BedrockCollisionOverrideCatalog geometryCatalog() {
-        return ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings.catalog();
+        return BedrockClientBlockShapeMappings.catalog();
     }
 }

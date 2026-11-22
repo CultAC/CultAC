@@ -1,10 +1,12 @@
 package ac.cult.cultac.bedrock.replay.offline;
 
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -17,6 +19,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 final class OfflineBedrockReplayEvents {
     static final double DEFAULT_SPEED_MULTIPLIER = 20.0D;
@@ -103,8 +106,8 @@ final class OfflineBedrockReplayEvents {
         if (entityId < 0) {
             throw new IOException("add_entity requires entityId");
         }
-        int entityType = java.util.Objects.requireNonNull(
-                        ac.cult.blocksim.entity.EntityTypes.defaults()
+        int entityType = Objects.requireNonNull(
+                        EntityTypes.defaults()
                                 .byKey(string(event, "entityType", string(event, "entity", "minecraft:pig"))),
                         "Unknown replay entity")
                 .id();
@@ -129,8 +132,7 @@ final class OfflineBedrockReplayEvents {
         float yaw = (float) doubleValue(event, "yaw", entity.clientPhysicalYaw);
         float pitch = (float) doubleValue(event, "pitch", entity.clientPhysicalPitch);
         entity.setPositionRaw(
-                ac.cult.cultac.utils.nmsutil.GetBoundingBox.getPacketEntityBoundingBox(
-                        player, position.x, position.y, position.z, entity),
+                GetBoundingBox.getPacketEntityBoundingBox(player, position.x, position.y, position.z, entity),
                 yaw,
                 pitch);
         entity.deltaMovement = vectorOr(event, Vec3.ZERO, "velocity", "delta", "motion");

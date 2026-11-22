@@ -2,8 +2,10 @@ package ac.cult.cultac.bedrock.player;
 
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.cloudburstmc.protocol.bedrock.data.ServerboundLoadingScreenPacketType;
 
@@ -108,8 +110,8 @@ public final class BedrockLoadingScreenState {
     }
 
     /** Connection state survives Geyser's backend switch; only JDK values cross engine loaders. */
-    public java.util.Map<String, Object> continuation() {
-        var state = new java.util.HashMap<String, Object>();
+    public Map<String, Object> continuation() {
+        var state = new HashMap<String, Object>();
         // One entry per announced screen, so an id announced twice is listed twice.
         var ids = new ArrayList<Integer>();
         var positions = new ArrayList<List<Double>>();
@@ -124,10 +126,10 @@ public final class BedrockLoadingScreenState {
         state.put("anticipated-starts", starts);
         state.put("active", active);
         if (activeId != null) state.put("active-id", activeId);
-        return java.util.Map.copyOf(state);
+        return Map.copyOf(state);
     }
 
-    public void restore(java.util.Map<?, ?> state) {
+    public void restore(Map<?, ?> state) {
         anticipated.clear();
         var ids = (List<?>) state.get("anticipated");
         var positions = (List<?>) state.get("anticipated-positions");

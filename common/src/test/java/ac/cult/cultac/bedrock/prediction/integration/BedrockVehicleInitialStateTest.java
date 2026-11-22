@@ -13,6 +13,7 @@ import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
@@ -23,6 +24,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
+import java.util.List;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -41,7 +43,7 @@ public final class BedrockVehicleInitialStateTest {
         assertNotEquals(Vec3d.ZERO, player.velocity());
 
         var horse = Mockito.mock(PacketEntityHorse.class);
-        horse.bedrockAttributes = ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
+        horse.bedrockAttributes = BedrockActorAttributes.EMPTY;
         var mount = BedrockInitialStateFactory.resolve(context(horse), BedrockInputFrame.idle(1), world, null, null);
         assertEquals(Vec3d.ZERO, mount.velocity());
     }
@@ -60,11 +62,10 @@ public final class BedrockVehicleInitialStateTest {
                 new BlockPosition(-2, 63, -2),
                 "minecraft:stone",
                 "minecraft:stone",
-                java.util.List.of(new WorldCollisionBox(-2, 63, -2, 3, 64, 8))));
+                List.of(new WorldCollisionBox(-2, 63, -2, 3, 64, 8))));
         for (int z = 0; z <= 5; z++) {
             String water = z == 0 ? "minecraft:water[level=0]" : "minecraft:water[level=" + z + "]";
-            blocks.add(PlacedBlockCollision.manual(
-                    new BlockPosition(0, 64, z), water, "minecraft:water", java.util.List.of()));
+            blocks.add(PlacedBlockCollision.manual(new BlockPosition(0, 64, z), water, "minecraft:water", List.of()));
         }
         return new BedrockMovementContext(
                 BedrockEffectState.NONE,

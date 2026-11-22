@@ -7,9 +7,9 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
-import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementInputFactory.Input;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.Entry;
+import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockImmobileTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockImmobileTick.Result;
@@ -21,6 +21,7 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
@@ -33,6 +34,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEnti
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
@@ -58,7 +60,7 @@ public final class BedrockMovementEngine implements MovementEngine {
     private BedrockMovementEngine() {}
 
     public PredictionCommit relocatePassenger(
-            PredictionCarry carry, Vec3 position, ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame coordinates) {
+            PredictionCarry carry, Vec3 position, BedrockCoordinateFrame coordinates) {
         var entries = BedrockProfileState.profileEntries(carry).stream()
                 .map(entry -> entry.withState(entry.state()
                         .withCoordinateFrame(coordinates)
@@ -315,13 +317,10 @@ public final class BedrockMovementEngine implements MovementEngine {
         // The travel already collided and stepped: its move is the client's. Only the range the order of its solid
         // actors gives its end widens it.
         return new ValidMovements(
-                initialStartingVelocity,
-                player,
-                result,
-                handlers(player, result, initialStartingVelocity));
+                initialStartingVelocity, player, result, handlers(player, result, initialStartingVelocity));
     }
 
-    private static List<ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler> handlers(
+    private static List<UncertaintyHandler> handlers(
             CultPlayer player, PredictionResult result, PredVector initialStartingVelocity) {
         boolean range = BedrockActorOrderRangeHandler.range(initialStartingVelocity) != null;
         boolean slack = BedrockActorPushHandler.touched(player, result.getSimulationContext());

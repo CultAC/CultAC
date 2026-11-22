@@ -6,12 +6,15 @@ import static org.mockito.Mockito.*;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerAttack;
 import ac.cult.cultac.network.TestUsers;
+import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
@@ -152,11 +155,10 @@ public final class ClientAttackStrengthProofTest {
             player.getInventory().inventory.getInventoryStorage().setItem(10, diamond);
             var click = new InventoryClick(0, 0, 10, 0, WindowClickType.PICKUP, Map.of(10, ItemUtil.empty()), diamond);
             @SuppressWarnings("unchecked")
-            var type = (ac.cult.cultac.protocol.PacketType<InventoryClick>)
-                    ac.cult.cultac.network.codec.ClientPacketCodecs.connectionCatalog().stream()
-                            .filter(candidate -> candidate.recordClass() == InventoryClick.class)
-                            .findFirst()
-                            .orElseThrow();
+            var type = (PacketType<InventoryClick>) ClientPacketCodecs.connectionCatalog().stream()
+                    .filter(candidate -> candidate.recordClass() == InventoryClick.class)
+                    .findFirst()
+                    .orElseThrow();
             var event = new PacketReceiveEvent<>(player.user, ConnectionPhase.PLAY, type, click);
             player.getInventory().onContainerClick(event, player, click);
             assertTrue(player.attackStrength.isFullStrength(DELAY));
@@ -175,14 +177,12 @@ public final class ClientAttackStrengthProofTest {
             var items = player.getInventory().inventory.getSlots().stream()
                     .map(slot -> ItemUtil.copy(slot.getItem()))
                     .toList();
-            var content = new ac.cult.cultac.network.packet.InventoryPackets.Content(0, 0, items, ItemUtil.empty());
+            var content = new InventoryPackets.Content(0, 0, items, ItemUtil.empty());
             @SuppressWarnings("unchecked")
-            var contentType =
-                    (ac.cult.cultac.protocol.PacketType<ac.cult.cultac.network.packet.InventoryPackets.Content>)
-                            ac.cult.cultac.network.codec.ClientPacketCodecs.connectionCatalog().stream()
-                                    .filter(candidate -> candidate.recordClass() == content.getClass())
-                                    .findFirst()
-                                    .orElseThrow();
+            var contentType = (PacketType<InventoryPackets.Content>) ClientPacketCodecs.connectionCatalog().stream()
+                    .filter(candidate -> candidate.recordClass() == content.getClass())
+                    .findFirst()
+                    .orElseThrow();
             var contentEvent = new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, contentType, content, false);
             player.getInventory().onContainerSetContent(contentEvent, player, content);
             assertTrue(player.attackStrength.hasUnconfirmedHotbarChange());

@@ -6,13 +6,19 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.Map;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 public class BedrockActorAttributesTest {
     @Test
@@ -261,15 +267,15 @@ public class BedrockActorAttributesTest {
 
     @Test
     public void initialVehicleStateUsesPreviouslyAcknowledgedWireAttributes() {
-        var horse = org.mockito.Mockito.mock(ac.cult.cultac.utils.data.packetentity.PacketEntityHorse.class);
+        var horse = Mockito.mock(PacketEntityHorse.class);
         horse.movementSpeedAttribute = 0.9F;
         horse.jumpStrength = 1.9;
-        horse.bedrockAttributes = ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY.replace(Map.of(
+        horse.bedrockAttributes = BedrockActorAttributes.EMPTY.replace(Map.of(
                 "minecraft:movement", BedrockMovementAttributeState.serverValue(0.35F, false),
                 "minecraft:horse.jump_strength", BedrockMovementAttributeState.serverValue(0.8F, false)));
-        var context = org.mockito.Mockito.mock(ac.cult.cultac.checks.impl.prediction.SimulationContext.class);
-        org.mockito.Mockito.when(context.getVehicle()).thenReturn(horse);
-        org.mockito.Mockito.when(context.getStart()).thenReturn(new ac.cult.cultac.utils.math.Vec3(289, 82, -86));
+        var context = Mockito.mock(SimulationContext.class);
+        Mockito.when(context.getVehicle()).thenReturn(horse);
+        Mockito.when(context.getStart()).thenReturn(new Vec3(289, 82, -86));
         var world = BedrockActorHistoryTest.ground().movementContext();
         var initial = BedrockInitialStateFactory.resolve(context, BedrockInputFrame.idle(1), world, null, null);
         assertEquals(0.35F, initial.movementAttribute().current(), 0);
@@ -372,15 +378,15 @@ public class BedrockActorAttributesTest {
 
     /** Two idle ticks of a newly ridden donkey, which has its movement speed already or has none yet. */
     private static BedrockActorHistory donkeyRide(boolean speedReceived) {
-        var mount = org.mockito.Mockito.mock(ac.cult.cultac.utils.data.packetentity.PacketEntityHorse.class);
+        var mount = Mockito.mock(PacketEntityHorse.class);
         mount.bedrockAttributes = speedReceived
-                ? ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY.replace(
+                ? BedrockActorAttributes.EMPTY.replace(
                         Map.of("minecraft:movement", BedrockMovementAttributeState.serverValue(0.175F, false)))
-                : ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
+                : BedrockActorAttributes.EMPTY;
         mount.onGround = true;
-        var context = org.mockito.Mockito.mock(ac.cult.cultac.checks.impl.prediction.SimulationContext.class);
-        org.mockito.Mockito.when(context.getVehicle()).thenReturn(mount);
-        org.mockito.Mockito.when(context.getStart()).thenReturn(new ac.cult.cultac.utils.math.Vec3(289, 82, -86));
+        var context = Mockito.mock(SimulationContext.class);
+        Mockito.when(context.getVehicle()).thenReturn(mount);
+        Mockito.when(context.getStart()).thenReturn(new Vec3(289, 82, -86));
         var donkey = BedrockInitialStateFactory.resolve(
                 context,
                 BedrockInputFrame.idle(1),
@@ -407,7 +413,7 @@ public class BedrockActorAttributesTest {
                 .end()
                 .getFirst()
                 .state();
-        return new BedrockReplayEvent.Transform(new ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection(
+        return new BedrockReplayEvent.Transform(new BedrockMovementCorrection(
                 1,
                 0,
                 71,

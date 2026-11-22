@@ -7,6 +7,9 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Patches only the fields supplied by an update, retaining all other historical inputs. */
@@ -22,7 +25,7 @@ public record BedrockReplayContextEvent(
         implements BedrockReplayEvent {
     public BedrockReplayContextEvent {
         // Movement is represented by the complete attribute, not also by a second numeric entry.
-        var other = new java.util.LinkedHashMap<>(attributes);
+        var other = new LinkedHashMap<>(attributes);
         other.remove("minecraft:movement");
         attributes = Map.copyOf(other);
     }
@@ -43,7 +46,7 @@ public record BedrockReplayContextEvent(
                 usingItem,
                 attributes.containsKey("minecraft:movement")
                         ? new BedrockMovementAttributeState(
-                                attributes.get("minecraft:movement"), 0, 1024, 0, 1024, 0.1F, java.util.List.of())
+                                attributes.get("minecraft:movement"), 0, 1024, 0, 1024, 0.1F, List.of())
                         : null,
                 false);
     }
@@ -87,7 +90,7 @@ public record BedrockReplayContextEvent(
                         2,
                         false)
                 : null;
-        var modifiers = new java.util.ArrayList<BedrockMovementAttributeState.Modifier>();
+        var modifiers = new ArrayList<BedrockMovementAttributeState.Modifier>();
         boolean held = false;
         for (var modifier : state.movementAttribute().modifiers()) {
             if (!modifier.id().equalsIgnoreCase(id)) modifiers.add(modifier);

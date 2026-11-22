@@ -8,6 +8,7 @@ import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import ac.cult.cultac.utils.latency.ClientWorldView;
 import com.google.gson.JsonParser;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -138,7 +139,7 @@ public final class GeyserWorldView implements ClientWorldView {
         };
     }
 
-    private static java.util.Map<String, ClientWorldDefaults.Entry> modelBiomes() {
+    private static Map<String, ClientWorldDefaults.Entry> modelBiomes() {
         return ClientWorldDefaults.defaults().entries(ClientWorldRegistries.BIOMES);
     }
 }

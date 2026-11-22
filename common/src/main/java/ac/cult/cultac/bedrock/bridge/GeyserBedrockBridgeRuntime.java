@@ -3,12 +3,21 @@ package ac.cult.cultac.bedrock.bridge;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.logging.BedrockPacketLogOutboundHandler;
 import ac.cult.cultac.bedrock.logging.BedrockPacketLogger;
+import ac.cult.cultac.bedrock.player.BedrockClientChunks;
+import ac.cult.cultac.bedrock.player.BedrockLoadingScreenState;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
+import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockPositionTranslator;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayContextEvent;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayEvent;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
+import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
@@ -20,55 +29,90 @@ import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.events.packets.listeners.PacketPingListener;
 import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketDirection;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.floodgate.GeyserUtil;
+import ac.cult.cultac.utils.latency.KeepAliveProcessor;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.reload.integrations.GeyserQueue;
+import com.viaversion.viaversion.api.Via;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.util.ReferenceCountUtil;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.cloudburstmc.math.vector.Vector2f;
 import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.BedrockSession;
 import org.cloudburstmc.protocol.bedrock.data.AuthoritativeMovementMode;
+import org.cloudburstmc.protocol.bedrock.data.MovementEffectType;
 import org.cloudburstmc.protocol.bedrock.data.PlayerActionType;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.cloudburstmc.protocol.bedrock.data.PredictionType;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityLinkData;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
 import org.cloudburstmc.protocol.bedrock.netty.BedrockPacketWrapper;
 import org.cloudburstmc.protocol.bedrock.packet.AddEntityPacket;
+import org.cloudburstmc.protocol.bedrock.packet.AvailableCommandsPacket;
+import org.cloudburstmc.protocol.bedrock.packet.AvailableEntityIdentifiersPacket;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler;
+import org.cloudburstmc.protocol.bedrock.packet.BiomeDefinitionListPacket;
+import org.cloudburstmc.protocol.bedrock.packet.BlockEntityDataPacket;
+import org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.CorrectPlayerMovePredictionPacket;
+import org.cloudburstmc.protocol.bedrock.packet.CraftingDataPacket;
+import org.cloudburstmc.protocol.bedrock.packet.CreativeContentPacket;
 import org.cloudburstmc.protocol.bedrock.packet.InteractPacket;
+import org.cloudburstmc.protocol.bedrock.packet.InventoryContentPacket;
 import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
+import org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket;
+import org.cloudburstmc.protocol.bedrock.packet.MobEffectPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
+import org.cloudburstmc.protocol.bedrock.packet.MovementEffectPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MovementPredictionSyncPacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkChunkPublisherUpdatePacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerActionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
+import org.cloudburstmc.protocol.bedrock.packet.RemoveEntityPacket;
+import org.cloudburstmc.protocol.bedrock.packet.ServerboundLoadingScreenPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket;
+import org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityMotionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
+import org.cloudburstmc.protocol.bedrock.packet.SubChunkPacket;
+import org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket;
 import org.cloudburstmc.protocol.common.PacketSignal;
 import org.geysermc.geyser.api.GeyserApi;
 import org.geysermc.geyser.api.connection.GeyserConnection;
@@ -79,8 +123,17 @@ import org.geysermc.geyser.api.event.bedrock.SessionJoinEvent;
 import org.geysermc.geyser.api.event.bedrock.SessionLoginEvent;
 import org.geysermc.geyser.api.event.lifecycle.GeyserPostInitializeEvent;
 import org.geysermc.geyser.api.event.lifecycle.GeyserPostReloadEvent;
+import org.geysermc.geyser.entity.attribute.GeyserAttributeType;
 import org.geysermc.geyser.entity.type.BoatEntity;
+import org.geysermc.geyser.entity.type.Entity;
+import org.geysermc.geyser.entity.type.living.animal.horse.ChestedHorseEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.HorseEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.LlamaEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.SkeletonHorseEntity;
+import org.geysermc.geyser.entity.type.living.animal.horse.ZombieHorseEntity;
+import org.geysermc.geyser.entity.vehicle.ClientVehicle;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.util.BlockUtils;
 
 public final class GeyserBedrockBridgeRuntime {
     private static final Map<GeyserConnection, GeyserFloatingPointsAdapter> GFP_ADAPTERS = new ConcurrentHashMap<>();
@@ -94,8 +147,7 @@ public final class GeyserBedrockBridgeRuntime {
     private static GeyserKeepAliveTranslator keepAliveTranslator;
     private static GeyserBlockAckTranslator blockAckTranslator;
     private static volatile BedrockPacketLogger packetLogger;
-    private static final Map<Object, java.util.concurrent.CompletableFuture<Void>> DISCONNECTS =
-            new ConcurrentHashMap<>();
+    private static final Map<Object, CompletableFuture<Void>> DISCONNECTS = new ConcurrentHashMap<>();
 
     private GeyserBedrockBridgeRuntime() {}
 
@@ -140,14 +192,12 @@ public final class GeyserBedrockBridgeRuntime {
 
         GeyserUtil.forceForwardPlayerPing();
         refreshCollisionMappings();
-        if (ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil.isAvailable()
-                && !com.viaversion.viaversion.api.Via.getManager().isInitialized()) {
-            com.viaversion.viaversion.api.Via.getManager()
-                    .addPostEnableListener(ac.cult.cultac.runtime.RuntimeEnvironment.guard(() -> {
-                        if (started) {
-                            refreshCollisionMappings();
-                        }
-                    }));
+        if (ViaVersionUtil.isAvailable() && !Via.getManager().isInitialized()) {
+            Via.getManager().addPostEnableListener(RuntimeEnvironment.guard(() -> {
+                if (started) {
+                    refreshCollisionMappings();
+                }
+            }));
         }
 
         EventRegistrar owner = EventRegistrar.of(CultAPI.INSTANCE.getLoader());
@@ -230,7 +280,7 @@ public final class GeyserBedrockBridgeRuntime {
                     var tap = PACKET_TAPS.get(session);
                     if (tap == null) throw new IllegalStateException("Missing Cult movement tap");
                     var packet = tap.vehicleAttributes.source(entity.geyserId(), attribute);
-                    ((org.geysermc.geyser.entity.vehicle.ClientVehicle) entity)
+                    ((ClientVehicle) entity)
                             .getVehicleComponent()
                             .setMoveSpeed(packet.getAttributes().getFirst().getValue());
                     session.sendUpstreamPacket(packet);
@@ -269,7 +319,7 @@ public final class GeyserBedrockBridgeRuntime {
         for (PacketTapHandler tap : Set.copyOf(PACKET_TAPS.values())) {
             tap.connection.disconnect("CultAC movement bridge stopped. Please reconnect.");
             var cleanup = tap.detach();
-            ac.cult.cultac.runtime.RuntimeEnvironment.release(tap.connection, cleanup);
+            RuntimeEnvironment.release(tap.connection, cleanup);
             cleanup.whenComplete((ignored, failure) -> {
                 var pending = DISCONNECTS.remove(tap.connection);
                 if (pending != null) {
@@ -299,26 +349,26 @@ public final class GeyserBedrockBridgeRuntime {
         }
     }
 
-    public static java.util.concurrent.CompletionStage<Void> disconnectSession(Object nativeSession) {
+    public static CompletionStage<Void> disconnectSession(Object nativeSession) {
         if (!(nativeSession instanceof GeyserSession session))
-            return java.util.concurrent.CompletableFuture.failedFuture(new IllegalArgumentException("Unknown session"));
-        var complete = DISCONNECTS.computeIfAbsent(session, ignored -> new java.util.concurrent.CompletableFuture<>());
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Unknown session"));
+        var complete = DISCONNECTS.computeIfAbsent(session, ignored -> new CompletableFuture<>());
         session.ensureInEventLoop(() -> session.disconnect("CultAC is shutting down."));
         return complete;
     }
 
     private static void onSessionDisconnect(SessionDisconnectEvent event) {
         GeyserConnection connection = event.connection();
-        java.util.concurrent.CompletionStage<Void> cleanup;
+        CompletionStage<Void> cleanup;
         try {
             BedrockPacketLogger logger = packetLogger;
             if (logger != null) logger.stop(connection, "disconnect");
             GeyserFloatingPointsAdapter adapter = GFP_ADAPTERS.remove(connection);
             if (adapter != null) adapter.close();
             PacketTapHandler tap = PACKET_TAPS.remove(connection);
-            cleanup = tap == null ? java.util.concurrent.CompletableFuture.completedFuture(null) : tap.detach();
+            cleanup = tap == null ? CompletableFuture.completedFuture(null) : tap.detach();
         } catch (Throwable failure) {
-            cleanup = java.util.concurrent.CompletableFuture.failedFuture(failure);
+            cleanup = CompletableFuture.failedFuture(failure);
         }
         cleanup.whenComplete((ignored, failure) -> {
             var pending = DISCONNECTS.remove(connection);
@@ -327,7 +377,7 @@ public final class GeyserBedrockBridgeRuntime {
                 else pending.completeExceptionally(failure);
             }
         });
-        ac.cult.cultac.runtime.RuntimeEnvironment.release(connection, cleanup);
+        RuntimeEnvironment.release(connection, cleanup);
     }
 
     public static void configurePacketLog(String username, UUID uuid, boolean onJoin, Consumer<String> feedback) {
@@ -464,7 +514,7 @@ public final class GeyserBedrockBridgeRuntime {
         if (!session.isSpawned()) return null;
         var tap = PACKET_TAPS.get(session);
         if (tap == null) throw new IllegalStateException("Missing Bedrock tap");
-        var state = new java.util.HashMap<String, Object>();
+        var state = new HashMap<String, Object>();
         state.put("runtime-id", session.getPlayerEntity().geyserId());
         state.put("movement-mode", AuthoritativeMovementMode.SERVER_WITH_REWIND.name());
         state.put("rewind-size", BedrockMovementCorrections.CLIENT_HISTORY_SIZE);
@@ -482,7 +532,7 @@ public final class GeyserBedrockBridgeRuntime {
             state.put("gfp", adapter.continuation());
             adapter.close();
         }
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         var lease = host == null ? null : host.resources().acquire();
         try {
             tap.detach(true).whenComplete((ignored, failure) -> {
@@ -581,10 +631,7 @@ public final class GeyserBedrockBridgeRuntime {
         CultPlayer player = playerForSession(session);
         if (player == null) return false;
         boolean[] accepted = new boolean[1];
-        inModel(
-                player,
-                () -> accepted[0] =
-                        ac.cult.cultac.events.packets.listeners.PacketPingListener.acceptBedrockResponse(player, id));
+        inModel(player, () -> accepted[0] = PacketPingListener.acceptBedrockResponse(player, id));
         return accepted[0];
     }
 
@@ -594,12 +641,11 @@ public final class GeyserBedrockBridgeRuntime {
             inModel(
                     player,
                     () -> player.checkManager
-                            .getListener(ac.cult.cultac.utils.latency.KeepAliveProcessor.class)
+                            .getListener(KeepAliveProcessor.class)
                             .acceptResponse(id));
     }
 
-    static void correctCollisions(
-            PlayerAuthInputPacket packet, ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags collision) {
+    static void correctCollisions(PlayerAuthInputPacket packet, BedrockCollisionFlags collision) {
         // Bedrock delta is next-tick velocity; collision flags describe the simulated move just completed.
         PacketTapHandler.setInputFlag(
                 packet, PlayerAuthInputData.HORIZONTAL_COLLISION, collision.horizontalCollision());
@@ -622,12 +668,11 @@ public final class GeyserBedrockBridgeRuntime {
                 && Float.isFinite(vector.getZ());
     }
 
-    static ac.cult.cultac.protocol.value.BlockPos worldBlock(
-            GeyserSession session, org.cloudburstmc.math.vector.Vector3i position) {
+    static BlockPos worldBlock(GeyserSession session, Vector3i position) {
         var adapter = GFP_ADAPTERS.get(session);
         var frame = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
         var world = frame.toWorld(new Vec3(position.getX(), position.getY(), position.getZ()));
-        return ac.cult.cultac.protocol.value.BlockPos.containing(world.x, world.y, world.z);
+        return BlockPos.containing(world.x, world.y, world.z);
     }
 
     private static final class PacketTapHandler implements BedrockPacketHandler {
@@ -650,8 +695,7 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
         private final GeyserClientActors clientActors = new GeyserClientActors();
         // The chunk columns written to the client; a column new to its view is followed by its own marker.
-        private final ac.cult.cultac.bedrock.player.BedrockClientChunks writtenChunks =
-                new ac.cult.cultac.bedrock.player.BedrockClientChunks();
+        private final BedrockClientChunks writtenChunks = new BedrockClientChunks();
         // A new level was written; the next chunk marker empties the client's columns first.
         private boolean chunkLevelReset;
         // The level's default spawn in the client's frame, block x and z, which the client's spawn view is around.
@@ -668,8 +712,7 @@ public final class GeyserBedrockBridgeRuntime {
         private int markersInTick;
         private final GeyserEntityAttributes entityAttributes = new GeyserEntityAttributes();
         private final GeyserMovementEffectAcks glideBoostAcks = new GeyserMovementEffectAcks();
-        private final ac.cult.cultac.bedrock.player.BedrockLoadingScreenState loadingScreen =
-                new ac.cult.cultac.bedrock.player.BedrockLoadingScreenState();
+        private final BedrockLoadingScreenState loadingScreen = new BedrockLoadingScreenState();
         private long movementCorrectionSequence;
 
         private record CorrectionSource(BedrockMovementCorrection correction, Vec3 claimedPosition, int debugId) {}
@@ -744,7 +787,7 @@ public final class GeyserBedrockBridgeRuntime {
                 glideBoostAcks.latency(latency.getTimestamp());
             }
             logPacket("C->S", packet);
-            io.netty.util.ReferenceCountUtil.retain(packet);
+            ReferenceCountUtil.retain(packet);
             connection.ensureInEventLoop(() -> inModel(currentPlayer(), () -> {
                 try {
                     GeyserInventoryActions.rejectCreativeRequests(connection, currentPlayer(), packet);
@@ -756,9 +799,7 @@ public final class GeyserBedrockBridgeRuntime {
                         if (handedOff && replacement != null && replacement != this) replacement.handlePacket(packet);
                         return;
                     }
-                    if (packet
-                            instanceof
-                            org.cloudburstmc.protocol.bedrock.packet.ServerboundLoadingScreenPacket loading) {
+                    if (packet instanceof ServerboundLoadingScreenPacket loading) {
                         // Unexpected transitions leave the tracked loading state unchanged (should we disconnect?)
                         if (loadingScreen.accept(loading.getType(), loading.getLoadingScreenId())
                                 && loadingScreen.placement() != null
@@ -774,7 +815,7 @@ public final class GeyserBedrockBridgeRuntime {
                         delegate.handlePacket(packet);
                     } else translateInput(packet);
                 } finally {
-                    io.netty.util.ReferenceCountUtil.release(packet);
+                    ReferenceCountUtil.release(packet);
                 }
             }));
             return PacketSignal.HANDLED;
@@ -785,8 +826,7 @@ public final class GeyserBedrockBridgeRuntime {
             if (player == null) return;
             // GeyserSession.sendDownstreamGamePacket drops gameplay while Java is configuring.
             // There is no backend movement to predict until the new login's dimension reset.
-            if (player.user.getCultConnection().phase(ac.cult.cultac.protocol.PacketDirection.SERVERBOUND)
-                    != ac.cult.cultac.protocol.ConnectionPhase.PLAY) {
+            if (player.user.getCultConnection().phase(PacketDirection.SERVERBOUND) != ConnectionPhase.PLAY) {
                 delegate.handlePacket(packet);
                 return;
             }
@@ -806,7 +846,7 @@ public final class GeyserBedrockBridgeRuntime {
                                 && authInput.getItemStackRequest() != null) {
                             connection
                                     .getPlayerInventoryHolder()
-                                    .translateRequests(java.util.List.of(authInput.getItemStackRequest()));
+                                    .translateRequests(List.of(authInput.getItemStackRequest()));
                         }
                         player.checkManager.endBedrockClientTick();
                         return;
@@ -848,14 +888,13 @@ public final class GeyserBedrockBridgeRuntime {
             if (logger != null) logger.record(connection, direction, packet);
         }
 
-        private final java.util.concurrent.CompletableFuture<Void> detachCompletion =
-                new java.util.concurrent.CompletableFuture<>();
+        private final CompletableFuture<Void> detachCompletion = new CompletableFuture<>();
 
-        private java.util.concurrent.CompletionStage<Void> detach() {
+        private CompletionStage<Void> detach() {
             return detach(false);
         }
 
-        private java.util.concurrent.CompletionStage<Void> detach(boolean transferred) {
+        private CompletionStage<Void> detach(boolean transferred) {
             if (transferred) handedOff = true;
             if (!detached.compareAndSet(false, true)) {
                 return detachCompletion;
@@ -863,7 +902,7 @@ public final class GeyserBedrockBridgeRuntime {
             glideBoostAcks.clear();
             latencyScope.close();
             PACKET_TAPS.remove(connection, this);
-            var nativeCleanup = new java.util.concurrent.CompletableFuture<Void>();
+            var nativeCleanup = new CompletableFuture<Void>();
             try {
                 connection.ensureInEventLoop(() -> {
                     try {
@@ -891,7 +930,7 @@ public final class GeyserBedrockBridgeRuntime {
                 bedrockSession.setPacketHandler(delegate);
             }
             var channel = bedrockSession.getPeer().getChannel();
-            var ioCleanup = new java.util.concurrent.CompletableFuture<Void>();
+            var ioCleanup = new CompletableFuture<Void>();
             try {
                 Runnable remove = () -> {
                     try {
@@ -908,7 +947,7 @@ public final class GeyserBedrockBridgeRuntime {
                 ioCleanup.completeExceptionally(failure);
             }
             var drained = ioCleanup.thenCompose(ignored -> {
-                var barrier = new java.util.concurrent.CompletableFuture<Void>();
+                var barrier = new CompletableFuture<Void>();
                 try {
                     connection.getTickEventLoop().execute(() -> barrier.complete(null));
                 } catch (Throwable failure) {
@@ -916,7 +955,7 @@ public final class GeyserBedrockBridgeRuntime {
                 }
                 return barrier;
             });
-            java.util.concurrent.CompletableFuture.allOf(nativeCleanup, drained).whenComplete((ignored, failure) -> {
+            CompletableFuture.allOf(nativeCleanup, drained).whenComplete((ignored, failure) -> {
                 if (failure == null) detachCompletion.complete(null);
                 else detachCompletion.completeExceptionally(failure);
             });
@@ -1225,9 +1264,7 @@ public final class GeyserBedrockBridgeRuntime {
             CultPlayer player = currentPlayer();
             if (player == null) return new GeyserSprintAttributes.Boundary(-1, 0, false);
             var commit = player.checkManager.getSimulationProcessor().getCurrentPredictionCommit();
-            var state = commit == null
-                    ? null
-                    : ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.previousState(commit.carry());
+            var state = commit == null ? null : BedrockProfileState.previousState(commit.carry());
             // The simulation frame's clientTick is a processed-input sequence. Only the
             // paired PlayerAuthInput timestamp addresses the client's rewind history.
             return new GeyserSprintAttributes.Boundary(
@@ -1236,13 +1273,13 @@ public final class GeyserBedrockBridgeRuntime {
                     state != null && !state.isVehicle() && state.sprinting());
         }
 
-        private void sendSprintAttribute(org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket packet) {
+        private void sendSprintAttribute(UpdateAttributesPacket packet) {
             // Geyser resends this cache for effects, respawns, and dimension changes.
             connection
                     .getPlayerEntity()
                     .getAttributes()
                     .put(
-                            org.geysermc.geyser.entity.attribute.GeyserAttributeType.MOVEMENT_SPEED,
+                            GeyserAttributeType.MOVEMENT_SPEED,
                             packet.getAttributes().getFirst());
             connection.sendUpstreamPacket(packet);
         }
@@ -1253,10 +1290,10 @@ public final class GeyserBedrockBridgeRuntime {
             initializeActor(player);
             var beforeSprint = sprintBoundary();
             BedrockAuthInputFrame frame = captureAuthInput(player, packet);
-            var state = ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor.process(
+            var state = BedrockFrameProcessor.process(
                     player,
                     frame,
-                    ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger.BEDROCK_THREAD,
+                    BedrockPredictionTrigger.BEDROCK_THREAD,
                     () -> GeyserVehicleInput.translateRejectedMovement(connection, player, packet),
                     resolved -> {
                         if (packet.getInputData().contains(PlayerAuthInputData.PERFORM_BLOCK_ACTIONS)) {
@@ -1267,9 +1304,8 @@ public final class GeyserBedrockBridgeRuntime {
                                     resolved.getPosition(),
                                     packet.getPlayerActions(),
                                     local -> {
-                                        org.geysermc.geyser.util.BlockUtils.sendBedrockStopBlockBreak(
-                                                connection, local.toFloat());
-                                        org.geysermc.geyser.util.BlockUtils.restoreCorrectBlock(
+                                        BlockUtils.sendBedrockStopBlockBreak(connection, local.toFloat());
+                                        BlockUtils.restoreCorrectBlock(
                                                 connection,
                                                 local,
                                                 connection.getPlayerInventory().getHeldItemSlot());
@@ -1311,12 +1347,10 @@ public final class GeyserBedrockBridgeRuntime {
                     && (vehicle == null
                             || frame.getPredictedVehicleJavaId() == null
                             || vehicle.getEntityId() != frame.getPredictedVehicleJavaId())) return false;
-            Vec3 position = ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter.toJava(
-                    state.physicalFeetPosition());
+            Vec3 position = BedrockVectorAdapter.toJava(state.physicalFeetPosition());
             packet.setPosition(toVector3f(coordinates.toLocal(position))
                     .up(vehicle == null ? ownerPlayerOffset() : vehicle.getOffset()));
-            packet.setDelta(toVector3f(
-                    ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter.toJava(state.velocity())));
+            packet.setDelta(toVector3f(BedrockVectorAdapter.toJava(state.velocity())));
             correctCollisions(packet, state.collisionFlags());
             if (state.isBoat())
                 packet.setVehicleRotation(Vector2f.from(
@@ -1390,7 +1424,7 @@ public final class GeyserBedrockBridgeRuntime {
             // include the change of local origin; authorization still requires the transport echo.
             var previous = player.bedrockState.getLastOfferedFrame();
             Vec3 delta = previous == null
-                            || !java.util.Objects.equals(previous.getPredictedVehicleId(), vehicleId)
+                            || !Objects.equals(previous.getPredictedVehicleId(), vehicleId)
                             || packet.getInputData().contains(PlayerAuthInputData.HANDLE_TELEPORT)
                     ? Vec3.ZERO
                     : position.subtract(previous.getCoordinateFrame().toLocal(previous.getPosition()));
@@ -1457,11 +1491,11 @@ public final class GeyserBedrockBridgeRuntime {
     }
 
     /** The Geyser session that owns this Java connection, for the platform's packet owner resolver. */
-    public static ac.cult.cultac.network.PacketOwner packetOwner(io.netty.channel.Channel channel) {
+    public static PacketOwner packetOwner(Channel channel) {
         for (PacketTapHandler tap : PACKET_TAPS.values()) {
             var downstream = tap.connection.getDownstream();
             if (downstream != null && sameJavaConnection(downstream.getSession().getChannel(), channel)) {
-                return new ac.cult.cultac.network.PacketOwner(tap.connection.getTickEventLoop(), tap.connection);
+                return new PacketOwner(tap.connection.getTickEventLoop(), tap.connection);
             }
         }
         return null;
@@ -1689,15 +1723,15 @@ public final class GeyserBedrockBridgeRuntime {
          * data and the large registry and inventory snapshots.
          */
         private static boolean isHeavy(BedrockPacket packet) {
-            return packet instanceof org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket
-                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.SubChunkPacket
-                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.CraftingDataPacket
-                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.CreativeContentPacket
-                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.InventoryContentPacket
-                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.AvailableEntityIdentifiersPacket
-                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.BiomeDefinitionListPacket
-                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.AvailableCommandsPacket
-                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
+            return packet instanceof LevelChunkPacket
+                    || packet instanceof SubChunkPacket
+                    || packet instanceof CraftingDataPacket
+                    || packet instanceof CreativeContentPacket
+                    || packet instanceof InventoryContentPacket
+                    || packet instanceof AvailableEntityIdentifiersPacket
+                    || packet instanceof BiomeDefinitionListPacket
+                    || packet instanceof AvailableCommandsPacket
+                    || packet instanceof StartGamePacket;
         }
 
         private void writeTapped(
@@ -1714,18 +1748,17 @@ public final class GeyserBedrockBridgeRuntime {
                 }
             }
             boolean normalizedVehicleEffect = false;
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket attributes) {
+            if (packet instanceof UpdateAttributesPacket attributes) {
                 owner.vehicleAttributes.written(attributes);
-            } else if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.RemoveEntityPacket removed) {
+            } else if (packet instanceof RemoveEntityPacket removed) {
                 owner.vehicleAttributes.remove(removed.getUniqueEntityId());
-            } else if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
+            } else if (packet instanceof ChangeDimensionPacket) {
                 owner.vehicleAttributes.clear();
-            } else if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.MobEffectPacket effect
-                    && effect.getTick() == 0) {
+            } else if (packet instanceof MobEffectPacket effect && effect.getTick() == 0) {
                 var attributes = owner.vehicleAttributes.beforeEffect(effect);
                 if (attributes != null) {
                     var entity = owner.connection.getEntityCache().getEntityByGeyserId(effect.getRuntimeEntityId());
-                    if (entity instanceof org.geysermc.geyser.entity.vehicle.ClientVehicle vehicle) {
+                    if (entity instanceof ClientVehicle vehicle) {
                         vehicle.getVehicleComponent()
                                 .setMoveSpeed(
                                         attributes.getAttributes().getFirst().getValue());
@@ -1742,7 +1775,7 @@ public final class GeyserBedrockBridgeRuntime {
                     normalizedVehicleEffect = true;
                 }
             }
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket attributes
+            if (packet instanceof UpdateAttributesPacket attributes
                     && attributes.getRuntimeEntityId()
                             == owner.connection.getPlayerEntity().geyserId()) {
                 // Keep unrelated attributes at their original boundary when movement receives a tick.
@@ -1751,7 +1784,7 @@ public final class GeyserBedrockBridgeRuntime {
                         .toList();
                 if (!others.isEmpty()
                         && others.size() != attributes.getAttributes().size()) {
-                    var separate = new org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket();
+                    var separate = new UpdateAttributesPacket();
                     separate.setRuntimeEntityId(attributes.getRuntimeEntityId());
                     separate.setTick(attributes.getTick());
                     separate.setAttributes(others);
@@ -1769,7 +1802,7 @@ public final class GeyserBedrockBridgeRuntime {
                             .toList());
                 }
                 if (!owner.sprintAttributes.rewrite(attributes, owner.sprintBoundary())) {
-                    io.netty.util.ReferenceCountUtil.release(message);
+                    ReferenceCountUtil.release(message);
                     promise.trySuccess();
                     return;
                 }
@@ -1778,9 +1811,7 @@ public final class GeyserBedrockBridgeRuntime {
                         owner.connection
                                 .getPlayerEntity()
                                 .getAttributes()
-                                .put(
-                                        org.geysermc.geyser.entity.attribute.GeyserAttributeType.MOVEMENT_SPEED,
-                                        attribute);
+                                .put(GeyserAttributeType.MOVEMENT_SPEED, attribute);
                 }
             }
             Boolean poseConfirmation = null;
@@ -1790,7 +1821,7 @@ public final class GeyserBedrockBridgeRuntime {
                 poseConfirmation = owner.poses.confirmation(
                         metadata, owner.sprintBoundary().generation());
                 if (Boolean.FALSE.equals(poseConfirmation)) {
-                    io.netty.util.ReferenceCountUtil.release(message);
+                    ReferenceCountUtil.release(message);
                     promise.trySuccess();
                     return;
                 }
@@ -1798,7 +1829,7 @@ public final class GeyserBedrockBridgeRuntime {
                 if (metadata.getMetadata().isEmpty()
                         && metadata.getProperties().getIntProperties().isEmpty()
                         && metadata.getProperties().getFloatProperties().isEmpty()) {
-                    io.netty.util.ReferenceCountUtil.release(message);
+                    ReferenceCountUtil.release(message);
                     promise.trySuccess();
                     return;
                 }
@@ -1862,7 +1893,7 @@ public final class GeyserBedrockBridgeRuntime {
                     blockUpdates.end(
                             observedPlayer,
                             acknowledgement -> owner.writeLatencyBoundary(context, wrapper, acknowledgement));
-                io.netty.util.ReferenceCountUtil.release(message);
+                ReferenceCountUtil.release(message);
                 promise.trySuccess();
                 return;
             }
@@ -1876,7 +1907,7 @@ public final class GeyserBedrockBridgeRuntime {
                 } else if (blockUpdates.active()) {
                     throw new IllegalStateException("Missing correction coordinate origin");
                 }
-            } else if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.BlockEntityDataPacket blockEntity) {
+            } else if (packet instanceof BlockEntityDataPacket blockEntity) {
                 // Block entity data accompanies the blocks. A piston's is part of the run its boundary proves.
                 if (emission != null
                         && blockUpdates.capture(
@@ -1893,7 +1924,7 @@ public final class GeyserBedrockBridgeRuntime {
                         observedPlayer,
                         acknowledgement -> owner.writeLatencyBoundary(context, wrapper, acknowledgement));
             }
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket chunk && emission != null) {
+            if (packet instanceof LevelChunkPacket chunk && emission != null) {
                 blockUpdates.forgetChunk(
                         chunk.getChunkX() + (emission.frame().originX() >> 4),
                         chunk.getChunkZ() + (emission.frame().originZ() >> 4));
@@ -1905,27 +1936,26 @@ public final class GeyserBedrockBridgeRuntime {
                                     .getSetbackTeleportUtil()
                                     .bedrockTeleports()
                                     .isCurrentBedrockSetback(ownTeleport.setbackTransaction()))) {
-                io.netty.util.ReferenceCountUtil.release(message);
+                ReferenceCountUtil.release(message);
                 promise.trySuccess();
                 return;
             }
             if (adapter != null && emission == null && GeyserEntityPositions.hasPosition(packet)) {
-                io.netty.util.ReferenceCountUtil.release(message);
+                ReferenceCountUtil.release(message);
                 promise.tryFailure(new IllegalStateException("Missing entity coordinate origin"));
                 owner.connection.disconnect("CultAC: entity update bypassed the coordinate hook. Please reconnect.");
                 return;
             }
             if (writeClientChunks(context, message, promise, wrapper, packet, emission)) return;
-            boolean seatsRider = packet instanceof org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket link
+            boolean seatsRider = packet instanceof SetEntityLinkPacket link
                     && link.getEntityLink().getTo()
                             == owner.connection.getPlayerEntity().geyserId()
                     && owner.clientRiding.link(link.getEntityLink());
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket link
+            if (packet instanceof SetEntityLinkPacket link
                     && observedPlayer != null
                     && link.getEntityLink().getTo()
                             == owner.connection.getPlayerEntity().geyserId()
-                    && link.getEntityLink().getType()
-                            != org.cloudburstmc.protocol.bedrock.data.entity.EntityLinkData.Type.REMOVE) {
+                    && link.getEntityLink().getType() != EntityLinkData.Type.REMOVE) {
                 Runnable received = observedPlayer
                         .getSetbackTeleportUtil()
                         .bedrockTeleports()
@@ -1938,7 +1968,7 @@ public final class GeyserBedrockBridgeRuntime {
                 });
                 return;
             }
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket dimension) {
+            if (packet instanceof ChangeDimensionPacket dimension) {
                 blockUpdates.clear();
                 owner.entityPositions.clear();
                 owner.clientActors.clear();
@@ -1946,8 +1976,7 @@ public final class GeyserBedrockBridgeRuntime {
                 owner.loadingScreen.changeDimension(
                         dimension.getLoadingScreenId(), new Vec3(position.getX(), position.getY(), position.getZ()));
             }
-            if (packet instanceof StartGamePacket
-                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
+            if (packet instanceof StartGamePacket || packet instanceof ChangeDimensionPacket) {
                 owner.teleportRecovery.clear();
                 owner.teleportRecovery.clearTransport();
                 owner.clientRiding.clear();
@@ -1979,11 +2008,10 @@ public final class GeyserBedrockBridgeRuntime {
                 writeMovementCorrection(context, message, promise, wrapper, correction, emission);
                 return;
             }
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.MovementEffectPacket effect
+            if (packet instanceof MovementEffectPacket effect
                     && effect.getEntityRuntimeId()
                             == owner.connection.getPlayerEntity().geyserId()
-                    && effect.getEffectType()
-                            == org.cloudburstmc.protocol.bedrock.data.MovementEffectType.GLIDE_BOOST) {
+                    && effect.getEffectType() == MovementEffectType.GLIDE_BOOST) {
                 int duration = effect.getDuration();
                 long tick = owner.connection.getClientTicks();
                 effect.setTick(tick);
@@ -1996,9 +2024,8 @@ public final class GeyserBedrockBridgeRuntime {
                 });
                 return;
             }
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.MovementEffectPacket effect
-                    && effect.getEffectType()
-                            == org.cloudburstmc.protocol.bedrock.data.MovementEffectType.GEYSER_BOOST) {
+            if (packet instanceof MovementEffectPacket effect
+                    && effect.getEffectType() == MovementEffectType.GEYSER_BOOST) {
                 var replay = captureReplayUpdate(
                         effect.getEntityRuntimeId(),
                         effect.getTick(),
@@ -2081,19 +2108,15 @@ public final class GeyserBedrockBridgeRuntime {
                                 }
                                 if (spawnPosition != null) {
                                     var feet = coordinates.toWorld(rawPosition(spawnPosition.down(spawnOffset)));
-                                    ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState
-                                            .initializeBoat(
-                                                    boat,
-                                                    new ac.cult.cultac.bedrock.prediction.geometry.Vec3d(
-                                                            feet.x, feet.y, feet.z),
-                                                    spawnMotion == null
-                                                            ? ac.cult.cultac.bedrock.prediction.geometry.Vec3d.ZERO
-                                                            : new ac.cult.cultac.bedrock.prediction.geometry.Vec3d(
-                                                                    spawnMotion.getX(),
-                                                                    spawnMotion.getY(),
-                                                                    spawnMotion.getZ()),
-                                                    spawnYaw,
-                                                    coordinates);
+                                    BedrockVehiclePredictionState.initializeBoat(
+                                            boat,
+                                            new Vec3d(feet.x, feet.y, feet.z),
+                                            spawnMotion == null
+                                                    ? Vec3d.ZERO
+                                                    : new Vec3d(
+                                                            spawnMotion.getX(), spawnMotion.getY(), spawnMotion.getZ()),
+                                            spawnYaw,
+                                            coordinates);
                                 }
                             }
                         }));
@@ -2115,8 +2138,7 @@ public final class GeyserBedrockBridgeRuntime {
             }
             long selfRuntimeId = owner.connection.getPlayerEntity().geyserId();
             if (replayUpdate != null) {
-                var replay = replayUpdate.event()
-                                instanceof ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent
+                var replay = replayUpdate.event() instanceof BedrockReplayAttributeEvent
                         ? null
                         : captureReplayUpdate(
                                 replayUpdate.actorId(),
@@ -2172,7 +2194,7 @@ public final class GeyserBedrockBridgeRuntime {
                     return;
                 }
                 if (answersPistonMove(move, owner.connection.getPistonCache().isPlayerCollided())) {
-                    io.netty.util.ReferenceCountUtil.release(message);
+                    ReferenceCountUtil.release(message);
                     promise.trySuccess();
                     return;
                 }
@@ -2206,7 +2228,7 @@ public final class GeyserBedrockBridgeRuntime {
             }
 
             context.write(message, promise);
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
+            if (packet instanceof ChangeDimensionPacket) {
                 // The answer to a marker written behind the dimension change proves the client handled it.
                 Runnable handled = owner.loadingScreen.announcementsHandled();
                 owner.writeLatencyBoundary(context, wrapper, player -> handled.run());
@@ -2246,7 +2268,7 @@ public final class GeyserBedrockBridgeRuntime {
                             || source.controlGeneration() != player.bedrockState.movementCorrections.generation()
                             || isVehicle && (vehicle == null || vehicle.geyserId() != source.runtimeId())
                             || !isVehicle && vehicle != null)) {
-                io.netty.util.ReferenceCountUtil.release(message);
+                ReferenceCountUtil.release(message);
                 promise.trySuccess();
                 return;
             }
@@ -2374,7 +2396,7 @@ public final class GeyserBedrockBridgeRuntime {
                         null,
                         null,
                         null,
-                        new ac.cult.cultac.bedrock.prediction.geometry.Vec3d(seat.getX(), seat.getY(), seat.getZ()));
+                        new Vec3d(seat.getX(), seat.getY(), seat.getZ()));
                 var replay = captureReplayUpdate(runtimeId, metadataTick, metadataTick != 0, value.replayable());
                 owner.writeLatencyBoundary(context, (BedrockPacketWrapper) message, player -> {
                     if (replay != null) replay.accept(player);
@@ -2445,8 +2467,8 @@ public final class GeyserBedrockBridgeRuntime {
             var written = owner.writtenChunks;
             // Columns written before Cult had the player are held when its first chunk marker returns.
             var earlier = owner.chunksWithoutPlayer ? written.copy() : null;
-            BiConsumer<ac.cult.cultac.bedrock.player.BedrockClientChunks, Long> change;
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket chunk) {
+            BiConsumer<BedrockClientChunks, Long> change;
+            if (packet instanceof LevelChunkPacket chunk) {
                 int x = chunk.getChunkX() + (frame.originX() >> 4), z = chunk.getChunkZ() + (frame.originZ() >> 4);
                 if (!written.written(frame, x, z)) return false;
                 change = (chunks, acknowledgedAfterTick) -> chunks.receive(frame, x, z, acknowledgedAfterTick);
@@ -2610,13 +2632,12 @@ public final class GeyserBedrockBridgeRuntime {
                 .build();
     }
 
-    static boolean isPredictedHorse(org.geysermc.geyser.entity.type.Entity entity) {
+    static boolean isPredictedHorse(Entity entity) {
         // donkey and mule use ChestedHorseEntity, as do excluded llamas.
-        return entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.HorseEntity
-                || entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.SkeletonHorseEntity
-                || entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.ZombieHorseEntity
-                || entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.ChestedHorseEntity
-                        && !(entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.LlamaEntity);
+        return entity instanceof HorseEntity
+                || entity instanceof SkeletonHorseEntity
+                || entity instanceof ZombieHorseEntity
+                || entity instanceof ChestedHorseEntity && !(entity instanceof LlamaEntity);
     }
 
     static long predictedVehicleId(PlayerAuthInputPacket packet) {
@@ -2682,12 +2703,12 @@ public final class GeyserBedrockBridgeRuntime {
         return Vector3f.from((float) vector.x, (float) vector.y, (float) vector.z);
     }
 
-    static boolean sameJavaConnection(io.netty.channel.Channel geyserDownstreamChannel, Object userChannel) {
+    static boolean sameJavaConnection(Channel geyserDownstreamChannel, Object userChannel) {
         return geyserDownstreamChannel != null
-                && userChannel instanceof io.netty.channel.Channel javaServerChannel
+                && userChannel instanceof Channel javaServerChannel
                 && geyserDownstreamChannel.localAddress() != null
                 && javaServerChannel.unsafe() != null
-                && java.util.Objects.equals(
+                && Objects.equals(
                         geyserDownstreamChannel.localAddress(),
                         // Geyser's ChannelWrapper.remoteAddress() is the spoofed Bedrock IP.
                         // Unsafe delegates to its underlying LocalChannel and identifies the peer.

@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
@@ -20,8 +21,7 @@ final class BedrockCollisionClipper {
      * on it keeps no limit of its own until a move overlaps nothing. A player is pushed out by the end-of-tick block
      * push instead. Each solid actor among {@code obstacles} raises the limit of the whole move to its own.
      */
-    static BedrockDepenetrationLimit maximumDepenetration(
-            ac.cult.cultac.bedrock.prediction.state.BedrockMovementState state, List<BlockCollision> obstacles) {
+    static BedrockDepenetrationLimit maximumDepenetration(BedrockMovementState state, List<BlockCollision> obstacles) {
         float own = !state.isVehicle() ? 0.01F : state.penetratingMoves() < 2 ? DEFAULT_MAX_DEPENETRATION : 0.0F;
         BedrockDepenetrationLimit limit = BedrockDepenetrationLimit.uniform(own);
         for (int index = obstacles.size() - 1; index >= 0; index--) {

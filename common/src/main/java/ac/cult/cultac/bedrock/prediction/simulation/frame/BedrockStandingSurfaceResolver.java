@@ -13,6 +13,7 @@ import ac.cult.cultac.bedrock.prediction.world.StandingSurfaceState;
 import ac.cult.cultac.bedrock.prediction.world.Surface;
 import java.util.EnumSet;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 final class BedrockStandingSurfaceResolver {
@@ -23,7 +24,7 @@ final class BedrockStandingSurfaceResolver {
         Objects.requireNonNull(physicalFeetPosition, "physicalFeetPosition");
         Objects.requireNonNull(blockWorld, "blockWorld");
         Objects.requireNonNull(playerDimensions, "playerDimensions");
-        java.util.Optional<PlacedBlockCollision> standingBlock =
+        Optional<PlacedBlockCollision> standingBlock =
                 standingBlock(physicalFeetPosition, blockWorld, playerDimensions);
         return standingBlock
                 .map(BedrockStandingSurfaceResolver::fromStandingBlock)
@@ -45,14 +46,14 @@ final class BedrockStandingSurfaceResolver {
                 .orElseGet(() -> new StandingSurfaceState(Set.of()));
     }
 
-    private static java.util.Optional<PlacedBlockCollision> standingBlock(
+    private static Optional<PlacedBlockCollision> standingBlock(
             Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld, PlayerDimensionsState playerDimensions) {
-        java.util.Optional<PlacedBlockCollision> supportBlock =
+        Optional<PlacedBlockCollision> supportBlock =
                 currentlyStandingOn(physicalFeetPosition, blockWorld, playerDimensions);
         return supportBlock.isPresent() ? supportBlock : floorBlock(physicalFeetPosition, blockWorld);
     }
 
-    private static java.util.Optional<PlacedBlockCollision> floorBlock(
+    private static Optional<PlacedBlockCollision> floorBlock(
             Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld) {
         BlockPosition standingBlock = new BlockPosition(
                 floorBlockCoordinate(physicalFeetPosition.x()),
@@ -61,7 +62,7 @@ final class BedrockStandingSurfaceResolver {
         return blockWorld.blockAt(standingBlock);
     }
 
-    private static java.util.Optional<PlacedBlockCollision> currentlyStandingOn(
+    private static Optional<PlacedBlockCollision> currentlyStandingOn(
             Vec3d physicalFeetPosition, BlockCollisionWorld blockWorld, PlayerDimensionsState playerDimensions) {
         return BedrockStandingSurfaceBlock.resolve(physicalFeetPosition, blockWorld, playerDimensions);
     }

@@ -18,9 +18,11 @@ import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision.BlockContact
 import ac.cult.cultac.protocol.value.Direction;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 
 public final class BedrockCollisionWorldBuilder {
@@ -91,7 +93,7 @@ public final class BedrockCollisionWorldBuilder {
         Map<String, Object> metadata = bedrockState(state);
         if (movingPistonBlock(state)) metadata = withCarriedBlock(position, metadata);
         if (query.actorCollisionQuery().isPresent() && (powderSnowBlock(state) || scaffoldingBlock(state))) {
-            var independent = new java.util.HashMap<>(metadata);
+            var independent = new HashMap<>(metadata);
             independent.put(
                     BedrockBlockMetadata.GEYSER_PASSABLE,
                     collisionBoxes(position, state, BedrockCollisionShapeQuery.NONE)
@@ -117,7 +119,7 @@ public final class BedrockCollisionWorldBuilder {
         // A shape that depends on the actor it holds is no surface to stand on.
         boolean noStandingShape = dynamicMovement(state) && !boxes.isEmpty();
         if (standing == null && !noStandingShape) return metadata;
-        var shaped = new java.util.HashMap<>(metadata);
+        var shaped = new HashMap<>(metadata);
         shaped.put(
                 BedrockBlockMetadata.STANDING_SHAPE,
                 noStandingShape
@@ -182,13 +184,13 @@ public final class BedrockCollisionWorldBuilder {
     private Map<String, Object> withCarriedBlock(BlockPosition position, Map<String, Object> metadata) {
         int carried = context.movingBlockCarried().at(position);
         if (carried < 0 || movingPistonBlock(carried)) return metadata;
-        var named = new java.util.HashMap<>(metadata);
+        var named = new HashMap<>(metadata);
         named.put(BedrockBlockMetadata.MOVING_BLOCK_CARRIED, javaIdentifier(carried));
         return named;
     }
 
     public Map<String, Object> bedrockState(int state) {
-        java.util.OptionalLong mask = catalog.blockPropertyMask(state);
+        OptionalLong mask = catalog.blockPropertyMask(state);
         if (BlockIds.is(state, BlockIds.POTENT_SULFUR)) {
             String phase = REGISTRY.value(state, "potent_sulfur_state");
             return mask.isPresent()

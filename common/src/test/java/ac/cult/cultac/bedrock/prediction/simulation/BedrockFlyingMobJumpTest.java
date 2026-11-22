@@ -26,6 +26,7 @@ import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import org.junit.Test;
 
@@ -126,7 +127,7 @@ public final class BedrockFlyingMobJumpTest {
                     new BlockPosition((int) Math.floor(feet.x()), y, (int) Math.floor(feet.z())),
                     "minecraft:" + liquid + "[level=0]",
                     "minecraft:" + liquid,
-                    java.util.List.of()));
+                    List.of()));
         }
         var context = new BedrockMovementContext(
                 BedrockEffectState.NONE,

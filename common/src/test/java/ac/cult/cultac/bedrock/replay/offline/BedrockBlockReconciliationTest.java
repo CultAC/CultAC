@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.replay.offline;
 import static org.junit.Assert.*;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.protocol.value.BlockPos;
 import org.junit.Test;
@@ -77,13 +78,13 @@ public class BedrockBlockReconciliationTest {
             assertTrue(DataTables.defaults()
                     .registry()
                     .facts(world.getBlockStateIdAt(pos))
-                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+                    .has(StateFacts.AIR));
             world.handlePredictionConfirmation(0, 10);
             player.latencyUtils.handleNettySyncTransaction(10);
             assertTrue(DataTables.defaults()
                     .registry()
                     .facts(world.getBlockStateIdAt(pos))
-                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+                    .has(StateFacts.AIR));
             world.handlePredictionConfirmation(1, 11);
             player.latencyUtils.handleNettySyncTransaction(11);
             assertEquals(grass, world.getBlockStateIdAt(pos));

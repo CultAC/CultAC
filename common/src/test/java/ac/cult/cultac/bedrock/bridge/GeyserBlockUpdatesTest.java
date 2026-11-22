@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.bedrock.player.BedrockPistonBlocks;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
@@ -16,8 +17,11 @@ import ac.cult.cultac.utils.latency.CompensatedWorld;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.data.BlockChangeEntry;
@@ -204,14 +208,13 @@ public class GeyserBlockUpdatesTest {
                 .putString("name", "minecraft:slime")
                 .putCompound("states", NbtMap.EMPTY)
                 .build();
-        java.util.function.Function<NbtMap, GeyserBedrockBlock> definitions =
-                tag -> tag.equals(slimeTag) ? definition(61) : null;
+        Function<NbtMap, GeyserBedrockBlock> definitions = tag -> tag.equals(slimeTag) ? definition(61) : null;
         var frame = new BedrockCoordinateFrame(20000, 20040, 4);
         var pistonPosition = new BlockPos(20067, 121, 20020);
         var movingPosition = new BlockPos(20068, 121, 20020);
-        java.util.function.ToIntFunction<BlockPos> world = position ->
-                position.equals(pistonPosition) ? sticky : position.equals(movingPosition) ? moving : 0;
-        h.player.bedrockState = new BedrockPlayerState(java.util.UUID.randomUUID());
+        ToIntFunction<BlockPos> world =
+                position -> position.equals(pistonPosition) ? sticky : position.equals(movingPosition) ? moving : 0;
+        h.player.bedrockState = new BedrockPlayerState(UUID.randomUUID());
         var pistons = h.player.bedrockState.pistonBlocks;
         h.player.x = 20070.3;
         h.player.y = 120;
@@ -276,7 +279,7 @@ public class GeyserBlockUpdatesTest {
         h.finish();
         h.receipts.removeFirst().accept(h.player);
         carried = pistons.carried(movingPosition, world);
-        assertEquals(ac.cult.cultac.bedrock.player.BedrockPistonBlocks.NO_BLOCK, carried.state());
+        assertEquals(BedrockPistonBlocks.NO_BLOCK, carried.state());
         assertEquals(movingPosition, carried.last());
         assertEquals(movingPosition, carried.current());
 

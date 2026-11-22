@@ -9,10 +9,16 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.inventory.ItemUtil;
+import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.latency.CompensatedInventory;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerSlotType;
 import org.cloudburstmc.protocol.bedrock.data.inventory.FullContainerName;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
 import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequest;
 import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequestSlotData;
 import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.CraftCreativeAction;
@@ -24,6 +30,7 @@ import org.cloudburstmc.protocol.bedrock.packet.ContainerClosePacket;
 import org.cloudburstmc.protocol.bedrock.packet.ItemStackRequestPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MobEquipmentPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
+import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.inventory.GeyserItemStack;
 import org.geysermc.geyser.inventory.PlayerInventory;
 import org.geysermc.geyser.session.GeyserSession;
@@ -34,9 +41,9 @@ public class GeyserInventoryActionsTest {
     @BeforeClass
     public static void bootstrap() throws Exception {
         OfflineCultTestBootstrap.installConfig();
-        var geyser = mock(org.geysermc.geyser.GeyserImpl.class, RETURNS_DEEP_STUBS);
-        when(geyser.packDirectory()).thenReturn(java.nio.file.Path.of(System.getProperty("java.io.tmpdir")));
-        var instance = org.geysermc.geyser.GeyserImpl.class.getDeclaredField("instance");
+        var geyser = mock(GeyserImpl.class, RETURNS_DEEP_STUBS);
+        when(geyser.packDirectory()).thenReturn(Path.of(System.getProperty("java.io.tmpdir")));
+        var instance = GeyserImpl.class.getDeclaredField("instance");
         instance.setAccessible(true);
         Object previous = instance.get(null);
         instance.set(null, geyser);
@@ -53,8 +60,8 @@ public class GeyserInventoryActionsTest {
         player.actionManager = mock(ActionManager.class);
         var transactions = CultPlayer.class.getDeclaredField("lastTransactionSent");
         transactions.setAccessible(true);
-        transactions.set(player, new java.util.concurrent.atomic.AtomicInteger());
-        player.compensatedEntities = new ac.cult.cultac.utils.latency.CompensatedEntities(player);
+        transactions.set(player, new AtomicInteger());
+        player.compensatedEntities = new CompensatedEntities(player);
         when(player.getInventory()).thenReturn(new CompensatedInventory(player));
         return player;
     }
@@ -76,7 +83,7 @@ public class GeyserInventoryActionsTest {
         player.getInventory().inventory.getSlot(9).set(ItemUtil.modelItems().stack("minecraft:diamond_sword", 1));
         GeyserInventoryActions.translate(session, player, new MobEquipmentPacket(), () -> {});
         assertEquals(
-                ac.cult.cultac.utils.inventory.ItemUtil.modelItems().item("minecraft:diamond_sword"),
+                ItemUtil.modelItems().item("minecraft:diamond_sword"),
                 player.getInventory().inventory.getSlot(9).getItem().getItem());
     }
 
@@ -112,15 +119,19 @@ public class GeyserInventoryActionsTest {
 
     // CraftCreative(elytra), CraftResultsDeprecated, Place(CREATED_OUTPUT -> chest armor slot)
     private static ItemStackRequest creativeElytraRequest(int id) {
-        return new ItemStackRequest(id, new ItemStackRequestAction[]{
-                new CraftCreativeAction(1, 1),
-                new CraftResultsDeprecatedAction(new org.cloudburstmc.protocol.bedrock.data.inventory.ItemData[0], 1),
-                new PlaceAction(1, slot(ContainerSlotType.CREATED_OUTPUT, 50), slot(ContainerSlotType.ARMOR, 1))}, new String[0]);
+        return new ItemStackRequest(
+                id,
+                new ItemStackRequestAction[] {
+                    new CraftCreativeAction(1, 1),
+                    new CraftResultsDeprecatedAction(new ItemData[0], 1),
+                    new PlaceAction(1, slot(ContainerSlotType.CREATED_OUTPUT, 50), slot(ContainerSlotType.ARMOR, 1))
+                },
+                new String[0]);
     }
 
     private static ItemStackRequestPacket requests(ItemStackRequest... requests) {
         var packet = new ItemStackRequestPacket();
-        packet.getRequests().addAll(java.util.List.of(requests));
+        packet.getRequests().addAll(List.of(requests));
         return packet;
     }
 
@@ -179,11 +190,11 @@ public class GeyserInventoryActionsTest {
         var player = player();
         var target = player.getInventory();
         target.openWindowID = 3;
-        target.applyBedrockSlots(4, java.util.Map.of(9, ItemUtil.modelItems().stack("minecraft:stone", 1)));
+        target.applyBedrockSlots(4, Map.of(9, ItemUtil.modelItems().stack("minecraft:stone", 1)));
         assertTrue(target.menu.getSlot(9).getItem().isEmpty());
-        target.applyBedrockSlots(0, java.util.Map.of(9, ItemUtil.modelItems().stack("minecraft:stone", 1)));
+        target.applyBedrockSlots(0, Map.of(9, ItemUtil.modelItems().stack("minecraft:stone", 1)));
         assertEquals(
-                ac.cult.cultac.utils.inventory.ItemUtil.modelItems().item("minecraft:stone"),
+                ItemUtil.modelItems().item("minecraft:stone"),
                 target.inventory.getSlot(9).getItem().getItem());
     }
 }

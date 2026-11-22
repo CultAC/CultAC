@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMath;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockBoatState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
@@ -37,8 +38,7 @@ public record BedrockVehiclePredictionState(PredictionCommit commit, PredictionR
                 .withPhysicalFeetPosition(feet, 0)
                 .withRotation(yaw, 0)
                 .withPlayerDimensions(vehicle.bedrockBoat.dimensions(), true);
-        var entries = List.of(new BedrockProfileState.Entry(
-                state, ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState.DEFAULT));
+        var entries = List.of(new BedrockProfileState.Entry(state, BedrockMobJumpComponentState.DEFAULT));
         vehicle.bedrockPrediction = new BedrockVehiclePredictionState(
                 new PredictionCommit(
                         new BedrockNextTickStates(entries),

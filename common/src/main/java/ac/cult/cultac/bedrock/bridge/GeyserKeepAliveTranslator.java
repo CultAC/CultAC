@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.reload.integrations.GeyserTranslatorRouter;
 import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
@@ -14,10 +16,9 @@ final class GeyserKeepAliveTranslator extends PacketTranslator<ClientboundKeepAl
 
     @SuppressWarnings("unchecked")
     GeyserKeepAliveTranslator() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            delegate = ac.cult.reload.integrations.GeyserTranslatorRouter.install(
-                    ClientboundKeepAlivePacket.class, host, this);
+            delegate = GeyserTranslatorRouter.install(ClientboundKeepAlivePacket.class, host, this);
             return;
         }
         delegate = (PacketTranslator<ClientboundKeepAlivePacket>)
@@ -42,17 +43,15 @@ final class GeyserKeepAliveTranslator extends PacketTranslator<ClientboundKeepAl
     }
 
     boolean isInstalled() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
-        if (host != null)
-            return ac.cult.reload.integrations.GeyserTranslatorRouter.installed(
-                    ClientboundKeepAlivePacket.class, host, this);
+        var host = RuntimeEnvironment.host();
+        if (host != null) return GeyserTranslatorRouter.installed(ClientboundKeepAlivePacket.class, host, this);
         return Registries.JAVA_PACKET_TRANSLATORS.get(ClientboundKeepAlivePacket.class) == this;
     }
 
     void close() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            ac.cult.reload.integrations.GeyserTranslatorRouter.remove(ClientboundKeepAlivePacket.class, host, this);
+            GeyserTranslatorRouter.remove(ClientboundKeepAlivePacket.class, host, this);
             return;
         }
         if (isInstalled()) Registries.JAVA_PACKET_TRANSLATORS.register(ClientboundKeepAlivePacket.class, delegate);

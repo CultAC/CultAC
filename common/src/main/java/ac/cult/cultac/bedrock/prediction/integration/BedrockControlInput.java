@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.state.BedrockBoatState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockControlInput {
     private BedrockControlInput() {}
@@ -22,20 +23,13 @@ public final class BedrockControlInput {
         if (state.isBoat() && state.boat().paddleInput() == BedrockBoatState.PaddleInput.NONE) return Vec3d.ZERO;
         if (state.isBoat() && state.boat().paddleInput() == BedrockBoatState.PaddleInput.DIGITAL) {
             return new Vec3d(
-                    frame.hasRawInputFlag(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.PADDLE_LEFT)
-                            ? 1
-                            : 0,
+                    frame.hasRawInputFlag(PlayerAuthInputData.PADDLE_LEFT) ? 1 : 0,
                     0,
-                    frame.hasRawInputFlag(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.PADDLE_RIGHT)
-                            ? 1
-                            : 0);
+                    frame.hasRawInputFlag(PlayerAuthInputData.PADDLE_RIGHT) ? 1 : 0);
         }
         var vector = frame.getMoveVector();
         float divisor = Math.max(1.0F, (float) Math.sqrt(vector.x() * vector.x() + vector.z() * vector.z()));
-        float forward =
-                state.isBoat() && frame.hasRawInputFlag(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.UP)
-                        ? 1.0F
-                        : vector.z() / divisor;
+        float forward = state.isBoat() && frame.hasRawInputFlag(PlayerAuthInputData.UP) ? 1.0F : vector.z() / divisor;
         return new Vec3d(vector.x() / divisor, 0, forward);
     }
 }
