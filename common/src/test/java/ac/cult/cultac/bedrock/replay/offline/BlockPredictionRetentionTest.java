@@ -5,6 +5,7 @@ import static org.junit.Assert.*;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.ClientVersionFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
@@ -108,9 +109,7 @@ public class BlockPredictionRetentionTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = javaPlayer();
         try {
-            Field resolved = CultPlayer.class.getDeclaredField("resolvedClientVersion");
-            resolved.setAccessible(true);
-            resolved.set(player, version);
+            ClientVersionFixtures.setClientVersion(player, version);
             var world = player.compensatedWorld;
             int air = DataTables.defaults().registry().block("minecraft:air").defaultState();
             int stone =

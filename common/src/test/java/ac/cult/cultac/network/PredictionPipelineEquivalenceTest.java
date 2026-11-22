@@ -167,7 +167,7 @@ class PredictionPipelineEquivalenceTest {
         ValidMovements valid = new ValidMovements(start, null, result, List.copyOf(handlers));
         handlers.clear();
 
-        Vec3 moved = valid.transformTowards(Vec3.ZERO, null);
+        Vec3 moved = valid.transformTraceTowards(Vec3.ZERO, null).position();
 
         assertEquals(List.of(0, 1, 2, 3, 4), calls);
         assertEquals(10.25, moved.x);

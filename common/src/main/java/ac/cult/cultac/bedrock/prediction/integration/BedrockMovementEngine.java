@@ -21,7 +21,6 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
-import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
@@ -58,16 +57,6 @@ public final class BedrockMovementEngine implements MovementEngine {
     private final BedrockMovementInputFactory inputFactory = new BedrockMovementInputFactory();
 
     private BedrockMovementEngine() {}
-
-    public PredictionCommit relocatePassenger(
-            PredictionCarry carry, Vec3 position, BedrockCoordinateFrame coordinates) {
-        var entries = BedrockProfileState.profileEntries(carry).stream()
-                .map(entry -> entry.withState(entry.state()
-                        .withCoordinateFrame(coordinates)
-                        .withPhysicalFeetPosition(BedrockVectorAdapter.toBedrock(position), 0.0D)))
-                .toList();
-        return new PredictionCommit(new BedrockNextTickStates(entries), Set.of(Vec3.ZERO));
-    }
 
     public PredictionCommit advancePassenger(CultPlayer player, PredictionCarry carry, SimulationContext context) {
         Input input = inputFactory.create(player, context);

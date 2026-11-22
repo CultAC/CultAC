@@ -146,10 +146,6 @@ public class ValidMovements {
         result.setValidMovements(this);
     }
 
-    public Vec3 transformTowards(Vec3 end, PredictionResult lastResult) {
-        return transformTraceTowards(end, lastResult).position();
-    }
-
     public MovementTrace transformTraceTowards(Vec3 end, PredictionResult lastResult) {
         return transformTraceTowards(handlers, handlers.length, end, lastResult);
     }

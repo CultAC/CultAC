@@ -13,6 +13,7 @@ import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.player.ClientVersionFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -47,9 +48,7 @@ class PhaseDismountTest {
         OfflineCultTestBootstrap.installConfig();
         channel = new EmbeddedChannel();
         player = new CultPlayer(TestUsers.create(new User.Profile(UUID.randomUUID(), "Dismount_Phase"), channel));
-        Field version = CultPlayer.class.getDeclaredField("resolvedClientVersion");
-        version.setAccessible(true);
-        version.set(player, ClientVersion.V_1_21_11);
+        ClientVersionFixtures.setClientVersion(player, ClientVersion.V_1_21_11);
         player.gamemode = GameMode.SURVIVAL;
         SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         player.checkManager.getSimulationProcessor().handleRespawn();

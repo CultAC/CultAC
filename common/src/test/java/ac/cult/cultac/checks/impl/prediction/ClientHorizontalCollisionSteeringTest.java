@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.sprint.SprintE;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.player.ClientVersionFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.ClientItemUseState;
@@ -88,9 +89,7 @@ class ClientHorizontalCollisionSteeringTest {
             OfflineCultTestBootstrap.installConfig();
             this.version = version;
             player = new CultPlayer(TestUsers.create(new User.Profile(UUID.randomUUID(), "Steering_Test"), channel));
-            var field = CultPlayer.class.getDeclaredField("resolvedClientVersion");
-            field.setAccessible(true);
-            field.set(player, version);
+            ClientVersionFixtures.setClientVersion(player, version);
             player.setExperimentalChecks(true);
             player.isSprinting = true;
             sprintE = new SprintE(player);
