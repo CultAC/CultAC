@@ -106,7 +106,7 @@ final class PacketConnections {
     }
 
     /** The brand packet can pass before Cult's decoder is installed; the platform then still holds what it read. */
-    private static void observePlatformBrand(CultConnection session) {
+    static void observePlatformBrand(CultConnection session) {
         var player = session.player();
         var platform = session.platform();
         if (player == null || platform == null) return;

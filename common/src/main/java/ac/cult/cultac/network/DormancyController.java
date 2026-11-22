@@ -33,14 +33,16 @@ import org.jetbrains.annotations.Nullable;
  * swap}, CultAC's handlers without a player. A player goes dormant as soon as the setting turns off for
  * them, at their join while the instance's value is every player's, else once their connection to a server where it is
  * off completed, and at a reconfiguration acknowledgement on the way to such a server; a dormant player is checked again
- * at an acknowledgement on the way to a server where it is on, or when they join again. A connection never keeps a
- * watch next to CultAC's handlers.
+ * at an acknowledgement on the way to a server where it is on, or when they join again, and a player dormant at their
+ * join once it turns on before their login completed. A connection never keeps a watch next to CultAC's handlers.
  */
 public final class DormancyController {
     /** How many times in quick succession a detached connection tries to swap its handlers before trying once a second. */
     public static final int SWAP_ATTEMPTS = 20;
     /** The pause before each try that follows the first {@link #SWAP_ATTEMPTS}. */
     static final long SLOW_SWAP_MILLIS = 1_000;
+    /** Mark key: the connection was marked dormant at its join. */
+    private static final String JOINED = "joined-dormant";
 
     private static final AtomicBoolean started = new AtomicBoolean();
     private static volatile @Nullable Platform platform;
@@ -107,6 +109,9 @@ public final class DormancyController {
         /** {@code player} went dormant. */
         void detached(UUID player);
 
+        /** {@code player}, whose connection was marked dormant at their join, is inspected from their login on. */
+        default void awake(UUID player) {}
+
         /** Whether this generation attaches connections. */
         boolean accepting();
 
@@ -155,31 +160,67 @@ public final class DormancyController {
      * CultAC stops checking is checked again only at a reconfiguration. Any thread.
      */
     public static boolean dormant(@Nullable String backend) {
-        if (backend == null && NetworkModule.backendScoped(NetSettings.TOGGLE)) return false;
-        return !NetworkModule.setting(NetSettings.TOGGLE, backend).on();
+        NetSettings.Value value = NetworkModule.playerSetting(NetSettings.TOGGLE, backend);
+        return value != null && !value.on();
     }
 
     /**
      * Marks a connection opening while its player is dormant, before its login: it keeps CultAC's handlers and gets no
-     * CultAC player.
+     * CultAC player, unless the setting turns on for its player before its login completes.
      */
     public static void joinedDormant(CultConnection connection) {
-        connection.dormant(Map.of(DormantWatch.LOGIN_NOTIFIED, false));
+        connection.dormant(Map.of(DormantWatch.LOGIN_NOTIFIED, false, JOINED, true));
     }
 
     /**
-     * Takes the inspected connections whose players are dormant out of inspection, each on its packet owner;
-     * completes once each of those tasks ran. Any thread.
+     * Takes the mark off a connection marked dormant at its join whose login has not completed, when its player is not
+     * dormant; true when it did. On the packet owner.
+     */
+    public static boolean wake(CultConnection connection) {
+        Platform hooks = platform;
+        if (hooks == null || !joinedBeforeLogin(connection)) return false;
+        UUID player = hooks.player(connection);
+        if (player == null || dormant(hooks.target(player))) return false;
+        connection.awake();
+        hooks.awake(player);
+        return true;
+    }
+
+    /**
+     * Takes the inspected connections whose players are dormant out of inspection, and inspects the connections marked
+     * dormant at their join, before their login completed, whose players are not, each on its packet owner; completes
+     * once each of those tasks ran. Any thread.
      */
     public static CompletableFuture<Void> settle() {
         Platform hooks = platform;
         if (hooks == null) return CompletableFuture.completedFuture(null);
-        List<CompletableFuture<Void>> detaching = new ArrayList<>();
+        List<CompletableFuture<Void>> settling = new ArrayList<>();
         for (CultConnection connection : CultAPI.INSTANCE.getNetworkManager().connections()) {
+            if (joinedBeforeLogin(connection)) {
+                settling.add(onOwner(connection, () -> wakeNow(connection)));
+                continue;
+            }
             UUID player = connection.dormant() == null ? hooks.player(connection) : null;
-            if (player != null && dormant(hooks.backend(player))) detaching.add(detachLater(connection));
+            if (player != null && dormant(hooks.backend(player))) settling.add(detachLater(connection));
         }
-        return CompletableFuture.allOf(detaching.toArray(CompletableFuture[]::new));
+        return CompletableFuture.allOf(settling.toArray(CompletableFuture[]::new));
+    }
+
+    /** Whether the connection carries the dormant mark of its join and has not completed its login. */
+    private static boolean joinedBeforeLogin(CultConnection connection) {
+        Map<String, Object> mark = connection.dormant();
+        return mark != null && Boolean.TRUE.equals(mark.get(JOINED)) && !connection.loginNotified();
+    }
+
+    /** Creates the player of a connection marked dormant at its join once it {@link #wake wakes}. On the owner. */
+    private static void wakeNow(CultConnection connection) {
+        User user = connection.user();
+        if (user == null
+                || connection.excluded()
+                || CultAPI.INSTANCE.getNetworkManager().connection(connection.channel()) != connection
+                || !wake(connection)) return;
+        CultAPI.INSTANCE.getPlayerDataManager().addUser(user);
+        PacketConnections.observePlatformBrand(connection);
     }
 
     /**
@@ -291,11 +332,16 @@ public final class DormancyController {
 
     /** Detaches the connection on its packet owner; completes once that ran or could not. */
     private static CompletableFuture<Void> detachLater(CultConnection connection) {
+        return onOwner(connection, () -> detachNow(connection));
+    }
+
+    /** Runs {@code task} on the connection's packet owner; completes once it ran or could not. */
+    private static CompletableFuture<Void> onOwner(CultConnection connection, Runnable task) {
         CompletableFuture<Void> done = new CompletableFuture<>();
         try {
             connection.executeLater(() -> {
                 try {
-                    detachNow(connection);
+                    task.run();
                 } finally {
                     done.complete(null);
                 }

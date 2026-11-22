@@ -442,17 +442,28 @@ public final class NetSettings {
     }
 
     /**
+     * {@code key}'s value for a player on {@code backend}, their backend server, decided from one view of the table. For
+     * a player whose backend is not known it is the instance's value while that is every player's, and null while a
+     * backend server's record can decide for them.
+     */
+    public @Nullable Value playerValue(String key, @Nullable String backend) {
+        View current = view();
+        if (backend == null && backendScoped(current, key)) return null;
+        return value(baseline, key, decides(current, key, backend));
+    }
+
+    /**
      * Whether {@code key}'s value for a player can differ from the instance's by the backend server they are on: it is
      * not pinned, and a record of it naming a backend server is newer than every record naming this instance as a whole.
      */
-    public boolean backendScoped(String key) {
+    private boolean backendScoped(View current, String key) {
         NetCommands.Options accepted = options;
         if (baseline.pin(key) != null
                 || !accepted.enabled()
                 || !accepted.accept().contains(command(key))) return false;
         String self = service.instanceId();
         boolean proxy = service.proxy();
-        for (Entry entry : view().of(key)) {
+        for (Entry entry : current.of(key)) {
             if (entry.target().instanceWide(self, proxy)) return false;
             for (Term term : entry.target().terms()) {
                 if (term.kind() == Term.Kind.NAME) return true;

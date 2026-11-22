@@ -5,7 +5,9 @@ import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.dialog.Dialogs;
+import ac.cult.cultac.events.packets.PlayerLoginHooks;
 import ac.cult.cultac.manager.datastore.SessionTracker;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.netty.channel.ChannelHelper;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -119,23 +121,28 @@ public class PlayerDataManager {
             return;
         }
         var session = user.getCultConnection();
-        CultPlayer created;
+        DormancyController.wake(session);
+        CultPlayer created = null;
         synchronized (session) {
-            if (session.disconnected() || session.player() != null || session.dormant() != null) return;
-            created = createPlayer(user);
-            session.player(created);
-            activePlayers.add(created);
+            if (session.disconnected() || session.player() != null) return;
+            if (session.dormant() == null) {
+                created = createPlayer(user);
+                session.player(created);
+                activePlayers.add(created);
+            }
         }
 
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
-        if (host != null)
-            host.bindUser(
-                    user.getChannel(),
-                    user.getUUID(),
-                    user.getPlayer() == null ? null : user.getPlayer().getNative(),
-                    created);
-        Channels.JOIN.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(created));
-        CloudModule.playerRegistered(created);
+        if (created != null) {
+            var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+            if (host != null)
+                host.bindUser(
+                        user.getChannel(),
+                        user.getUUID(),
+                        user.getPlayer() == null ? null : user.getPlayer().getNative(),
+                        created);
+            Channels.JOIN.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(created));
+            CloudModule.playerRegistered(created);
+        }
         UUID uuid = user.getUUID();
         if (uuid != null && CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
             CultAPI.INSTANCE.getDataStoreLifecycle().holdToggles(uuid, user.getConnectionId());
@@ -196,6 +203,16 @@ public class PlayerDataManager {
                         uuid,
                         System.currentTimeMillis(),
                         new SessionTracker.ClientMeta(null, null, -1, null, connectionId));
+    }
+
+    /**
+     * {@code player} joins on a connection CultAC does not inspect, {@code connectionId}'s: holds their toggle slot for
+     * it and runs the login steps that need no CultAC player. {@link #dormantQuit} with the same id releases both.
+     */
+    public void dormantJoin(PlatformPlayer player, UUID connectionId) {
+        if (CultAPI.INSTANCE.getDataStoreLifecycle() != null)
+            CultAPI.INSTANCE.getDataStoreLifecycle().holdToggles(player.getUniqueId(), connectionId);
+        PlayerLoginHooks.joinedUninspected(player);
     }
 
     /**

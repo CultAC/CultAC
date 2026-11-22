@@ -302,6 +302,26 @@ class DormantDetachTest {
     }
 
     @Test
+    void aJoinMarkedDormantIsCheckedWhenTheToggleTurnsOnBeforeItsLoginCompletes() throws Exception {
+        new Client("lobby");
+        toggle("all", NetSettings.OFF);
+        CultConnection opening = opening(true);
+        CultConnection configuring = join(true);
+        CultConnection loggedIn = join(true);
+        loggedIn.loginNotified = true;
+        assertNull(configuring.user().getCultPlayer());
+
+        toggle("all", NetSettings.ON);
+        opening.prepare();
+        assertNotNull(opening.user().getCultPlayer(), "a join's player is decided again when it is created");
+        settle();
+        assertNotNull(configuring.user().getCultPlayer(), "the toggle turning on checks a join before its login");
+        assertNull(configuring.dormant());
+        assertNull(loggedIn.user().getCultPlayer(), "a join that completed its login is checked when it joins again");
+        assertEquals(1, DormancyController.dormantPlayers(null));
+    }
+
+    @Test
     void aSwapThatFailsKeepsTheHandlersAndIsRetriedUntilItSucceeds() throws Exception {
         Client c = new Client("lobby");
         toggle("BRG_1", NetSettings.OFF);
@@ -421,9 +441,16 @@ class DormantDetachTest {
 
     /**
      * A connection opening on a channel of its own and logging in as the platform attaches one, marked as joining
-     * dormant when {@code dormant}.
+     * dormant when {@code dormant}; it does not complete its login.
      */
     private CultConnection join(boolean dormant) {
+        CultConnection connection = opening(dormant);
+        connection.prepare();
+        return connection;
+    }
+
+    /** A connection opening as {@link #join} attaches one, before its player logs in. */
+    private CultConnection opening(boolean dormant) {
         EmbeddedChannel channel = new EmbeddedChannel();
         channel.pipeline().addLast("decoder", new ChannelInboundHandlerAdapter());
         channel.pipeline().addLast("encoder", new ChannelOutboundHandlerAdapter());
@@ -437,7 +464,6 @@ class DormantDetachTest {
         connection.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.CONFIGURATION);
         CultDecoder.install(connection);
         CultEncoder.install(connection);
-        connection.prepare();
         return connection;
     }
 
@@ -466,6 +492,7 @@ class DormantDetachTest {
     private void settle() {
         CompletableFuture<Void> settled = DormancyController.settle();
         for (Client client : clients) client.f.channel.runPendingTasks();
+        for (CultConnection joined : joins) ((EmbeddedChannel) joined.channel()).runPendingTasks();
         assertTrue(settled.isDone());
     }
 
