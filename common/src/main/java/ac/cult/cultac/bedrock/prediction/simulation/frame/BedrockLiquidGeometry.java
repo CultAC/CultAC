@@ -71,16 +71,6 @@ public final class BedrockLiquidGeometry {
         return (float) (block.position().y() + 1) - (height - 1.0F / 9.0F);
     }
 
-    public static WorldCollisionBox fullBlockBox(BlockPosition position) {
-        return new WorldCollisionBox(
-                position.x(),
-                position.y(),
-                position.z(),
-                position.x() + 1.0D,
-                position.y() + 1.0D,
-                position.z() + 1.0D);
-    }
-
     public static BedrockLiquidKind liquidKind(PlacedBlockCollision block) {
         if (isWaterBlock(block)) {
             return BedrockLiquidKind.WATER;

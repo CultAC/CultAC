@@ -345,13 +345,7 @@ public record PlacedBlockCollision(
 
     private static List<WorldCollisionBox> fullBlockContactBoxes(BlockPosition position) {
         Objects.requireNonNull(position, "position");
-        return List.of(new WorldCollisionBox(
-                position.x(),
-                position.y(),
-                position.z(),
-                position.x() + 1.0D,
-                position.y() + 1.0D,
-                position.z() + 1.0D));
+        return List.of(WorldCollisionBox.fullBlock(position));
     }
 
     public enum BlockContactBehavior {

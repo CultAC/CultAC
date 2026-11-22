@@ -86,7 +86,7 @@ public final class BedrockCollisionWorldBuilder {
         query = query == null ? BedrockCollisionShapeQuery.NONE : query;
         List<WorldCollisionBox> boxes = collisionBoxes(position, state, query);
         List<WorldCollisionBox> contactBoxes =
-                movementResolvedContactUsesCollisionBoxes(state) ? boxes : List.of(fullBlockBox(position));
+                movementResolvedContactUsesCollisionBoxes(state) ? boxes : List.of(WorldCollisionBox.fullBlock(position));
         String javaIdentifier = javaIdentifier(state);
         Map<String, Object> metadata = bedrockState(state);
         if (movingPistonBlock(state)) metadata = withCarriedBlock(position, metadata);
@@ -354,7 +354,7 @@ public final class BedrockCollisionWorldBuilder {
             BlockPosition position, int state, List<WorldCollisionBox> collisionBoxes) {
         // Powder snow slows an actor anywhere in its cell, whatever shape it collides as for that actor.
         return collisionBoxes.isEmpty() || powderSnowBlock(state)
-                ? List.of(fullBlockBox(position))
+                ? List.of(WorldCollisionBox.fullBlock(position))
                 : List.copyOf(collisionBoxes);
     }
 
@@ -443,7 +443,7 @@ public final class BedrockCollisionWorldBuilder {
 
     /** A shulker box is one box whose face on the box's facing side its lid moves out along that facing. */
     private WorldCollisionBox shulkerBoxCollisionBox(BlockPosition position, int state) {
-        WorldCollisionBox closed = fullBlockBox(position);
+        WorldCollisionBox closed = WorldCollisionBox.fullBlock(position);
         float lift = context.shulkerBoxLift().at(position);
         if (lift <= 0.0F) {
             return closed;
@@ -466,7 +466,7 @@ public final class BedrockCollisionWorldBuilder {
         if (query.actorCollisionQuery().isEmpty()) {
             return List.of();
         }
-        WorldCollisionBox blockBox = fullBlockBox(position);
+        WorldCollisionBox blockBox = WorldCollisionBox.fullBlock(position);
         WorldCollisionBox actorBox = query.actorCollisionQuery().get();
         boolean aboveTop = actorBox.minY() + POWDER_SNOW_ABOVE_EPSILON >= blockBox.maxY();
         if (!aboveTop) {
@@ -755,7 +755,7 @@ public final class BedrockCollisionWorldBuilder {
             return List.of();
         }
         WorldCollisionBox actor = query.actorCollisionQuery().get();
-        WorldCollisionBox block = fullBlockBox(position);
+        WorldCollisionBox block = WorldCollisionBox.fullBlock(position);
         if (actor.minY() + 1.0E-6D < position.y() + 1.0D || !actor.overlapsXz(block)) {
             return List.of();
         }
@@ -782,16 +782,6 @@ public final class BedrockCollisionWorldBuilder {
                 position.x() + box.maxX(),
                 position.y() + box.maxY(),
                 position.z() + box.maxZ());
-    }
-
-    private static WorldCollisionBox fullBlockBox(BlockPosition position) {
-        return new WorldCollisionBox(
-                position.x(),
-                position.y(),
-                position.z(),
-                position.x() + 1.0D,
-                position.y() + 1.0D,
-                position.z() + 1.0D);
     }
 
     private static boolean isAir(int state) {

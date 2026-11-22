@@ -77,7 +77,7 @@ public final class BedrockLiquidClimbOutMovement {
         return BedrockLiquidGeometry.isWaterBlock(block)
                         || BedrockLiquidGeometry.isLavaBlock(block)
                         || block.javaStateProperties().waterlogged()
-                ? BedrockLiquidGeometry.fullBlockBox(block.position())
+                ? WorldCollisionBox.fullBlock(block.position())
                 : EMPTY_BOX;
     }
 

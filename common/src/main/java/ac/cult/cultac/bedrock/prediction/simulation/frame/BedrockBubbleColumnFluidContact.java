@@ -18,7 +18,7 @@ record BedrockBubbleColumnFluidContact(BubbleColumnLayer layer, boolean dragDown
         if (!isBubbleColumn(block)) {
             return Optional.empty();
         }
-        if (!BedrockLiquidGeometry.fullBlockBox(block.position()).intersects(contactBox(actorBox))) {
+        if (!WorldCollisionBox.fullBlock(block.position()).intersects(contactBox(actorBox))) {
             return Optional.empty();
         }
         boolean dragDown = dragDown(block);
