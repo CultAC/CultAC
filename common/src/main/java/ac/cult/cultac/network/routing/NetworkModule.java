@@ -11,10 +11,12 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
@@ -30,6 +32,9 @@ public final class NetworkModule {
     private static final List<Consumer<NetworkService>> startHooks = new CopyOnWriteArrayList<>();
     private static final List<NetSettings.Listener> settingsListeners = new CopyOnWriteArrayList<>();
     private static final List<Consumer<UUID>> playerListeners = new CopyOnWriteArrayList<>();
+    /** Per player on this instance, the backend server their proxy last connected them to, until they leave. */
+    private static final Map<UUID, String> connected = new ConcurrentHashMap<>();
+
     private static volatile @Nullable NetworkPlatform platform;
     private static volatile @Nullable NetworkService service;
     /** The shared settings of the last service started, read while a reconnect replaces it. */
@@ -179,6 +184,7 @@ public final class NetworkModule {
     public static synchronized void stop() {
         end(Runnable::run);
         lastSettings = null;
+        connected.clear();
     }
 
     private static void closeInBackground(Runnable close) {
@@ -187,7 +193,10 @@ public final class NetworkModule {
         thread.start();
     }
 
-    /** Calls {@code listener} with each player who joins or switches backend server on this instance, until closed. */
+    /**
+     * Calls {@code listener} with each player who joins, is connected to a backend server or switches backend server on
+     * this instance, until closed.
+     */
     public static NetworkService.Registration onPlayerChanged(Consumer<UUID> listener) {
         playerListeners.add(listener);
         return () -> playerListeners.remove(listener);
@@ -197,6 +206,28 @@ public final class NetworkModule {
     public static void playerChanged(UUID uuid, String name, @Nullable String server, @Nullable String brand) {
         NetworkService running = service;
         if (running != null) running.playerChanged(new OnlinePlayer(uuid, name, server, brand));
+        tellPlayerListeners(uuid);
+    }
+
+    /**
+     * The proxy connected a player on this instance to backend {@code server}, ahead of the platform naming it their
+     * current server. Any thread.
+     */
+    public static void playerConnected(UUID uuid, String server) {
+        connected.put(uuid, server);
+        tellPlayerListeners(uuid);
+    }
+
+    /**
+     * The backend server a player's network settings follow: the one their proxy last connected them to, else
+     * {@code current}, the one the platform names. Any thread.
+     */
+    public static @Nullable String backend(UUID uuid, @Nullable String current) {
+        String target = connected.get(uuid);
+        return target != null ? target : current;
+    }
+
+    private static void tellPlayerListeners(UUID uuid) {
         for (Consumer<UUID> listener : playerListeners) {
             try {
                 listener.accept(uuid);
@@ -214,6 +245,7 @@ public final class NetworkModule {
 
     /** A quit on this instance. Any thread. */
     public static void playerLeft(UUID uuid) {
+        connected.remove(uuid);
         NetworkService running = service;
         if (running != null) running.playerLeft(uuid);
     }

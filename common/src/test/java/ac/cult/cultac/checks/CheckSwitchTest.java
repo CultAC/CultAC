@@ -15,17 +15,29 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.bedrock.replay.offline.OfflinePlayers;
+import ac.cult.cultac.checks.impl.combat.FairReach;
+import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.verdict.FlagOutcome;
 import ac.cult.cultac.manager.PunishmentManager;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
+import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -70,6 +82,31 @@ class CheckSwitchTest {
     }
 
     @Test
+    void aSwitchedOffReachCheckCancelsNoAttack() {
+        OfflinePlayers.withSafePlayer(SAFE, player -> {
+            int target = 3000;
+            player.compensatedEntities.addEntity(target, EntityTypeIds.PLAYER, new Vec3(40, 64, 2), 0, 0, 0);
+            FairReach fairReach = player.checkManager.getCheck(FairReach.class);
+            fairReach.onAddEntity(
+                    null, player, new ClientboundAddEntity(target, "minecraft:player", new Vec3d(40, 64, 2), 0, 0, 0));
+            PlayerReach reach = player.checkManager.getCheck(PlayerReach.class);
+            ServerboundInteract attack =
+                    new ServerboundInteract(target, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
+            for (int i = 0; i <= 10; i++) cancels(player, reach::onInteract, attack);
+
+            for (boolean off : new boolean[] {true, false}) {
+                fairReach.setSwitchedOff(off);
+                reach.setSwitchedOff(off);
+                assertEquals(!off, cancels(player, fairReach::onInteract, attack), "out of reach, off=" + off);
+                assertEquals(!off, cancels(player, reach::onInteract, attack), "queue full, off=" + off);
+                player.packetStateData.localPlayerTickedSinceSpawn = false;
+                assertEquals(!off, cancels(player, reach::onInteract, attack), "not ticked, off=" + off);
+                player.packetStateData.localPlayerTickedSinceSpawn = true;
+            }
+        });
+    }
+
+    @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
     void aSwitchHoldsThroughAPunishmentsReload() {
         CultPlayer player = mock(CultPlayer.class);
@@ -89,6 +126,16 @@ class CheckSwitchTest {
 
         check.setSwitchedOff(false);
         assertTrue(check.isEnabled());
+    }
+
+    private interface InteractHandler {
+        void handle(PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet);
+    }
+
+    private static boolean cancels(CultPlayer player, InteractHandler handler, ServerboundInteract attack) {
+        var event = new PacketReceiveEvent<>(player.user, ConnectionPhase.PLAY, ServerboundPackets.INTERACT, attack);
+        handler.handle(event, player, attack);
+        return event.isCancelled();
     }
 
     private static Check probe(CultPlayer player, double setbackVl) {

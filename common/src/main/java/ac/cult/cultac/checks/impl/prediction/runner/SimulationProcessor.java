@@ -1564,12 +1564,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.player.onGround = groundBefore;
             this.player.isFlying = flyingBefore;
             this.player.packetStateData.flyingStopAfterTravel = flyingStopBefore;
+            Check crashCheck = (Check) this.player.checkManager.getListener(CrashF.class);
             if (this.player.getSetbackTeleportUtil().hasFullyLoaded()) {
-                Check crashCheck = (Check) this.player.checkManager.getListener(CrashF.class);
                 crashCheck.flag("len " + Math.sqrt(length));
             }
 
-            this.player.getSetbackTeleportUtil().executeViolationSetback();
+            this.player.getSetbackTeleportUtil().executeViolationSetback(crashCheck);
             return null;
         }
         if (result.getSimulationContext() != null
@@ -1639,7 +1639,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private void prepareFlaggedPrediction(PredictionResult result, boolean createProfileVerboseLog) {
         if (result.isExempt() || result.getFlagSeverity() <= 0.0) return;
         this.dumpRecentFlagsWhenDebugging(result);
-        if (!player.isObserveOnly()) {
+        if (this.player.checkManager.getOffsetHandler().mayModifyPackets()) {
             this.player.getSetbackTeleportUtil().sender().resyncWorld();
         }
         boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);

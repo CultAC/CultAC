@@ -1684,7 +1684,7 @@ public class CultPlayer implements GrimUser {
      * paused punishments and the checks switched off. Runs on the player's packet owner.
      */
     public void applyNetworkSettings() {
-        String backend = platformPlayer == null ? null : platformPlayer.serverName();
+        String backend = NetworkModule.backend(playerUUID, platformPlayer == null ? null : platformPlayer.serverName());
         punishmentsPaused = !NetworkModule.setting(NetSettings.PUNISH, backend).on();
         Set<String> off = NetworkModule.checksOff(backend);
         for (AbstractCheck check : getChecks()) {

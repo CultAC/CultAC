@@ -9,6 +9,7 @@ import ac.cult.reload.api.HostContext;
 import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -29,6 +30,8 @@ final class VelocityNetwork implements NetworkPlatform {
     private final Object plugin;
     private final Function<Player, Channel> channels;
     private final EventHandler<PostLoginEvent> joined = event -> changed(event.getPlayer());
+    private final EventHandler<ServerConnectedEvent> connected = event -> NetworkModule.playerConnected(
+            event.getPlayer().getUniqueId(), event.getServer().getServerInfo().getName());
     private final EventHandler<ServerPostConnectEvent> switched = event -> changed(event.getPlayer());
     private final EventHandler<DisconnectEvent> left = this::left;
     private boolean listening;
@@ -46,6 +49,7 @@ final class VelocityNetwork implements NetworkPlatform {
         listening = true;
         redisBungeeId = RedisBungeeTransport.proxyId(proxy);
         proxy.getEventManager().register(plugin, PostLoginEvent.class, joined);
+        proxy.getEventManager().register(plugin, ServerConnectedEvent.class, connected);
         proxy.getEventManager().register(plugin, ServerPostConnectEvent.class, switched);
         proxy.getEventManager().register(plugin, DisconnectEvent.class, left);
     }
@@ -54,6 +58,7 @@ final class VelocityNetwork implements NetworkPlatform {
         if (!listening) return;
         listening = false;
         proxy.getEventManager().unregister(plugin, joined);
+        proxy.getEventManager().unregister(plugin, connected);
         proxy.getEventManager().unregister(plugin, switched);
         proxy.getEventManager().unregister(plugin, left);
     }

@@ -21,6 +21,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -285,7 +286,8 @@ final class NetCommands {
 
         /**
          * Brings the loaded config, which this instance's own mode reads, to {@code observeOnly}, the network's value for
-         * this instance, once config.yml holds it; completes with whether that succeeded.
+         * this instance: reloads when the loaded config differs and config.yml holds the value, as no reload reaches a
+         * value config.yml lacks; completes with whether the loaded config holds it.
          */
         default CompletableFuture<Boolean> observeOnly(boolean observeOnly) {
             return CompletableFuture.completedFuture(true);
@@ -399,9 +401,20 @@ final class NetCommands {
 
         @Override
         public CompletableFuture<Boolean> observeOnly(boolean observeOnly) {
-            return CultAPI.INSTANCE.getConfigManager().isObserveOnly() == observeOnly
-                    ? CompletableFuture.completedFuture(true)
-                    : CultReload.reloadAsync();
+            if (CultAPI.INSTANCE.getConfigManager().isObserveOnly() == observeOnly)
+                return CompletableFuture.completedFuture(true);
+            if (!configHolds(observeOnly)) return CompletableFuture.completedFuture(false);
+            return CultReload.reloadAsync()
+                    .thenApply(ok -> ok && CultAPI.INSTANCE.getConfigManager().isObserveOnly() == observeOnly);
+        }
+
+        private boolean configHolds(boolean observeOnly) {
+            try {
+                return Boolean.valueOf(observeOnly)
+                        .equals(NetStateFile.readConfig(configFile()).get(BaseConfigManager.OBSERVE_ONLY_KEY));
+            } catch (IOException | RuntimeException unreadable) {
+                return false;
+            }
         }
 
         // Every generation of the host reads config.yml from, and keeps the shared settings in, the host's folder.
@@ -530,6 +543,10 @@ final class NetCommands {
     });
     /** Guarded by {@code this}. */
     private boolean closed;
+    /** The run of {@link #syncObserve} in progress; guarded by {@code this}. */
+    private @Nullable CompletableFuture<Boolean> observeSync;
+    /** The value {@link #observeSync} brings the loaded config to; guarded by {@code this}. */
+    private boolean observeSyncTarget;
 
     /** Commands for {@code service}; {@code host} shares the claimed command ids with the other generations. */
     NetCommands(NetworkService service, LongSupplier clock, Local local, @Nullable HostContext host) {
@@ -551,6 +568,54 @@ final class NetCommands {
     /** Has the next post read {@code update.webhook} again; called after config.yml reloads. */
     void configLoaded() {
         webhookUrl = null;
+    }
+
+    /**
+     * A change to the shared settings: when it may change the instance's observe value, the current generation brings
+     * the loaded config along, a reload covering every generation here. A reload is itself such a change, which finds
+     * the loaded config already holding the value.
+     */
+    void settingsChanged(NetSettings.Change change) {
+        if (!change.affects(NetSettings.OBSERVE) || !service.current()) return;
+        syncObserve().whenComplete((ok, failure) -> {
+            if (failure != null)
+                LogUtil.warn("Could not bring the loaded config to the network's observe-only value", failure);
+        });
+    }
+
+    /**
+     * Brings the loaded config to the instance's observe value through {@link Local#observeOnly}; a call while a run for
+     * the same value is in progress shares it, and one for another value follows it. Completes with whether the loaded
+     * config holds the value.
+     */
+    CompletableFuture<Boolean> syncObserve() {
+        boolean target = service.netSettings().value(NetSettings.OBSERVE).on();
+        CompletableFuture<Boolean> running;
+        CompletableFuture<Boolean> started = new CompletableFuture<>();
+        synchronized (this) {
+            running = observeSync;
+            if (running == null) {
+                observeSync = started;
+                observeSyncTarget = target;
+            } else if (observeSyncTarget == target) {
+                return running;
+            }
+        }
+        if (running != null) return running.handle((ok, failure) -> null).thenCompose(ignored -> syncObserve());
+        CompletionStage<Boolean> sync;
+        try {
+            sync = local.observeOnly(target);
+        } catch (RuntimeException failure) {
+            sync = CompletableFuture.failedFuture(failure);
+        }
+        sync.whenComplete((ok, failure) -> {
+            synchronized (this) {
+                if (observeSync == started) observeSync = null;
+            }
+            if (failure != null) started.completeExceptionally(failure);
+            else started.complete(ok);
+        });
+        return started;
     }
 
     /**
@@ -981,9 +1046,9 @@ final class NetCommands {
         if (backends != null || !key.equals(NetSettings.OBSERVE))
             return CompletableFuture.completedFuture(Reply.of(
                     true, key + "-applied", Map.of("players", players, "state", described(key, backends, false))));
-        NetSettings settings = service.netSettings();
-        return settings.settled()
-                .thenCompose(ignored -> local.observeOnly(settings.value(key).on()))
+        return service.netSettings()
+                .settled()
+                .thenCompose(ignored -> syncObserve())
                 .exceptionally(failure -> false)
                 .thenApply(ok -> Reply.of(
                         ok,
