@@ -94,6 +94,7 @@ public class PacketServerTeleport {
      * of it, and at the sent point when the client has none.
      */
     private static void applyLookAt(CultPlayer player, ClientboundPlayerLookAt packet) {
+        player.horseMountLook.clear();
         double targetX = packet.x();
         double targetY = packet.y();
         double targetZ = packet.z();

@@ -492,7 +492,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 horse.clientPhysicalPitch,
                 horse.clientPhysicalYawCurrent,
                 controllerYawKnown ? player.xRot : Float.NaN,
-                controlled && !controllerYawKnown);
+                controlled && !controllerYawKnown,
+                controlled && !local);
         Vec3 old = horse.clientPhysicalPositionExact ? horse.clientPhysicalPosition : null;
         boolean stepped = tickEntityAtClientTickEnd(horse, velocityVehicle, highBound);
         boolean refuses = horse instanceof PacketEntityCamel camel
@@ -544,19 +545,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
      * every set_passengers that lists it.
      */
     private void turnToHorseLook(PacketEntityHorse horse) {
-        if (!horse.head.knowsRiderLook(horse.clientPhysicalYawCurrent)) return;
-        float yaw = horse.head.riderYaw();
-        float pitch = horse.head.riderPitch(horse.clientPhysicalPitch);
-        // Entity#setYRot and Entity#setXRot keep a rotation that is not finite out.
-        if (Float.isFinite(yaw)) {
-            player.xRot = yaw;
-            player.lastTickXRot = yaw;
-            player.mountYaw = Float.NaN;
+        if (!horse.head.knowsRiderLook(horse.clientPhysicalYawCurrent)) {
+            horse.head.riderLooks(player.horseMountLook, horse.clientPhysicalPitch);
+            return;
         }
-        if (Float.isFinite(pitch)) {
-            player.yRot = pitch;
-            player.lastTickYRot = pitch;
-        }
+        player.horseMountLook.clear();
+        player.snapLook(horse.head.riderYaw(), horse.head.riderPitch(horse.clientPhysicalPitch));
     }
 
     // Keep the compensated camera entity synchronized.
@@ -1372,6 +1366,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     && !player.isBedrockMovement()
                     && !player.compensatedEntities.ridesIndirectly(horse, player.compensatedEntities.getSelf())) {
                 turnToHorseLook(horse);
+            } else if (mountsLocalPlayer) {
+                player.horseMountLook.clear();
             }
             if (mountsLocalPlayer
                     && mounted != null
