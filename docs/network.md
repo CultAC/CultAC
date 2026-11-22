@@ -182,14 +182,13 @@ backend server they are on or for the proxy itself, and a player who moves to an
 once. `toggle` applies per player the same way; for a player who moves to another backend it takes effect as they
 switch. `/cult observe` and the `observe-only` key set the mode of their own server.
 
-`network.commands` in `config.yml` sets what a server takes; each key's environment variable wins when set and not
-blank:
+`network.commands` in `config.yml` sets what a server takes:
 
-| Key | Default | Environment variable | Meaning |
-|---|---|---|---|
-| `enabled` | `true` | `CULTAC_NETWORK_COMMANDS` | Whether this server runs network commands. |
-| `accept` | `[status, reload, observe, toggle, check, punish, update]` | `CULTAC_NETWORK_COMMANDS_ACCEPT` (a comma list) | The commands it runs; it refuses the others. |
-| `webhook` | `summary` | `CULTAC_NETWORK_COMMANDS_WEBHOOK` | What goes to `update.webhook`: `summary`, `every` or `none`. |
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Whether this server runs network commands. |
+| `accept` | `[status, reload, observe, toggle, check, punish, update]` | The commands it runs; it refuses the others. |
+| `webhook` | `summary` | What goes to `update.webhook`: `summary`, `every` or `none`. |
 
 An `accept` list already in `config.yml` keeps the commands it lists; add `punish` to it for the server to take
 `punish`.
@@ -218,16 +217,16 @@ it on that server only, when it starts or on `/cult reload`; a later network com
 `network.commands.enabled: false`, or whose `accept` list lacks the command that changes a setting, keeps its own
 `config.yml` value for it, while still keeping and passing on the records.
 
-| Key | Default | Environment variable | Meaning |
-|---|---|---|---|
-| `dormant` | `false` | `CULTAC_DORMANT` | CultAC checks no one and frees the memory checking uses. |
-| `observe-only` | `false` | `CULTAC_OBSERVE_ONLY` | Flag and alert without acting. |
-| `checks-off` | `[]` | `CULTAC_CHECKS_OFF` (a comma list of check names) | Checks that neither flag nor set back, by check name. |
-| `pause-punishments` | `false` | `CULTAC_PAUSE_PUNISHMENTS` | Withhold the punishment commands of `punishments.yml`. |
+| Key | Default | Meaning |
+|---|---|---|
+| `dormant` | `false` | CultAC checks no one and frees the memory checking uses. |
+| `observe-only` | `false` | Flag and alert without acting. |
+| `checks-off` | `[]` | Checks that neither flag nor set back, by check name. |
+| `pause-punishments` | `false` | Withhold the punishment commands of `punishments.yml`. |
 
-The environment variables pin a setting on their server: `true`, `1` or `yes` and `false`, `0` or `no` hold it at that
-value, and `CULTAC_CHECKS_OFF` keeps the checks it lists off. The network's records still arrive and are kept, but do
-not change a pinned setting, and `status` shows the pin.
+`CULTAC_OBSERVE_ONLY` pins observe-only mode on its server: `true`, `1` or `yes` and `false`, `0` or `no` hold it at
+that value. The network's records still arrive and are kept, but do not change the pinned mode, and `status` shows the
+pin.
 
-`checks-off` and `CULTAC_CHECKS_OFF` take any name a check has or had, in any case; a name that is not a check is
+`checks-off` takes any name a check has or had, in any case; a name that is not a check is
 logged once and ignored. When CultAC writes `checks-off`, it writes each check's current name.

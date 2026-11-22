@@ -1,12 +1,9 @@
 package ac.cult.cultac.network.routing;
 
-import static ac.cult.cultac.manager.config.BaseConfigManager.CHECKS_OFF_ENV;
 import static ac.cult.cultac.manager.config.BaseConfigManager.CHECKS_OFF_KEY;
-import static ac.cult.cultac.manager.config.BaseConfigManager.DORMANT_ENV;
 import static ac.cult.cultac.manager.config.BaseConfigManager.DORMANT_KEY;
 import static ac.cult.cultac.manager.config.BaseConfigManager.OBSERVE_ONLY_ENV;
 import static ac.cult.cultac.manager.config.BaseConfigManager.OBSERVE_ONLY_KEY;
-import static ac.cult.cultac.manager.config.BaseConfigManager.PAUSE_PUNISHMENTS_ENV;
 import static ac.cult.cultac.manager.config.BaseConfigManager.PAUSE_PUNISHMENTS_KEY;
 
 import ac.cult.cultac.checks.info.CheckCatalog;
@@ -247,23 +244,19 @@ public final class NetSettings {
     record Pin(boolean on, String env) {}
 
     /**
-     * config.yml's values of the settings and the values environment variables pin them to: null, or empty for the
-     * checks, pins nothing. {@code checksOff} and {@code checksOffPin} list stable keys.
+     * config.yml's values of the settings and the value {@code CULTAC_OBSERVE_ONLY} pins observe to: null pins nothing.
+     * {@code checksOff} lists stable keys.
      */
     record Baseline(
             boolean dormant,
             boolean observeOnly,
             boolean pausePunishments,
             List<String> checksOff,
-            @Nullable Boolean dormantPin,
-            @Nullable Boolean observeOnlyPin,
-            @Nullable Boolean pausePunishmentsPin,
-            List<String> checksOffPin) {
-        static final Baseline DEFAULT = new Baseline(false, false, false, List.of(), null, null, null, List.of());
+            @Nullable Boolean observeOnlyPin) {
+        static final Baseline DEFAULT = new Baseline(false, false, false, List.of(), null);
 
         Baseline {
             checksOff = List.copyOf(checksOff);
-            checksOffPin = List.copyOf(checksOffPin);
         }
 
         /** The values as config.yml holds them. */
@@ -273,33 +266,12 @@ public final class NetSettings {
 
         @Nullable
         Pin pin(String key) {
-            return switch (key) {
-                case TOGGLE -> dormantPin == null ? null : new Pin(!dormantPin, DORMANT_ENV);
-                case OBSERVE -> observeOnlyPin == null ? null : new Pin(observeOnlyPin, OBSERVE_ONLY_ENV);
-                case PUNISH ->
-                    pausePunishmentsPin == null ? null : new Pin(!pausePunishmentsPin, PAUSE_PUNISHMENTS_ENV);
-                default ->
-                    key.startsWith(CHECK) && pinsOff(key.substring(CHECK.length()))
-                            ? new Pin(false, CHECKS_OFF_ENV)
-                            : null;
-            };
-        }
-
-        private boolean pinsOff(String check) {
-            for (String pinned : checksOffPin) {
-                if (pinned.equalsIgnoreCase(check)) return true;
-            }
-            return false;
+            return key.equals(OBSERVE) && observeOnlyPin != null ? new Pin(observeOnlyPin, OBSERVE_ONLY_ENV) : null;
         }
 
         /** The environment variables pinning a setting here. */
         List<String> pins() {
-            List<String> pins = new ArrayList<>();
-            if (observeOnlyPin != null) pins.add(OBSERVE_ONLY_ENV);
-            if (dormantPin != null) pins.add(DORMANT_ENV);
-            if (!checksOffPin.isEmpty()) pins.add(CHECKS_OFF_ENV);
-            if (pausePunishmentsPin != null) pins.add(PAUSE_PUNISHMENTS_ENV);
-            return List.copyOf(pins);
+            return observeOnlyPin == null ? List.of() : List.of(OBSERVE_ONLY_ENV);
         }
     }
 
@@ -500,7 +472,6 @@ public final class NetSettings {
     static Set<String> checksOff(
             Baseline baseline, Collection<String> recorded, Function<String, @Nullable Record> decides) {
         Set<String> candidates = new TreeSet<>(baseline.checksOff());
-        candidates.addAll(baseline.checksOffPin());
         candidates.addAll(recorded);
         Set<String> off = new TreeSet<>();
         for (String check : candidates) {
