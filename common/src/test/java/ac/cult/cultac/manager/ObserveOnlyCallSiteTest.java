@@ -270,6 +270,7 @@ class ObserveOnlyCallSiteTest {
             network/logging/JavaPacketLogger.java#close() shutdown
             network/protocol/player/User.java#closeConnection() disconnect
             network/routing/NetCommands.java#close() shutdown
+            network/routing/NetUpdates.java#close() shutdown
             platform/bukkit/CultACBukkitLoaderPlugin.java#disconnect(Channel) disconnect
             platform/bukkit/PaperInjector.java#disconnect(Channel) disconnect
             platform/bukkit/PaperRuntimeEntrypoint.java#disconnectChannel(Channel) disconnect
