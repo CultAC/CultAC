@@ -44,6 +44,9 @@ public final class SprintE extends Check implements PostPredictionListener {
                 && player.checkManager.getOffsetHandler().accepts(result);
         boolean inWater = result != null
                 && result.getSimulationContext().getWorldData().isInWater();
+        // An Entity#move before LocalPlayer#aiStep (TridentItem#releaseUsing's grounded lift) sets both flags again.
+        DesyncStatus beforeTravel = checked ? ClientHorizontalCollision.beforeTravelForEveryReality(result) : null;
+        if (beforeTravel != null) wasHardHorizontalCollision = beforeTravel.determinePessimistically();
 
         // LocalPlayer#aiStep stops a sprint it started in the same tick once the last move collided hard, so no
         // START precedes a sprinting move after one.

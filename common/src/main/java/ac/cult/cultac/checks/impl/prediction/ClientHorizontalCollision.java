@@ -55,6 +55,25 @@ public final class ClientHorizontalCollision {
     }
 
     /**
+     * The collision an Entity#move earlier in the client tick left for its LocalPlayer#aiStep, over every candidate that
+     * explains the report; null when none ran such a move, UNKNOWN when only some did or they disagree.
+     */
+    public static DesyncStatus beforeTravelForEveryReality(PredictionResult result) {
+        DesyncStatus verdict = beforeTravel(result);
+        if (result.getRealities() == null) return verdict;
+        for (PredictionResult other : result.getRealities()) {
+            if (other == result || other.getFlagSeverity() != 0.0) continue;
+            if (beforeTravel(other) != verdict) return DesyncStatus.UNKNOWN;
+        }
+        return verdict;
+    }
+
+    private static DesyncStatus beforeTravel(PredictionResult result) {
+        SimulationContext context = result.getSimulationContext();
+        return context == null ? null : context.getHardCollisionBeforeTravel();
+    }
+
+    /**
      * TRUE only when every key input consistent with the accepted move ends in a hard collision, from the starting
      * velocity of the selected reality and of every other judgeable zero-flag reality, any of which the client may
      * have moved from.

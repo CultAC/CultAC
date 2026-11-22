@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
+import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -77,6 +78,9 @@ public final class JavaRiptideRelease {
                     }
                 }
                 JavaPassState beforeTick = moved == null ? start : moved;
+                DesyncStatus hardBeforeTravel = lifted == null
+                        ? null
+                        : ClientHorizontalCollision.afterMove((Vec3) null, lifted.delta(), lifted.movement());
                 List<JavaInsideBlockEffects.RecordedMove> recorded = recordedLift(context, lifted);
                 if (!beforePlayer.isEmpty() && beforePlayer.mayReach(context.getActualPoseAt(beforeTick.position()))) {
                     var entityMoves = JavaBlockEntityPass.run(
@@ -88,11 +92,17 @@ public final class JavaRiptideRelease {
                             context.isLastSneaking(),
                             context.getStart());
                     moved = entityMoves.state();
+                    var lastMove = entityMoves.lastMove();
+                    if (lastMove != null && last != null)
+                        hardBeforeTravel =
+                                ClientHorizontalCollision.afterMove(last, lastMove.delta(), lastMove.movement());
+                    else if (lastMove != null) hardBeforeTravel = DesyncStatus.UNKNOWN;
                     if (context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5))
                         recorded = entityMoves.recorded().after(recorded);
                 }
                 SimulationContext released = context.afterPreTravelMove(moved);
                 released.setMovesBeforeTravel(recorded);
+                released.setHardCollisionBeforeTravel(hardBeforeTravel);
                 released.setRiptideLiftStuck(lift && context.consumesStuckSpeed() ? context.getLastStuckSpeed() : null);
                 if (moved != null) {
                     var state = new JavaPredictionCarry.State(

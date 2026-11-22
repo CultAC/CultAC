@@ -158,6 +158,13 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     @Setter
     List<JavaInsideBlockEffects.RecordedMove> movesBeforeTravel = List.of();
 
+    /**
+     * Whether the last Entity#move earlier in this client tick left a hard horizontal collision, which LocalPlayer#aiStep
+     * reads in place of the last travel's; null when no such move ran.
+     */
+    @Setter
+    DesyncStatus hardCollisionBeforeTravel;
+
     /** The starts the last tick's LivingEntity#checkAutoSpinAttack leaves this tick. */
     @Setter
     SpinRebound spinRebound = SpinRebound.OPTIONAL;
@@ -990,6 +997,7 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         sb.append(", riptideLiftStuck=").append(riptideLiftStuck);
         sb.append(", preTravelMovement=").append(preTravelMovement);
         sb.append(", movesBeforeTravel=").appendAll(movesBeforeTravel);
+        sb.append(", hardCollisionBeforeTravel=").append(hardCollisionBeforeTravel);
         sb.append(", spinRebound=").append(spinRebound);
         sb.append(", bedrockMovement=").append(bedrockMovement);
         sb.append(", noPhysics=").append(noPhysics);
