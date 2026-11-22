@@ -1,6 +1,5 @@
 package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientPistonDeltas;
