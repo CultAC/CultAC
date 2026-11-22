@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
@@ -173,25 +174,6 @@ public class PredictionResult {
         flags.add(new Flag(check, message, flagSeverity));
     }
 
-    /** Drops the flags of {@code check} and their severity, leaving every other flag on this result. */
-    public void removeFlags(Class<? extends Check> check) {
-        if (getFlag(check) == null) {
-            return;
-        }
-        List<Flag> kept = new ArrayList<>(flags.size());
-        double severity = 0.0D;
-        for (Flag flag : flags) {
-            if (flag.getCheck().getClass() != check) {
-                kept.add(flag);
-                severity += flag.getSeverity();
-            }
-        }
-        flags = kept;
-        if (!isExempt) {
-            flagSeverity = severity;
-        }
-    }
-
     public boolean hasFlag(Class<? extends Check> check) {
         return getFlag(check) != null;
     }
@@ -245,8 +227,7 @@ public class PredictionResult {
         }
         Vec3 closest = getAcceptedClosestToTarget();
         // Every Java Entity#move includes its input before clipping. No input may be added after that collision.
-        if (collideAxisData instanceof ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision)
-            return closest;
+        if (collideAxisData instanceof JavaMoveCollision) return closest;
         Vec3 inputTarget = getTarget();
         var pass = JavaMovementEngine.passAfterTravel(this);
         if (pass != null && !simulationContext.isWithheldPosition()) {

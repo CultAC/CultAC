@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.debug.DebugText;
+import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
@@ -192,7 +193,7 @@ public class WorldData implements DebugText.Recordable {
         this.vehicleInWater = vehicleInWater;
         this.spinAttackTarget = spinAttackTarget;
         this.spinAttackPlayer = spinAttackPlayer;
-        this.eyeFluidContact = ac.cult.cultac.utils.nmsutil.ClientFluidQueries.eyeContactFromWater(eyeInWater);
+        this.eyeFluidContact = ClientFluidQueries.eyeContactFromWater(eyeInWater);
     }
 
     /** Every field, as the Cult Log prints them. A new field belongs here too; CultLogContentTest checks. */

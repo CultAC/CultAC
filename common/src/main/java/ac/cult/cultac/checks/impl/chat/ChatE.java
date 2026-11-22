@@ -7,7 +7,6 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.*;
-import ac.cult.cultac.protocol.value.*;
 
 @CheckData(name = "ChatE", stableKey = "cult.chat.inventory", description = "Chatting while inventory is open")
 public class ChatE extends Check implements CheckListener {
@@ -17,7 +16,7 @@ public class ChatE extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onChat(PacketReceiveEvent<ServerboundChat> event, CultPlayer player, ServerboundChat packet) {
-        if (true && player.openWindow.mustBeOpen() && flag() && shouldModifyPackets()) {
+        if (player.openWindow.mustBeOpen() && flag() && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }
@@ -41,7 +40,7 @@ public class ChatE extends Check implements CheckListener {
             PacketReceiveEvent<ServerboundChatCommandSigned> event,
             CultPlayer player,
             ServerboundChatCommandSigned packet) {
-        if (true && player.openWindow.mustBeOpen() && flag() && shouldModifyPackets()) {
+        if (player.openWindow.mustBeOpen() && flag() && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }

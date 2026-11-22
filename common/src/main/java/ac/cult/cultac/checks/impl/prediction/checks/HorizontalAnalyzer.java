@@ -245,7 +245,7 @@ public class HorizontalAnalyzer implements EngineCheck {
             double absZ = Math.abs(minimumInputZ);
 
             double distToValid = Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
-            if (distToValid > 0.01) { // More lenient than it must be.
+            if (distToValid > 0.01) {
                 result.addFlag(
                         angleCheck,
                         () -> "1: " + NumFormatter.formatNumberStandard(distToValid),
@@ -256,7 +256,7 @@ public class HorizontalAnalyzer implements EngineCheck {
             double distanceToValid =
                     minDistanceToValidMovementAngle(angleResult.getMinAngle(), angleResult.getMaxAngle());
 
-            if (distanceToValid > 7) { // Highly lenient but sane threshold
+            if (distanceToValid > 7) {
                 result.addFlag(
                         angleCheck,
                         () -> "2: " + NumFormatter.formatNumberStandard(distanceToValid),

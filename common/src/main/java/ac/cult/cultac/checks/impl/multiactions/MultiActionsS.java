@@ -7,7 +7,6 @@ import ac.cult.cultac.checks.type.LegacyPacketEventSemantics;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.*;
-import ac.cult.cultac.protocol.value.*;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 
 @CheckData(

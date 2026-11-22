@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -29,6 +30,7 @@ import ac.cult.cultac.utils.math.TrigHandler;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
+import ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder;
 import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.Arrays;
@@ -128,7 +130,7 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     JavaMovementPatch movementPatch;
 
     @Setter
-    ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder;
+    ClientFluidTagOrder fluidTagOrder;
 
     /** Whether this candidate simulated the claimed mod loader's build that leaves a fluid current out. */
     @Setter
@@ -353,8 +355,7 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     }
 
     /** A release candidate owns its lifted travel origin, carry and world; the packet endpoint stays fixed. */
-    public SimulationContext afterPreTravelMove(
-            ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState moved) {
+    public SimulationContext afterPreTravelMove(JavaPassState moved) {
         SimulationContext copy = forTravelReplay(end);
         copy.passAfterTravel = passAfterTravel;
         copy.target = target;
@@ -1066,14 +1067,14 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
             SimpleCollisionBox box,
             BedrockDepenetrationLimit depenetrationLimit,
             float buffer,
-            java.util.List<ac.cult.cultac.utils.math.Vec3> alternatives) {
+            List<Vec3> alternatives) {
         public HardCollidingEntityCollision(
                 SimpleCollisionBox box, BedrockDepenetrationLimit depenetrationLimit, float buffer) {
-            this(box, depenetrationLimit, buffer, java.util.List.of());
+            this(box, depenetrationLimit, buffer, List.of());
         }
 
         /** The same actor shown {@code offset} from this box, with no other offsets. */
-        public HardCollidingEntityCollision shifted(ac.cult.cultac.utils.math.Vec3 offset) {
+        public HardCollidingEntityCollision shifted(Vec3 offset) {
             return new HardCollidingEntityCollision(
                     box.copy().offset(offset.x, offset.y, offset.z), depenetrationLimit, buffer);
         }

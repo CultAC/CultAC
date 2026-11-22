@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientPistonDeltas;
 import ac.cult.cultac.utils.data.ClientFluidHeights;
@@ -153,8 +154,7 @@ final class JavaBlockEntityMove {
 
     private static Moved moveEntity(Environment env, JavaPassState state, Mover mover, Vec3 delta, boolean commit) {
         CultPlayer player = env.player();
-        if (env.actor() == player.compensatedEntities.getSelf()
-                && player.gamemode == ac.cult.cultac.protocol.value.GameMode.SPECTATOR) {
+        if (env.actor() == player.compensatedEntities.getSelf() && player.gamemode == GameMode.SPECTATOR) {
             return new Moved(new JavaPassState(state.position().add(delta), state.velocity(), state.onGround(),
                     state.support(), state.stuckSpeed(), state.fallDistance(), state.pistonDeltas(),
                     state.powderContact(), state.inWater(), state.inLava(), state.playerEyeFluidContact()),

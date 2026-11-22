@@ -2,16 +2,18 @@ package ac.cult.cultac.events.packets;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.datastore.PlayerToggleStore;
+import ac.cult.cultac.network.UserLifecycleHooks;
 import ac.cult.cultac.network.netty.channel.ChannelHelper;
+import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.util.function.BiConsumer;
 import org.jetbrains.annotations.NotNull;
 
-public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHooks {
+public class PlayerLoginHooks implements UserLifecycleHooks {
 
     @Override
-    public void onLogin(ac.cult.cultac.network.protocol.player.User user, PlatformPlayer platformPlayer) {
+    public void onLogin(User user, PlatformPlayer platformPlayer) {
         if (platformPlayer == null) {
             return;
         }

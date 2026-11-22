@@ -14,9 +14,12 @@ import ac.cult.cultac.checks.impl.breaking.FastBreak;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.elytra.ElytraC;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.RegistryGenerationAlerts;
+import ac.cult.cultac.manager.player.ActionManager;
+import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -126,12 +129,10 @@ public class PacketPlayerRespawn {
         });
 
         var spawnInfo = packet.spawnInfo();
-        player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
-                spawnInfo.gameMode().name());
+        player.gamemode = GameMode.valueOf(spawnInfo.gameMode().name());
         player.serverGamemode = player.gamemode;
-        player.canInstabuild = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE;
-        player.isInvulnerable = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE
-                || player.gamemode == ac.cult.cultac.protocol.value.GameMode.SPECTATOR;
+        player.canInstabuild = player.gamemode == GameMode.CREATIVE;
+        player.isInvulnerable = player.gamemode == GameMode.CREATIVE || player.gamemode == GameMode.SPECTATOR;
         final GameMode loginMode = player.gamemode;
         // ClientPacketListener.handleLogin sets the local player's ID from this packet.
         // A proxy may rewrite it independently of the backend's native entity ID.
@@ -172,9 +173,7 @@ public class PacketPlayerRespawn {
         // replacement or isSelf() stays false forever after every login.
         player.cameraEntity.reset();
         player.compensatedEntities.resetClientTickOrder();
-        player.compensatedEntities
-                .getSelf()
-                .onGameModeChange(player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE);
+        player.compensatedEntities.getSelf().onGameModeChange(player.gamemode == GameMode.CREATIVE);
         player.compensatedEntities.selfTrackedEntity =
                 new TrackerData(0, 0, 0, 0, 0, EntityTypeIds.PLAYER, player.lastTransactionSent.get());
         player.dimension = HolderSets.identifier(spawnInfo.dimension());
@@ -293,7 +292,7 @@ public class PacketPlayerRespawn {
         // Force the player to accept a teleport before respawning
         // (We won't process movements until they accept a teleport, we won't let movements though either)
         // Also invalidate previous positions
-        final ac.cult.cultac.manager.player.SetbackTeleportUtil setbacks = player.getSetbackTeleportUtil();
+        final SetbackTeleportUtil setbacks = player.getSetbackTeleportUtil();
         setbacks.respawnSent();
 
         if (worldChange) {
@@ -379,7 +378,7 @@ public class PacketPlayerRespawn {
             player.packetStateData.lastClientTickEndTransaction = Integer.MIN_VALUE;
             player.packetStateData.lastDeltaConsumedTickEndTransaction = Integer.MIN_VALUE;
             player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
-            final ac.cult.cultac.manager.player.ActionManager actions = player.actionManager;
+            final ActionManager actions = player.actionManager;
             actions.onRespawn();
             player.checkManager.getListener(BadPacketsM.class).onRespawn();
 
@@ -434,9 +433,7 @@ public class PacketPlayerRespawn {
             player.cameraEntity.reset();
             if (!player.isBedrockMovement()) {
                 player.openWindow.closeFromRespawn();
-                player.checkManager
-                        .getListener(ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump.class)
-                        .reset();
+                player.checkManager.getListener(JavaAutoJump.class).reset();
                 player.packetStateData.sentPositionCache.onNewLocalPlayer();
             }
             if (worldChange || player.isBedrockMovement()) player.compensatedEntities.resetClientTickOrder();
@@ -469,19 +466,16 @@ public class PacketPlayerRespawn {
                 // makes LocalPlayer#isMovingSlowly crawl for that tick.
                 player.refreshPlayerPose(keepEntityData ? player.pose : Pose.STANDING);
             }
-            player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
-                    spawnInfo.gameMode().name());
-            player.canInstabuild = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE;
-            player.isInvulnerable = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE
-                    || player.gamemode == ac.cult.cultac.protocol.value.GameMode.SPECTATOR;
+            player.gamemode = GameMode.valueOf(spawnInfo.gameMode().name());
+            player.canInstabuild = player.gamemode == GameMode.CREATIVE;
+            player.isInvulnerable = player.gamemode == GameMode.CREATIVE || player.gamemode == GameMode.SPECTATOR;
             // ClientPacketListener#handleRespawn runs MultiPlayerGameMode#setLocalMode on its new LocalPlayer.
             if (!player.isBedrockMovement()) {
                 PacketChangeGameState.applyGameModeAbilities(player, player.gamemode, true);
                 // A new LocalPlayer's Abilities start at the default flying speed.
                 player.flySpeed = 0.05F;
             }
-            respawnedSelf.onRespawn(
-                    keepAttributeModifiers, player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE);
+            respawnedSelf.onRespawn(keepAttributeModifiers, player.gamemode == GameMode.CREATIVE);
             if (dimensionType != null) player.compensatedWorld.setDimension(worldName, dimensionType);
             else player.compensatedWorld.setUnresolvedDimension(worldName);
             // ClientPacketListener creates a new ClientLevel only when the dimension key changes.
