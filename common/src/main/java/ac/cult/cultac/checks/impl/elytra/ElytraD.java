@@ -54,7 +54,8 @@ public class ElytraD extends Check implements PostPredictionListener {
         if (chestPlate.getItem() == ItemTypes.ELYTRA
                 && ItemUtil.getDamageValue(chestPlate) < ItemUtil.getMaxDamage(chestPlate) - 1) return true;
 
-        return isGlider(player.getInventory().getHelmet(), EquipmentSlot.HEAD)
+        return isGlider(player.getInventory().getHeldItem(), EquipmentSlot.MAINHAND)
+                || isGlider(player.getInventory().getHelmet(), EquipmentSlot.HEAD)
                 || isGlider(player.getInventory().getChestplate(), EquipmentSlot.CHEST)
                 || isGlider(player.getInventory().getLeggings(), EquipmentSlot.LEGS)
                 || isGlider(player.getInventory().getBoots(), EquipmentSlot.FEET)
