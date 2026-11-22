@@ -225,13 +225,15 @@ public final class CheckCatalog {
      *     {@code null} or {@code "DEFAULT"}
      * @param altName the second name punishments match; {@link CheckData#NO_ALTERNATIVE_NAME} for a {@code @CheckData}
      *     check without one, {@code null} for a {@code CheckInfo} check without one
+     * @param stableKey the check's identity, the same under every name and in every build
      */
     public record Entry(
             CheckNames names,
             @Nullable String declaredConfigName,
             @Nullable String altName,
             boolean experimental,
-            CheckCategory category) {
+            CheckCategory category,
+            String stableKey) {
         /** The check's name in the newest name version; {@code check-info/en.yml} explains the check under it. */
         public String name() {
             return names.latest();
@@ -451,11 +453,22 @@ public final class CheckCatalog {
         CheckData data = type.getAnnotation(CheckData.class);
         if (data == null) throw new IllegalArgumentException(type.getName() + " has no @CheckData");
         return new Entry(
-                CheckNames.of(data), data.configName(), data.alternativeName(), data.experimental(), category);
+                CheckNames.of(data),
+                data.configName(),
+                data.alternativeName(),
+                data.experimental(),
+                category,
+                data.stableKey());
     }
 
     private static Entry check(CheckInfo info, CheckCategory category) {
-        return new Entry(info.getNames(), info.getConfigName(), info.getAltName(), info.isExperimental(), category);
+        return new Entry(
+                info.getNames(),
+                info.getConfigName(),
+                info.getAltName(),
+                info.isExperimental(),
+                category,
+                info.getStableKey());
     }
 
     /**
@@ -473,6 +486,24 @@ public final class CheckCatalog {
                 if (entry.name(version).equalsIgnoreCase(query)
                         || entry.configName(version).equalsIgnoreCase(query)) return entry;
             }
+        }
+        return null;
+    }
+
+    /** The check {@code typed} names, whatever its case: as {@link #find} finds it, else by its stable key. */
+    public static @Nullable Entry named(String typed) {
+        Entry found = find(typed);
+        if (found != null) return found;
+        for (Entry entry : ENTRIES) {
+            if (entry.stableKey().equalsIgnoreCase(typed)) return entry;
+        }
+        return null;
+    }
+
+    /** The check whose stable key is {@code stableKey}; null when this build has none. */
+    public static @Nullable Entry byStableKey(String stableKey) {
+        for (Entry entry : ENTRIES) {
+            if (entry.stableKey().equals(stableKey)) return entry;
         }
         return null;
     }

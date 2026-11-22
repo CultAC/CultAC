@@ -9,9 +9,12 @@ import static ac.cult.cultac.manager.config.BaseConfigManager.OBSERVE_ONLY_KEY;
 import static ac.cult.cultac.manager.config.BaseConfigManager.PAUSE_PUNISHMENTS_ENV;
 import static ac.cult.cultac.manager.config.BaseConfigManager.PAUSE_PUNISHMENTS_KEY;
 
+import ac.cult.cultac.checks.info.CheckCatalog;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.network.routing.NetCommands.Target;
 import ac.cult.cultac.network.routing.NetCommands.Term;
 import ac.cult.cultac.network.routing.NetworkService.Registration;
+import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonArray;
@@ -46,13 +49,13 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * The settings network commands change, {@link #TOGGLE}, {@link #OBSERVE}, {@link #PUNISH} and a {@link #CHECK} key per
- * check, held by every instance as one table of {@link Record}s: the newest record of each key and target by
- * {@code (at, id)}, which every instance orders alike. A record targeting {@code all} drops the older records of its key;
- * past {@value #MAX_RECORDS} records the oldest go. A setting's {@link Value} here is the value an environment variable
- * pins it to, else that of its newest record whose target names this instance ({@code all}, {@code proxies} on a proxy,
- * its id or a pattern matching it) or, for a player, their backend server, else config.yml's. The records of a command
- * {@code network.commands} keeps this instance from taking decide nothing here; the table still keeps and forwards
- * them, as it does pinned ones.
+ * check by its stable key, held by every instance as one table of {@link Record}s: the newest record of each key and
+ * target by {@code (at, id)}, which every instance orders alike. A record targeting {@code all} drops the older records
+ * of its key; past {@value #MAX_RECORDS} records, those that decide nothing go first, the {@code all} ones last. A
+ * setting's {@link Value} here is the value an environment variable pins it to, else that of its newest record whose
+ * target names this instance ({@code all}, {@code proxies} on a proxy, its id or a pattern matching it) or, for a
+ * player, their backend server, else config.yml's. The records of a command {@code network.commands} keeps this
+ * instance from taking decide nothing here; the table still keeps and forwards them, as it does pinned ones.
  *
  * <p>A setting command's issuer merges its record and ships it in the command. Every roster carries the table, a full
  * one all of it and a delta the records new since the last. Starting, an instance broadcasts {@value #SYNC} with its
@@ -65,7 +68,9 @@ import org.jetbrains.annotations.Nullable;
  * on the async scheduler and one change at a time, config.yml takes each value a record decides for this instance, the
  * file is replaced, and every generation is told with {@value #LOCAL_STATE} and runs its {@link Listener}s. A config.yml
  * value that differs from {@code written} at boot or reload was edited by hand: it becomes a record for this instance
- * alone, at the file's modification time. Any thread.
+ * alone, at the file's modification time. Without a host, the services of a runtime that keep the table in one file
+ * share it. Setting commands wait until a peer answered the start-up {@value #SYNC}, or {@value #CATCH_UP_MILLIS} ms
+ * passed. Any thread.
  */
 public final class NetSettings {
     public static final String TOGGLE = "toggle";
@@ -92,6 +97,10 @@ public final class NetSettings {
     static final int MAX_RECORDS = 512;
     static final int MAX_TARGET_LENGTH = 256;
     static final long SYNC_INTERVAL_MILLIS = 10_000;
+    /** How long after start a setting command waits for a peer's {@value #STATE} at most. */
+    static final long CATCH_UP_MILLIS = 10_000;
+    /** 2200-01-01T00:00:00Z, past which a record's {@code at} is refused: a stamp one past the newest cannot overflow. */
+    static final long MAX_AT = 7_258_118_400_000L;
 
     private static final int MAX_BY_LENGTH = 64;
     private static final int MAX_PEERS = 1024;
@@ -133,8 +142,11 @@ public final class NetSettings {
 
         /** A record of these fields, its target and id written alike everywhere; null when one cannot stand in one. */
         static @Nullable Record of(String k, String v, String t, long at, String by, String id) {
-            if (!KEY.matcher(k).matches() || !VALUE.matcher(v).matches() || at <= 0 || t.length() > MAX_TARGET_LENGTH)
-                return null;
+            if (!KEY.matcher(k).matches()
+                    || !VALUE.matcher(v).matches()
+                    || at <= 0
+                    || at > MAX_AT
+                    || t.length() > MAX_TARGET_LENGTH) return null;
             Target target = Target.parse(t);
             String name = CONTROL.matcher(by).replaceAll("").strip();
             if (target == null || name.isEmpty()) return null;
@@ -232,8 +244,8 @@ public final class NetSettings {
     record Pin(boolean on, String env) {}
 
     /**
-     * config.yml's values of the settings, {@code checksOff} by stable key, and the values environment variables pin them
-     * to: null, or empty for the checks, pins nothing.
+     * config.yml's values of the settings and the values environment variables pin them to: null, or empty for the
+     * checks, pins nothing. {@code checksOff} and {@code checksOffPin} list stable keys.
      */
     record Baseline(
             boolean dormant,
@@ -331,12 +343,16 @@ public final class NetSettings {
         }
     }
 
+    /** Without a host, the table of each file this runtime keeps one in. */
+    private static final Map<Path, AtomicReference<Map<String, Object>>> UNHOSTED = new ConcurrentHashMap<>();
+
     private final NetworkService service;
     private final LongSupplier clock;
     private final NetCommands.Local local;
     private final @Nullable Path file;
-    /** Also the lock under which a generation here writes config.yml and the file. */
     private final AtomicReference<Map<String, Object>> shared;
+    /** Held while config.yml, {@code written} or the file is written. */
+    private final Object configLock;
 
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
     private final Map<String, Long> answered = new ConcurrentHashMap<>();
@@ -344,10 +360,13 @@ public final class NetSettings {
     private final Queue<Runnable> tasks = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean draining = new AtomicBoolean();
     private final AtomicBoolean persistQueued = new AtomicBoolean();
+    private final LogThrottle unscheduled = new LogThrottle();
     private volatile @Nullable View view;
     private volatile Baseline baseline;
     private volatile NetCommands.Options options;
     private volatile long syncedAll = Long.MIN_VALUE;
+    /** Whether a peer sent its table in a {@value #STATE}. */
+    private volatile boolean stateHeard;
 
     /** The settings of {@code service}; {@code host} shares the table with the other generations. */
     @SuppressWarnings("unchecked")
@@ -358,14 +377,22 @@ public final class NetSettings {
         this.file = quietly(local::stateFile, null);
         this.baseline = quietly(local::baseline, Baseline.DEFAULT);
         this.options = quietly(local::options, NetCommands.Options.DEFAULT);
-        Supplier<Object> load = () -> new AtomicReference<>(NetStateFile.read(file));
-        this.shared =
-                (AtomicReference<Map<String, Object>>) (host == null ? load.get() : host.shared(SHARED_KEY, load));
+        Path config = quietly(local::configFile, null);
+        Supplier<AtomicReference<Map<String, Object>>> load =
+                () -> new AtomicReference<>(NetStateFile.read(file, config));
+        if (host != null) this.shared = (AtomicReference<Map<String, Object>>) host.shared(SHARED_KEY, load::get);
+        else if (file != null)
+            this.shared = UNHOSTED.computeIfAbsent(file.toAbsolutePath().normalize(), ignored -> load.get());
+        else this.shared = load.get();
+        this.configLock = BaseConfigManager.configLock(host);
     }
 
     void register() {
         service.on(SYNC, this::syncRequested);
-        service.on(STATE, envelope -> merge(records(envelope.body())));
+        service.on(STATE, envelope -> {
+            merge(records(envelope.body()));
+            stateHeard = true;
+        });
         service.on(RosterCache.TYPE, envelope -> merge(records(envelope.body())));
         service.on(LOCAL_STATE, this::told);
     }
@@ -380,6 +407,19 @@ public final class NetSettings {
     /** Stops telling listeners; the service stopped. */
     void close() {
         listeners.clear();
+    }
+
+    /**
+     * Whether a setting command can be stamped here: a peer answered the start-up {@value #SYNC}, or
+     * {@value #CATCH_UP_MILLIS} ms passed since, or the bus is off. Until then a record stamped here may lose to records
+     * this instance has not heard yet.
+     */
+    boolean caughtUp() {
+        long started = syncedAll;
+        return stateHeard
+                || !service.enabled()
+                || started == Long.MIN_VALUE
+                || clock.getAsLong() - started >= CATCH_UP_MILLIS;
     }
 
     /** Calls {@code listener} after each change, on the async scheduler, one change at a time; it must not block. */
@@ -437,13 +477,22 @@ public final class NetSettings {
         while (true) {
             View current = view();
             Set<String> changed = new HashSet<>();
-            List<Record> next = merged(current.records(), incoming, changed);
+            List<Record> evicted = new ArrayList<>();
+            List<Record> next = merged(current.records(), incoming, changed, evicted);
             if (next == current.records()) return Set.of();
             if (shared.compareAndSet(current.source(), state(next, current.written()))) {
+                evicted(evicted);
                 changed(changed, false);
                 return changed;
             }
         }
+    }
+
+    private static void evicted(List<Record> evicted) {
+        for (Record record : evicted)
+            LogUtil.info("Dropped the network setting " + record.k() + " " + record.v() + " for " + record.t()
+                    + " (by " + record.by() + " at " + record.at() + "): the table holds " + MAX_RECORDS
+                    + " records at most");
     }
 
     /**
@@ -456,13 +505,20 @@ public final class NetSettings {
         serially(this::takeHandEdits);
     }
 
+    static List<Record> merged(List<Record> table, Collection<Record> incoming, Set<String> changed) {
+        return merged(table, incoming, changed, new ArrayList<>());
+    }
+
     /**
      * {@code table}, oldest first, with {@code incoming} merged: a record replaces an older one of its key and target
-     * unless a newer {@code all} record of its key is held, an {@code all} record drops the older records of its key,
-     * and past {@value #MAX_RECORDS} the oldest go. The same list when nothing changes; {@code changed} gains the keys of
-     * the records added or dropped.
+     * unless a newer {@code all} record of its key is held, and an {@code all} record drops the older records of its
+     * key. Past {@value #MAX_RECORDS}, records go oldest first: first those a newer record of their key covers, which
+     * decide nothing, then the others but {@code all} ones, then {@code all} ones. The same list when nothing changes;
+     * {@code changed} gains the keys of the records added or dropped, and {@code evicted} the records of {@code table}
+     * the limit dropped.
      */
-    static List<Record> merged(List<Record> table, Collection<Record> incoming, Set<String> changed) {
+    static List<Record> merged(
+            List<Record> table, Collection<Record> incoming, Set<String> changed, List<Record> evicted) {
         if (incoming.isEmpty()) return table;
         Map<String, Record> slots = new HashMap<>();
         Map<String, Record> alls = new HashMap<>();
@@ -482,7 +538,14 @@ public final class NetSettings {
         }
         List<Record> next = new ArrayList<>(slots.values());
         next.sort(Record.ORDER);
-        while (next.size() > MAX_RECORDS) next.removeFirst();
+        if (next.size() > MAX_RECORDS) {
+            List<Record> over = evictable(next);
+            next.removeAll(new HashSet<>(over));
+            Set<Record> held = new HashSet<>(table);
+            for (Record record : over) {
+                if (held.contains(record)) evicted.add(record);
+            }
+        }
         if (next.equals(table)) return table;
         Set<Record> dropped = new HashSet<>(table);
         for (Record record : next) {
@@ -490,6 +553,60 @@ public final class NetSettings {
         }
         for (Record record : dropped) changed.add(record.k());
         return List.copyOf(next);
+    }
+
+    /** The records of {@code records}, oldest first, that go to bring it down to {@value #MAX_RECORDS}. */
+    private static List<Record> evictable(List<Record> records) {
+        Map<String, List<Entry>> newer = new HashMap<>();
+        List<Record> covered = new ArrayList<>();
+        List<Record> scoped = new ArrayList<>();
+        List<Record> alls = new ArrayList<>();
+        for (int i = records.size() - 1; i >= 0; i--) {
+            Record record = records.get(i);
+            Target target = Target.parse(record.t());
+            List<Entry> ofKey = newer.computeIfAbsent(record.k(), ignored -> new ArrayList<>());
+            boolean shadowed = false;
+            for (Entry entry : ofKey) {
+                if (covers(entry.target(), target)) {
+                    shadowed = true;
+                    break;
+                }
+            }
+            if (shadowed) covered.add(record);
+            else if (record.all()) alls.add(record);
+            else scoped.add(record);
+            ofKey.add(new Entry(record, target));
+        }
+        List<Record> dropped = new ArrayList<>();
+        int excess = records.size() - MAX_RECORDS;
+        for (List<Record> newestFirst : List.of(covered, scoped, alls)) {
+            for (int i = newestFirst.size() - 1; i >= 0 && dropped.size() < excess; i--)
+                dropped.add(newestFirst.get(i));
+        }
+        return dropped;
+    }
+
+    /** Whether {@code wider} names every instance and player {@code narrower} names. */
+    static boolean covers(Target wider, Target narrower) {
+        for (Term term : narrower.terms()) {
+            boolean named = false;
+            for (Term by : wider.terms()) {
+                if (covers(by, term)) {
+                    named = true;
+                    break;
+                }
+            }
+            if (!named) return false;
+        }
+        return true;
+    }
+
+    private static boolean covers(Term wider, Term narrower) {
+        if (wider.kind() == Term.Kind.ALL || wider.text().equalsIgnoreCase(narrower.text())) return true;
+        return wider.kind() == Term.Kind.NAME
+                && (narrower.kind() == Term.Kind.NAME || narrower.kind() == Term.Kind.ID)
+                && !narrower.pattern()
+                && NetCommands.glob(wider.value(), narrower.value());
     }
 
     /**
@@ -700,26 +817,33 @@ public final class NetSettings {
 
     private void takeHandEdits() {
         Path config = quietly(local::configFile, null);
-        Map<String, Object> values = null;
-        long modified = clock.getAsLong();
-        if (config != null && Files.isRegularFile(config)) {
-            try {
-                values = NetStateFile.readConfig(config);
-                modified = Files.getLastModifiedTime(config).toMillis();
-            } catch (IOException | RuntimeException unreadable) {
-                LogUtil.warn("Could not read " + config + " for the network's shared settings", unreadable);
-                values = null;
-            }
-        }
-        if (values == null) values = baseline.config();
         String self = NetCommands.ID_PREFIX + service.instanceId();
-        synchronized (shared) {
+        synchronized (configLock) {
+            Map<String, Object> values = null;
+            long modified = clock.getAsLong();
+            if (config != null && Files.isRegularFile(config)) {
+                try {
+                    values = NetStateFile.readConfig(config);
+                    modified = Files.getLastModifiedTime(config).toMillis();
+                } catch (IOException | RuntimeException unreadable) {
+                    LogUtil.warn("Could not read " + config + " for the network's shared settings", unreadable);
+                    values = null;
+                }
+            }
+            if (values == null) values = baseline.config();
             while (true) {
                 View current = view();
+                List<Record> evicted = new ArrayList<>();
                 List<Record> next = merged(
-                        current.records(), handEdits(current.written(), values, self, modified), new HashSet<>());
+                        current.records(),
+                        handEdits(current.written(), values, self, modified),
+                        new HashSet<>(),
+                        evicted);
                 if (next == current.records() && values.equals(current.written())) break;
-                if (shared.compareAndSet(current.source(), state(next, values))) break;
+                if (shared.compareAndSet(current.source(), state(next, values))) {
+                    evicted(evicted);
+                    break;
+                }
             }
         }
         changed(Set.of(), true);
@@ -734,46 +858,55 @@ public final class NetSettings {
         serially(() -> announce(keys, all));
     }
 
-    /** Writes each value a record decides for this instance into config.yml and {@code written}, then the file. */
+    /**
+     * Writes each value a record decides for this instance into config.yml, then {@code written} and the file. The file
+     * names the values being written before config.yml changes, and {@code written} takes them once config.yml holds
+     * them: a config.yml left before or after an interrupted or failed write never reads as edited by hand.
+     */
     private void persist() {
         Path config = quietly(local::configFile, null);
-        synchronized (shared) {
-            Map<String, Object> changes = Map.of();
-            while (true) {
-                View current = view();
-                Map<String, Object> base = new HashMap<>(baseline.config());
-                base.putAll(current.written());
-                Map<String, Object> desired = desired(current, base);
-                if (desired.equals(current.written())) break;
-                if (shared.compareAndSet(current.source(), state(current.records(), desired))) {
-                    Map<String, Object> differing = new HashMap<>();
-                    for (Map.Entry<String, Object> value : desired.entrySet()) {
-                        if (!value.getValue().equals(base.get(value.getKey())))
-                            differing.put(value.getKey(), value.getValue());
-                    }
-                    changes = differing;
-                    break;
-                }
-            }
-            if (config != null && !changes.isEmpty() && Files.isRegularFile(config)) {
-                try {
-                    NetStateFile.writeConfig(config, changes);
-                } catch (IOException | RuntimeException failure) {
-                    LogUtil.warn("Could not write " + changes.keySet() + " to " + config, failure);
-                }
-            }
+        synchronized (configLock) {
             View current = view();
-            if (file != null && (!current.records().isEmpty() || Files.exists(file))) {
+            Map<String, Object> base = new HashMap<>(baseline.config());
+            base.putAll(current.written());
+            Map<String, Object> desired = desired(current, base);
+            Map<String, Object> differing = new HashMap<>();
+            for (Map.Entry<String, Object> value : desired.entrySet()) {
+                if (!value.getValue().equals(base.get(value.getKey()))) differing.put(value.getKey(), value.getValue());
+            }
+            Map<String, Object> written = desired;
+            if (config != null && !differing.isEmpty() && Files.isRegularFile(config)) {
+                save(current.records(), current.written(), differing);
                 try {
-                    NetStateFile.write(file, current.records(), current.written());
+                    NetStateFile.writeConfig(config, differing, configLock);
                 } catch (IOException | RuntimeException failure) {
-                    LogUtil.warn("Could not save the network's shared settings to " + file, failure);
+                    LogUtil.warn("Could not write " + differing.keySet() + " to " + config, failure);
+                    written = current.written();
                 }
             }
+            while (!written.equals(view().written())) {
+                View now = view();
+                if (shared.compareAndSet(now.source(), state(now.records(), written))) break;
+            }
+            View now = view();
+            save(now.records(), now.written(), Map.of());
         }
     }
 
-    /** {@code base}, config.yml's values, with each one a record decides for this instance. */
+    /** Replaces the file, unless this instance never had a record and has none. */
+    private void save(List<Record> records, Map<String, Object> written, Map<String, Object> writing) {
+        if (file == null || (records.isEmpty() && !Files.exists(file))) return;
+        try {
+            NetStateFile.write(file, records, written, writing);
+        } catch (IOException | RuntimeException failure) {
+            LogUtil.warn("Could not save the network's shared settings to " + file, failure);
+        }
+    }
+
+    /**
+     * {@code base}, config.yml's values, with each one a record decides for this instance; {@code checks-off} lists only
+     * checks of this build, which config.yml can name.
+     */
     private Map<String, Object> desired(View current, Map<String, Object> base) {
         Map<String, Object> desired = new HashMap<>(base);
         for (Map.Entry<String, String> key : CONFIG_KEYS.entrySet()) {
@@ -790,6 +923,7 @@ public final class NetSettings {
             if (record.on()) off.remove(key.substring(CHECK.length()));
             else off.add(key.substring(CHECK.length()));
         }
+        off.removeIf(check -> CheckCatalog.byStableKey(check) == null);
         desired.put(CHECKS_OFF_KEY, List.copyOf(off));
         return Map.copyOf(desired);
     }
@@ -813,7 +947,10 @@ public final class NetSettings {
         }
     }
 
-    /** Runs {@code task} after the ones before it, through {@link NetCommands.Local#dispatch}. */
+    /**
+     * Runs {@code task} after the ones before it, through {@link NetCommands.Local#dispatch}; while that refuses, the
+     * tasks wait for the next one, never running on the caller's thread, which may be the network receiver.
+     */
     private void serially(Runnable task) {
         tasks.add(task);
         drain();
@@ -839,7 +976,12 @@ public final class NetSettings {
         try {
             local.dispatch(run);
         } catch (RuntimeException unavailable) {
-            run.run();
+            draining.set(false);
+            unscheduled.warn(
+                    "dispatch",
+                    "Could not schedule applying the network's shared settings; " + tasks.size()
+                            + " steps wait for the next change",
+                    unavailable);
         }
     }
 

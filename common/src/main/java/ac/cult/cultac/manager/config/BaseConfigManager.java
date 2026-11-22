@@ -2,11 +2,17 @@ package ac.cult.cultac.manager.config;
 
 import ac.cult.cultac.bridge.protocol.CommandRoots;
 import ac.cult.cultac.checks.CheckNames;
+import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.reload.api.HostContext;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -29,6 +35,11 @@ public class BaseConfigManager {
     public static final String PAUSE_PUNISHMENTS_ENV = "CULTAC_PAUSE_PUNISHMENTS";
     public static final String PAUSE_PUNISHMENTS_KEY = "pause-punishments";
 
+    private static final String CONFIG_LOCK_KEY = "cultac.config.lock";
+    private static final Object CONFIG_LOCK = new Object();
+    /** The check names already logged as naming no check, each after where it was read. */
+    private static final Set<String> UNKNOWN_CHECKS = ConcurrentHashMap.newKeySet();
+
     private final List<Pattern> ignoredClientPatterns = new ArrayList<>();
 
     @Getter
@@ -41,7 +52,10 @@ public class BaseConfigManager {
     @Getter
     private boolean dormant = false;
 
-    /** {@code checks-off} as config.yml lists it; the network's shared settings and {@code CULTAC_CHECKS_OFF} decide. */
+    /**
+     * The stable keys of the checks {@code checks-off} names in config.yml; the network's shared settings and
+     * {@code CULTAC_CHECKS_OFF} decide.
+     */
     @Getter
     private List<String> checksOff = List.of();
 
@@ -174,7 +188,7 @@ public class BaseConfigManager {
                             : "Switched to enforcing; check violations start from zero");
         }
         dormant = config.getBooleanElse(DORMANT_KEY, false);
-        checksOff = names(config.getStringListElse(CHECKS_OFF_KEY, List.of()));
+        checksOff = checkKeys(config.getStringListElse(CHECKS_OFF_KEY, List.of()), CHECKS_OFF_KEY);
         pausePunishments = config.getBooleanElse(PAUSE_PUNISHMENTS_KEY, false);
 
         prefix = config.getStringElse("prefix", "&bCult &8»");
@@ -246,10 +260,37 @@ public class BaseConfigManager {
         return pin(env, PAUSE_PUNISHMENTS_ENV);
     }
 
-    /** The checks {@code CULTAC_CHECKS_OFF}, a comma list, pins off; empty when it is unset or blank. */
+    /**
+     * The stable keys of the checks {@code CULTAC_CHECKS_OFF}, a comma list of check names, pins off; empty when it is
+     * unset or blank.
+     */
     public static List<String> checksOffPin(Function<String, String> env) {
         String value = env.apply(CHECKS_OFF_ENV);
-        return value == null ? List.of() : names(List.of(value.split(",")));
+        return value == null ? List.of() : checkKeys(List.of(value.split(",")), CHECKS_OFF_ENV);
+    }
+
+    /**
+     * The stable keys of the checks {@code names} name, each by a name it has or had, its alternative name or its
+     * stable key, whatever the case. A name of no check is logged once, after {@code source}, where it was read, and
+     * left out.
+     */
+    public static List<String> checkKeys(@Nullable Collection<?> names, String source) {
+        if (names == null) return List.of();
+        Set<String> keys = new LinkedHashSet<>();
+        for (Object name : names) {
+            if (name == null || name.toString().isBlank()) continue;
+            String typed = name.toString().strip();
+            CheckCatalog.Entry check = CheckCatalog.named(typed);
+            if (check != null) keys.add(check.stableKey());
+            else if (UNKNOWN_CHECKS.add(source + " " + typed.toLowerCase(Locale.ROOT)))
+                LogUtil.warn(source + " names " + typed + ", which is not a check of this build; it is left out");
+        }
+        return List.copyOf(keys);
+    }
+
+    /** The lock every writer of config.yml holds while it writes, one object for the engine generations of a host. */
+    public static Object configLock(@Nullable HostContext host) {
+        return host == null ? CONFIG_LOCK : host.shared(CONFIG_LOCK_KEY, Object::new);
     }
 
     /** {@code name}'s value when it reads true/1/yes or false/0/no, else null. */
@@ -261,15 +302,6 @@ public class BaseConfigManager {
             case "false", "0", "no" -> false;
             default -> null;
         };
-    }
-
-    private static List<String> names(@Nullable List<String> listed) {
-        if (listed == null) return List.of();
-        List<String> names = new ArrayList<>();
-        for (String name : listed) {
-            if (name != null && !name.isBlank() && !names.contains(name.strip())) names.add(name.strip());
-        }
-        return List.copyOf(names);
     }
 
     public static List<String> resolveCommandRoots(@Nullable ConfigManager config, Consumer<String> warn) {

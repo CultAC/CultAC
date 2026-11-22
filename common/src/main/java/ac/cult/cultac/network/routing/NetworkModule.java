@@ -30,6 +30,8 @@ public final class NetworkModule {
     private static final List<NetSettings.Listener> settingsListeners = new CopyOnWriteArrayList<>();
     private static volatile @Nullable NetworkPlatform platform;
     private static volatile @Nullable NetworkService service;
+    /** The shared settings of the last service started, read while a reconnect replaces it. */
+    private static volatile @Nullable NetSettings lastSettings;
 
     private NetworkModule() {}
 
@@ -84,6 +86,7 @@ public final class NetworkModule {
         created.netSettings().listen(NetworkModule::settingsChanged);
         created.start();
         service = created;
+        lastSettings = created.netSettings();
         created.netSettings().configLoaded();
     }
 
@@ -123,7 +126,8 @@ public final class NetworkModule {
      */
     public static NetSettings.Value setting(String key, @Nullable String backend) {
         NetworkService running = service;
-        if (running != null) return running.netSettings().value(key, backend);
+        NetSettings settings = running != null ? running.netSettings() : lastSettings;
+        if (settings != null) return settings.value(key, backend);
         NetSettings.Baseline baseline;
         try {
             baseline = NetCommands.CULT.baseline();
@@ -136,7 +140,8 @@ public final class NetworkModule {
     /**
      * Calls {@code listener} after each change to the shared settings, of any service this runtime runs, until closed:
      * on the async scheduler, one change at a time, and once with every setting when a service starts or config.yml is
-     * reloaded. It re-reads {@link #setting} for what it applies and must not block.
+     * reloaded. It re-reads {@link #setting} for what it applies and must not block. {@link #setting} can show a change
+     * before its listeners hear of it, so applying a value it already applies must change nothing.
      */
     public static NetworkService.Registration onSettingsChanged(NetSettings.Listener listener) {
         settingsListeners.add(listener);
@@ -155,6 +160,7 @@ public final class NetworkModule {
 
     public static synchronized void stop() {
         end(Runnable::run);
+        lastSettings = null;
     }
 
     private static void closeInBackground(Runnable close) {

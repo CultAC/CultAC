@@ -7,6 +7,7 @@ import static ac.cult.cultac.network.routing.NetSettings.ON;
 import static ac.cult.cultac.network.routing.NetSettings.TOGGLE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -53,6 +54,10 @@ class NetSettingsTest {
     private static final String B = "00000000-0000-0000-0000-00000000000b";
     private static final String C = "00000000-0000-0000-0000-00000000000c";
     private static final String D = "00000000-0000-0000-0000-00000000000d";
+    /** Speed's stable key. */
+    private static final String SPEED = "grim.legacy.speed";
+    /** The stable key of AttackEntityVisibility, formerly AttackMobVisibility. */
+    private static final String ATTACK_ENTITY_VISIBILITY = "cult.attack.mob.visibility";
 
     private final AtomicLong clock = new AtomicLong(1_793_140_000_000L);
     private final FakeBroker broker = new FakeBroker();
@@ -211,6 +216,7 @@ class NetSettingsTest {
 
         settings.merge(List.of(stamped));
         assertFalse(settings.value(TOGGLE, "BRG_1").on());
+        assertNull(record(TOGGLE, ON, "all", Long.MAX_VALUE, D));
     }
 
     @Test
@@ -231,6 +237,17 @@ class NetSettingsTest {
         List<Record> capped = merged(List.of(), many);
         assertEquals(NetSettings.MAX_RECORDS, capped.size());
         assertEquals(600 - NetSettings.MAX_RECORDS + 1, capped.getFirst().at());
+
+        Record deciding = record(TOGGLE, OFF, "all", 1, A);
+        List<Record> crowded = new ArrayList<>(List.of(deciding));
+        for (int i = 0; i < 515; i++) crowded.add(record(CHECK + "c" + i, OFF, "BRG_" + i, i + 2, B));
+        for (int i = 0; i < 20; i++) crowded.add(record(OBSERVE, ON, "lobby" + i, 600 + i, C));
+        Record lobbies = record(OBSERVE, OFF, "lobby*", 700, D);
+        crowded.add(lobbies);
+        capped = merged(List.of(), crowded);
+        assertEquals(NetSettings.MAX_RECORDS, capped.size());
+        assertTrue(capped.contains(deciding) && capped.contains(lobbies) && capped.contains(crowded.get(6)));
+        assertFalse(capped.contains(crowded.get(5)) || capped.contains(crowded.get(535)));
     }
 
     @Test
@@ -250,13 +267,15 @@ class NetSettingsTest {
         p3.netSettings().merge(List.of(second));
         TestNetworks.sendDelta(p3);
 
+        Path restarted = directory("p7-restarted");
+        Files.copy(p7Folder.resolve(NetSettings.FILE), restarted.resolve(NetSettings.FILE));
         NetworkService offline =
-                networks.service("p7").net(new Net(p7Folder)).transport(null).start();
+                networks.service("p7").net(new Net(restarted)).transport(null).start();
         assertEquals(List.of(first), offline.netSettings().records());
         networks.stop(offline);
 
         networks.advance(NetSettings.SYNC_INTERVAL_MILLIS);
-        NetworkService back = networks.service("p7").net(new Net(p7Folder)).start();
+        NetworkService back = networks.service("p7").net(new Net(restarted)).start();
         assertEquals(List.of(first, second), back.netSettings().records());
         assertFalse(back.netSettings().value(TOGGLE).on());
 
@@ -270,20 +289,21 @@ class NetSettingsTest {
     @Test
     void anEnvironmentPinIsReportedAndRecordsNothing() {
         assertEquals(
-                List.of("Speed", "Reach"),
-                BaseConfigManager.checksOffPin(Map.of(BaseConfigManager.CHECKS_OFF_ENV, " Speed, ,Reach")::get));
+                List.of(SPEED, ATTACK_ENTITY_VISIBILITY),
+                BaseConfigManager.checksOffPin(
+                        Map.of(BaseConfigManager.CHECKS_OFF_ENV, " Speed, ,attackmobvisibility,NoSuchCheck")::get));
         Net net = new Net(null);
-        net.baseline = new Baseline(false, false, false, List.of(), null, false, null, List.of("Speed"));
+        net.baseline = new Baseline(false, false, false, List.of(), null, false, null, List.of(SPEED));
         NetSettings settings = networks.service("p3").net(net).start().netSettings();
         settings.configLoaded();
         assertEquals(List.of(), settings.records());
 
         Record observe = record(OBSERVE, ON, "all", 10, A);
-        Record speed = record(CHECK + "speed", ON, "all", 10, B);
+        Record speed = record(CHECK + SPEED, ON, "all", 10, B);
         settings.merge(List.of(observe, speed));
 
         assertEquals(new Value(false, Source.PIN, observe, "CULTAC_OBSERVE_ONLY"), settings.value(OBSERVE));
-        assertEquals(new Value(false, Source.PIN, speed, "CULTAC_CHECKS_OFF"), settings.value(CHECK + "speed"));
+        assertEquals(new Value(false, Source.PIN, speed, "CULTAC_CHECKS_OFF"), settings.value(CHECK + SPEED));
         assertEquals(List.of(observe, speed), settings.records());
     }
 
@@ -304,7 +324,7 @@ class NetSettingsTest {
                 config,
                 Files.readString(config)
                         .replace("observe-only: false", "observe-only: true")
-                        .replace("checks-off: []", "checks-off: [Speed]"));
+                        .replace("checks-off: []", "checks-off: [attackmobvisibility]"));
         long edited = clock.get() - 5_000;
         Files.setLastModifiedTime(config, FileTime.fromMillis(edited));
         settings.configLoaded();
@@ -317,7 +337,7 @@ class NetSettingsTest {
             assertEquals(edited, edit.at());
         }
         assertTrue(settings.value(OBSERVE).on());
-        assertFalse(settings.value(CHECK + "Speed").on());
+        assertFalse(settings.value(CHECK + ATTACK_ENTITY_VISIBILITY).on());
         settings.configLoaded();
         assertEquals(edits, settings.records());
 
@@ -325,17 +345,25 @@ class NetSettingsTest {
         assertFalse(settings.value(OBSERVE).on());
         String written = Files.readString(config);
         assertTrue(written.contains("observe-only: false"), written);
-        assertTrue(written.contains("checks-off: [Speed]"), written);
+        assertTrue(written.contains("checks-off: [attackmobvisibility]"), written);
         assertTrue(written.startsWith("# shared") && written.contains("max-clicks-per-tick: 3"), written);
         assertEquals(
                 false,
-                NetSettings.written(NetStateFile.read(directory.resolve(NetSettings.FILE))
+                NetSettings.written(NetStateFile.read(directory.resolve(NetSettings.FILE), null)
                                 .get("written"))
                         .get("observe-only"));
 
         settings.configLoaded();
         assertEquals(2, settings.records().size());
         assertFalse(settings.value(OBSERVE).on());
+
+        settings.merge(List.of(record(CHECK + ATTACK_ENTITY_VISIBILITY, ON, "all", clock.get() + 1, B)));
+        assertTrue(settings.value(CHECK + ATTACK_ENTITY_VISIBILITY).on());
+        assertTrue(Files.readString(config).contains("checks-off: []"), Files.readString(config));
+        settings.merge(List.of(record(CHECK + SPEED, OFF, "all", clock.get() + 2, C)));
+        assertTrue(Files.readString(config).contains("checks-off: [Speed]"), Files.readString(config));
+        settings.configLoaded();
+        assertEquals(3, settings.records().size());
     }
 
     @Test

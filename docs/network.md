@@ -182,11 +182,14 @@ it on that server only, when it starts or on `/cult reload`; a later network com
 
 | Key | Default | Environment variable | Meaning |
 |---|---|---|---|
-| `dormant` | `false` | `CULTAC_DORMANT` | Check no one. |
+| `dormant` | `false` | `CULTAC_DORMANT` | CultAC checks no one and frees the memory checking uses. |
 | `observe-only` | `false` | `CULTAC_OBSERVE_ONLY` | Flag and alert without acting. |
-| `checks-off` | `[]` | `CULTAC_CHECKS_OFF` (a comma list) | Checks that neither flag nor set back. |
+| `checks-off` | `[]` | `CULTAC_CHECKS_OFF` (a comma list of check names) | Checks that neither flag nor set back, by check name. |
 | `pause-punishments` | `false` | `CULTAC_PAUSE_PUNISHMENTS` | Withhold the punishment commands of `punishments.yml`. |
 
 The environment variables pin a setting on their server: `true`, `1` or `yes` and `false`, `0` or `no` hold it at that
 value, and `CULTAC_CHECKS_OFF` keeps the checks it lists off. The network's records still arrive and are kept, but do
 not change a pinned setting, and `status` shows the pin.
+
+`checks-off` and `CULTAC_CHECKS_OFF` take any name a check has or had, in any case; a name that is not a check is
+logged once and ignored. When CultAC writes `checks-off`, it writes each check's current name.

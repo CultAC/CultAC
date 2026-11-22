@@ -165,6 +165,7 @@ net-invalid-term: "%prefix% &c%term% is not a valid target. Names take letters, 
 net-unknown: "%prefix% &cNo proxy or server is named %term%; nothing was sent."
 net-no-match: "%prefix% &cNothing matches %term%; nothing was sent."
 net-not-listed: "%prefix% &eNo proxy lists %term%; the setting applies when it appears."
+net-syncing: "%prefix% &cThis server is still loading the network's shared settings; try again in a few seconds."
 net-backend-term: "%prefix% &c%cmd% runs on CultAC instances only; %term% is a backend server."
 net-sent: "%prefix% &7%cmd% sent to %count% instances (%target%)"
 net-reply: "&b%instance% &8» &f%line%"

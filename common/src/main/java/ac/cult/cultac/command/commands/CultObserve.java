@@ -16,9 +16,12 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -26,6 +29,8 @@ import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.yaml.snakeyaml.Yaml;
 
 public class CultObserve implements BuildableCommand {
 
@@ -79,41 +84,67 @@ public class CultObserve implements BuildableCommand {
         if (BaseConfigManager.observeOnlyPin(env) != null) return CompletableFuture.completedFuture(Outcome.PINNED);
         Path path = config.toPath();
         byte[] original;
-        try {
-            original = Files.readAllBytes(path);
-        } catch (IOException failure) {
-            LogUtil.error("Failed to read " + config, failure);
-            return CompletableFuture.completedFuture(Outcome.FAILED);
+        byte[] switched;
+        synchronized (lock()) {
+            try {
+                original = Files.readAllBytes(path);
+            } catch (IOException failure) {
+                LogUtil.error("Failed to read " + config, failure);
+                return CompletableFuture.completedFuture(Outcome.FAILED);
+            }
+            try {
+                write(config, observeOnly);
+                switched = Files.readAllBytes(path);
+            } catch (IOException | RuntimeException failure) {
+                LogUtil.error("Failed to switch " + OBSERVE_ONLY_KEY + " in " + config, failure);
+                return CompletableFuture.completedFuture(restore(path, original, null));
+            }
         }
         CompletableFuture<Boolean> reloaded;
         try {
-            write(config, observeOnly);
             reloaded = reload.get();
-        } catch (IOException | RuntimeException failure) {
+        } catch (RuntimeException failure) {
             LogUtil.error("Failed to switch " + OBSERVE_ONLY_KEY + " in " + config, failure);
-            return CompletableFuture.completedFuture(restore(path, original));
+            return CompletableFuture.completedFuture(restore(path, original, switched));
         }
         return reloaded.exceptionally(throwable -> false)
-                .thenApply(ok -> ok ? Outcome.APPLIED : restore(path, original));
+                .thenApply(ok -> ok ? Outcome.APPLIED : restore(path, original, switched));
     }
 
-    // A file left ahead of the live mode would put the next hot-swapped generation in the other mode.
-    private static Outcome restore(Path config, byte[] original) {
-        try {
-            Files.write(config, original);
-            return Outcome.FAILED;
-        } catch (IOException failure) {
-            LogUtil.error("Failed to restore " + config, failure);
-            return Outcome.UNRESTORED;
+    // A file left ahead of the live mode would put the next hot-swapped generation in the other mode. A file that no
+    // longer reads as switched (null: the switch wrote nothing) has another writer's change, which stays: only
+    // observe-only goes back.
+    private static Outcome restore(Path config, byte[] original, byte @Nullable [] switched) {
+        synchronized (lock()) {
+            try {
+                if (switched == null || Arrays.equals(switched, Files.readAllBytes(config)))
+                    Files.write(config, original);
+                else write(config.toFile(), observeOnly(original));
+                return Outcome.FAILED;
+            } catch (IOException | RuntimeException failure) {
+                LogUtil.error("Failed to restore " + config, failure);
+                return Outcome.UNRESTORED;
+            }
         }
+    }
+
+    private static boolean observeOnly(byte[] config) {
+        Object loaded = new Yaml().load(new String(config, StandardCharsets.UTF_8));
+        return loaded instanceof Map<?, ?> values && Boolean.TRUE.equals(values.get(OBSERVE_ONLY_KEY));
     }
 
     static void write(File config, boolean observeOnly) throws IOException {
-        ConfigPatcher patcher = new ConfigPatcher(config);
-        NodePosition position = patcher.getNodePosition(List.of(OBSERVE_ONLY_KEY));
-        if (position == null) patcher.addMissingValue(List.of(OBSERVE_ONLY_KEY), observeOnly);
-        else patcher.applyChange(new PendingChange(position, observeOnly));
-        patcher.save();
+        synchronized (lock()) {
+            ConfigPatcher patcher = new ConfigPatcher(config);
+            NodePosition position = patcher.getNodePosition(List.of(OBSERVE_ONLY_KEY));
+            if (position == null) patcher.addMissingValue(List.of(OBSERVE_ONLY_KEY), observeOnly);
+            else patcher.applyChange(new PendingChange(position, observeOnly));
+            patcher.save();
+        }
+    }
+
+    private static Object lock() {
+        return BaseConfigManager.configLock(RuntimeEnvironment.host());
     }
 
     // Every generation snapshots its config from this file, so a hot-swapped one starts in the written mode.
