@@ -433,6 +433,39 @@ public final class JavaInsideBlockEffects {
         return current[0];
     }
 
+    /**
+     * Whether the travel's Entity#checkInsideBlocks visits a nether portal block. NetherPortalBlock keeps
+     * BlockBehaviour#getEntityInsideCollisionShape's Shapes.block(), so every portal block the pass visits runs
+     * entityInside. The pass replays the movements Entity#move recorded before travel, then the context's move, in the
+     * box of the context's pose, stepping the move's axes in the Direction#axisStepOrder of {@code originalMovement}.
+     */
+    public static boolean visitsNetherPortal(CultPlayer player, SimulationContext context, Vec3 originalMovement) {
+        ClientVersion version = context.getVersion();
+        boolean[] portal = {false};
+        Collisions.InsideBlockVisitor visitor = (from, to, pos, precise) -> {
+            if (!BlockIds.is(player.compensatedWorld.getBlockStateIdAt(pos), BlockIds.NETHER_PORTAL)) return false;
+            portal[0] = true;
+            return true;
+        };
+        LongSet visited = new LongOpenHashSet();
+        for (RecordedMove move : context.getMovesBeforeTravel())
+            visitMovement(
+                    version,
+                    context.getActualPoseAt(move.from()),
+                    context.getActualPoseAt(move.to()),
+                    move.delta(),
+                    visited,
+                    visitor);
+        visitMovement(
+                version, context.getFromActualPose(), context.getToActualPose(), originalMovement, visited, visitor);
+        return portal[0];
+    }
+
+    /** {@link #visitsNetherPortal} for {@code result}'s travel, ordered by the delta Entity#move recorded. */
+    public static boolean visitsNetherPortal(CultPlayer player, PredictionResult result) {
+        return visitsNetherPortal(player, result.getSimulationContext(), attemptedMovement(result));
+    }
+
     /** One movement of Entity#checkInsideBlocks; {@code originalMovement} is null for a movement without axis steps. */
     private static void visitMovement(
             ClientVersion version,

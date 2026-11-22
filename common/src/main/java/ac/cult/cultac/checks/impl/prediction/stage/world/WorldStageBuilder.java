@@ -11,6 +11,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActors;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
 import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
@@ -45,6 +46,7 @@ import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.FluidTypeFlowing;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
+import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.List;
@@ -242,19 +244,20 @@ public class WorldStageBuilder {
                 && (player.swimState.swimming() && player.gamemode != GameMode.SPECTATOR
                         ? (bedrockFluidBounds == null ? isInWater : bedrockFluidBounds.water())
                         : underwater && waterAtFeet);
-        // Portal contact uses the swept inside-block volume. Java Entity#checkInsideBlocks sweeps the box of the pose
-        // travel moved, which reaches a portal at head height.
-        player.intersectedWithNetherPortal = Collisions.hasState(
-                player,
-                player.isBedrockMovement()
-                        ? simulationContext
+        // Portal contact uses the swept inside-block volume.
+        player.intersectedWithNetherPortal = player.isBedrockMovement()
+                ? Collisions.hasState(
+                        player,
+                        simulationContext
                                 .getFromMinimumExtent(sweepFromBox)
-                                .union(simulationContext.getToMinimumExtent(sweepToBox))
-                        : simulationContext
-                                .getFromActualPose(sweepFromBox)
-                                .union(simulationContext.getToActualPose(sweepToBox)),
-                block -> BlockIds.is(block, BlockIds.NETHER_PORTAL),
-                (block, pos) -> true);
+                                .union(simulationContext.getToMinimumExtent(sweepToBox)),
+                        block -> BlockIds.is(block, BlockIds.NETHER_PORTAL),
+                        (block, pos) -> true)
+                : javaNetherPortalInReach(player, simulationContext)
+                        && JavaInsideBlockEffects.visitsNetherPortal(
+                                player,
+                                simulationContext,
+                                simulationContext.getEnd().subtract(simulationContext.getStart()));
 
         DesyncStatus honeySlide = isSlidingDown(player, simulationContext);
         // MCP-Reborn Entity#checkSupportingBlock stores mainSupportingBlockPos
@@ -342,6 +345,36 @@ public class WorldStageBuilder {
                                 player.compensatedWorld, BlockPos.containing(from.x, from.y, from.z)),
                         FluidTags.LAVA));
         return world;
+    }
+
+    /**
+     * Java portal contact of the committed travel. From 1.21.5 Entity#checkInsideBlocks steps each axis in the
+     * Direction#axisStepOrder of the delta Entity#move recorded before collision, which only a simulated move holds.
+     */
+    public void commitJavaNetherPortalContact(CultPlayer player, PredictionResult result) {
+        SimulationContext context = result.getSimulationContext();
+        if (context.getVersion().isOlderThan(ClientVersion.V_1_21_5) || !VelocityCandidates.hasEngineTrace(result))
+            return;
+        player.intersectedWithNetherPortal =
+                javaNetherPortalInReach(player, context) && JavaInsideBlockEffects.visitsNetherPortal(player, result);
+    }
+
+    private boolean javaNetherPortalInReach(CultPlayer player, SimulationContext context) {
+        return Collisions.hasState(
+                player,
+                javaInsideBlockReach(context),
+                block -> BlockIds.is(block, BlockIds.NETHER_PORTAL),
+                (block, pos) -> true);
+    }
+
+    /** The hull of every box JavaInsideBlockEffects#visitsNetherPortal sweeps, which holds each block it visits. */
+    private SimpleCollisionBox javaInsideBlockReach(SimulationContext context) {
+        SimpleCollisionBox reach = context.getFromActualPose(sweepFromBox).union(context.getToActualPose(sweepToBox));
+        for (JavaInsideBlockEffects.RecordedMove move : context.getMovesBeforeTravel()) {
+            reach.union(context.getActualPoseAt(move.from(), sweepToBox))
+                    .union(context.getActualPoseAt(move.to(), sweepToBox));
+        }
+        return reach;
     }
 
     // EntityFluidInteraction#update finds the eye only among the fluids inside Entity#getFluidInteractionBox.

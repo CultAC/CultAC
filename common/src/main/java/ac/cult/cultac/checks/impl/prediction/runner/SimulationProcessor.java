@@ -1701,6 +1701,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     : preparedCommit;
             this.applyProfileCommit(commit);
             if (!this.player.isBedrockMovement()) {
+                this.worldStageBuilder.commitJavaNetherPortalContact(this.player, result);
                 this.commitPassAfterTravel(result);
                 this.player.getSetbackTeleportUtil().onJavaPredictionCommitted(result, commit.startingVelocities());
             }
