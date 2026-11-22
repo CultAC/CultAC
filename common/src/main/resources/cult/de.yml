@@ -99,9 +99,6 @@ cult:
     strip-pattern: ' \(Velocity\)$'
 
   diagnostics:
-    # Derzeit ungenutzt: Änderungen aktivieren ausführliche Meldungen nicht automatisch.
-    auto-enable-verbose: false
-
     # Schreibt Diagnosen zu Teleportationen, Positionskorrekturen und Resynchronisierungen in die Konsole.
     teleports: false
 

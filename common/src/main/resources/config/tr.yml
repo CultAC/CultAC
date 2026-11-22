@@ -54,21 +54,6 @@ launch-safety:
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
-# Varsayılan blok yeniden senkronizasyon işleyicisi devre dışı bırakılsın mı?
-# Varsayılan olarak Cult, blokları sunucu dünyasından okur ve senkronizasyon bozukluğunu düzeltmek için istemciye gönderir.
-# Paket tabanlı sahte bloklar (sunucu dünyasında var olmayan) oluşturan eklentiler kullanıyorsanız,
-# Cult'in bunları hava/gerçek bloklarla üzerine yazmasını önlemek için bunu true olarak ayarlamalısınız.
-# Bu, API aracılığıyla özel bir tane sağlanmadıkça bir "NoOp" (İşlemsiz) işleyicisinin kullanılmasını zorlar.
-disable-default-resync-handler: false
-
-# Kopya hareket paketinin iptal edilip edilmemesi gerektiği
-# Mojang bu sorunu 1.21'de çözdü. Bu, "kova senkronizasyonu" sorununu düzeltme girişimiydi. https://bugs.mojang.com/browse/MC-12363
-# Bu ayar yalnızca 1.17-1.20.5 istemcileri için 1.8 sunucularında geçerlidir.
-cancel-duplicate-packet: true
-
-# Eşya çoğaltma paketlerindeki rotayı göz ardı edip etmeyeceğimiz
-ignore-duplicate-packet-rotation: false
-
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
@@ -106,9 +91,6 @@ Simulation:
     # Bu, oyuncunun çok fazla ihlal biriktirmesini ve bunların hepsini temizleyememesini önlemek içindir
     # Varsayılan avantaj tavanı (x ekseni = saniye, y ekseni = 1/1000 blok): https://www.desmos.com/calculator/4lovswdarj
     max-ceiling: 4
-    # Geri alma için ihlal seviyesi eşiği
-    # Eski davranış için 1
-    setback-violation-threshold: 1
 
 # Bir oyuncunun bir hareket sırasında bir bloğa girip girmediğini kontrol eder
 Phase:
@@ -194,14 +176,6 @@ Reach:
     # İmkansız olduğunu bildiğimiz vuruşları iptal etmeli miyiz?
     # Paket sırası sınırlamaları nedeniyle 3.00-3.03 arası vuruşlar gerçekleşebilir, ancak yine de işaretlenebilir
     block-impossible-hits: true
-    # Bu, hileleri yakalama olasılığını artırmak için her tikin sonunda ek bir paket gönderecektir
-    # Bu, sunucunun bağlantı listesine enjekte edilerek sunucu boşaltmadan hemen önce son bir paket göndermek için yapılır
-    # Bunu etkinleştirmek, tüm oyuncular için bant genişliği kullanımını artıracaktır
-    # Bu, genel sunucu performansını düşürmez
-    # Bunu etkinleştirmek, daha fazla hilecinin yakalanmasını sağlar
-    # Bu özellik devre dışı bırakılsa bile hileciler yakalanır ve yanlış pozitifler oluşmaz
-    # 1.8 PvP odaklı bir sunucu değilseniz, bu ek paket önerilmez
-    enable-post-packet: false
 
 exploit:
     # Elytra ile sprint zıplarken yüksek hızlar kazanabilirsiniz, bu ayar false olarak ayarlandığında bu istismarı önler
@@ -210,20 +184,12 @@ exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Bu seçenek, oyuncunun hayalet bloklar üzerindeki yerleşimini, gerçekleştiğinde oyuncuyu yeniden senkronize ederek hafifletir
     allow-building-on-ghostblocks: true
-    # Bu ayar, yukarıdaki boolean ile etkilenen hayalet blokları kontrol etmek için mesafeyi tanımlar
-    # Geçerli aralığı 2 ile 4 arasında sınırlıdır
-    distance-to-check-if-ghostblocks: 2
 
 # Netty'ye enjekte olan eklentileri giriş sırasında günlüklemeyi etkinleştirerek uyumluluk sorunlarını gider
 debug-pipeline-on-join: false
 
 # Deneysel kontrolleri etkinleştir
 experimental-checks: false
-
-reset-item-usage-on-item-update: true
-reset-item-usage-on-attack: true
-reset-item-usage-on-slot-change: true
-reset-item-usage-on-item-use: true
 
 # Cult bazen timer gibi yasa dışı paketleri iptal eder; bir saniyede X paket iptal edildikten sonra, ne zaman
 # oyuncuyu basitçe atmalıyız? Bu, bazı paket sınırlayıcılarının Cult tarafından iptal edilen paketleri saymaması gerektiğindendir.
@@ -235,10 +201,6 @@ debug-packet-cancel: false
 # Bu, Cult'in şu anda uçan oyuncuları kontrol etmemesindendir
 # Devre dışı bırakmak için -1 yazın
 max-ping-out-of-flying: 1000
-
-# Bir havai fişek ivmesi oyuncudan çıkarıldığında maksimum ping.
-# Bu, yüksek gecikmeli oyuncuların bir havai fişek ivmesini elytra ile sonsuza kadar kullanmalarını engeller.
-max-ping-firework-boost: 1000
 
 # Şema işaretçileri — yalnızca ne yaptığınızı biliyorsanız değiştirin.
 #   config-flavor:  V2 = Cult 2.x derlemesi, V3 = Cult 3.x. Eklenti, flavor'ı

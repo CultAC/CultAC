@@ -54,21 +54,6 @@ launch-safety:
 # Nu activa dacă nu ești sigur ce faci.
 disable-pong-cancelling: false
 
-# Ar trebui dezactivat handler-ul implicit de resincronizare a blocurilor?
-# Implicit, Cult citește blocurile din lumea serverului și le trimite clientului pentru a repara desincronizarea.
-# Dacă utilizați plugin-uri care creează blocuri false bazate pe pachete (care nu există în lumea serverului),
-# ar trebui să setați acest lucru pe true pentru a preveni ca Cult să le suprascrie cu aer/blocuri reale.
-# Acest lucru forțează utilizarea unui handler "NoOp" (Fără Operațiune), cu excepția cazului în care unul personalizat este furnizat prin API.
-disable-default-resync-handler: false
-
-# Ar trebui să fie anulat pachetul de mișcare duplicat?
-# Mojang a reparat această problemă în 1.21. A fost încercarea lor de a rezolva „bucket desync”. https://bugs.mojang.com/browse/MC-12363
-# Această setare se aplică doar clienților 1.17-1.20.5 pe servere 1.8.
-cancel-duplicate-packet: true
-
-# Dacă să se ignore rotația în pachetele duplicate
-ignore-duplicate-packet-rotation: false
-
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
@@ -106,9 +91,6 @@ Simulation:
     # Aceasta previne acumularea prea multor încălcări fără șansă de reset
     # Grafic implicit avantaj (axa X = secunde, axa Y = 1/1000 bloc): https://www.desmos.com/calculator/4lovswdarj
     max-ceiling: 4
-    # Pragul de încălcare pentru setback
-    # 1 pentru comportamentul vechi
-    setback-violation-threshold: 1
 
 # Verifică dacă un jucător a intrat într-un bloc în timpul mișcării
 Phase:
@@ -194,14 +176,6 @@ Reach:
     # Ar trebui să anulăm loviturile imposibile?
     # Lovituri de 3.00-3.03 pot trece dar tot vor fi marcate, din cauza limitărilor de ordine a pachetelor
     block-impossible-hits: true
-    # Va trimite un pachet suplimentar la sfârșitul fiecărui tick pentru a crește șansele de a prinde cheat-uri
-    # Injectează în lista de conexiuni a serverului pentru a trimite un pachet final chiar înainte ca serverul să facă flush
-    # Activarea va crește traficul pentru toți jucătorii
-    # Nu va scădea performanța serverului
-    # Activarea va prinde mai mulți cheateri.
-    # Lăsarea dezactivată va prinde totuși cheateri și nu va cauza false positive
-    # Dacă nu ești server PvP 1.8, acest pachet suplimentar nu este recomandat
-    enable-post-packet: false
 
 exploit:
     # Poți obține viteze mari sărind sprint cu elytra, aceasta previne exploitul dacă e setat pe false
@@ -210,19 +184,12 @@ exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Această opțiune reduce efectul ghostblocks prin resincronizarea jucătorului când se întâmplă
     allow-building-on-ghostblocks: true
-    # Această setare, influențată de booleanul de mai sus, definește distanța verificată pentru ghostblocks
-    # Interval valid: 2 până la 4
-    distance-to-check-if-ghostblocks: 2
 
 # Activează logarea pluginurilor care s-au injectat în netty la intrare pentru debugging de compatibilitate
 debug-pipeline-on-join: false
 
 # Activează verificări experimentale
 experimental-checks: false
-
-reset-item-usage-on-item-update: true
-reset-item-usage-on-attack: true
-reset-item-usage-on-slot-change: true
 
 # Cult uneori anulează pachete ilegale precum timer, după X pachete anulate într-o secundă, când să
 # deconectăm jucătorul? Este necesar deoarece unele limitatoare de pachete nu numără pachetele anulate de Cult.
@@ -234,10 +201,6 @@ debug-packet-cancel: false
 # Deoarece Cult nu verifică în prezent jucătorii care zboară
 # Pentru dezactivare, folosește -1
 max-ping-out-of-flying: 1000
-
-# Ping maxim când boost-ul cu artificii este eliminat de la jucător.
-# Previne jucătorii cu latență mare să folosească un boost cu artificii la infinit cu elytra.
-max-ping-firework-boost: 1000
 
 # Markeri de schemă — modifică-i doar dacă știi ce faci.
 #   config-flavor:  V2 = build Cult 2.x, V3 = Cult 3.x. Plugin-ul refuză să

@@ -55,21 +55,6 @@ launch-safety:
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
-# ¿Debería desactivarse el manejador de resincronización de bloques predeterminado?
-# Por defecto, Cult lee los bloques del mundo del servidor y los envía al cliente para corregir la desincronización.
-# Si utilizas plugins que crean bloques falsos basados en paquetes (que no existen en el mundo del servidor),
-# deberías establecer esto en true para evitar que Cult los sobrescriba con aire o bloques reales.
-# Esto fuerza el uso de un manejador "NoOp" (Sin Operación) a menos que se proporcione uno personalizado vía API.
-disable-default-resync-handler: false
-
-# Should the duplicate movement packet be cancelled?
-# Mojang has fixed this issue in 1.21. This was their attempt to fix the "bucket desync". https://bugs.mojang.com/browse/MC-12363
-# This setting only applies to 1.17-1.20.5 clients on 1.8 servers.
-cancel-duplicate-packet: true
-
-# Whether or not to ignore the rotation in duplicate packets
-ignore-duplicate-packet-rotation: false
-
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
@@ -107,9 +92,6 @@ Simulation:
     # Esto es para prevenir que el jugador obtenga muchas violaciones y no pueda ser capaz de borrarlas
     # Tope de ventaja por defecto (eje x = segundos, eje y = bloque 1/1000): https://www.desmos.com/calculator/4lovswdarj
     max-ceiling: 4
-    # Umbral del nivel de violación para el retroceso
-    # 1 para el comportamiento antiguo
-    setback-violation-threshold: 1
 
 # Comprobaciones para ver si un jugador entro a un bloque durante un movimiento
 Phase:
@@ -200,31 +182,17 @@ Reach:
     # ¿Deberíamos cancelar golpes que sabemos que son imposibles?
     # Golpes de 3.00-3.03 puede que aun asi pasen, pero se marcaran debido a limitaciones del orden de paquetes.
     block-impossible-hits: true
-    # Esto mandará un paquete adicional al final de cada tick para aumentar las chances de encontrar trampas
-    # Esto se inyecta en la lista de conexiones del servidor para mandar un paquete final justo antes de que el servidor haga "flush".
-    # Habilitar esto causará que el uso de banda ancha de todos los jugadores aumente
-    # Esto no disminuirá el rendimiento del servidor.
-    # Habilitar esto ayudará a encontrar más jugadores haciendo trampa.
-    # Dejar esto deshabilitado también encontrara a jugadores haciendo trampa y no causara falsos positivos.
-    # Excepto que seas un servidor 1.8 enfocado en el PvP, este paquete adicional no es recomendado.
-    enable-post-packet: false
 
 exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Esta opción mitiga la colocación del jugador en bloques fantasma resincronizando al jugador cuando ocurre.
     allow-building-on-ghostblocks: true
-    distance-to-check-if-ghostblocks: 2
 
 # Habilitar el registro de plugins que se han inyectado a netty para intentar resolver problemas de compatibilidad.
 debug-pipeline-on-join: false
 
 # Habilitar comprobaciones experimentales
 experimental-checks: false
-
-reset-item-usage-on-item-update: true
-reset-item-usage-on-attack: true
-reset-item-usage-on-slot-change: true
-reset-item-usage-on-item-use: true
 
 # Cult a veces cancela paquetes ilegal como los de Timer. Después de X paquetes en un solo segundo cancelados,
 # cuando deberíamos simplemente expulsar al jugador? Esto es obligatorio ya que algunos limitadores de paquetes
@@ -237,10 +205,6 @@ debug-packet-cancel: false
 # Esto se debe a que Cult actualmente no comprueba a los jugadores que están volando
 # Para desactivar, usa -1
 max-ping-out-of-flying: 1000
-
-# Ping máximo cuando se elimina el impulso de fuegos artificiales del jugador.
-# Esto evita que los jugadores con alta latencia puedan usar un solo impulso con fuegos artificiales y una elytra para siempre.
-max-ping-firework-boost: 1000
 
 # Marcadores de esquema — toca solo si sabes lo que haces.
 #   config-flavor:  V2 = build de Cult 2.x, V3 = Cult 3.x. El plugin se niega

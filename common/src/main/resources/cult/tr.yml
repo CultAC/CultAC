@@ -98,9 +98,6 @@ cult:
     strip-pattern: ' \(Velocity\)$'
 
   diagnostics:
-    # Şu anda kullanılmıyor: bu değeri değiştirmek ayrıntılı uyarıları otomatik olarak etkinleştirmez.
-    auto-enable-verbose: false
-
     # Işınlanma, konum düzeltme ve yeniden eşitleme tanılama bilgilerini konsola yazar.
     teleports: false
 
