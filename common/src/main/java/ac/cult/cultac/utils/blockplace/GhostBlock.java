@@ -16,8 +16,4 @@ public class GhostBlock {
     /** Client block prediction sequence of the newest action that clicked this position. */
     @Setter
     private int sequence;
-
-    public boolean isPlaceTypeBlock() {
-        return placeTypeBlock;
-    }
 }

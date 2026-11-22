@@ -11,10 +11,15 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassengerTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.data.ClientPistonDeltas;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 /** Complete local-passenger states after travel, positionRider and the later entity/block-entity ticks. */
@@ -25,7 +30,7 @@ public final class PassengerRideTick {
             int jumpDelay,
             JavaMovementPatch patch,
             ClientFluidTagOrder order,
-            ac.cult.cultac.utils.enums.Pose pose,
+            Pose pose,
             List<JavaInsideBlockEffects.RecordedMove> recorded) {}
 
     private List<State> states = List.of();
@@ -36,7 +41,7 @@ public final class PassengerRideTick {
     private boolean useSeats;
     private Vec3 movementInput = Vec3.ZERO;
     private boolean jumping;
-    private ac.cult.cultac.utils.data.packetentity.PacketEntitySelf observedSelf;
+    private PacketEntitySelf observedSelf;
 
     /** {@code recorded} is what the local player's Entity#movementThisTick holds when it mounts. */
     public void begin(
@@ -68,7 +73,7 @@ public final class PassengerRideTick {
                 onGround.determinePessimistically(), support, null, 0, ClientPistonDeltas.NONE),
                 onFootJumpDelay, null, null, player.pose, recorded));
         states = initial.stream().map(s -> new State(s.move(), s.jumpDelay(), s.patch(), s.order(),
-                ac.cult.cultac.utils.enums.Pose.STANDING, s.recorded())).toList();
+                Pose.STANDING, s.recorded())).toList();
         useSeats = false;
     }
 
@@ -143,8 +148,8 @@ public final class PassengerRideTick {
             for (State prior : states) {
                 List<ClientFluidTagOrder> orders = prior.order() != null ? List.of(prior.order())
                         : ClientFluidTagOrder.hasOverlap(player)
-                                ? ClientFluidTagOrder.candidates(player) : java.util.Collections.singletonList(null);
-                List<JavaMovementPatch> patches = java.util.Collections.singletonList(
+                                ? ClientFluidTagOrder.candidates(player) : Collections.singletonList(null);
+                List<JavaMovementPatch> patches = Collections.singletonList(
                         player.getClientVersion() == ClientVersion.V_1_21_9 && prior.patch() == null
                                 ? JavaMovementPatch.assumed(player.provenMovementPatch)
                                 : prior.patch());
@@ -167,7 +172,7 @@ public final class PassengerRideTick {
                                                 before.state().withVelocity(Vec3.ZERO), prior.jumpDelay());
                                 Vec3 end = replay.state().position();
                                 var pose = playerTicks && player.canPlayerFitWithinBlocksAndEntitiesWhen(
-                                                ac.cult.cultac.utils.enums.Pose.SWIMMING, end.x, end.y, end.z)
+                                                Pose.SWIMMING, end.x, end.y, end.z)
                                         ? player.updatedPose(false, false, end.x, end.y, end.z) : prior.pose();
                                 Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(riding,
                                         player.compensatedEntities.getSelf(), player, box);
@@ -259,7 +264,7 @@ public final class PassengerRideTick {
 
     /** A packet callback overwrites passenger motion without changing any ride-tick state. */
     public void setMotionY(double y) {
-        states = states.stream().map(state -> new State(state.move().withVelocity(state.move().velocity().with(ac.cult.cultac.protocol.value.Direction.Axis.Y, y)),
+        states = states.stream().map(state -> new State(state.move().withVelocity(state.move().velocity().with(Direction.Axis.Y, y)),
                 state.jumpDelay(), state.patch(), state.order(), state.pose(), state.recorded())).toList();
     }
 
@@ -285,7 +290,7 @@ public final class PassengerRideTick {
     }
 
     /** Carries exactly the stuck speed left by the callbacks, paired with that same travel's velocity and ground. */
-    public JavaPredictionCarry carry(CultPlayer player, java.util.Collection<Vec3> currentVelocities) {
+    public JavaPredictionCarry carry(CultPlayer player, Collection<Vec3> currentVelocities) {
         var next = new ArrayList<JavaPredictionCarry.State>();
         Vec3 reported = new Vec3(player.x, player.y, player.z);
         for (var state : states) {

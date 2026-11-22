@@ -9,6 +9,7 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.ArrayList;
 import java.util.List;
 
 public final class RootVehicleInterpolationCollision {
@@ -66,7 +67,7 @@ public final class RootVehicleInterpolationCollision {
      */
     public static List<SimpleCollisionBox> entityCollisionBoxes(
             CultPlayer player, PacketEntity actor, Vec3 actorPosition, SimpleCollisionBox query) {
-        if (tooSmallForEntityCollisions(query)) return new java.util.ArrayList<>();
+        if (tooSmallForEntityCollisions(query)) return new ArrayList<>();
         SimpleCollisionBox inflated = entityCollisionArea(query);
         List<SimpleCollisionBox> boxes = EntityPositionWorlds.colliders(player, actor, actorPosition, query);
         var selection = new EntityCollisionSelection(player, actor, actorPosition);
@@ -83,8 +84,7 @@ public final class RootVehicleInterpolationCollision {
         Vec3 position = localPlayerPositionAtRootEntityTick(player);
         var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
         if (prediction != null && player.compensatedEntities.passLocalPlayerPosition() == null) {
-            var pass =
-                    ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.passAfterTravel(prediction);
+            var pass = JavaMovementEngine.passAfterTravel(prediction);
             if (pass != null) position = pass.travel().position();
         }
         if (!localPlayerIsPushable(player, position)) return List.of();

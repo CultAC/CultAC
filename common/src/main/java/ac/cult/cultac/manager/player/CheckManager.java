@@ -102,6 +102,7 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.PacketTypeTable;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -518,7 +519,7 @@ public class CheckManager {
                 new SprintF(player),
                 new SprintG(player),
                 new SprintH(player),
-                new ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump(player),
+                new JavaAutoJump(player),
                 new ElytraA(player),
                 new ElytraB(player),
                 new ElytraC(player),
@@ -1057,7 +1058,7 @@ public class CheckManager {
 
         dispatchNonAsyncReceive(packet);
 
-        if (packet.getPacketType() == ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END) {
+        if (packet.getPacketType() == ServerboundPackets.CLIENT_TICK_END) {
             // MCP-Reborn Minecraft#tick sends ServerboundClientTickEndPacket only
             // after ClientLevel#tickEntities and Level#tickBlockEntities have
             // both finished. Tick-end handlers that simulate the completed client

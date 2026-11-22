@@ -4,6 +4,8 @@ import ac.cult.blocksim.data.Box;
 import ac.cult.blocksim.engine.ShulkerGeometry;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockDepenetrationLimit;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMath;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
@@ -204,7 +206,7 @@ public class PacketEntityShulker extends PacketEntity {
             return false;
         }
         return position == null
-                || player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_17)
+                || player.getClientVersion().isOlderThan(ClientVersion.V_1_17)
                 || player.compensatedWorld.isClientEntityTickingChunk(
                         CultMath.floor(position.x) >> 4, CultMath.floor(position.z) >> 4);
     }
@@ -273,9 +275,7 @@ public class PacketEntityShulker extends PacketEntity {
                 size, blockSim(direction), physicalFrom, physicalTo, blockSim(position));
         // Before 1.21.4 onPeekAmountChange translates origin-based bounds by x/z - .5,
         // even though makeBoundingBox already centers the physical shell by its scaled width.
-        double shift = player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_21_4)
-                ? (size - 1.0D) * 0.5D
-                : 0.0D;
+        double shift = player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4) ? (size - 1.0D) * 0.5D : 0.0D;
         return new ShulkerPeek(
                 new SimpleCollisionBox(
                         area.minX() + shift,
@@ -307,9 +307,8 @@ public class PacketEntityShulker extends PacketEntity {
                 : riderPosition.copy();
         Vec3 position = clientPosition(raw);
         var box = shape(raw, beforePeek);
-        return ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes.intersects(box, playerBox)
-                ? ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes.impulse(
-                        position, playerPosition)
+        return JavaLivingEntityPushes.intersects(box, playerBox)
+                ? JavaLivingEntityPushes.impulse(position, playerPosition)
                 : Vec3.ZERO;
     }
 

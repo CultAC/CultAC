@@ -34,8 +34,6 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     public long lastAttack = 0;
 
-    public long lastFlyingPacketTime;
-
     public ActionManager(CultPlayer cultPlayer) {
         super(cultPlayer);
     }
@@ -205,8 +203,6 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     public void endClientTick() {
         clearMainHandUseAfterSlotChange();
-        ++player.totalFlyingPacketsSent;
-        this.lastFlyingPacketTime = System.currentTimeMillis();
     }
 
     @CultPacketHandler

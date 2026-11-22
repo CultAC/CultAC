@@ -19,6 +19,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundTeleportEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.math.Vec3;
@@ -270,14 +271,9 @@ public class CorrectionSender {
             // Preserve the public packet-level and semantic setback signals from
             // the PacketEvents path after the teleport is tracked and emitted.
             long now = System.currentTimeMillis();
-            Channels.TELEPORT.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player), teleportId, now);
+            Channels.TELEPORT.fire(RuntimeEnvironment.outwardUser(player), teleportId, now);
             Channels.PLAYER_SETBACK.fire(
-                    ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
-                    teleportId,
-                    position.x,
-                    position.y,
-                    position.z,
-                    now);
+                    RuntimeEnvironment.outwardUser(player), teleportId, position.x, position.y, position.z, now);
 
             final KnockbackHandler knockbackHandler = player.checkManager.getKnockbackHandler();
             // A Java correction of the player carries its velocity in its player_position.

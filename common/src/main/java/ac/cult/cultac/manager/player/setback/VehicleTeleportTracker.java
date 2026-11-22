@@ -1,5 +1,6 @@
 package ac.cult.cultac.manager.player.setback;
 
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil.HandledVehicleTeleport;
@@ -82,7 +83,7 @@ public final class VehicleTeleportTracker {
             if (teleportPos.rewind()) break;
             if (vehicleId != null && teleportPos.vehicleId() != vehicleId) {
                 if (lastTransaction >= teleportPos.transaction()) {
-                    final VehicleTeleport staleEntry = vehicleTeleports.poll();
+                    vehicleTeleports.poll();
                     continue;
                 }
                 break;
@@ -130,7 +131,7 @@ public final class VehicleTeleportTracker {
             if (position != null
                     && matchesVehicleTeleportPosition(position, x, y, z, teleportPos.responseDistanceTolerance())) {
                 if (!tickMove) {
-                    final VehicleTeleport matchedEntry = vehicleTeleports.poll();
+                    vehicleTeleports.poll();
                     return completeVehicleTeleport(teleportPos, position, state);
                 }
                 // A ticking boat interpolates onto a TELEPORT_ENTITY target and the client sends no response for it.
@@ -149,7 +150,7 @@ public final class VehicleTeleportTracker {
                 break;
             } else if (lastTransaction > teleportPos.transaction() + 1 || correction) {
                 boolean ignoredRequiredSetbackVehicleTeleport = isRequiredSetbackVehicleTeleport(teleportPos);
-                final VehicleTeleport ignoredEntry = vehicleTeleports.poll();
+                vehicleTeleports.poll();
 
                 if (ignoredRequiredSetbackVehicleTeleport) {
                     reissue.resendIgnored("vehicle-position-ignored");
@@ -257,8 +258,7 @@ public final class VehicleTeleportTracker {
             VehicleTeleportData state,
             double responseDistanceTolerance) {
         if (player.isBedrockMovement()
-                && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(
-                        player.compensatedEntities.getEntity(vehicleId))) {
+                && BedrockVehicleControl.isSupported(player.compensatedEntities.getEntity(vehicleId))) {
             Vec3 local = bedrockFrame.get().toLocal(position);
             position = bedrockFrame.get().toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
             responseDistanceTolerance = 0.0D;

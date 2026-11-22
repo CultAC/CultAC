@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.latency;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TransactionVel;
@@ -84,7 +85,7 @@ public final class ClientFishingPulls {
         for (Impulse impulse : pending) {
             if (impulse.actor != self || impulse.getOutboundSequence() >= sequence) continue;
             impulse.impulses = impulse.impulses.stream()
-                    .map(velocity -> velocity.with(ac.cult.cultac.protocol.value.Direction.Axis.Y, 0))
+                    .map(velocity -> velocity.with(Direction.Axis.Y, 0))
                     .toList();
             if (impulse.range != null) {
                 var range = impulse.range;

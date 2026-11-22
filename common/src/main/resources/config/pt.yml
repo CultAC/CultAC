@@ -55,21 +55,6 @@ launch-safety:
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
-# O manipulador padrão de ressincronização de blocos deve ser desativado?
-# Por padrão, o Cult lê blocos do mundo do servidor e os envia ao cliente para corrigir a dessincronização.
-# Se você usa plugins que criam blocos falsos baseados em pacotes (que não existem no mundo do servidor),
-# você deve definir isso como true para evitar que o Cult os sobrescreva com ar/blocos reais.
-# Isso força o uso de um manipulador "NoOp" (Sem Operação), a menos que um personalizado seja fornecido via API.
-disable-default-resync-handler: false
-
-# Deve-se cancelar o pacote de movimento duplicado?
-# A Mojang arrumou esse erro na 1.21, sendo sua tentativa de concertar a dessincronização do balde. https://bugs.mojang.com/browse/MC-12363
-# Isso só se aplica à clientes da 1.17-1.20.5 em servidores da 1.8.
-cancel-duplicate-packet: true
-
-# Deve-se ignorar rotação em pacotes duplicados?
-ignore-duplicate-packet-rotation: false
-
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
@@ -107,9 +92,6 @@ Simulation:
     # Isso serve para previnir o jogador de alcançar violações demais e nunca conseguir se livrar delas.
     # Cela de vantagens padrão (eixo X = segundos, eixo Y = 1/1000 blocos): https://www.desmos.com/calculator/4lovswdarj
     max-ceiling: 4
-    # Quantas violações para começar a recuar o jogador?
-    # 1 para comportamento antigo
-    setback-violation-threshold: 1
 
 # Verifica se um jogador entrou em um bloco ao se mover.
 Phase:
@@ -198,14 +180,6 @@ Reach:
     # Deve-se cancelar hits que sabemos que são impossíveis?
     # O alcance de 3.00-3.03 pode acabar passando, por conta da ordem de pacotes, mas continuará registrando violações.
     block-impossible-hits: true
-    # Isso enviará um pacote adicional no final de todos os ticks para aumentar a probabilidade de detectarmos trapaceiros.
-    # Isso injeta na lista de conecção do servidor para envar um pacote final logo antes do servidor recarregar.
-    # Habilitando isso, irá aumentar o uso de banda para todos os jogadores.
-    # Isso não irá interferir na performance do servidor.
-    # Habilitando isso, aumentará a probabilidade de detectarmos trapaceiros.
-    # Deixando-o desabilitado, continuará detectando trapaceiros e não irá causar falsos positivos.
-    # A menos que estiver em um servidor focado em PvP, esse pacote adicional não é recomendado.
-    enable-post-packet: false
 
 exploit:
     # Você pode ganhar altas velocidades se pular correndo com uma elytra, previne isso de ocorrer quando definido falso.
@@ -215,20 +189,12 @@ exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Essa opção mitiga posicionar blocos em blocos fantasma, ressincronizando o jogador quando isso ocorrer.
     allow-building-on-ghostblocks: true
-    # Esse ajuste, influído pela opção acima, define a distância para verificar blocos fantasmas.
-    # O valor válido é limitado de 2 a 4.
-    distance-to-check-if-ghostblocks: 2
 
 # Registra plugins que são injetados na netty ao entrar para depurar erros de compatibilidade.
 debug-pipeline-on-join: false
 
 # Habilita verificações experimentais.
 experimental-checks: false
-
-reset-item-usage-on-item-update: true
-reset-item-usage-on-attack: true
-reset-item-usage-on-slot-change: true
-reset-item-usage-on-item-use: true
 
 # Cult às vezes cancela pacotes ilegais como com o timer, depois de X pacotes em um segundo que foram cancelados, quando
 # deve-se simplesmente expulsar o jogador? Isso é requirido já que alguns limitadores de pacotes não contam pacotes
@@ -240,10 +206,6 @@ debug-packet-cancel: false
 # Isso ocorre porque o Cult atualmente não verifica os jogadores que estão voando.
 # -1 desabilitará.
 max-ping-out-of-flying: 1000
-
-# Ping máximo quando o impulso do foguete acaba.
-# Previne jogadores com ping alto de usarem um foguete ara voar indefinidamente.
-max-ping-firework-boost: 1000
 
 # Marcadores de esquema — toque apenas se souber o que está fazendo.
 #   config-flavor:  V2 = build do Cult 2.x, V3 = Cult 3.x. O plugin se recusa

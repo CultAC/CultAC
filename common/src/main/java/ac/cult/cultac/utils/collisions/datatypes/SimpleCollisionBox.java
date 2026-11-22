@@ -217,21 +217,6 @@ public class SimpleCollisionBox implements CollisionBox, DebugText.Recordable {
         return this;
     }
 
-    public void unionX(double x) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-    }
-
-    public void unionY(double y) {
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-    }
-
-    public void unionZ(double z) {
-        if (z < minZ) minZ = z;
-        if (z > maxZ) maxZ = z;
-    }
-
     public SimpleCollisionBox union(SimpleCollisionBox other) {
         this.minX = Math.min(this.minX, other.minX);
         this.minY = Math.min(this.minY, other.minY);

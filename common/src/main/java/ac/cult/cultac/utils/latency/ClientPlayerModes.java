@@ -2,13 +2,16 @@ package ac.cult.cultac.utils.latency;
 
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
+import io.netty.buffer.Unpooled;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 
 /** Received PlayerInfo identities and immutable modes, including references cached by remote players. */
 public final class ClientPlayerModes {
@@ -33,7 +36,7 @@ public final class ClientPlayerModes {
     }
 
     public void update(ClientboundPlayerInfoUpdate packet, Set<UUID> visibleModes, Iterable<PacketEntity> entities,
-            java.util.function.BiConsumer<UUID, GameMode> onModeChanged) {
+            BiConsumer<UUID, GameMode> onModeChanged) {
         var actions = packet.actions();
         if (actions.contains(ClientboundPlayerInfoUpdate.Action.ADD_PLAYER))
             for (var entry : packet.entries())
@@ -57,9 +60,9 @@ public final class ClientPlayerModes {
     private static String name(ClientboundPlayerInfoUpdate.Entry entry) {
         var encoded = entry.encodedActions().get(ClientboundPlayerInfoUpdate.Action.ADD_PLAYER);
         if (encoded == null) return null;
-        var buffer = io.netty.buffer.Unpooled.wrappedBuffer(encoded.bytes());
+        var buffer = Unpooled.wrappedBuffer(encoded.bytes());
         try {
-            return ac.cult.cultac.protocol.wire.Wire.readString(buffer, 16);
+            return Wire.readString(buffer, 16);
         } finally {
             buffer.release();
         }

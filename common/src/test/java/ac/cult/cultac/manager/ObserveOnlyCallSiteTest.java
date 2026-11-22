@@ -117,7 +117,7 @@ class ObserveOnlyCallSiteTest {
     private static final String INSTANCE_MODE = """
             [] the instance's mode as /cult observe, /cult version, the host and the cloud panel show it
             command/commands/CultObserve.java#mode()
-            command/commands/CultVersion.java#checkForUpdatesAsync(Sender)
+            command/commands/CultVersion.java#sendVersion(Sender)
             cloud/transport/CloudConnection.java#agent()
             runtime/EngineRuntime.java#isObserveOnly()
             [] storage that fails to start in observe-only leaves the instance running

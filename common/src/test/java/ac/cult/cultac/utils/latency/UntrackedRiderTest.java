@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.Box;
+import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
@@ -34,9 +36,13 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.utils.blockplace.ClientEntityQueries;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -423,16 +429,16 @@ class UntrackedRiderTest {
         try {
             player.packetEntityReplication.onPlayerTickEnd(null);
             for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-                if (entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer remote)
+                if (entity instanceof PacketEntityPlayer remote)
                     remote.profile = new UUID(0, entity.getEntityId());
             }
-            var queries = new ac.cult.cultac.utils.blockplace.ClientEntityQueries(player);
-            var occupied = new ac.cult.blocksim.data.Box(11.9, 66.0, -0.1, 12.1, 66.5, 0.1);
+            var queries = new ClientEntityQueries(player);
+            var occupied = new Box(11.9, 66.0, -0.1, 12.1, 66.5, 0.1);
             assertTrue(queries.hasEntityIn(occupied));
-            assertFalse(queries.isUnobstructed(ac.cult.blocksim.engine.shapes.Shapes.create(occupied)));
-            var empty = new ac.cult.blocksim.data.Box(11.9, 68.0, -0.1, 12.1, 68.5, 0.1);
+            assertFalse(queries.isUnobstructed(Shapes.create(occupied)));
+            var empty = new Box(11.9, 68.0, -0.1, 12.1, 68.5, 0.1);
             assertFalse(queries.hasEntityIn(empty));
-            assertTrue(queries.isUnobstructed(ac.cult.blocksim.engine.shapes.Shapes.create(empty)));
+            assertTrue(queries.isUnobstructed(Shapes.create(empty)));
         } finally {
             close(player);
         }
@@ -484,7 +490,7 @@ class UntrackedRiderTest {
             add(player, 2500, EntityTypeIds.PIG, -12, 0);
             mount(player, BOAT_VEHICLE, 2500, RIDING_BOAT);
             player.packetEntityReplication.onPlayerTickEnd(null);
-            var root = (ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot) entity(player, BOAT_VEHICLE);
+            var root = (PacketEntityTrackXRot) entity(player, BOAT_VEHICLE);
             PacketEntity rider = entity(player, RIDING_BOAT);
             SimpleCollisionBox before = rider.getPossibleMovementCollisionBoxes();
             root.packetYaw = 90;
@@ -515,7 +521,7 @@ class UntrackedRiderTest {
             add(player, 2500, EntityTypeIds.HORSE, 12, 0);
             add(player, 2501, EntityTypeIds.ZOMBIE, 12, 0);
             mount(player, 2500, 2501);
-            var root = (ac.cult.cultac.utils.data.packetentity.PacketEntityHorse) entity(player, 2500);
+            var root = (PacketEntityHorse) entity(player, 2500);
             root.isRearing = true;
             player.packetEntityReplication.onPlayerTickEnd(null);
             PacketEntity rider = entity(player, 2501);

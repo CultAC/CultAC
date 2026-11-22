@@ -15,6 +15,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
 import ac.cult.cultac.utils.inventory.ItemUtil;
+import io.netty.buffer.Unpooled;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -221,7 +222,7 @@ final class SmoketestSnapshotBridge {
         var cult = item == null ? SimItemStack.EMPTY : item;
         var client = SimItemStack.EMPTY;
         if (expected.components().length > 0) {
-            var input = io.netty.buffer.Unpooled.wrappedBuffer(expected.components());
+            var input = Unpooled.wrappedBuffer(expected.components());
             try {
                 client = values.item(input, false);
                 if (input.isReadable()) throw new IllegalStateException("Unread client snapshot item bytes");

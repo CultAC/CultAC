@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -34,7 +35,7 @@ public final class TravelVelocityTransformer {
             PredictionResult result,
             float blockSpeedFactor,
             boolean keepBranches) {
-        if (ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(result.getSimulationContext()))
+        if (JavaRiddenTravel.clearsWithoutTravel(result.getSimulationContext()))
             return Collections.singletonList(Vec3.ZERO);
         // Entity#move ends every entity's move, boats included: after zeroing collided axes it scales deltaMovement
         // by getBlockSpeedFactor. Multiplying by an exact 1 keeps every component's bits.

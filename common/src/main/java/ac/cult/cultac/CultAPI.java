@@ -21,9 +21,11 @@ import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
 import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
 import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.sender.SenderFactory;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.PlayerDataManager;
 import ac.cult.cultac.utils.common.arguments.CommonCultArguments;
 import ac.cult.cultac.utils.reflection.ReflectionUtils;
+import ac.cult.reload.host.SharedExtensions;
 import ac.grim.grimac.api.event.EventBus;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import ac.grim.grimac.api.storage.backend.BackendRegistry;
@@ -56,10 +58,9 @@ public final class CultAPI {
     private final CultExternalAPI externalAPI;
     private final PortalSyncService portalSync = new PortalSyncService();
     private DataStoreLifecycle dataStoreLifecycle;
-    private final BackendRegistry backendRegistry = ac.cult.cultac.runtime.RuntimeEnvironment.host() == null
+    private final BackendRegistry backendRegistry = RuntimeEnvironment.host() == null
             ? buildBackendRegistry()
-            : (BackendRegistry) ac.cult.cultac.runtime.RuntimeEnvironment.host()
-                    .shared("backend-registry", CultAPI::buildBackendRegistry);
+            : (BackendRegistry) RuntimeEnvironment.host().shared("backend-registry", CultAPI::buildBackendRegistry);
     private PlatformLoader loader;
     private InitManager initManager;
     private boolean initialized = false;
@@ -72,17 +73,14 @@ public final class CultAPI {
         this.playerDataManager = new PlayerDataManager();
         this.tickManager = new TickManager();
         this.networkManager = new CultNetworkManager();
-        this.extensionManager = ac.cult.cultac.runtime.RuntimeEnvironment.host() == null
+        this.extensionManager = RuntimeEnvironment.host() == null
                 ? new GrimExtensionManager()
-                : (GrimExtensionManager) ac.cult.cultac.runtime.RuntimeEnvironment.host()
-                        .shared(
-                                "extension-manager",
-                                () -> ac.cult.reload.host.SharedExtensions.create(
-                                        ac.cult.cultac.runtime.RuntimeEnvironment.host()));
-        this.eventBus = ac.cult.cultac.runtime.RuntimeEnvironment.host() == null
+                : (GrimExtensionManager) RuntimeEnvironment.host()
+                        .shared("extension-manager", () -> SharedExtensions.create(RuntimeEnvironment.host()));
+        this.eventBus = RuntimeEnvironment.host() == null
                 ? new OptimizedEventBus(extensionManager)
-                : (EventBus) ac.cult.cultac.runtime.RuntimeEnvironment.host()
-                        .shared("event-bus", () -> new OptimizedEventBus(extensionManager));
+                : (EventBus)
+                        RuntimeEnvironment.host().shared("event-bus", () -> new OptimizedEventBus(extensionManager));
         this.externalAPI = new CultExternalAPI(this);
     }
 

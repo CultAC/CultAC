@@ -98,9 +98,6 @@ cult:
     strip-pattern: ' \(Velocity\)$'
 
   diagnostics:
-    # În prezent nefolosit: modificarea acestei valori nu activează automat alertele detaliate.
-    auto-enable-verbose: false
-
     # Scrie în consolă diagnosticele pentru teleportări, corectări de poziție și resincronizări.
     teleports: false
 

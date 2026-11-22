@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.Vec3;
 
 public final class WaterCurrent {
@@ -36,7 +37,7 @@ public final class WaterCurrent {
     public static Vec3 calculateLavaCurrent(
             CultPlayer player, SimulationContext context, Vec3 position, Vec3 velocityBeforeCurrent) {
         PacketEntity vehicle = context.getVehicle();
-        if (vehicle instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus) {
+        if (vehicle instanceof PacketEntityNautilus) {
             return null;
         }
         SimpleCollisionBox entityBox = getWaterCurrentInteractionBox(scratchBox(player), player, context, position);

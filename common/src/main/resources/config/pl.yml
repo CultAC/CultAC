@@ -54,21 +54,6 @@ launch-safety:
 # Nie włączaj tej opcji, jeśli nie masz pewności, co robisz.
 disable-pong-cancelling: false
 
-# Czy domyślna procedura obsługi resynchronizacji bloków powinna zostać wyłączona?
-# Domyślnie Cult odczytuje bloki ze świata serwera i wysyła je do klienta w celu naprawy desynchronizacji.
-# Jeśli używasz wtyczek, które tworzą fałszywe bloki oparte na pakietach (które nie istnieją w świecie serwera),
-# powinieneś ustawić tę opcję na true, aby uniemożliwić Cultowi nadpisywanie ich blokami air/real.
-# Wymusza to użycie procedury obsługi „NoOp” (No Operation), chyba że zostanie ona udostępniona za pośrednictwem API.
-disable-default-resync-handler: false
-
-# Czy zduplikowany pakiet ruchu powinien zostać anulowany?
-# Mojang naprawił ten problem w wersji 1.21. To była ich próba naprawienia „desynchronizacji kontenera”. https://bugs.mojang.com/browse/MC-12363
-# To ustawienie dotyczy tylko klientów 1.17-1.20.5 na serwerach 1.8.
-cancel-duplicate-packet: true
-
-# Czy ignorować rotację w zduplikowanych pakietach
-ignore-duplicate-packet-rotation: false
-
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
@@ -106,9 +91,6 @@ Simulation:
     # Ma to na celu zapobieżenie gromadzeniu zbyt wielu naruszeń, których gracz nie mógłby później wyzerować.
     # Domyślny sufit przewagi (oś x = sekundy, oś y = 1/1000 bloku): https://www.desmos.com/calculator/4lovswdarj
     max-ceiling: 4
-    # Próg poziomu naruszeń wymagany do cofnięcia.
-    # 1 dla starego zachowania.
-    setback-violation-threshold: 1
 
 # Sprawdza, czy gracz wszedł w blok podczas ruchu.
 Phase:
@@ -194,14 +176,6 @@ Reach:
     # Czy powinniśmy anulować trafienia, które wiemy, że są niemożliwe?
     # Trafienia w przedziale 3.00-3.03 mogą przejść, ale nadal będą wykrywane z powodu ograniczeń kolejności pakietów.
     block-impossible-hits: true
-    # Spowoduje to wysłanie dodatkowego pakietu na końcu każdego ticka, aby zwiększyć prawdopodobieństwo wykrycia oszustw.
-    # Ta metoda wstrzykuje się w listę połączeń serwera, aby wysłać końcowy pakiet tuż przed wysłaniem (flushem) danych przez serwer.
-    # Włączenie tego zwiększy użycie pasma dla wszystkich graczy.
-    # Nie wpłynie to negatywnie na ogólną wydajność serwera.
-    # Włączenie tego pozwoli wykryć więcej oszukujących graczy.
-    # Pozostawienie tego wyłączonym nadal będzie wykrywać oszustów i nie spowoduje fałszywych alarmów.
-    # Jeśli nie jesteś serwerem skoncentrowanym na PvP w wersji 1.8, ten dodatkowy pakiet nie jest zalecany.
-    enable-post-packet: false
 
 exploit:
     # Można uzyskać duże prędkości podczas sprintu i skoku z elytrą. To ustawienie zapobiega temu exploitowi, gdy jest ustawione na false.
@@ -210,20 +184,12 @@ exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Ta opcja łagodzi efekt stawiania bloków na tzw. ghostblockach poprzez resynchronizację gracza, gdy to nastąpi.
     allow-building-on-ghostblocks: true
-    # To ustawienie, zależne od powyższej wartości logicznej, określa dystans do sprawdzania ghostblocków.
-    # Jego prawidłowy zakres jest ograniczony od 2 do 4.
-    distance-to-check-if-ghostblocks: 2
 
 # Włącz logowanie pluginów, które wstrzyknęły się do netty podczas dołączania gracza, w celu debugowania problemów z kompatybilnością.
 debug-pipeline-on-join: false
 
 # Włącza eksperymentalne checki.
 experimental-checks: false
-
-reset-item-usage-on-item-update: true
-reset-item-usage-on-attack: true
-reset-item-usage-on-slot-change: true
-reset-item-usage-on-item-use: true
 
 # Cult czasami anuluje nielegalne pakiety, np. przy użyciu timera. Po anulowaniu X pakietów na sekundę, kiedy powinniśmy
 # po prostu wyrzucić gracza? Jest to wymagane, ponieważ niektóre limitery pakietów nie liczą pakietów anulowanych przez Culta.
@@ -235,10 +201,6 @@ debug-packet-cancel: false
 # Wynika to z faktu, że Cult obecnie nie sprawdza latających graczy.
 # Aby wyłączyć, użyj -1.
 max-ping-out-of-flying: 1000
-
-# Maksymalny ping, przy którym boost z fajerwerka jest usuwany graczowi.
-# Zapobiega to sytuacji, w której gracze z wysokim opóźnieniem mogą używać jednego boostu z fajerwerka z elytrą w nieskończoność.
-max-ping-firework-boost: 1000
 
 # Znaczniki schematu — zmieniaj tylko jeśli wiesz, co robisz.
 #   config-flavor:  V2 = build Cult 2.x, V3 = Cult 3.x. Wtyczka odmawia

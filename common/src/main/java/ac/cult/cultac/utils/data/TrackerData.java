@@ -1,12 +1,10 @@
 package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.utils.math.Vec3;
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.jetbrains.annotations.Nullable;
 
 @Data
-@AllArgsConstructor
 public class TrackerData {
 
     public TrackerData(double x, double y, double z, float xRot, float yRot, int entityType, int lastTransactionHung) {
@@ -28,7 +26,6 @@ public class TrackerData {
     int entityType;
     int lastTransactionHung;
     boolean onGround;
-    int legacyPointEightMountedUpon;
     float health;
 
     // The transform the client's packet handler last wrote; it holds only in the client tick it was written in.

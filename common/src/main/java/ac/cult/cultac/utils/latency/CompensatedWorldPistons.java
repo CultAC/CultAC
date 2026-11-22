@@ -16,6 +16,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,8 +25,8 @@ public final class CompensatedWorldPistons {
     private static final int AIR_STATE = BlockIds.AIR.defaultState();
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private static final ReplayScope NO_REPLAY = new ReplayScope(null, null, null, null, null, null);
-    private static final java.util.Comparator<MovingPistonState> TICKER_ORDER =
-            java.util.Comparator.comparingLong(state -> state.tickerOrder);
+    private static final Comparator<MovingPistonState> TICKER_ORDER =
+            Comparator.comparingLong(state -> state.tickerOrder);
 
     private final CultPlayer player;
     private final CompensatedWorld world;
@@ -49,8 +50,6 @@ public final class CompensatedWorldPistons {
         if (triggerType != 0 && triggerType != 1 && triggerType != 2) {
             return;
         }
-
-        Direction eventDirection = Direction.from3DDataValue(triggerData & 7);
 
         int pistonState = world.getBlockStateIdAt(pos);
         if (!isPistonBlock(pistonState) || !BlockProps.FACING.has(pistonState)) {

@@ -99,9 +99,6 @@ cult:
     strip-pattern: ' \(Velocity\)$'
 
   diagnostics:
-    # Momenteel ongebruikt: deze waarde wijzigen schakelt uitgebreide meldingen niet automatisch in.
-    auto-enable-verbose: false
-
     # Schrijf diagnostiek over teleportaties, positiecorrecties en hersynchronisatie naar de console.
     teleports: false
 

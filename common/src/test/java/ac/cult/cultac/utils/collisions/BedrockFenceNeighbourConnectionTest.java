@@ -14,6 +14,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
@@ -86,7 +87,7 @@ class BedrockFenceNeighbourConnectionTest {
         byte[] connectors = new byte[size];
         Arrays.fill(rules, BedrockBlockConnections.NO_RULE);
         Arrays.fill(connectors, (byte) BedrockBlockConnections.NO_CONNECTOR);
-        var states = new java.util.HashSet<>(world.values());
+        var states = new HashSet<>(world.values());
         // Air is a block with a rule that accepts nothing.
         states.add(REGISTRY.block("minecraft:air").defaultState());
         for (int state : states) {

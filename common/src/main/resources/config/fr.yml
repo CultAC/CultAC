@@ -54,21 +54,6 @@ launch-safety:
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
-# Le gestionnaire de resynchronisation des blocs par défaut doit-il être désactivé ?
-# Par défaut, Cult lit les blocs du monde serveur et les envoie au client pour corriger la désynchronisation.
-# Si vous utilisez des plugins créant de faux blocs via paquets (qui n'existent pas dans le monde serveur),
-# vous devez régler ceci sur true pour empêcher Cult de les écraser avec de l'air ou des blocs réels.
-# Cela force l'utilisation d'un gestionnaire "NoOp" (Aucune Opération) sauf si un personnalisé est fourni via l'API.
-disable-default-resync-handler: false
-
-# Should the duplicate movement packet be cancelled?
-# Mojang has fixed this issue in 1.21. This was their attempt to fix the "bucket desync". https://bugs.mojang.com/browse/MC-12363
-# This setting only applies to 1.17-1.20.5 clients on 1.8 servers.
-cancel-duplicate-packet: true
-
-# Whether or not to ignore the rotation in duplicate packets
-ignore-duplicate-packet-rotation: false
-
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
@@ -106,9 +91,6 @@ Simulation:
     # Cela vise à empêcher le joueur d'accumuler trop de violations et de ne jamais pouvoir toutes les réinitialiser.
     # Plafond d'avantage par défaut (l"axe x = secondes, l'axe y = 1/1000 de bloc)) : https://www.desmos.com/calculator/4lovswdarj
     max-ceiling: 4
-    # Seuil du niveau de violation pour le setback
-    # 1 pour le comportement ancien
-    setback-violation-threshold: 1
 
 # Vérifications pour voir si un joueur est entré dans un bloc pendant un mouvement.
 Phase:
@@ -195,31 +177,17 @@ Reach:
     # Devons-nous annuler les coups que nous savons impossibles ?
     # Les coups entre 3,00 et 3,03 peuvent passer mais seront quand même signalés en raison des limitations de l'ordre des paquets.
     block-impossible-hits: true
-    # Cela enverra un paquet supplémentaire à la fin de chaque tick pour augmenter les chances de détecter les triches.
-    # Cela s'injecte dans la liste de connexions du serveur pour envoyer un dernier paquet juste avant que le serveur ne le vide.
-    # Activer cette fonctionnalité augmentera l'utilisation de la bande passante pour tous les joueurs.
-    # Cela n'entraînera pas de diminution des performances globales du serveur.
-    # Activer cette fonctionnalité permettra de détecter davantage de tricheurs.
-    # Laisser cette fonctionnalité désactivée permettra tout de même de détecter les tricheurs et n'entraînera pas de faux positifs.
-    # À moins d'être un serveur axé sur le PvP en 1.8, l'envoi de ce paquet supplémentaire n'est pas recommandé.
-    enable-post-packet: false
 
 exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Cette option atténue le placement du joueur sur les ghostblocks en resynchronisant le joueur lorsque cela se produit.
     allow-building-on-ghostblocks: true
-    distance-to-check-if-ghostblocks: 2
 
 # Activer l'enregistrement des plugins ayant injecté dans Netty lors de la connexion pour déboguer les problèmes de compatibilité
 debug-pipeline-on-join: false
 
 # Active les vérifications expérimentales
 experimental-checks: false
-
-reset-item-usage-on-item-update: true
-reset-item-usage-on-attack: true
-reset-item-usage-on-slot-change: true
-reset-item-usage-on-item-use: true
 
 # Cult annule parfois des paquets illégaux, comme ceux liés au chronomètre, après avoir annulé X paquets en une seconde,
 # à partir de combien de paquets annulés devrions-nous simplement expulser le joueur ?
@@ -232,10 +200,6 @@ debug-packet-cancel: false
 # Cela est dû au fait que Cult ne vérifie pas encore les joueurs en vol
 # Pour désactiver, utilisez -1
 max-ping-out-of-flying: 1000
-
-# Ping maximal lorsque la propulsion de feu d’artifice est retirée du joueur.
-# Cela empêche les joueurs à forte latence d’utiliser indéfiniment un seul boost de feu d’artifice avec une élytra.
-max-ping-firework-boost: 1000
 
 # Marqueurs de schéma — ne modifier qu'en sachant ce que l'on fait.
 #   config-flavor:  V2 = build Cult 2.x, V3 = Cult 3.x. Le plugin refuse de

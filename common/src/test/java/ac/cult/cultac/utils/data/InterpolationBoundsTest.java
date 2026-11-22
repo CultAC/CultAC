@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.data;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import java.util.ArrayList;
 import java.util.Random;
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +53,7 @@ class InterpolationBoundsTest {
 
     private static SimpleCollisionBox legacy(
             SimpleCollisionBox from, SimpleCollisionBox to, int steps, int low, int high) {
-        var boxes = new java.util.ArrayList<SimpleCollisionBox>();
+        var boxes = new ArrayList<SimpleCollisionBox>();
         for (int i = low; i <= high; i++)
             boxes.add(new SimpleCollisionBox(
                     from.minX + i * ((to.minX - from.minX) / steps),
