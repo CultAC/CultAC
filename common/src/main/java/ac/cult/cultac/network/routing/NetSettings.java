@@ -2,7 +2,6 @@ package ac.cult.cultac.network.routing;
 
 import static ac.cult.cultac.manager.config.BaseConfigManager.CHECKS_OFF_KEY;
 import static ac.cult.cultac.manager.config.BaseConfigManager.DORMANT_KEY;
-import static ac.cult.cultac.manager.config.BaseConfigManager.OBSERVE_ONLY_ENV;
 import static ac.cult.cultac.manager.config.BaseConfigManager.OBSERVE_ONLY_KEY;
 import static ac.cult.cultac.manager.config.BaseConfigManager.PAUSE_PUNISHMENTS_KEY;
 
@@ -52,10 +51,10 @@ import org.jetbrains.annotations.Nullable;
  * check by its stable key, held by every instance as one table of {@link Record}s: the newest record of each key and
  * target by {@code (at, id)}, which every instance orders alike. A record targeting {@code all} drops the older records
  * of its key; past {@value #MAX_RECORDS} records, those that decide nothing go first, the {@code all} ones last. A
- * setting's {@link Value} here is the value an environment variable pins it to, else that of its newest record whose
- * target names this instance ({@code all}, {@code proxies} on a proxy, its id or a pattern matching it) or, for a
- * player, their backend server, else config.yml's. The records of a command {@code network.commands} keeps this
- * instance from taking decide nothing here; the table still keeps and forwards them, as it does pinned ones.
+ * setting's {@link Value} here is that of its newest record whose target names this instance ({@code all},
+ * {@code proxies} on a proxy, its id or a pattern matching it) or, for a player, their backend server, else
+ * config.yml's. The records of a command {@code network.commands} keeps this instance from taking decide nothing here;
+ * the table still keeps and forwards them.
  *
  * <p>A setting command's issuer merges its record and ships it in the command. Every roster carries the table, a full
  * one all of it and a delta the records new since the last. Starting, an instance broadcasts {@value #SYNC} with its
@@ -197,20 +196,15 @@ public final class NetSettings {
 
     /** Where a setting's {@link Value} comes from. */
     public enum Source {
-        PIN,
         RECORD,
         CONFIG
     }
 
     /**
-     * A setting's value and where it comes from: {@code record} is the newest record that names the instance or player
-     * (null when none decides, set under a pin too) and {@code pin} the environment variable pinning it (null for none).
+     * A setting's value and where it comes from: {@code record} is the newest record that names the instance or player,
+     * null when none decides.
      */
-    public record Value(
-            boolean on,
-            Source source,
-            @Nullable Record record,
-            @Nullable String pin) {}
+    public record Value(boolean on, Source source, @Nullable Record record) {}
 
     /** What a setting command sets: {@code key} on or off. */
     public record Setting(String key, boolean on) {}
@@ -240,20 +234,9 @@ public final class NetSettings {
         void changed(Change change);
     }
 
-    /** An environment variable pinning a setting, and the value it pins. */
-    record Pin(boolean on, String env) {}
-
-    /**
-     * config.yml's values of the settings and the value {@code CULTAC_OBSERVE_ONLY} pins observe to: null pins nothing.
-     * {@code checksOff} lists stable keys.
-     */
-    record Baseline(
-            boolean dormant,
-            boolean observeOnly,
-            boolean pausePunishments,
-            List<String> checksOff,
-            @Nullable Boolean observeOnlyPin) {
-        static final Baseline DEFAULT = new Baseline(false, false, false, List.of(), null);
+    /** config.yml's values of the settings; {@code checksOff} lists stable keys. */
+    record Baseline(boolean dormant, boolean observeOnly, boolean pausePunishments, List<String> checksOff) {
+        static final Baseline DEFAULT = new Baseline(false, false, false, List.of());
 
         Baseline {
             checksOff = List.copyOf(checksOff);
@@ -262,16 +245,6 @@ public final class NetSettings {
         /** The values as config.yml holds them. */
         Map<String, Object> config() {
             return NetSettings.config(dormant, observeOnly, pausePunishments, checksOff);
-        }
-
-        @Nullable
-        Pin pin(String key) {
-            return key.equals(OBSERVE) && observeOnlyPin != null ? new Pin(observeOnlyPin, OBSERVE_ONLY_ENV) : null;
-        }
-
-        /** The environment variables pinning a setting here. */
-        List<String> pins() {
-            return observeOnlyPin == null ? List.of() : List.of(OBSERVE_ONLY_ENV);
         }
     }
 
@@ -425,14 +398,12 @@ public final class NetSettings {
     }
 
     /**
-     * Whether {@code key}'s value for a player can differ from the instance's by the backend server they are on: it is
-     * not pinned, and a record of it naming a backend server is newer than every record naming this instance as a whole.
+     * Whether {@code key}'s value for a player can differ from the instance's by the backend server they are on: a
+     * record of it naming a backend server is newer than every record naming this instance as a whole.
      */
     private boolean backendScoped(View current, String key) {
         NetCommands.Options accepted = options;
-        if (baseline.pin(key) != null
-                || !accepted.enabled()
-                || !accepted.accept().contains(command(key))) return false;
+        if (!accepted.enabled() || !accepted.accept().contains(command(key))) return false;
         String self = service.instanceId();
         boolean proxy = service.proxy();
         for (Entry entry : current.of(key)) {
@@ -446,10 +417,8 @@ public final class NetSettings {
 
     /** {@code key}'s value under {@code baseline} when {@code record} is the newest that names the instance or player. */
     static Value value(Baseline baseline, String key, @Nullable Record record) {
-        Pin pin = baseline.pin(key);
-        if (pin != null) return new Value(pin.on(), Source.PIN, record, pin.env());
-        if (record != null) return new Value(record.on(), Source.RECORD, record, null);
-        return new Value(on(key, baseline.config()), Source.CONFIG, null, null);
+        if (record != null) return new Value(record.on(), Source.RECORD, record);
+        return new Value(on(key, baseline.config()), Source.CONFIG, null);
     }
 
     /**

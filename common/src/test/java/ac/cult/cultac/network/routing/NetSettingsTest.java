@@ -115,7 +115,7 @@ class NetSettingsTest {
 
         @Override
         public RosterCache.State state(NetworkPlatform platform) {
-            return new RosterCache.State(true, false, List.of(), List.of(), 0, 0, 0);
+            return new RosterCache.State(true, false, List.of(), 0, 0, 0);
         }
 
         @Override
@@ -222,7 +222,7 @@ class NetSettingsTest {
 
         proxyNet.options = new NetCommands.Options(true, Set.of("status"), NetCommands.Webhook.NONE);
         atProxy.configLoaded();
-        assertEquals(new Value(false, Source.CONFIG, null, null), atProxy.value(OBSERVE));
+        assertEquals(new Value(false, Source.CONFIG, null), atProxy.value(OBSERVE));
         assertTrue(atProxy.records().containsAll(scoped));
     }
 
@@ -335,21 +335,6 @@ class NetSettingsTest {
         TestNetworks.sendDelta(p7);
         assertFalse(net.loadedObserveOnly);
         assertEquals(2, net.reloads.get());
-    }
-
-    @Test
-    void anEnvironmentPinIsReportedAndRecordsNothing() {
-        Net net = new Net(null);
-        net.baseline = new Baseline(false, false, false, List.of(), false);
-        NetSettings settings = networks.service("p3").net(net).start().netSettings();
-        settings.configLoaded();
-        assertEquals(List.of(), settings.records());
-
-        Record observe = record(OBSERVE, ON, "all", 10, A);
-        settings.merge(List.of(observe));
-
-        assertEquals(new Value(false, Source.PIN, observe, "CULTAC_OBSERVE_ONLY"), settings.value(OBSERVE));
-        assertEquals(List.of(observe), settings.records());
     }
 
     @Test

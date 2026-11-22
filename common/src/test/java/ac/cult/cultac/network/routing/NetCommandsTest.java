@@ -74,7 +74,7 @@ class NetCommandsTest {
         @Override
         public RosterCache.State state(NetworkPlatform platform) {
             int players = platform.onlinePlayers().size();
-            return new RosterCache.State(true, false, List.of(), List.of(), players, players, dormant);
+            return new RosterCache.State(true, false, List.of(), players, players, dormant);
         }
 
         @Override

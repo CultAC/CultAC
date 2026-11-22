@@ -95,11 +95,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private long transformTick;
     private int packetHandlerDeltaMovementSequence = 0;
     /**
-     * Always on. Only the live smoketests turn it off, with {@code CULT_VALIDATION_REACH_BUNDLE_DELIMITER=false},
+     * Always on. Only the live smoketests turn it off, with {@code -Dcult.validation.reachBundleDelimiter=false},
      * to exercise the transaction-only proof path.
      */
     private static final boolean REACH_BUNDLE_DELIMITER =
-            !"false".equalsIgnoreCase(System.getenv("CULT_VALIDATION_REACH_BUNDLE_DELIMITER"));
+            Boolean.parseBoolean(System.getProperty("cult.validation.reachBundleDelimiter", "true"));
 
     private boolean useReachBundleDelimiter = REACH_BUNDLE_DELIMITER;
     private boolean hasSentPreWavePacket = true;

@@ -5,10 +5,11 @@ work whichever server that player is on, tab completion offers players from ever
 `global` scope arrive from everywhere. Without it, each server only knows about its own players.
 
 Your servers talk to each other through a Redis or NATS server you already run, or through RedisBungee's connection.
-Everything is set in the `network` block of `config.yml`. Every setting can also be set with an environment variable,
-which takes priority when it is set and not blank: `CULTAC_NETWORK_TYPE`, `CULTAC_NETWORK_INSTANCE_ID`,
-`CULTAC_NETWORK_REDIS_ADDRESS`, `_USERNAME`, `_PASSWORD` and `_SSL`, and `CULTAC_NETWORK_NATS_ADDRESS`, `_USERNAME`,
-`_PASSWORD`, `_TOKEN`, `_CREDENTIALS_FILE` and `_SSL`. `/cult reload` applies changes.
+Everything is set in the `network` block of `config.yml`. The connection settings and credentials can also be set
+with an environment variable, which takes priority when it is set and not blank: `CULTAC_NETWORK_TYPE`,
+`CULTAC_NETWORK_SECRET`, `CULTAC_NETWORK_REDIS_ADDRESS`, `_USERNAME`, `_PASSWORD` and `_SSL`, and
+`CULTAC_NETWORK_NATS_ADDRESS`, `_USERNAME`, `_PASSWORD`, `_TOKEN`, `_CREDENTIALS_FILE` and `_SSL`. `/cult reload`
+applies changes.
 
 ## Choosing how your servers talk
 
@@ -139,7 +140,7 @@ refused, and nothing is sent.
 Commands:
 
 - `status`: for each server, its CultAC build, whether it is a proxy or a server, the players online, inspected and
-  dormant (not checked after a `toggle off`), whether it checks players, observe-only mode (and the environment variable that pins it), whether punishment
+  dormant (not checked after a `toggle off`), whether it checks players, observe-only mode, whether punishment
   commands run, the checks switched off, the average time per prediction, and how long the server and its running
   CultAC engine have been up. For a backend name, each proxy reports the players and settings on the backends named.
 - `reload`: reloads CultAC's configuration, as `/cult reload` does. It runs on proxies and servers only; a backend name
@@ -223,10 +224,6 @@ it on that server only, when it starts or on `/cult reload`; a later network com
 | `observe-only` | `false` | Flag and alert without acting. |
 | `checks-off` | `[]` | Checks that neither flag nor set back, by check name. |
 | `pause-punishments` | `false` | Withhold the punishment commands of `punishments.yml`. |
-
-`CULTAC_OBSERVE_ONLY` pins observe-only mode on its server: `true`, `1` or `yes` and `false`, `0` or `no` hold it at
-that value. The network's records still arrive and are kept, but do not change the pinned mode, and `status` shows the
-pin.
 
 `checks-off` takes any name a check has or had, in any case; a name that is not a check is
 logged once and ignored. When CultAC writes `checks-off`, it writes each check's current name.

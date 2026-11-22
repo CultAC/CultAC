@@ -14,7 +14,6 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import lombok.Getter;
@@ -26,7 +25,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BaseConfigManager {
 
-    public static final String OBSERVE_ONLY_ENV = "CULTAC_OBSERVE_ONLY";
     public static final String OBSERVE_ONLY_KEY = "observe-only";
     public static final String DORMANT_KEY = "dormant";
     public static final String CHECKS_OFF_KEY = "checks-off";
@@ -168,7 +166,7 @@ public class BaseConfigManager {
             }
         }
 
-        observeOnly = resolveObserveOnly(config, System::getenv);
+        observeOnly = config.getBooleanElse(OBSERVE_ONLY_KEY, false);
         if (observeOnly) {
             LogUtil.info("Observe-only mode: checks flag and alert; nothing acts on the player or their packets");
         }
@@ -228,23 +226,6 @@ public class BaseConfigManager {
         bedrockMovementSetbacksEnabled = config.getBooleanElse("cult.checks.bedrock-movement.enable-setbacks", true);
         exemptBedrockPlayers = config.getBooleanElse("cult.exempt-bedrock-players", false);
         exemptJavaPlayers = config.getBooleanElse("cult.exempt-java-players", false);
-    }
-
-    /** {@code CULTAC_OBSERVE_ONLY} when it reads true/1/yes or false/0/no, else {@code observe-only}. */
-    static boolean resolveObserveOnly(ConfigManager config, Function<String, String> env) {
-        Boolean pinned = observeOnlyPin(env);
-        return pinned != null ? pinned : config.getBooleanElse(OBSERVE_ONLY_KEY, false);
-    }
-
-    /** The mode {@code CULTAC_OBSERVE_ONLY} pins, or null when the config key decides. */
-    public static @Nullable Boolean observeOnlyPin(Function<String, String> env) {
-        String value = env.apply(OBSERVE_ONLY_ENV);
-        if (value == null) return null;
-        return switch (value.strip().toLowerCase(Locale.ROOT)) {
-            case "true", "1", "yes" -> true;
-            case "false", "0", "no" -> false;
-            default -> null;
-        };
     }
 
     /**

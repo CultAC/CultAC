@@ -8,7 +8,6 @@ public class CommonCultArguments {
 
     private static final SystemArgumentFactory FACTORY = SystemArgumentFactory.Builder.of("Cult")
             .optionModifier(builder -> builder.key("Cult" + builder.options().getKey()))
-            .supportEnv()
             .build();
 
     public static final SystemArgument<String> API_URL =

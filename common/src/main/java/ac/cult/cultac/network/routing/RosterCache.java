@@ -71,39 +71,30 @@ final class RosterCache {
 
     /**
      * An instance's switchable state and player counts: whether it checks players ({@code toggle}), whether it observes
-     * only, the stable keys of the checks switched off, the environment variables that pin a setting, the players
-     * online, those inspected and those dormant, and the backend servers it answers for: every server registered with
-     * a proxy, players or not, and a server's own id. On the wire {@code {toggle, observe, off:[], pins:[], players,
-     * inspected, dormant, backends:[]}}, {@code toggle} and {@code observe} being {@code on} or {@code off}.
+     * only, the stable keys of the checks switched off, the players online, those inspected and those dormant, and the
+     * backend servers it answers for: every server registered with a proxy, players or not, and a server's own id. On
+     * the wire {@code {toggle, observe, off:[], players, inspected, dormant, backends:[]}}, {@code toggle} and
+     * {@code observe} being {@code on} or {@code off}; a field this build does not read is ignored.
      */
     record State(
             boolean checking,
             boolean observe,
             List<String> off,
-            List<String> pins,
             int players,
             int inspected,
             int dormant,
             List<String> backends) {
         State {
             off = List.copyOf(off);
-            pins = List.copyOf(pins);
             backends = List.copyOf(backends);
         }
 
-        State(
-                boolean checking,
-                boolean observe,
-                List<String> off,
-                List<String> pins,
-                int players,
-                int inspected,
-                int dormant) {
-            this(checking, observe, off, pins, players, inspected, dormant, List.of());
+        State(boolean checking, boolean observe, List<String> off, int players, int inspected, int dormant) {
+            this(checking, observe, off, players, inspected, dormant, List.of());
         }
 
         State withBackends(List<String> names) {
-            return new State(checking, observe, off, pins, players, inspected, dormant, names);
+            return new State(checking, observe, off, players, inspected, dormant, names);
         }
 
         JsonObject toJson() {
@@ -111,7 +102,6 @@ final class RosterCache {
             json.addProperty("toggle", checking ? "on" : "off");
             json.addProperty("observe", observe ? "on" : "off");
             json.add("off", array(off));
-            json.add("pins", array(pins));
             json.addProperty("players", players);
             json.addProperty("inspected", inspected);
             json.addProperty("dormant", dormant);
@@ -130,7 +120,6 @@ final class RosterCache {
                     !"off".equals(text(object, "toggle")),
                     "on".equals(text(object, "observe")),
                     texts(object, "off"),
-                    texts(object, "pins"),
                     count(object, "players"),
                     count(object, "inspected"),
                     count(object, "dormant"),

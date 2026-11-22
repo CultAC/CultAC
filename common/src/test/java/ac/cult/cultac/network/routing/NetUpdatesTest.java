@@ -79,7 +79,7 @@ class NetUpdatesTest {
 
         @Override
         public RosterCache.State state(NetworkPlatform platform) {
-            return new RosterCache.State(true, false, List.of(), List.of(), 0, 0, 0);
+            return new RosterCache.State(true, false, List.of(), 0, 0, 0);
         }
 
         @Override

@@ -255,7 +255,7 @@ final class NetCommands {
         /** Posts {@code line} to the webhook at {@code url}, not empty. */
         default void post(String url, String line) {}
 
-        /** config.yml's values of the shared settings and the environment variables pinning them, as loaded now. */
+        /** config.yml's values of the shared settings, as loaded now. */
         default NetSettings.Baseline baseline() {
             return NetSettings.Baseline.DEFAULT;
         }
@@ -326,7 +326,6 @@ final class NetCommands {
                     NetworkModule.setting(NetSettings.TOGGLE).on(),
                     NetworkModule.setting(NetSettings.OBSERVE).on(),
                     List.copyOf(NetworkModule.checksOff(null)),
-                    baseline().pins(),
                     online.size(),
                     CultAPI.INSTANCE.getPlayerDataManager().size() + elsewhere,
                     DormancyController.dormantPlayers(null));
@@ -381,8 +380,7 @@ final class NetCommands {
                     config.isDormant(),
                     config.getConfig().getBooleanElse(BaseConfigManager.OBSERVE_ONLY_KEY, false),
                     config.isPausePunishments(),
-                    config.getChecksOff(),
-                    BaseConfigManager.observeOnlyPin(System::getenv));
+                    config.getChecksOff());
         }
 
         @Override
@@ -521,7 +519,6 @@ final class NetCommands {
             Map.entry("failed", new Text("net-failed", "&cfailed: %reason%")),
             Map.entry("reloaded", new Text("reloaded", "%prefix% &fConfig has been reloaded.")),
             Map.entry("reload-failed", new Text("reload-failed", "%prefix% &cFailed to reload config.")),
-            Map.entry("pinned", new Text("net-pinned", "&enot changed: pinned by %env%")),
             Map.entry("observe-state", new Text("net-observe-state", "&f%players%: %state%")),
             Map.entry("observe-applied", new Text("net-observe-applied", "&f%players%: now %state%")),
             Map.entry(
@@ -1065,8 +1062,6 @@ final class NetCommands {
         if (request.args().isEmpty())
             return CompletableFuture.completedFuture(Reply.of(
                     true, key + "-state", Map.of("players", players, "state", described(key, backends, true))));
-        String pin = service.netSettings().value(key).pin();
-        if (pin != null) return CompletableFuture.completedFuture(Reply.of(false, "pinned", Map.of("env", pin)));
         if (backends != null || !key.equals(NetSettings.OBSERVE))
             return CompletableFuture.completedFuture(Reply.of(
                     true, key + "-applied", Map.of("players", players, "state", described(key, backends, false))));
@@ -1155,7 +1150,6 @@ final class NetCommands {
             case NetSettings.TOGGLE -> value.on() ? "checking" : "dormant";
             default -> value.on() ? NetSettings.ON : NetSettings.OFF;
         };
-        if (value.pin() != null) return state + " (pinned by " + value.pin() + ")";
         if (!source) return state;
         NetSettings.Record record = value.record();
         return record == null || record.by().equals(NetSettings.HAND_EDIT)
