@@ -90,17 +90,4 @@ final class VelocityWorld implements PlatformWorld {
                 && connection().phase(PacketDirection.CLIENTBOUND) == ConnectionPhase.PLAY
                 && matches(player.getNative().getCurrentServer().orElse(null), state.world);
     }
-
-    @Override
-    public boolean isChunkLoaded(int x, int z) {
-        return isLoaded() && player.observed().compensatedWorld.peekChunkLoaded(x, z);
-    }
-
-    @Override
-    public int getBlockAt(int x, int y, int z) {
-        if (!isLoaded()) {
-            throw new IllegalStateException("Client world is unavailable");
-        }
-        return player.observed().compensatedWorld.peekBlockStateIdAt(x, y, z);
-    }
 }

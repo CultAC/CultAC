@@ -14,7 +14,6 @@ import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.command.CommandService;
-import ac.cult.cultac.platform.api.manager.ItemResetHandler;
 import ac.cult.cultac.platform.api.manager.MessagePlaceHolderManager;
 import ac.cult.cultac.platform.api.manager.PermissionRegistrationManager;
 import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
@@ -138,10 +137,6 @@ public final class CultAPI {
 
     public SenderFactory<?> getSenderFactory() {
         return loader.getSenderFactory();
-    }
-
-    public ItemResetHandler getItemResetHandler() {
-        return loader.getItemResetHandler();
     }
 
     public PlatformPluginManager getPluginManager() {

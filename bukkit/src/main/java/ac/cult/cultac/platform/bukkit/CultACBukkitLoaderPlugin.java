@@ -15,7 +15,6 @@ import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.command.CommandService;
-import ac.cult.cultac.platform.api.manager.ItemResetHandler;
 import ac.cult.cultac.platform.api.manager.MessagePlaceHolderManager;
 import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
@@ -27,7 +26,6 @@ import ac.cult.cultac.platform.bukkit.cloud.BukkitCloudFacts;
 import ac.cult.cultac.platform.bukkit.initables.BukkitEventManager;
 import ac.cult.cultac.platform.bukkit.initables.BukkitLuckPermsInitable;
 import ac.cult.cultac.platform.bukkit.manager.BukkitCloudPlatformCommandArguments;
-import ac.cult.cultac.platform.bukkit.manager.BukkitItemResetHandler;
 import ac.cult.cultac.platform.bukkit.manager.BukkitMessagePlaceHolderManager;
 import ac.cult.cultac.platform.bukkit.manager.BukkitPermissionRegistrationManager;
 import ac.cult.cultac.platform.bukkit.manager.BukkitPlatformPluginManager;
@@ -67,7 +65,6 @@ public final class CultACBukkitLoaderPlugin implements PlatformLoader {
 
     private final LazyHolder<PlatformScheduler> scheduler = LazyHolder.simple(this::createScheduler);
     private final LazyHolder<BukkitSenderFactory> senderFactory = LazyHolder.simple(BukkitSenderFactory::new);
-    private final LazyHolder<ItemResetHandler> itemResetHandler = LazyHolder.simple(BukkitItemResetHandler::new);
     private final LazyHolder<CommandService> commandService = LazyHolder.simple(this::createCommandService);
     private final CloudPlatformCommandArguments commandArguments = new BukkitCloudPlatformCommandArguments();
 
@@ -156,11 +153,6 @@ public final class CultACBukkitLoaderPlugin implements PlatformLoader {
     @Override
     public PlatformScheduler getScheduler() {
         return scheduler.get();
-    }
-
-    @Override
-    public ItemResetHandler getItemResetHandler() {
-        return itemResetHandler.get();
     }
 
     @Override

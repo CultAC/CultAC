@@ -52,8 +52,6 @@ public interface PlatformServer {
 
     Sender getConsoleSender();
 
-    void registerOutgoingPluginChannel(String name);
-
     void forwardAlert(String message);
 
     /** Whether this server shows the alerts other servers forward to it through the proxy's plugin messaging. */

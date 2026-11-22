@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class SessionTrackerTest {
     @Test
     void oldDisconnectAndBrandCannotCloseOrReplaceReconnectedSession() {
-        var tracker = new SessionTrackerImpl(mock(DataStore.class), "test", 100);
+        var tracker = new SessionTrackerImpl(mock(DataStore.class), 100);
         UUID player = UUID.randomUUID();
         var oldMeta = new SessionTracker.ClientMeta("1@abc", "old", 1, "test", UUID.randomUUID());
         var newMeta = new SessionTracker.ClientMeta("2@def", "new", 1, "test", UUID.randomUUID());
@@ -32,7 +32,7 @@ class SessionTrackerTest {
 
     @Test
     void existingCallersWithoutConnectionTokensRetainSessionSemantics() {
-        var tracker = new SessionTrackerImpl(mock(DataStore.class), "test", 100);
+        var tracker = new SessionTrackerImpl(mock(DataStore.class), 100);
         UUID player = UUID.randomUUID();
         UUID first = tracker.observeActivity(player, 1000, SessionTracker.ClientMeta.empty());
         assertEquals(first, tracker.observeActivity(player, 2000, SessionTracker.ClientMeta.empty()));

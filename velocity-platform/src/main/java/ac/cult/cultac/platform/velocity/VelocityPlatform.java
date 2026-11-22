@@ -17,11 +17,9 @@ import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.command.CommandService;
-import ac.cult.cultac.platform.api.manager.ItemResetHandler;
 import ac.cult.cultac.platform.api.manager.MessagePlaceHolderManager;
 import ac.cult.cultac.platform.api.manager.PermissionRegistrationManager;
 import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
-import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
 import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.sender.SenderFactory;
@@ -39,7 +37,6 @@ import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.data.ProtocolData;
-import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.reload.host.SharedPlugin;
@@ -322,26 +319,6 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     @Override
     public void registerAPIService() {
         if (RuntimeEnvironment.host() == null) GrimAPIProvider.init(CultAPI.INSTANCE.getExternalAPI());
-    }
-
-    @Override
-    public ItemResetHandler getItemResetHandler() {
-        return new ItemResetHandler() {
-            @Override
-            public void resetItemUsage(PlatformPlayer player) {
-                // A proxy clear must name the use it ends; this request names none.
-            }
-
-            @Override
-            public boolean isUsingItem(PlatformPlayer player) {
-                return false;
-            }
-
-            @Override
-            public Hand getItemUsageHand(PlatformPlayer player) {
-                return null;
-            }
-        };
     }
 
     VelocitySenders senders() {

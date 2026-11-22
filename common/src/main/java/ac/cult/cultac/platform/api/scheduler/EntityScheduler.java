@@ -85,27 +85,4 @@ public interface EntityScheduler {
             @NotNull Runnable task,
             @Nullable Runnable retired,
             long delayTicks);
-
-    /**
-     * Schedules a repeating task with the given delay and period. If the task failed to schedule because the scheduler is retired (entity removed),
-     * then returns null. Otherwise, either the task callback will be invoked after the specified delay, or the retired callback will be invoked if the scheduler is retired.
-     * Note that the retired callback is invoked in critical code, so it should not attempt to remove the entity,
-     * remove other entities, load chunks, load worlds, modify ticket levels, etc.
-     * <p>
-     * It is guaranteed that the task and retired callback are invoked on the region which owns the entity.
-     *
-     * @param plugin            The plugin that owns the task
-     * @param task              The task to execute
-     * @param retired           Retire callback to run if the entity is retired before the run callback can be invoked, may be null.
-     * @param initialDelayTicks The initial delay, in ticks before the method is invoked. Any value less-than 1 may throw an error.
-     * @param periodTicks       The period, in ticks. Any value less-than 1 may throw an error.
-     * @return {@link TaskHandle} instance representing a wrapped task
-     */
-    TaskHandle runAtFixedRate(
-            @NotNull CultEntity entity,
-            @NotNull GrimPlugin plugin,
-            @NotNull Runnable task,
-            @Nullable Runnable retired,
-            long initialDelayTicks,
-            long periodTicks);
 }

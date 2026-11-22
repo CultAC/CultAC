@@ -19,7 +19,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.AbstractCheck;
 import com.velocitypowered.api.proxy.ProxyServer;
-import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -182,11 +181,6 @@ final class VelocityServer implements PlatformServer {
     @Override
     public Sender getConsoleSender() {
         return senders.wrap(proxy.getConsoleCommandSource());
-    }
-
-    @Override
-    public void registerOutgoingPluginChannel(String name) {
-        proxy.getChannelRegistrar().register(MinecraftChannelIdentifier.from(name));
     }
 
     @Override

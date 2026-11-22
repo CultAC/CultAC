@@ -328,11 +328,9 @@ class ObserveOnlyCallSiteTest {
             platform/bukkit/BukkitPlatformServer.java#runCommand(Sender,String,PlatformPlayer) dispatchCommand
             platform/bukkit/BukkitValidationBlocks.java#apply(PlatformPlayer,int,int,int,String,Runnable) setBlockData
             platform/bukkit/PaperInjector.java#injectNew(Channel) inject
-            platform/bukkit/PaperInjector.java#register() inject x2
             platform/bukkit/PaperRuntimeEntrypoint.java#attach(Object,Object) inject
             platform/bukkit/entity/BukkitCultEntity.java#eject() eject
             platform/bukkit/entity/BukkitCultEntity.java#teleportAsync(Location) teleportAsync
-            platform/bukkit/manager/BukkitItemResetHandler.java#resetItemUsage(PlatformPlayer) clearActiveItem
             platform/bukkit/player/BukkitPlatformPlayer.java#closeInventory() closeInventory
             platform/bukkit/player/BukkitPlatformPlayer.java#eject() eject
             platform/bukkit/player/BukkitPlatformPlayer.java#kickPlayer(String) kickPlayer

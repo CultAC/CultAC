@@ -53,14 +53,6 @@ public class BukkitPlatformServer implements PlatformServer {
     }
 
     @Override
-    public void registerOutgoingPluginChannel(String name) {
-        CultACBukkitLoaderPlugin.LOADER
-                .getServer()
-                .getMessenger()
-                .registerOutgoingPluginChannel(CultACBukkitLoaderPlugin.LOADER, name);
-    }
-
-    @Override
     public void forwardAlert(String message) {
         ProxyAlertMessenger.sendPluginMessage(message);
     }
