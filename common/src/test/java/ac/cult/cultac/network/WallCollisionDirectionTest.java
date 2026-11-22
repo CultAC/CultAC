@@ -12,6 +12,8 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Entity#collide clips each axis only against shapes ahead of the move: a wall behind the player never shortens a
@@ -38,21 +40,12 @@ class WallCollisionDirectionTest {
         }
     }
 
-    @Test
-    void stayingAtTheWallUnderKnockbackAwayFromItFlags() throws Exception {
+    @ParameterizedTest
+    @ValueSource(doubles = {0.0, 0.25})
+    void takingLessOfTheKnockbackAwayFromTheWallFlags(double taken) throws Exception {
         try (var f = fixture(FLUSH, true, false, NONE, 0.0F)) {
             f.pongThrough(f.velocity(new Vec3(0.5, 0.0, 0.3)));
-            PredictionResult result = f.tick(FLUSH.add(0, 0, 0.3), false);
-            assertTrue(result.getOffset() > 1.0E-3, describe(result));
-            assertTrue(antiKb(f) > 0, describe(result));
-        }
-    }
-
-    @Test
-    void takingPartOfTheKnockbackAwayFromTheWallFlags() throws Exception {
-        try (var f = fixture(FLUSH, true, false, NONE, 0.0F)) {
-            f.pongThrough(f.velocity(new Vec3(0.5, 0.0, 0.3)));
-            PredictionResult result = f.tick(FLUSH.add(0.25, 0, 0.3), false);
+            PredictionResult result = f.tick(FLUSH.add(taken, 0, 0.3), false);
             assertTrue(result.getOffset() > 1.0E-3, describe(result));
             assertTrue(antiKb(f) > 0, describe(result));
         }

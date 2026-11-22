@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * With a positive attack_knockback every hit on a player reaches Player#causeExtraKnockback, and the client's
@@ -20,28 +22,21 @@ class RepeatedAttackDampingTest {
         return s.move(damping);
     }
 
-    @Test
-    void fiveHitsWithoutTheirDampingFlag() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {5, 6})
+    void hitsWithoutTheirDampingFlag(int hits) throws Exception {
         try (var s = new SprintingAttacker(true)) {
-            PredictionResult r = afterHits(s, 5, 1.0D);
-            assertEquals(5, r.getSimulationContext().getMinAttackSlow(), describe(r));
+            PredictionResult r = afterHits(s, hits, 1.0D);
+            assertEquals(hits, r.getSimulationContext().getMinAttackSlow(), describe(r));
             assertTrue(s.keepSprint() > 0, describe(r));
         }
     }
 
-    @Test
-    void sixHitsWithoutTheirDampingFlag() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {6, 20})
+    void hitsWithTheirDampingAreExact(int hits) throws Exception {
         try (var s = new SprintingAttacker(true)) {
-            PredictionResult r = afterHits(s, 6, 1.0D);
-            assertEquals(6, r.getSimulationContext().getMinAttackSlow(), describe(r));
-            assertTrue(s.keepSprint() > 0, describe(r));
-        }
-    }
-
-    @Test
-    void sixHitsWithTheirDampingAreExact() throws Exception {
-        try (var s = new SprintingAttacker(true)) {
-            PredictionResult r = afterHits(s, 6, Math.pow(0.6D, 6));
+            PredictionResult r = afterHits(s, hits, Math.pow(0.6D, hits));
             assertTrue(exact(r), describe(r));
             assertEquals(0.0D, s.keepSprint(), describe(r));
         }
@@ -55,15 +50,6 @@ class RepeatedAttackDampingTest {
             PredictionResult r = afterHits(s, 6, Math.pow(0.6D, 7));
             assertEquals(6, r.getSimulationContext().getMinAttackSlow(), describe(r));
             assertEquals(7, r.getSimulationContext().getMaxAttackSlow(), describe(r));
-            assertTrue(exact(r), describe(r));
-            assertEquals(0.0D, s.keepSprint(), describe(r));
-        }
-    }
-
-    @Test
-    void twentyHitsWithTheirDampingAreExact() throws Exception {
-        try (var s = new SprintingAttacker(true)) {
-            PredictionResult r = afterHits(s, 20, Math.pow(0.6D, 20));
             assertTrue(exact(r), describe(r));
             assertEquals(0.0D, s.keepSprint(), describe(r));
         }
