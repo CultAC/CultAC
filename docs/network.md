@@ -132,7 +132,8 @@ The target is one or more of these, joined by commas without spaces (`BRG_*,lobb
 
 Names ignore case. A server named `proxies` is reached as `id:proxies`. Tab completion offers the keywords, the
 servers heard from, every backend registered with a proxy (with players or not) and a pattern for each group of names
-that share a prefix, such as `BRG_*`; after a comma it completes the next name. A name that no proxy or server knows is
+that share a prefix, such as `BRG_*`. A complete name is also offered with a comma after it, and after a comma it
+completes the next name, leaving out the names a pattern already given covers. A name that no proxy or server knows is
 refused, and nothing is sent.
 
 Commands:

@@ -102,6 +102,7 @@ public final class NetworkModule {
         if (running == null) return;
         if (settings.equals(running.settings())) {
             running.netSettings().configLoaded();
+            running.netCommands().configLoaded();
             return;
         }
         end(NetworkModule::closeInBackground);

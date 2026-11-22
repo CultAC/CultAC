@@ -64,7 +64,8 @@ import org.jetbrains.annotations.Nullable;
  * issuer granted {@code cult.net.<command>}. The issuer shows each answer as it arrives and a summary once every
  * expected instance gave its final answer or the command's time ran out. One sender has one command in flight, an
  * instance at most {@value #MAX_PENDING} awaiting answers, and an instance runs at most {@value #MAX_RUNNING}
- * received ones at once. Each run and each issue and summary is logged as one audit line.
+ * received ones at once and takes {@value #BURST} from one origin in a burst, then one every
+ * {@value #REFILL_MILLIS} ms. Each run and each issue and summary is logged as one audit line.
  */
 final class NetCommands {
     static final String CMD = "net.cmd";
@@ -83,8 +84,13 @@ final class NetCommands {
     static final int MAX_ARGS = 8;
     static final int MAX_ARG_LENGTH = 200;
     static final int MAX_TERMS = 32;
+    /** The commands one origin can have taken here at once after a quiet spell. */
+    static final int BURST = 20;
+    /** How often an origin earns back one command of its {@link #BURST}. */
+    static final long REFILL_MILLIS = 500;
 
     private static final int MAX_LISTED_BACKENDS = 8;
+    private static final int MAX_ORIGINS = 256;
     private static final Pattern COMMAND_NAME = Pattern.compile("[a-z]{1,32}");
     private static final Pattern NAME_TERM = Pattern.compile("[A-Za-z0-9._*-]{1,64}");
     private static final Pattern COLOR = Pattern.compile("&[0-9a-fk-orA-FK-OR]");
@@ -194,8 +200,13 @@ final class NetCommands {
             task.run();
         }
 
-        /** Posts {@code line} to {@code update.webhook}; nothing while that is empty. */
-        default void post(String line) {}
+        /** {@code update.webhook} as config.yml holds it; empty for none. */
+        default String webhook() {
+            return "";
+        }
+
+        /** Posts {@code line} to the webhook at {@code url}, not empty. */
+        default void post(String url, String line) {}
 
         /** config.yml's values of the shared settings and the environment variables pinning them, as loaded now. */
         default NetSettings.Baseline baseline() {
@@ -215,7 +226,7 @@ final class NetCommands {
 
     static final Local CULT = new Local() {
         private final long started = System.currentTimeMillis();
-        private volatile @Nullable UpdateWebhook webhook;
+        private volatile @Nullable UpdateWebhook hook;
 
         @Override
         public String build() {
@@ -273,16 +284,15 @@ final class NetCommands {
         }
 
         @Override
-        public void post(String line) {
-            HostContext host = RuntimeEnvironment.host();
-            Path directory = host == null
-                    ? CultAPI.INSTANCE.getGrimPlugin().getDataFolder().toPath()
-                    : host.directory();
-            String url = UpdateSettings.read(directory, "", System::getenv).webhook();
-            if (url.isEmpty()) return;
-            UpdateWebhook hook = webhook;
-            if (hook == null) webhook = hook = new UpdateWebhook();
-            hook.post(url, line, LogUtil::warn);
+        public String webhook() {
+            return UpdateSettings.read(directory(), "", System::getenv).webhook();
+        }
+
+        @Override
+        public void post(String url, String line) {
+            UpdateWebhook poster = hook;
+            if (poster == null) hook = poster = new UpdateWebhook();
+            poster.post(url, line, LogUtil::warn);
         }
 
         @Override
@@ -338,8 +348,14 @@ final class NetCommands {
             "net-off", "%prefix% &eNetwork routing is off on this server, so network commands reach this server only.");
     private static final Text BUSY =
             new Text("net-busy", "%prefix% &cA network command is still running; try again in a few seconds.");
+    private static final Text INVALID_TERM = new Text(
+            "net-invalid-term",
+            "%prefix% &c%term% is not a valid target. Names take letters, digits and . _ - *; join several with commas,"
+                    + " no spaces.");
     private static final Text UNKNOWN =
             new Text("net-unknown", "%prefix% &cNo proxy or server is named %term%; nothing was sent.");
+    private static final Text NO_MATCH =
+            new Text("net-no-match", "%prefix% &cNothing matches %term%; nothing was sent.");
     private static final Text NOT_LISTED =
             new Text("net-not-listed", "%prefix% &eNo proxy lists %term%; the setting applies when it appears.");
     private static final Text BACKEND_TERM =
@@ -379,15 +395,22 @@ final class NetCommands {
             new Text("net-refused-invalid", "&crefused: %cmd% does not take these arguments"),
             "refused-busy",
             new Text("net-refused-busy", "&crefused: too many network commands are running here"),
+            "refused-rate",
+            new Text("net-refused-rate", "&crefused: too many network commands from %instance% lately"),
             "failed",
             new Text("net-failed", "&cfailed: %reason%"));
 
     private final NetworkService service;
+    private final LongSupplier clock;
     private final Local local;
     private final SharedClaims claims;
     private final Map<String, Request> pending = new ConcurrentHashMap<>();
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
     private final AtomicInteger running = new AtomicInteger();
+    /** Per origin, when its {@link #BURST} is whole again; guarded by itself. */
+    private final Map<String, Long> budgets = new HashMap<>();
+    /** {@code update.webhook}, read on the worker once per config.yml load; null until the next post reads it. */
+    private volatile @Nullable String webhookUrl;
     /** Shows the answers and summaries, and ends each command at its deadline. */
     private final ScheduledThreadPoolExecutor worker = new ScheduledThreadPoolExecutor(1, task -> {
         Thread thread = new Thread(task, "CultAC network commands");
@@ -400,6 +423,7 @@ final class NetCommands {
     /** Commands for {@code service}; {@code host} shares the claimed command ids with the other generations. */
     NetCommands(NetworkService service, LongSupplier clock, Local local, @Nullable HostContext host) {
         this.service = service;
+        this.clock = clock;
         this.local = local;
         this.claims = new SharedClaims(host, CLAIMS, clock);
         worker.setRemoveOnCancelPolicy(true);
@@ -409,6 +433,11 @@ final class NetCommands {
     void register() {
         service.on(CMD, this::received);
         service.on(REPLY, this::answered);
+    }
+
+    /** Has the next post read {@code update.webhook} again; called after config.yml reloads. */
+    void configLoaded() {
+        webhookUrl = null;
     }
 
     /**
@@ -423,6 +452,11 @@ final class NetCommands {
     CompletableFuture<Void> issue(Sender sender, String typed, @Nullable Spec spec, List<String> args) {
         CompletableFuture<Void> none = CompletableFuture.completedFuture(null);
         Target target = Target.parse(typed);
+        String malformed = target == null && spec != null ? Target.malformed(typed) : null;
+        if (malformed != null) {
+            sender.sendMessage(INVALID_TERM.render(sender, Map.of("term", malformed)));
+            return none;
+        }
         if (spec == null || target == null || !acceptable(args) || !spec.valid().test(args)) {
             usage(sender);
             return none;
@@ -443,7 +477,8 @@ final class NetCommands {
         for (Term term : target.terms()) {
             if (bus && !term.known(known)) {
                 if (setting == null) {
-                    sender.sendMessage(UNKNOWN.render(sender, Map.of("term", term.text())));
+                    sender.sendMessage(
+                            (term.pattern() ? NO_MATCH : UNKNOWN).render(sender, Map.of("term", term.text())));
                     return none;
                 }
                 unlisted.add(term.text());
@@ -465,6 +500,7 @@ final class NetCommands {
         boolean here = false;
         Set<String> expected = new TreeSet<>();
         Set<String> older = new TreeSet<>();
+        Set<String> possible = new TreeSet<>();
         for (Known instance : known) {
             if (instance.older()) {
                 if (target.namesOlder(instance.id())) older.add(instance.id());
@@ -472,6 +508,8 @@ final class NetCommands {
                     || !Target.matching(instance.backends(), scope).isEmpty()) {
                 expected.add(instance.id());
                 if (instance.id().equals(self)) here = true;
+            } else if (instance.undescribed() && (target.namesProxies() || !scope.isEmpty())) {
+                possible.add(instance.id());
             }
         }
         if (!bus) {
@@ -479,6 +517,7 @@ final class NetCommands {
             if (!here) return none;
         }
         Set<String> remote = new TreeSet<>(expected);
+        remote.addAll(possible);
         remote.remove(self);
         boolean broadcast = bus && (target.open() || remote.size() > 1);
         UUID senderId = sender.getUniqueId() == null ? Sender.CONSOLE_UUID : sender.getUniqueId();
@@ -489,8 +528,8 @@ final class NetCommands {
             usage(sender);
             return none;
         }
-        Request request =
-                new Request(id, sender, senderId, target, spec, List.copyOf(args), expected, older, broadcast);
+        Request request = new Request(
+                id, sender, senderId, target, spec, List.copyOf(args), expected, older, possible, broadcast);
         synchronized (this) {
             if (closed) {
                 off(sender);
@@ -508,7 +547,7 @@ final class NetCommands {
         sender.sendMessage(SENT.render(
                 sender, Map.of("cmd", spec.name(), "count", String.valueOf(expected.size()), "target", target.text())));
         request.logged("sent to " + expected.size());
-        if (expected.isEmpty() && !broadcast) {
+        if (expected.isEmpty() && possible.isEmpty() && !broadcast) {
             request.finish();
             return request.done;
         }
@@ -561,19 +600,34 @@ final class NetCommands {
         return true;
     }
 
-    /** {@code typed} up to its last comma followed by each of {@code candidates} that completes the rest, in order. */
+    /**
+     * {@code typed} up to its last comma followed by each of {@code candidates} that completes the rest and that no term
+     * before it names, in order; a candidate the rest already spells out is offered with a comma as well.
+     */
     static List<String> complete(String typed, Collection<String> candidates) {
         int comma = typed.lastIndexOf(',');
         String head = typed.substring(0, comma + 1);
         String partial = typed.substring(comma + 1).toLowerCase(Locale.ROOT);
         Set<String> given = new HashSet<>();
         for (String term : head.split(",")) given.add(term.strip().toLowerCase(Locale.ROOT));
+        if (given.contains(NetworkSettings.ALL)) return List.of();
         Set<String> offered = new LinkedHashSet<>();
         for (String candidate : candidates) {
             String lower = candidate.toLowerCase(Locale.ROOT);
-            if (!given.contains(lower) && lower.startsWith(partial)) offered.add(head + candidate);
+            if (given.contains(lower) || !lower.startsWith(partial) || covered(given, candidate)) continue;
+            offered.add(head + candidate);
+            if (lower.equals(partial) && !lower.equals(NetworkSettings.ALL)) offered.add(head + candidate + ",");
         }
         return List.copyOf(offered);
+    }
+
+    /** Whether a pattern of {@code given} matches {@code candidate}; patterns name no keyword. */
+    private static boolean covered(Set<String> given, String candidate) {
+        if (candidate.equalsIgnoreCase(NetworkSettings.ALL) || candidate.equalsIgnoreCase(PROXIES)) return false;
+        for (String term : given) {
+            if (term.indexOf('*') >= 0 && glob(term, candidate)) return true;
+        }
+        return false;
     }
 
     /**
@@ -608,7 +662,7 @@ final class NetCommands {
     private List<Known> known(boolean bus) {
         String self = service.instanceId();
         List<Known> known = new ArrayList<>();
-        known.add(new Known(self, service.proxy(), false, service.backends()));
+        known.add(new Known(self, service.proxy(), false, false, service.backends()));
         if (!bus) return known;
         for (Instance peer : service.instances()) {
             if (peer.id().equals(self)) continue;
@@ -616,7 +670,8 @@ final class NetCommands {
             known.add(new Known(
                     peer.id(),
                     RosterCache.PROXY.equals(peer.role()),
-                    peer.role() == null,
+                    peer.older(),
+                    !peer.older() && peer.role() == null,
                     state == null ? List.of() : state.backends()));
         }
         return known;
@@ -699,6 +754,10 @@ final class NetCommands {
             if (backends.isEmpty()) return;
         }
         if (!claims.claim(request.id())) return;
+        if (!admit(request.origin())) {
+            answer(request, Webhook.NONE, Reply.of(false, "refused-rate", Map.of("instance", request.origin())));
+            return;
+        }
         Options options;
         try {
             options = local.options();
@@ -737,12 +796,24 @@ final class NetCommands {
         }
     }
 
+    /** Takes one command from {@code origin}'s {@link #BURST}; false when it is spent. */
+    private boolean admit(String origin) {
+        long now = clock.getAsLong();
+        synchronized (budgets) {
+            if (budgets.size() >= MAX_ORIGINS) budgets.values().removeIf(whole -> whole <= now);
+            long whole = Math.max(budgets.getOrDefault(origin, now), now);
+            if (whole - now > (BURST - 1) * REFILL_MILLIS) return false;
+            budgets.put(origin, whole + REFILL_MILLIS);
+            return true;
+        }
+    }
+
     private static @Nullable Reply refusal(Received request, Options options, boolean scoped) {
         String command = request.cmd();
         Spec spec = COMMANDS.get(command);
+        if (spec == null) return Reply.of(false, "refused-unsupported", Map.of("cmd", command));
         if (!options.enabled()) return Reply.of(false, "refused-disabled", Map.of());
         if (!options.accept().contains(command)) return Reply.of(false, "refused-not-accepted", Map.of("cmd", command));
-        if (spec == null) return Reply.of(false, "refused-unsupported", Map.of("cmd", command));
         if (!request.granted().contains(spec.permission()))
             return Reply.of(false, "refused-permission", Map.of("sender", request.name(), "node", spec.permission()));
         if (!spec.valid().test(request.args()) || (scoped && !spec.backends()))
@@ -844,9 +915,20 @@ final class NetCommands {
         }
     }
 
+    /** Posts {@code line} to {@code update.webhook} from the worker, or on this thread when the worker is shut down. */
     private void post(String line) {
         try {
-            local.post("[CultAC] " + line);
+            worker.execute(() -> postNow(line));
+        } catch (RejectedExecutionException stopped) {
+            postNow(line);
+        }
+    }
+
+    private void postNow(String line) {
+        try {
+            String url = webhookUrl;
+            if (url == null) webhookUrl = url = local.webhook();
+            if (!url.isEmpty()) local.post(url, "[CultAC] " + line);
         } catch (RuntimeException failure) {
             LogUtil.warn("Network command webhook post failed", failure);
         }
@@ -893,8 +975,11 @@ final class NetCommands {
         return template;
     }
 
-    /** An instance a command can address, and the backend servers it answers for. */
-    private record Known(String id, boolean proxy, boolean older, List<String> backends) {}
+    /**
+     * An instance a command can address, and the backend servers it answers for; {@code undescribed} while its role and
+     * backends are not known yet.
+     */
+    private record Known(String id, boolean proxy, boolean older, boolean undescribed, List<String> backends) {}
 
     /** One term of a target: {@code all}, {@code proxies}, {@code id:<instance id>}, or a name or pattern. */
     record Term(Kind kind, String value) {
@@ -922,6 +1007,11 @@ final class NetCommands {
             return kind == Kind.ID ? ID_PREFIX + value : value;
         }
 
+        /** Whether the term is a pattern. */
+        boolean pattern() {
+            return kind == Kind.NAME && value.indexOf('*') >= 0;
+        }
+
         boolean instanceWide(String instance, boolean proxy) {
             return switch (kind) {
                 case ALL -> true;
@@ -940,10 +1030,11 @@ final class NetCommands {
             return namesBackend(known);
         }
 
-        /** Whether the term names a backend server of an instance of {@code known}. */
+        /** Whether the term names, or may name, a backend server of an instance of {@code known}. */
         boolean namesBackend(List<Known> known) {
             if (kind != Kind.NAME) return false;
             for (Known instance : known) {
+                if (instance.undescribed()) return true;
                 for (String backend : instance.backends()) {
                     if (glob(value, backend)) return true;
                 }
@@ -994,6 +1085,14 @@ final class NetCommands {
             return new Target(List.copyOf(terms.values()));
         }
 
+        /** The first term of {@code text} that is malformed, all of {@code text} when that term is empty; else null. */
+        static @Nullable String malformed(String text) {
+            for (String part : text.split(",", -1)) {
+                if (Term.parse(part) == null) return part.isEmpty() ? text : part;
+            }
+            return null;
+        }
+
         /** Whether some term names {@code instance} as a whole. */
         boolean instanceWide(String instance, boolean proxy) {
             for (Term term : terms) {
@@ -1010,11 +1109,18 @@ final class NetCommands {
             return false;
         }
 
+        /** Whether some term is {@code proxies}. */
+        boolean namesProxies() {
+            for (Term term : terms) {
+                if (term.kind() == Term.Kind.PROXIES) return true;
+            }
+            return false;
+        }
+
         /** Whether the target can name instances not heard from yet: a keyword or a pattern. */
         boolean open() {
             for (Term term : terms) {
-                if (term.kind() != Term.Kind.ID
-                        && (term.kind() != Term.Kind.NAME || term.value().indexOf('*') >= 0)) return true;
+                if (term.kind() != Term.Kind.ID && (term.kind() != Term.Kind.NAME || term.pattern())) return true;
             }
             return false;
         }
@@ -1202,9 +1308,11 @@ final class NetCommands {
         final Spec spec;
         final List<String> args;
         final Set<String> expected;
-        /** The live instances addressed whose roster names no role: builds without network commands. */
+        /** The live instances addressed whose last full roster names no role: builds without network commands. */
         final Set<String> older;
-        /** Whether every instance heard it, so that one the issuer did not expect may answer. */
+        /** Instances not described yet that the target may name through their role or backends; none must answer. */
+        final Set<String> possible;
+        /** Whether every instance heard it. An instance not in {@code expected} may answer. */
         final boolean broadcast;
 
         final Set<String> answered = new TreeSet<>();
@@ -1222,6 +1330,7 @@ final class NetCommands {
                 List<String> args,
                 Set<String> expected,
                 Set<String> older,
+                Set<String> possible,
                 boolean broadcast) {
             this.id = id;
             this.sender = sender;
@@ -1232,6 +1341,7 @@ final class NetCommands {
             this.args = args;
             this.expected = expected;
             this.older = older;
+            this.possible = possible;
             this.broadcast = broadcast;
             Webhook mode;
             try {
@@ -1265,17 +1375,23 @@ final class NetCommands {
             return body;
         }
 
-        /** Shows {@code reply} from {@code from}, an instance it was not sent to only after a broadcast. */
+        /**
+         * Shows {@code reply} from {@code from}; from an instance not expected, only after a broadcast or when it is
+         * possible. Silent possible instances, and after a broadcast silent older ones, keep the command open until its
+         * deadline.
+         */
         synchronized void accept(String from, Reply reply) {
             if (finished || answered.contains(from)) return;
             if (!expected.contains(from)) {
-                if (!broadcast) return;
+                if (!broadcast && !possible.contains(from)) return;
                 expected.add(from);
             }
             sender.sendMessage(line(sender, from, reply));
             if (!reply.last()) return;
             answered.add(from);
-            if (answered.containsAll(expected)) finish();
+            if (answered.containsAll(expected)
+                    && answered.containsAll(possible)
+                    && (!broadcast || answered.containsAll(older))) finish();
         }
 
         synchronized void finish() {
