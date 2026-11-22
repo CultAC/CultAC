@@ -3,17 +3,18 @@ package ac.cult.cultac.network.codec;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.data.*;
 import java.util.*;
+import java.util.function.Supplier;
 
 /** Connection-owned wire IDs. Shared decoders only borrow this lookup for one invocation. */
 public final class WireRegistryState implements WireValueDecoder.Registries {
     private final ModelRegistryData source;
-    private final java.util.function.Supplier<RegistryNames> model;
+    private final Supplier<RegistryNames> model;
     private final Map<String, List<String>> received = new HashMap<>();
     private boolean awaitingRegistryData;
     private Object generation = new Object();
     private Object emptied = new Object();
 
-    public WireRegistryState(ProtocolVersion version, java.util.function.Supplier<RegistryNames> model) {
+    public WireRegistryState(ProtocolVersion version, Supplier<RegistryNames> model) {
         this.source = ModelRegistryData.load(version);
         this.model = model;
     }

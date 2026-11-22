@@ -877,25 +877,19 @@ public final class IntakeWire {
     }
 
     /**
-     * The id of a probe whose body is a 4-byte id alone, {@code id} being its packet id; {@code absent} for any other
-     * packet. Only such a probe goes out as a marker.
+     * The id of a probe whose body is a 4-byte id alone, {@code id} being its packet id and the packet the
+     * {@code length} bytes from {@code offset}; {@code absent} for any other packet. Only such a probe goes out as a
+     * marker.
      */
-    public static long bareId(byte[] packet, int id, long absent) {
-        return bareId(packet, 0, packet.length, id, absent);
-    }
-
-    /** As {@link #bareId(byte[], int, long)}, for the packet the {@code length} bytes from {@code offset}. */
     public static long bareId(byte[] packet, int offset, int length, int id, long absent) {
         if (!bare(length, id)) return absent;
         return pingId(packet, offset, length, id, absent);
     }
 
-    /** Whether a probe's packet is as long as its id and a 4-byte body, {@code id} being its packet id. */
-    public static boolean bare(byte[] packet, int id) {
-        return bare(packet.length, id);
-    }
-
-    /** As {@link #bare(byte[], int)}, for a packet of {@code length} bytes. */
+    /**
+     * Whether a probe's packet of {@code length} bytes is as long as its id and a 4-byte body, {@code id} being its
+     * packet id.
+     */
     public static boolean bare(int length, int id) {
         return id >= 0 && length == varLongBytes(id) + 4;
     }

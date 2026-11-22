@@ -52,10 +52,6 @@ public enum ClientVersion {
         return protocolVersion <= version.protocolVersion;
     }
 
-    public boolean isNewerThan(ClientVersion version) {
-        return protocolVersion > version.protocolVersion;
-    }
-
     public boolean isNewerThanOrEquals(ClientVersion version) {
         return protocolVersion >= version.protocolVersion;
     }

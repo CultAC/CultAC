@@ -206,10 +206,6 @@ class ClientEntityQueryCandidateTest {
         return f;
     }
 
-    static Vec3 position(double x, double y, double z) {
-        return new Vec3(x, y, z);
-    }
-
     /** Adds an entity and applies {@code moves} relative moves whose old locations stay possible. */
     static PacketEntity moving(JavaTickFixture f, int id, int type, Vec3 at, int moves) {
         var entities = f.player.compensatedEntities;

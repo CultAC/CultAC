@@ -7,7 +7,6 @@ import static ac.cult.cultac.network.JavaTickFixture.observeOnly;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.sprint.SprintA;
