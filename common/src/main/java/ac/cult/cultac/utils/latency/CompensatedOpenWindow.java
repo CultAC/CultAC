@@ -151,6 +151,17 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         return !possibleOpenWindows.contains(null);
     }
 
+    /**
+     * LecternScreen is a BookViewScreen: Screen#defaultHandleGameClickEvent opens a page's show_dialog over it, and
+     * the dialog's run_command action reaches ClientPacketListener#sendUnattendedCommand without closing the lectern.
+     */
+    public boolean mayShowBookDialog() {
+        for (Window window : possibleOpenWindows) {
+            if (window != null && window.type() == MenuType.LECTERN) return true;
+        }
+        return false;
+    }
+
     public Set<@Nullable Window> getPossibilities() {
         return new HashSet<>(possibleOpenWindows);
     }

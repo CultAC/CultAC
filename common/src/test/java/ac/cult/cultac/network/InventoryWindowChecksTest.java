@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsP;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsWindow;
+import ac.cult.cultac.checks.impl.chat.ChatE;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsH;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsS;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
@@ -21,6 +22,8 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundChat;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -355,10 +358,42 @@ class InventoryWindowChecksTest {
     }
 
     private static void serverOpen(RecordReceiveFixture f, int id) {
+        serverOpen(f, id, "minecraft:generic_9x1", MenuType.GENERIC_9x1);
+    }
+
+    private static void serverOpen(RecordReceiveFixture f, int id, String menuType, MenuType type) {
         if (f.user.getPlayer() == null) f.user.bind(mock(PlatformPlayer.class));
-        var packet = new ClientboundOpenScreen(id, "minecraft:generic_9x1");
+        var packet = new ClientboundOpenScreen(id, menuType);
         var event = new PacketSendEvent<>(f.user, ConnectionPhase.PLAY, ClientboundPackets.OPEN_SCREEN, packet, false);
-        f.player.openWindow.onServerWindow(event, id, MenuType.GENERIC_9x1);
+        f.player.openWindow.onServerWindow(event, id, type);
+    }
+
+    @Test
+    void aDialogOpenedFromALecternBookRunsItsCommandWithTheLecternStillOpen() {
+        try (var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            serverOpen(f, 1, "minecraft:lectern", MenuType.LECTERN);
+            acknowledge(f, 2);
+            assertTrue(f.player.openWindow.mustBeOpen());
+            var check = spy(new ChatE(f.player));
+            doReturn(true).when(check).flag();
+            doReturn(true).when(check).shouldModifyPackets();
+            var command = new ServerboundChatCommand("list");
+            var commandEvent =
+                    new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command);
+            check.onCommand(commandEvent, f.player, command);
+            assertFalse(commandEvent.isCancelled());
+            var chat = new ServerboundChat("list");
+            var chatEvent = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT, chat);
+            check.onChat(chatEvent, f.player, chat);
+            assertTrue(chatEvent.isCancelled());
+
+            serverOpen(f, 2);
+            acknowledge(f, 4);
+            var chestCommandEvent =
+                    new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command);
+            check.onCommand(chestCommandEvent, f.player, command);
+            assertTrue(chestCommandEvent.isCancelled());
+        }
     }
 
     @Test
