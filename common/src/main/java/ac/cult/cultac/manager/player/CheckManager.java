@@ -404,7 +404,7 @@ public class CheckManager {
                 new PacketOrderF(player),
                 new PacketOrderG(player),
                 new PacketOrderH(player),
-                new PacketOrderJ(player),
+                new PacketOrderJ(player, visibility),
                 new PacketOrderK(player),
                 new PacketOrderL(player),
                 new PacketOrderM(player),

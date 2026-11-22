@@ -103,6 +103,10 @@ public final class ClientVisibilityProcessor extends CultProcessor implements Ch
                 () -> visibility.entityInteractionHidden(entity, positionError()));
     }
 
+    public boolean entityWithinInteractionRange(PacketEntity entity) {
+        return visibility.entityWithinInteractionRange(entity, positionError());
+    }
+
     private double positionError() {
         return positionReported ? 0 : player.getMovementThreshold();
     }
