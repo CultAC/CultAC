@@ -62,7 +62,6 @@ class PlayerLoginHooksTest {
                 player,
                 toggles,
                 PlayerToggleStore.KEY_ALERTS,
-                null,
                 TOGGLE,
                 ON_JOIN,
                 SILENT,

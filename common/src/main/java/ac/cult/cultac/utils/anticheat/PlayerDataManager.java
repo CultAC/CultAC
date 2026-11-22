@@ -18,7 +18,6 @@ import ac.cult.cultac.utils.floodgate.FloodgateUtil;
 import ac.cult.cultac.utils.floodgate.GeyserUtil;
 import ac.grim.grimac.api.event.events.GrimJoinEvent;
 import ac.grim.grimac.api.event.events.GrimQuitEvent;
-import io.netty.channel.Channel;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
@@ -207,14 +206,13 @@ public class PlayerDataManager {
     }
 
     /**
-     * {@code player} joins on {@code channel}, a connection CultAC does not inspect, {@code connectionId}'s: holds their
-     * toggle slot for it and runs the login steps that need no CultAC player. {@link #dormantQuit} with the same id
-     * releases both.
+     * {@code player} joins on a connection CultAC does not inspect, {@code connectionId}'s: holds their toggle slot for
+     * it and runs the login steps that need no CultAC player. {@link #dormantQuit} with the same id releases both.
      */
-    public void dormantJoin(PlatformPlayer player, UUID connectionId, Channel channel) {
+    public void dormantJoin(PlatformPlayer player, UUID connectionId) {
         if (CultAPI.INSTANCE.getDataStoreLifecycle() != null)
             CultAPI.INSTANCE.getDataStoreLifecycle().holdToggles(player.getUniqueId(), connectionId);
-        PlayerLoginHooks.joinedUninspected(player, channel);
+        PlayerLoginHooks.joinedUninspected(player);
     }
 
     /**
