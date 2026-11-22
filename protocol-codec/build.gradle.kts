@@ -14,19 +14,6 @@ dependencies {
     implementation(libs.via.codecs.core) { isTransitive = false }
     implementation(libs.via.codecs.backwards) { isTransitive = false }
 }
-val modelJava = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(25)) }
-for (verify in listOf(false, true)) {
-    tasks.register<Exec>(if (verify) "verifyModelRegistries" else "exportModelRegistries") {
-        group = if (verify) "verification" else "protocol"
-        commandLine("python3", rootProject.file("scripts/generate-model-registries.py"),
-            "--lock", rootProject.file("protocol/model-registries-lock.json"),
-            "--java", modelJava.get().executablePath.asFile,
-            "--work", layout.buildDirectory.dir("model-reports").get().asFile,
-            "--cache", layout.buildDirectory.dir("model-downloads").get().asFile,
-            "--output", rootProject.file("protocol/src/main/resources/ac/cult/cultac/protocol/model"))
-        if (verify) args("--verify")
-    }
-}
 val supportedDataVersions = setOf(
     "1.21", "1.21.2", "1.21.4", "1.21.5", "1.21.6", "1.21.7",
     "1.21.9", "1.21.11", "26.1", "26.2", "26.3"
