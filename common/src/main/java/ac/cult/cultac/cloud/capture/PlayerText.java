@@ -617,13 +617,9 @@ public final class PlayerText {
 
     /**
      * {@code packet} without what players write, the same array when it has none, or null when it does not read to its
-     * last byte: such a packet cannot be told clean. Teams are renamed by {@code teams}.
+     * last byte: such a packet cannot be told clean. Teams are renamed by {@code teams}; read with {@code reader}, null
+     * reads afresh.
      */
-    byte[] strip(boolean clientbound, String identifier, byte[] packet, TeamNames teams) {
-        return strip(clientbound, identifier, packet, teams, null);
-    }
-
-    /** As {@link #strip(boolean, String, byte[], TeamNames)}, read with {@code reader}; null reads afresh. */
     byte[] strip(boolean clientbound, String identifier, byte[] packet, TeamNames teams, Reader reader) {
         return strip(clientbound, identifier, packet, 0, packet.length, teams, reader);
     }
@@ -676,15 +672,11 @@ public final class PlayerText {
         }
 
         /**
-         * A buffer holding {@code packet} as {@link Unpooled#wrappedBuffer(byte[])} does: its bytes from index 0, the
-         * reader index and marks at 0 and the writer index at its length. Its capacity may be larger: a walk reads only
-         * between the indices. Valid until the next call.
+         * A buffer holding the {@code length} bytes of {@code packet} from {@code offset} as
+         * {@link Unpooled#wrappedBuffer(byte[])} holds a packet: its bytes from index 0, the reader index and marks at 0
+         * and the writer index at its length. Its capacity may be larger: a walk reads only between the indices. Valid
+         * until the next call.
          */
-        ByteBuf wrap(byte[] packet) {
-            return wrap(packet, 0, packet.length);
-        }
-
-        /** As {@link #wrap(byte[])}, for the packet the {@code length} bytes of {@code packet} from {@code offset}. */
         ByteBuf wrap(byte[] packet, int offset, int length) {
             if (length == 0 || length > MAX_KEPT_BYTES) return Unpooled.wrappedBuffer(packet, offset, length);
             ByteBuf in = kept;
