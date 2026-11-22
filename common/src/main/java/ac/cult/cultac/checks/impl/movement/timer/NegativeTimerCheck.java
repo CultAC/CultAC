@@ -14,7 +14,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 
 @DeadCheck(
         reason = DeadCheck.Reason.DEAD_BY_CONSTRUCTION,
-        detail = "Never constructed; its only flag call site is commented out.")
+        detail = "Registered, but its only flag call site is commented out.")
 public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("NegativeTimer")

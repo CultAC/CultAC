@@ -200,8 +200,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         if (!player.isBedrockMovement() && sentByLocalPlayerTick(packet.action())) {
             player.packetStateData.localPlayerTickInputOrCommandThisClientTick = true;
         }
-        // PacketEntityAction runs immediately before this listener. Its rejected glide starts used to terminate at the
-        // pre-Via boundary, so they must not enter the ordinary check route.
+        // PacketEntityAction runs immediately before this listener. A glide start it rejected stays out of the ordinary
+        // check route.
         if (event.isCancelled() && packet.action() == PlayerCommandAction.START_FLYING_WITH_ELYTRA) {
             breakPassengerRotationPair(event, player);
             return;

@@ -146,8 +146,7 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
                             player.yRot);
                     Vector3dm endVec = trace.getPointAtDistance(5);
 
-                    SimpleCollisionBox hitbox =
-                            new SimpleCollisionBox(diggingLocation).expand(0.1); // Give some more lenience
+                    SimpleCollisionBox hitbox = new SimpleCollisionBox(diggingLocation).expand(0.1);
                     Vector3dm intercept = ReachUtils.calculateIntercept(hitbox, playerPos, endVec)
                             .getFirst();
 

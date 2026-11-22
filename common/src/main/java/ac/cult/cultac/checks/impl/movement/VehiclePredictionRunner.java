@@ -125,8 +125,6 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
     public void process(final VehiclePositionUpdate vehicleUpdate) {
         correctedOnGround = null;
         correctedYaw = Float.NaN;
-        // We previously didn't do vehicle setbacks because vehicle netcode sucks
-        // But the only solution is to fix mojang's bugs, as otherwise bypasses and falses will occur
         PredictionResult result = player.checkManager.getSimulationProcessor().onVehiclePositionUpdate(vehicleUpdate);
 
         if (result == null) {
