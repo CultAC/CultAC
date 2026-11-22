@@ -15,6 +15,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.config.BaseConfigManager;
@@ -43,8 +44,10 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAbilities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -69,7 +72,9 @@ final class JavaTickFixture implements AutoCloseable {
     final CultPlayer player;
     final CheckManagerListener listener = new CheckManagerListener();
     private final PacketPlayerSteer steer = new PacketPlayerSteer();
+    private final PacketPlayerDigging digging = new PacketPlayerDigging();
     private int teleportId;
+    private int useSequence;
 
     JavaTickFixture() throws Exception {
         this(ProtocolVersion.V26_3, ClientVersion.V_26_3);
@@ -384,6 +389,14 @@ final class JavaTickFixture implements AutoCloseable {
     void command(PlayerCommandAction action, int data) {
         var packet = new ServerboundPlayerCommand(player.entityID, action, data);
         new PacketEntityAction().onPlayerCommand(event(ServerboundPackets.PLAYER_COMMAND, packet), player, packet);
+    }
+
+    /** ServerboundUseItem through PacketPlayerDigging, then the check listeners, in the production route order. */
+    void useItem(Hand hand, float yaw, float pitch) {
+        var packet = new ServerboundUseItem(hand, ++useSequence, yaw, pitch);
+        var event = event(ServerboundPackets.USE_ITEM, packet);
+        digging.onUseItem(event, player, packet);
+        listener.onUseItem(event, player, packet);
     }
 
     /** The client answers every ping up to {@code transaction}. */

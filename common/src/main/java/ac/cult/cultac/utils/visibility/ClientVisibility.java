@@ -409,6 +409,39 @@ public final class ClientVisibility {
         });
     }
 
+    /**
+     * Whether Player#isWithinEntityInteractionRange holds for {@code entity} at every position the client may hold it
+     * and every eye the player may have: Minecraft#startUseItem then sends MultiPlayerGameMode#interact for it.
+     */
+    public boolean entityWithinInteractionRange(PacketEntity entity, double positionError) {
+        double range = player.compensatedEntities.getSelf().getEntityInteractionRange();
+        if (!(range > 0)) return false;
+        double error = EyePositionTolerance.BUFFER + positionError;
+        var envelope = entity.toBoundingBox(
+                player, entity.getPossibleCollisionBoxes().union(entity.getPossibleMovementCollisionBoxes()));
+        double width = Double.MAX_VALUE, height = Double.MAX_VALUE, depth = Double.MAX_VALUE;
+        for (SimpleCollisionBox candidate : entity.getPossibleMovementCollisionBoxCandidates()) {
+            width = Math.min(width, candidate.maxX - candidate.minX);
+            height = Math.min(height, candidate.maxY - candidate.minY);
+            depth = Math.min(depth, candidate.maxZ - candidate.minZ);
+        }
+        List<Vec3> eyes = new ArrayList<>();
+        addSelfEyes(eyes, new ArrayList<>());
+        for (Vec3 eye : eyes) {
+            double x = farthestGap(eye.x, error, envelope.minX, envelope.maxX, width);
+            double y = farthestGap(eye.y, error, envelope.minY, envelope.maxY, height);
+            double z = farthestGap(eye.z, error, envelope.minZ, envelope.maxZ, depth);
+            if (x * x + y * y + z * z >= range * range) return false;
+        }
+        return true;
+    }
+
+    /** The largest gap along one axis from an eye within {@code error} to a box of {@code size} inside [min, max]. */
+    private static double farthestGap(double eye, double error, double min, double max, double size) {
+        double length = Math.min(size, max - min);
+        return Math.max(0, Math.max((max - length) - (eye - error), (eye + error) - (min + length)));
+    }
+
     /** Whether no eye selects the target under the active selection; sets {@code inRange[0]} for an eye within range. */
     private boolean entityHidden(
             SimpleCollisionBox target, double positionError, double pickRadius, boolean[] inRange) {
@@ -475,14 +508,7 @@ public final class ClientVisibility {
         var self = player.compensatedEntities.getSelf();
         for (var camera : cameras) {
             if (camera == self) {
-                if (self.getRiding() == null) addPlayerEyes(eyes, trackedEyes, new Vec3(player.x, player.y, player.z));
-                else {
-                    var riding = self.getRiding();
-                    for (SimpleCollisionBox box : riding.getPossibleMovementCollisionBoxCandidates()) {
-                        Vec3 origin = BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player, box);
-                        addPlayerEyes(eyes, trackedEyes, origin);
-                    }
-                }
+                addSelfEyes(eyes, trackedEyes);
             } else {
                 for (SimpleCollisionBox box : camera.getPossibleMovementCollisionBoxCandidates()) {
                     // Entity dimensions carry eye heights independently of the player's pose.
@@ -533,6 +559,18 @@ public final class ClientVisibility {
             if (!OcclusionGeometry.fullyOccluded(eye, envelope, interiors)) return false;
         }
         return true;
+    }
+
+    private void addSelfEyes(List<Vec3> eyes, List<Vec3> trackedEyes) {
+        var self = player.compensatedEntities.getSelf();
+        if (self.getRiding() == null) addPlayerEyes(eyes, trackedEyes, new Vec3(player.x, player.y, player.z));
+        else {
+            var riding = self.getRiding();
+            for (SimpleCollisionBox box : riding.getPossibleMovementCollisionBoxCandidates()) {
+                Vec3 origin = BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player, box);
+                addPlayerEyes(eyes, trackedEyes, origin);
+            }
+        }
     }
 
     private void addPlayerEyes(List<Vec3> eyes, List<Vec3> trackedEyes, Vec3 origin) {
