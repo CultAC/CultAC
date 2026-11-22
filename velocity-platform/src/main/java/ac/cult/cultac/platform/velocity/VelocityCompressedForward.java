@@ -2,7 +2,7 @@ package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import com.velocitypowered.api.event.EventHandler;
+import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.proxy.Player;
@@ -62,8 +62,6 @@ final class VelocityCompressedForward {
     private static volatile @Nullable MethodHandle decoderCompressorGetter;
     private static volatile @Nullable MethodHandle disposedGetter;
     private static volatile @Nullable MethodHandle inflateMethod;
-    private final EventHandler<ServerConnectedEvent> connected = this::connected;
-    private final EventHandler<ServerPostConnectEvent> postConnected = this::postConnected;
     private boolean listening;
 
     VelocityCompressedForward(ProxyServer proxy, Object plugin, Function<Player, Channel> channels, Codecs codecs) {
@@ -240,8 +238,7 @@ final class VelocityCompressedForward {
     synchronized void listen() {
         if (listening) return;
         listening = true;
-        proxy.getEventManager().register(plugin, ServerConnectedEvent.class, connected);
-        proxy.getEventManager().register(plugin, ServerPostConnectEvent.class, postConnected);
+        proxy.getEventManager().register(plugin, this);
     }
 
     String describe() {
@@ -252,8 +249,7 @@ final class VelocityCompressedForward {
     synchronized void close() {
         if (!listening) return;
         listening = false;
-        proxy.getEventManager().unregister(plugin, connected);
-        proxy.getEventManager().unregister(plugin, postConnected);
+        proxy.getEventManager().unregisterListener(plugin, this);
     }
 
     /**
@@ -647,7 +643,8 @@ final class VelocityCompressedForward {
         }
     }
 
-    private void connected(ServerConnectedEvent event) {
+    @Subscribe(async = false)
+    public void connected(ServerConnectedEvent event) {
         Player player = event.getPlayer();
         RegisteredServer server = event.getServer();
         Channel client = client(player);
@@ -667,7 +664,8 @@ final class VelocityCompressedForward {
                 this::refused);
     }
 
-    private void postConnected(ServerPostConnectEvent event) {
+    @Subscribe(async = false)
+    public void postConnected(ServerPostConnectEvent event) {
         Player player = event.getPlayer();
         Channel client = client(player);
         if (client != null)

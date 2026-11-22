@@ -11,6 +11,7 @@ import ac.cult.cultac.platform.velocity.VelocityBackendBurstDeliveryTest.Backend
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import com.velocitypowered.api.event.EventHandler;
+import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
@@ -54,6 +55,7 @@ import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -69,7 +71,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 /**
  * Local channels on one event loop: real reads and read completion, links installed from Velocity's connected event,
@@ -566,10 +567,15 @@ class VelocityCompressedForwardLoopTest {
                 player -> client.proxySide(),
                 new VelocityCompressedForward.Codecs(CompressEncoder.class, CompressDecoder.class, COMPRESSORS));
         forward.listen();
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<EventHandler<ServerConnectedEvent>> connected = ArgumentCaptor.forClass(EventHandler.class);
-        verify(events).register(eq(plugin), eq(ServerConnectedEvent.class), connected.capture());
-        verify(events).register(eq(plugin), eq(ServerPostConnectEvent.class), any());
+        verify(events).register(plugin, forward);
+        for (String event : List.of("connected", "postConnected")) {
+            Subscribe subscribe = Arrays.stream(VelocityCompressedForward.class.getMethods())
+                    .filter(method -> method.getName().equals(event))
+                    .findFirst()
+                    .orElseThrow()
+                    .getAnnotation(Subscribe.class);
+            assertFalse(subscribe.async(), event + " runs on the thread that fires its event");
+        }
 
         var player = mock(InFlightPlayer.class);
         var forwarder = (CompressedForwarder) client.proxySide().pipeline().get(CompressedForwarder.NAME);
@@ -577,14 +583,14 @@ class VelocityCompressedForwardLoopTest {
         byte[] second = packet(9_000, 2);
 
         Pair backend = backend(client.proxySide());
-        joinGame(connected.getValue(), player, backend, first);
+        joinGame(forward::connected, player, backend, first);
         var frames = awaitFrames(1);
         assertPackets(List.of(first), frames);
         assertArrayEquals(body(first, THRESHOLD), frames.getFirst().body());
         assertEquals(1L, onLoop(forwarder::forwarded));
 
         Pair next = backend(client.proxySide());
-        joinGame(connected.getValue(), player, next, second);
+        joinGame(forward::connected, player, next, second);
         assertPackets(List.of(first, second), awaitFrames(2));
         assertEquals(2L, onLoop(forwarder::forwarded));
         assertNull(onLoop(() -> backend.proxySide().pipeline().get(CompressedKeep.NAME)), "one link per client");
@@ -599,7 +605,7 @@ class VelocityCompressedForwardLoopTest {
         assertPackets(List.of(first, second), awaitFrames(2));
 
         forward.close();
-        verify(events).unregister(plugin, connected.getValue());
+        verify(events).unregisterListener(plugin, forward);
     }
 
     @Test
@@ -2161,10 +2167,7 @@ class VelocityCompressedForwardLoopTest {
                             new VelocityCompressedForward.Codecs(
                                     CompressEncoder.class, CompressDecoder.class, COMPRESSORS));
                     forward.listen();
-                    @SuppressWarnings("unchecked")
-                    ArgumentCaptor<EventHandler<ServerPostConnectEvent>> postConnected =
-                            ArgumentCaptor.forClass(EventHandler.class);
-                    verify(events).register(eq(plugin), eq(ServerPostConnectEvent.class), postConnected.capture());
+                    verify(events).register(plugin, forward);
                     var connection = mock(BackendServer.class);
                     when(connection.getConnection()).thenReturn(new BackendConnection(fromBackend));
                     Player player = mock(Player.class);
@@ -2173,7 +2176,7 @@ class VelocityCompressedForwardLoopTest {
                         onLoop(() -> {
                             toClient.deregister();
                             // The link task is queued on this loop behind the deregistration's own task.
-                            postConnected.getValue().execute(new ServerPostConnectEvent(player, null));
+                            forward.postConnected(new ServerPostConnectEvent(player, null));
                             return null;
                         });
                         onLoop(() -> null);

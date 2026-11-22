@@ -20,7 +20,6 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
@@ -106,7 +105,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.AdditionalAnswers;
-import org.mockito.ArgumentCaptor;
 
 /**
  * Real frames through the forwarding handlers between stand-ins for Velocity's own, on two embedded channels. Every
@@ -5452,14 +5450,7 @@ class VelocityCompressedForwardTest {
                         player -> client,
                         new VelocityCompressedForward.Codecs(CompressEncoder.class, DECODER, COMPRESSORS));
                 forward.listen();
-                @SuppressWarnings("unchecked")
-                ArgumentCaptor<EventHandler<ServerConnectedEvent>> connected =
-                        ArgumentCaptor.forClass(EventHandler.class);
-                @SuppressWarnings("unchecked")
-                ArgumentCaptor<EventHandler<ServerPostConnectEvent>> postConnected =
-                        ArgumentCaptor.forClass(EventHandler.class);
-                verify(events).register(eq(plugin), eq(ServerConnectedEvent.class), connected.capture());
-                verify(events).register(eq(plugin), eq(ServerPostConnectEvent.class), postConnected.capture());
+                verify(events).register(plugin, forward);
 
                 assertDoesNotThrow(() -> forward.installClient(connection, adapter, null), side);
                 verify(failing).execute(any(Runnable.class));
@@ -5474,12 +5465,10 @@ class VelocityCompressedForwardTest {
                 assertEquals("linked", forwarder.linkStatus(), side);
                 Player player = mock(Player.class);
                 assertDoesNotThrow(
-                        () -> connected
-                                .getValue()
-                                .execute(new ServerConnectedEvent(player, mock(RegisteredServer.class), null)),
+                        () -> forward.connected(new ServerConnectedEvent(player, mock(RegisteredServer.class), null)),
                         side);
                 assertDoesNotThrow(
-                        () -> postConnected.getValue().execute(new ServerPostConnectEvent(player, null)), side);
+                        () -> forward.postConnected(new ServerPostConnectEvent(player, null)), side);
                 verify(failing, times(3)).execute(any(Runnable.class));
                 assertTrue(forwarder.linkedTo(previous), side);
                 assertEquals("linked", forwarder.linkStatus(), side);
