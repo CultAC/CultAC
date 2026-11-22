@@ -20,8 +20,10 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundChat;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
@@ -394,6 +396,86 @@ class InventoryWindowChecksTest {
             check.onCommand(chestCommandEvent, f.player, command);
             assertTrue(chestCommandEvent.isCancelled());
         }
+    }
+
+    @Test
+    void aServerDialogOverAnOpenChestRunsItsCommandUntilTheChestScreenIsBackOnTop() {
+        try (var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            serverOpen(f, 1);
+            acknowledge(f, 2);
+            var check = spy(new ChatE(f.player));
+            doReturn(true).when(check).flag();
+            doReturn(true).when(check).shouldModifyPackets();
+            assertTrue(sendCommand(f, check));
+
+            showDialog(f);
+            assertFalse(sendCommand(f, check));
+            // The client sent this click before it handled the dialog.
+            clickChest(f);
+            assertFalse(sendCommand(f, check));
+
+            assertEquals(
+                    3, f.player.createTrackedTransactionPacketForDeferredSend().transaction());
+            acknowledge(f, 3);
+            clickChest(f);
+            assertTrue(sendCommand(f, check));
+
+            showDialog(f);
+            assertFalse(sendCommand(f, check));
+            assertEquals(1, clearDialog(f).getWritesAfterSend().size());
+            acknowledge(f, 4);
+            assertTrue(sendCommand(f, check));
+        }
+    }
+
+    @Test
+    void aDialogCoversAContainerScreenOnlyWhenOneMayBeShown() {
+        try (var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            f.user.bind(mock(PlatformPlayer.class));
+            var idle = showDialog(f);
+            var idleClear = clearDialog(f);
+            assertTrue(idle.getWritesBeforeSend().isEmpty());
+            assertTrue(idle.getWritesAfterSend().isEmpty());
+            assertTrue(idle.getTasksAfterSend().isEmpty());
+            assertTrue(idleClear.getWritesAfterSend().isEmpty());
+            assertFalse(f.player.openWindow.mayShowServerDialog());
+
+            serverOpen(f, 1);
+            showDialog(f);
+            acknowledge(f, 2);
+            assertTrue(f.player.openWindow.mustBeOpen());
+            var check = spy(new ChatE(f.player));
+            doReturn(true).when(check).flag();
+            doReturn(true).when(check).shouldModifyPackets();
+            assertFalse(sendCommand(f, check));
+        }
+    }
+
+    private static PacketSendEvent<ClientboundShowDialog> showDialog(RecordReceiveFixture f) {
+        var packet = ClientboundShowDialog.inline(new byte[] {10, 0});
+        var event = new PacketSendEvent<>(f.user, ConnectionPhase.PLAY, ClientboundPackets.SHOW_DIALOG, packet, false);
+        new PacketPlayerWindow().onShowDialog(event, f.player, packet);
+        return event;
+    }
+
+    private static PacketSendEvent<Opaque> clearDialog(RecordReceiveFixture f) {
+        var packet = ClientboundPackets.CLEAR_DIALOG.opaqueValue();
+        var event = new PacketSendEvent<>(f.user, ConnectionPhase.PLAY, ClientboundPackets.CLEAR_DIALOG, packet, false);
+        new PacketPlayerWindow().onClearDialog(event, f.player, packet);
+        return event;
+    }
+
+    private static void clickChest(RecordReceiveFixture f) {
+        var click = click(1, 0, WindowClickType.PICKUP);
+        new PacketPlayerWindow().onContainerClick(clickEvent(f, click), f.player, click);
+    }
+
+    /** Whether ChatE cancels a command over the open window. */
+    private static boolean sendCommand(RecordReceiveFixture f, ChatE check) {
+        var command = new ServerboundChatCommand("shop buy");
+        var event = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command);
+        check.onCommand(event, f.player, command);
+        return event.isCancelled();
     }
 
     @Test
