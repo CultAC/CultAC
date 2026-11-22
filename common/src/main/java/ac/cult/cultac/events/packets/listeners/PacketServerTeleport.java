@@ -6,6 +6,7 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerLookAt;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
@@ -15,6 +16,8 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
+import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 
@@ -72,6 +75,56 @@ public class PacketServerTeleport {
             PacketSendEvent<ClientboundPlayerRotation> event, CultPlayer player, ClientboundPlayerRotation packet) {
         if (player.isBedrockMovement()) return;
         handlePlayerRotation(event, player, packet);
+    }
+
+    @CultPacketHandler
+    public void onPlayerLookAt(
+            PacketSendEvent<ClientboundPlayerLookAt> event, CultPlayer player, ClientboundPlayerLookAt packet) {
+        if (player.isBedrockMovement()) return;
+        CultPlayer.TrackedTransaction proof = player.appendTrailingProofTransaction(event);
+        int transaction = proof == null ? player.lastTransactionSent.get() : proof.transaction();
+        // The next Rot carries the look only if no client tick runs between the packet and its proof.
+        if (proof != null && !event.isInsideBundle()) event.bundle();
+        player.latencyUtils.addRealTimeTask(transaction, () -> applyLookAt(player, packet));
+    }
+
+    /**
+     * ClientPacketListener#handleLookAt turns the player with Entity#lookAt from where it stands, and sends nothing:
+     * LocalPlayer#sendPosition reports the new look on the next tick. A look at an entity aims at the client's own copy
+     * of it, and at the sent point when the client has none.
+     */
+    private static void applyLookAt(CultPlayer player, ClientboundPlayerLookAt packet) {
+        double targetX = packet.x();
+        double targetY = packet.y();
+        double targetZ = packet.z();
+        if (packet.atEntity()) {
+            if (packet.entityId() == player.entityID) {
+                targetX = player.x;
+                targetY = player.y + (packet.toEyes() ? player.getEyeHeight() : 0.0);
+                targetZ = player.z;
+            } else if (player.compensatedEntities.getEntity(packet.entityId()) != null) {
+                return;
+            }
+        }
+        double xd = targetX - player.x;
+        double yd = targetY - (player.y + (packet.fromEyes() ? player.getEyeHeight() : 0.0));
+        double zd = targetZ - player.z;
+        double sd = Math.sqrt(xd * xd + zd * zd);
+        float pitch = CultMath.wrapDegrees((float) (-(VanillaMath.atan2(yd, sd) * 180.0F / (float) Math.PI)));
+        float yaw = CultMath.wrapDegrees((float) (VanillaMath.atan2(zd, xd) * 180.0F / (float) Math.PI) - 90.0F);
+        // Entity#setYRot and Entity#setXRot discard a rotation that is not finite.
+        if (Float.isFinite(yaw)) {
+            player.xRot = yaw;
+            player.lastTickXRot = yaw;
+            player.headYaw = yaw;
+            player.unclampedHeadYaw = Float.NaN;
+            player.headArcFrom = Float.NaN;
+            player.mountYaw = Float.NaN;
+        }
+        if (Float.isFinite(pitch)) {
+            player.yRot = clamp(pitch % 360.0F, -90.0F, 90.0F);
+            player.lastTickYRot = player.yRot;
+        }
     }
 
     @CultPacketHandler

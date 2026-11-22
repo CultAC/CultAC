@@ -33,6 +33,7 @@ import ac.cult.cultac.protocol.codec.entity.UpdateAttributesCodec;
 import ac.cult.cultac.protocol.codec.entity.UpdateMobEffectCodec;
 import ac.cult.cultac.protocol.codec.movement.ClientboundMoveVehicleCodec;
 import ac.cult.cultac.protocol.codec.movement.ClientboundPlayerAbilitiesCodec;
+import ac.cult.cultac.protocol.codec.movement.PlayerLookAtCodec;
 import ac.cult.cultac.protocol.codec.movement.PlayerPositionCodec;
 import ac.cult.cultac.protocol.codec.movement.PlayerRotationCodec;
 import ac.cult.cultac.protocol.codec.world.BlockChangedAckCodec;
@@ -74,6 +75,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerAbilities;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerCombatKill;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerLookAt;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
@@ -140,6 +142,8 @@ public final class ClientboundPackets {
             PLAY.add("player_position", ClientboundPlayerPosition.class, new PlayerPositionCodec());
     public static final PacketType<ClientboundPlayerRotation> PLAYER_ROTATION =
             PLAY.add("player_rotation", ClientboundPlayerRotation.class, new PlayerRotationCodec());
+    public static final PacketType<ClientboundPlayerLookAt> PLAYER_LOOK_AT =
+            PLAY.add("player_look_at", ClientboundPlayerLookAt.class, new PlayerLookAtCodec());
     public static final PacketType<ClientboundMoveVehicle> MOVE_VEHICLE =
             PLAY.add("move_vehicle", ClientboundMoveVehicle.class, new ClientboundMoveVehicleCodec());
     public static final PacketType<ClientboundPlayerAbilities> PLAYER_ABILITIES =
