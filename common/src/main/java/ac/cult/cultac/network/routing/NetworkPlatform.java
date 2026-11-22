@@ -4,6 +4,7 @@ import ac.cult.cultac.network.ClientBrandText;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,6 +34,11 @@ public interface NetworkPlatform {
     /** Whether this instance is a proxy, whose players are on backend servers. */
     default boolean proxy() {
         return false;
+    }
+
+    /** On a proxy, the name of every backend server registered with it, whether players are on it or not. Any thread. */
+    default List<String> backends() {
+        return List.of();
     }
 
     /** RedisBungee's id for this proxy, as found when the platform started; null when RedisBungee is not installed. */

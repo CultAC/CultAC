@@ -126,6 +126,42 @@ public final class NetworkModule {
         if (running != null) running.playerLeft(uuid);
     }
 
+    /**
+     * {@code /cult net <target> <command> [args]}: runs {@code command} on the instances {@code target} names, showing
+     * {@code sender} each answer and a summary; completes once the summary was shown.
+     */
+    public static CompletableFuture<Void> runNetworkCommand(
+            Sender sender, String target, String command, List<String> args) {
+        NetworkService running = service;
+        if (running == null) {
+            NetCommands.off(sender);
+            return CompletableFuture.completedFuture(null);
+        }
+        return running.netCommands().issue(sender, target, command, args);
+    }
+
+    /** Tells {@code sender} how {@code /cult net} is used. */
+    public static void networkCommandUsage(Sender sender) {
+        NetCommands.usage(sender);
+    }
+
+    /**
+     * What {@code /cult net} completes for the target typed so far: the keywords, this instance, the instances heard
+     * from lately, their backend servers and patterns for groups of them, after the last comma.
+     */
+    public static List<String> networkCommandTargets(String typed) {
+        NetworkService running = service;
+        return running == null
+                ? NetCommands.complete(typed, List.of(NetworkSettings.ALL, NetCommands.PROXIES))
+                : running.netCommands().targets(typed);
+    }
+
+    /** Whether {@code /cult net} offers {@code command} for the target typed: it can run on what the target names. */
+    public static boolean networkCommandOffered(String target, String command) {
+        NetworkService running = service;
+        return running == null || running.netCommands().offered(target, command);
+    }
+
     private static void end(Executor closing) {
         NetworkService running = service;
         service = null;

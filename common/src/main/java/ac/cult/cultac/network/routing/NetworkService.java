@@ -17,8 +17,10 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,7 +45,8 @@ import org.jetbrains.annotations.Nullable;
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
  * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and, at most every {@value #DELTA_PERIOD_MILLIS} ms, one delta
  * with the joins, quits, backend switches and brand changes reported since the last roster message, the last report
- * per player winning, or with a change in the servers verbose staff here cover. Every generation of one host reports
+ * per player winning, or with a change in the servers verbose staff here cover or in this instance's state, which
+ * every roster message lists with its role and build for network commands. Every generation of one host reports
  * into one shared map that only the current generation takes from, so a report made on a superseded generation rides
  * the current one's next roster message. The generation that drew the last roster number sends an empty snapshot when
  * it stops. The generations of one host check that they are current, draw the number and publish one at a time,
@@ -115,6 +118,8 @@ public final class NetworkService implements NetworkRouting {
     private final AtomicBoolean brandsLeftOut = new AtomicBoolean();
     private final AtomicBoolean duplicateId = new AtomicBoolean();
     private final RemoteCommands commands;
+    private final NetCommands.Local netLocal;
+    private final NetCommands netCommands;
     private final PlayerSearchNetwork searches;
     private volatile Function<UUID, Map<String, List<String>>> searchDetails = ignored -> Map.of();
     private final Map<String, Function<UUID, Map<String, List<String>>>> searchProviders;
@@ -124,6 +129,8 @@ public final class NetworkService implements NetworkRouting {
     private volatile Supplier<Set<String>> verbose = Set::of;
     /** The verbose servers the last roster message listed; guarded by {@link #rosterOrder}. */
     private Set<String> verboseSent = Set.of();
+    /** The state the last roster message listed; guarded by {@link #rosterOrder}. */
+    private RosterCache.@Nullable State stateSent;
     /** The last roster number this generation drew; guarded by {@link #rosterOrder}. */
     private long rosterDrawn = Long.MIN_VALUE;
     /** The {@value #REPORTS_KEY} map, a local one without a host; guarded by itself. */
@@ -140,7 +147,8 @@ public final class NetworkService implements NetworkRouting {
             @Nullable ScheduledExecutorService scheduler,
             @Nullable ExecutorService receiver,
             LogThrottle dropWarnings,
-            Commands commands) {
+            Commands commands,
+            NetCommands.Local netLocal) {
         this.searches = new PlayerSearchNetwork(this, clock);
         this.settings = settings;
         this.platform = platform;
@@ -171,6 +179,9 @@ public final class NetworkService implements NetworkRouting {
                 dropWarnings);
         this.commands = new RemoteCommands(this, clock, commands, host);
         this.commands.register();
+        this.netLocal = netLocal;
+        this.netCommands = new NetCommands(this, clock, netLocal, host);
+        this.netCommands.register();
     }
 
     @SuppressWarnings("unchecked")
@@ -181,6 +192,9 @@ public final class NetworkService implements NetworkRouting {
     /** A service for {@code settings}, without a transport and with one error logged when they cannot start one. */
     static NetworkService create(NetworkSettings settings, NetworkPlatform platform, @Nullable HostContext host) {
         String instanceId = settings.resolveInstanceId(platform::redisBungeeId, platform::address);
+        if (NetCommands.reserved(instanceId))
+            LogUtil.warn("This instance's id " + instanceId + " is also a /cult net target; network commands reach it"
+                    + " as id:" + instanceId);
         byte[] key = settings.resolveSecret(platform.defaultSecret());
         Redaction redaction = Redaction.of(settings);
         MessageTransport transport = transport(settings, platform, instanceId, key, redaction);
@@ -205,7 +219,8 @@ public final class NetworkService implements NetworkRouting {
                 scheduler,
                 receiver,
                 new LogThrottle(),
-                RemoteCommands.CULT);
+                RemoteCommands.CULT,
+                NetCommands.CULT);
     }
 
     /** Where the signing key came from, for the start line; instances that name different sources may disagree. */
@@ -302,13 +317,17 @@ public final class NetworkService implements NetworkRouting {
         if (transport != null) {
             synchronized (rosterOrder) {
                 if (host == null || rosterOrder.get() == rosterDrawn)
-                    publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(List.of(), true, List.of(), Set.of()));
+                    publish(
+                            NetworkSettings.ALL,
+                            RosterCache.TYPE,
+                            rosterBody(List.of(), true, List.of(), Set.of(), null));
             }
             closing.execute(transport::close);
         }
         if (scheduler != null) scheduler.shutdownNow();
         if (receiver != null) receiver.shutdownNow();
         commands.close();
+        netCommands.close();
         searches.close();
         if (host != null) searchProviders.remove(host.generationId(), searchDetails);
     }
@@ -432,9 +451,14 @@ public final class NetworkService implements NetworkRouting {
                     reports.clear();
                 }
                 Set<String> wanted = Set.copyOf(verbose.get());
-                if (changed.isEmpty() && left.isEmpty() && wanted.equals(verboseSent)) return;
+                RosterCache.State state = state();
+                if (changed.isEmpty()
+                        && left.isEmpty()
+                        && wanted.equals(verboseSent)
+                        && Objects.equals(state, stateSent)) return;
                 verboseSent = wanted;
-                publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(changed, false, left, wanted));
+                stateSent = state;
+                publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(changed, false, left, wanted, state));
             }
         } catch (RuntimeException failure) {
             LogUtil.warn("Network roster update failed", failure);
@@ -474,6 +498,24 @@ public final class NetworkService implements NetworkRouting {
         return platform.remoteSenderBase();
     }
 
+    NetworkPlatform platform() {
+        return platform;
+    }
+
+    /** Whether this instance is a proxy. */
+    boolean proxy() {
+        return platform.proxy();
+    }
+
+    /** The other instances heard from lately, as their rosters describe them. */
+    List<RosterCache.Instance> instances() {
+        return roster.instances(clock.getAsLong());
+    }
+
+    NetCommands netCommands() {
+        return netCommands;
+    }
+
     void sweepCommands() {
         try {
             commands.sweep();
@@ -490,18 +532,54 @@ public final class NetworkService implements NetworkRouting {
             drainReports();
             Set<String> wanted = Set.copyOf(verbose.get());
             Collection<OnlinePlayer> players = platform.onlinePlayers();
+            RosterCache.State state = state();
             verboseSent = wanted;
-            publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(players, true, List.of(), wanted));
+            stateSent = state;
+            publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(players, true, List.of(), wanted, state));
         }
     }
 
-    /** A roster body with the next number drawn; called holding {@link #rosterOrder}. */
+    /**
+     * A roster body with this instance's role, build and {@code state}, and the next number drawn; called holding
+     * {@link #rosterOrder}.
+     */
     private JsonObject rosterBody(
-            Collection<OnlinePlayer> players, boolean full, Collection<UUID> left, Set<String> wanted) {
+            Collection<OnlinePlayer> players,
+            boolean full,
+            Collection<UUID> left,
+            Set<String> wanted,
+            RosterCache.@Nullable State state) {
         JsonObject body = RosterCache.body(players, full, left, wanted, nonce);
+        body.addProperty(RosterCache.ROLE, platform.proxy() ? RosterCache.PROXY : RosterCache.SERVER);
+        try {
+            body.addProperty(RosterCache.BUILD, netLocal.build());
+        } catch (RuntimeException unknown) {
+            // The roster goes out without the build.
+        }
+        if (state != null) body.add(RosterCache.STATE, state.toJson());
         rosterDrawn = rosterOrder.incrementAndGet();
         body.addProperty(RosterCache.ORDER, rosterDrawn);
         return body;
+    }
+
+    /** This instance's state for the roster; null when it cannot be read now. */
+    private RosterCache.@Nullable State state() {
+        try {
+            return netLocal.state(platform).withBackends(backends());
+        } catch (RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    /** The backend servers this instance answers for: on a proxy each one registered with it, else its own id. */
+    List<String> backends() {
+        if (!platform.proxy()) return List.of(instanceId);
+        Set<String> names = new TreeSet<>();
+        for (String name : platform.backends()) {
+            if (name != null && RosterCache.backendName(name)) names.add(name);
+            if (names.size() >= RosterCache.MAX_LISTED) break;
+        }
+        return List.copyOf(names);
     }
 
     private boolean publish(String to, String type, JsonObject body) {

@@ -19,11 +19,23 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class RemoteCommandSource implements Sender {
     /**
-     * The loader's runtime administration and the cloud commands that run on the sender's own instance. Findings stay
-     * allowed: each instance holds those of its own players.
+     * The loader's runtime administration, the cloud commands that run on the sender's own instance, and network
+     * commands, which a forwarded command line must never start. Findings stay allowed: each instance holds those of
+     * its own players.
      */
-    static final Set<String> DENIED =
-            Set.of("cult.update", "cult.devswap", "cult.runtimes", "cult.cloud", "cult.cloud.label");
+    static final Set<String> DENIED = Set.of(
+            "cult.update",
+            "cult.devswap",
+            "cult.runtimes",
+            "cult.cloud",
+            "cult.cloud.label",
+            "cult.net",
+            "cult.net.status",
+            "cult.net.reload",
+            "cult.net.observe",
+            "cult.net.toggle",
+            "cult.net.check",
+            "cult.net.update");
 
     private final UUID uuid;
     private final String name;

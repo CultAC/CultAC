@@ -331,6 +331,17 @@ network:
   # De naam van deze server op het netwerk. Elke server heeft een eigen naam nodig.
   # Laat leeg voor het proxy-id van RedisBungee, anders cloud.proxy-id, anders het IP en de poort van deze server.
   instance-id: ""
+  # /cult net <target> <command> runs a command on several servers at once. Each key's environment variable wins
+  # when set and not blank: CULTAC_NETWORK_COMMANDS, CULTAC_NETWORK_COMMANDS_ACCEPT (a comma list) and
+  # CULTAC_NETWORK_COMMANDS_WEBHOOK.
+  commands:
+    # Whether this server runs network commands sent from other servers.
+    enabled: true
+    # The network commands this server runs; it refuses the others.
+    accept: [status, reload, observe, toggle, check, update]
+    # What goes to update.webhook: summary (the sending server posts each command and its summary), every (each
+    # server posts the command it ran) or none.
+    webhook: summary
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.

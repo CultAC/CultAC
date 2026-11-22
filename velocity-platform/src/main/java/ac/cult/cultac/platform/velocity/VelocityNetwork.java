@@ -15,6 +15,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.channel.Channel;
 import java.net.InetSocketAddress;
 import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
 import org.jetbrains.annotations.Nullable;
@@ -106,6 +107,13 @@ final class VelocityNetwork implements NetworkPlatform {
     @Override
     public boolean proxy() {
         return true;
+    }
+
+    @Override
+    public List<String> backends() {
+        return proxy.getAllServers().stream()
+                .map(server -> server.getServerInfo().getName())
+                .toList();
     }
 
     @Override

@@ -114,3 +114,49 @@ server. Staff who never chose a scope get `alerts.default-scope` from `config.ym
 `global`); their own choice wins, and `global` acts as `server` while network-wide alerts are off. `/cult findplayer` counts the client brands of everyone online on the network, and
 `/cult findplayer brand=<text>` lists the players whose brand contains that text. While the network runs, a server
 does not also send its alerts through the proxy (`alerts.proxy.send`), as the network already brings them.
+
+## Running commands on several servers
+
+`/cult net <target> <command>` runs one command on every CultAC proxy and server the target names. Each one's answer
+shows as it arrives, then a summary: how many answered, which did not answer in time (5 seconds for `status`), and
+which run an older CultAC build that cannot take network commands.
+
+The target is one or more of these, joined by commas without spaces (`BRG_*,lobby`):
+
+- `all`: every proxy and server running CultAC.
+- `proxies`: every proxy.
+- a server name (see [Server names](#server-names)): that proxy or server.
+- a backend server as your proxies name it (`BRG_1`): every proxy that lists it runs the command for the players on
+  it, and the backend itself does too when it runs CultAC under that name.
+- a pattern with `*` (`BRG_*`): every server and backend name it matches.
+
+Names ignore case. A server named `proxies` is reached as `id:proxies`. Tab completion offers the keywords, the
+servers heard from, every backend registered with a proxy (with players or not) and a pattern for each group of names
+that share a prefix, such as `BRG_*`; after a comma it completes the next name. A name that no proxy or server knows is
+refused, and nothing is sent.
+
+Commands:
+
+- `status`: for each server, its CultAC build, whether it is a proxy or a server, the players online and inspected,
+  whether it checks players, observe-only mode (and the environment variable that pins it), the checks switched off,
+  the average time per prediction, and how long the server and its running CultAC engine have been up. For a backend
+  name, each proxy reports the players on the backends named.
+
+Each command needs `cult.net` and its own node, `cult.net.status`, on the server it is typed on; the console holds them
+all. A receiving server runs it only when the sender held that node, and a command forwarded from another server can
+never start one.
+
+`network.commands` in `config.yml` sets what a server takes; each key's environment variable wins when set and not
+blank:
+
+| Key | Default | Environment variable | Meaning |
+|---|---|---|---|
+| `enabled` | `true` | `CULTAC_NETWORK_COMMANDS` | Whether this server runs network commands. |
+| `accept` | `[status, reload, observe, toggle, check, update]` | `CULTAC_NETWORK_COMMANDS_ACCEPT` (a comma list) | The commands it runs; it refuses the others. |
+| `webhook` | `summary` | `CULTAC_NETWORK_COMMANDS_WEBHOOK` | What goes to `update.webhook`: `summary`, `every` or `none`. |
+
+Every server that runs a network command, and the server it was typed on, logs one line for it:
+`net <id> <sender> (<uuid>|console) from <server> → <target>: <command> = <result>`. With `webhook: summary` the server
+it was typed on posts the command and its summary to `update.webhook`; with `every` each server that runs it posts its
+own line; `none` posts nothing. While network routing is off, a network command runs only on the server it is typed
+on, when the target names that server.
