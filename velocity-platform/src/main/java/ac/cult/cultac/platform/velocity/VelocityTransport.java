@@ -227,7 +227,8 @@ final class VelocityTransport {
 
     /**
      * Releases a connection on its packet owner, before the acknowledgement reaches Velocity. A dormant connection's
-     * state carries {@link DormantWatch#DORMANT} and its retired pings.
+     * state carries {@link DormantWatch#DORMANT} and its retired pings; a dormant Bedrock connection, with its Geyser
+     * session, stays with this engine until it closes.
      *
      * @return the client state to continue, or null when this engine keeps the connection
      */
@@ -238,6 +239,7 @@ final class VelocityTransport {
                 || connection.phase(PacketDirection.SERVERBOUND) != ConnectionPhase.PLAY
                 || connection.phase(PacketDirection.CLIENTBOUND) != ConnectionPhase.CONFIGURATION) return null;
         var dormant = connection.dormant();
+        if (dormant != null && connection.bedrockBridge() != null) return null;
         Map<String, Object> state =
                 dormant == null ? ConnectionContinuation.capture(connection) : new HashMap<>(dormant);
         if (dormant != null) state.put(DormantWatch.DORMANT, true);

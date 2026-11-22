@@ -63,6 +63,7 @@ class NetCommandsTest {
     /** How a test instance describes itself; a test may change its options between commands. */
     private static final class Net implements NetCommands.Local {
         volatile NetCommands.Options options = NetCommands.Options.DEFAULT;
+        volatile int dormant;
 
         @Override
         public String build() {
@@ -72,7 +73,12 @@ class NetCommandsTest {
         @Override
         public RosterCache.State state(NetworkPlatform platform) {
             int players = platform.onlinePlayers().size();
-            return new RosterCache.State(true, false, List.of(), List.of(), players, players, 0);
+            return new RosterCache.State(true, false, List.of(), List.of(), players, players, dormant);
+        }
+
+        @Override
+        public int dormantPlayers(@Nullable List<String> backends) {
+            return dormant;
         }
 
         @Override
@@ -320,8 +326,8 @@ class NetCommandsTest {
                         .toList());
         assertTrue(
                 staff.plain()
-                        .contains("p3 » b1 · proxy · on BRG_1, BRG_2: 1 players, 1 inspected · checking · enforcing"
-                                + " · punishing · checks off: none"),
+                        .contains("p3 » b1 · proxy · on BRG_1, BRG_2: 1 players, 1 inspected, 0 dormant · checking ·"
+                                + " enforcing · punishing · checks off: none"),
                 staff.plain().toString());
         assertTrue(heard("1 of 1 answered"), staff.plain().toString());
 
@@ -351,9 +357,30 @@ class NetCommandsTest {
         assertTrue(heard.contains("p3 » Speed off (players on BRG_1)"), heard.toString());
         assertTrue(heard.contains("p7 » no check NoSuchCheck here"), heard.toString());
         assertTrue(
-                heard.contains("p3 » b1 · proxy · on BRG_1, BRG_2: 1 players, 1 inspected · checking · enforcing ·"
-                        + " punishments paused on BRG_1; punishing on BRG_2 · checks off: Speed on BRG_1; none on"
+                heard.contains("p3 » b1 · proxy · on BRG_1, BRG_2: 1 players, 1 inspected, 0 dormant · checking ·"
+                        + " enforcing · punishments paused on BRG_1; punishing on BRG_2 · checks off: Speed on BRG_1; none on"
                         + " BRG_2"),
+                heard.toString());
+    }
+
+    @Test
+    void toggleAndStatusCountTheDormantPlayersAndStatusShowsTheToggleOfEachBackend() {
+        Net net = new Net();
+        net.dormant = 1;
+        NetworkService proxy = started(
+                "p3", new Players().proxy(null).backends("BRG_1", "BRG_2").with(ALICE, "Alice", "BRG_1"), net);
+        NetworkService server = started("p7", new Players(), new Net());
+        networks.tick(proxy);
+        Staff mod = new Staff(Set.of("cult.net", "cult.net.status", "cult.net.toggle"));
+
+        run(server, mod, "BRG_1", "toggle", "off");
+        run(server, mod, "brg_*", "status");
+
+        List<String> heard = mod.plain();
+        assertTrue(heard.contains("p3 » players on BRG_1: now dormant (1 players not checked)"), heard.toString());
+        assertTrue(
+                heard.contains("p3 » b1 · proxy · on BRG_1, BRG_2: 1 players, 1 inspected, 1 dormant · dormant on"
+                        + " BRG_1; checking on BRG_2 · enforcing · punishing · checks off: none"),
                 heard.toString());
     }
 

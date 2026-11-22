@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.CultAPI;
@@ -322,6 +323,85 @@ class DormantDetachTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aDrainingWatchTakesExactlyTheRetiredPongsThenLeavesAndReleasesTheLease(boolean pongCancellingDisabled)
+            throws Exception {
+        platform.drains = true;
+        HostContext host = mock(HostContext.class);
+        try (var ignored = disablePongCancelling(pongCancellingDisabled)) {
+            Client c = new Client("lobby");
+            int[] inFlight = {c.ownPing(), c.ownPing()};
+            toggle("all", NetSettings.OFF);
+            settle();
+            DormantWatch watch = c.watch();
+            assertTrue(watch.drains());
+
+            assertEquals(pongCancellingDisabled, c.answer(inFlight[0]), "a pong for a ping CultAC wrote");
+            assertTrue(c.answer(BACKEND_PONG), "a backend pong is forwarded");
+            assertSame(watch, c.f.channel.pipeline().get(DormantWatch.NAME), "one retired ping is left");
+            assertEquals(List.of(), platform.drained);
+
+            try (var hosted = hosted(host)) {
+                assertEquals(pongCancellingDisabled, c.answer(inFlight[1]), "the last pong for a ping CultAC wrote");
+            }
+
+            assertNull(c.f.channel.pipeline().get(DormantWatch.NAME), "the drained watch left");
+            assertFalse(DormantWatch.all().contains(watch));
+            assertEquals(List.of(c.id), platform.drained);
+            verify(host).release(eq(c.f.channel), any());
+            assertTrue(c.answer(inFlight[0]), "once drained every pong is the backend's");
+            assertTrue(c.f.channel.pipeline().names().stream().noneMatch(name -> name.startsWith("cult-")));
+            assertEquals(List.of(), platform.closed);
+        }
+    }
+
+    @Test
+    void aDrainingWatchWhoseConnectionClosesReportsTheCloseAndNoDrain() throws Exception {
+        platform.drains = true;
+        Client c = new Client("lobby");
+        c.ownPing();
+        toggle("all", NetSettings.OFF);
+        settle();
+        DormantWatch watch = c.watch();
+
+        c.f.channel.close();
+
+        assertEquals(List.of(c.id), platform.closed);
+        assertEquals(List.of(), platform.drained);
+        assertFalse(DormantWatch.all().contains(watch));
+    }
+
+    @Test
+    void aConnectionThatDoesNotSwapLosesOnlyItsPlayerUntilItJoinsAgain() throws Exception {
+        platform.swaps = false;
+        Client c = new Client("lobby");
+        toggle("all", NetSettings.OFF);
+        settle();
+
+        assertNull(c.f.user.getCultPlayer());
+        assertSame(c.f.connection, CultAPI.INSTANCE.getNetworkManager().connection(c.f.channel));
+        assertNotNull(c.f.channel.pipeline().get(CultDecoder.NAME));
+        assertNull(c.f.channel.pipeline().get(DormantWatch.NAME));
+        assertEquals(List.of(c.id), platform.detached);
+        assertEquals(1, DormancyController.dormantPlayers(null));
+
+        toggle("all", NetSettings.ON);
+        settle();
+        assertTrue(c.acknowledge());
+        assertTrue(platform.resumed.isEmpty(), "checked again only when they join again");
+        assertNull(c.f.user.getCultPlayer());
+    }
+
+    /** Runs as an engine under {@code host} until closed. */
+    private static AutoCloseable hosted(HostContext host) throws ReflectiveOperationException {
+        Field context = RuntimeEnvironment.class.getDeclaredField("context");
+        context.setAccessible(true);
+        Object previous = context.get(null);
+        context.set(null, host);
+        return () -> context.set(null, previous);
+    }
+
     private void toggle(String target, String value) {
         TestNetworks.merge(
                 network,
@@ -479,11 +559,22 @@ class DormantDetachTest {
         final Map<UUID, String> targets = new ConcurrentHashMap<>();
         final List<UUID> detached = new ArrayList<>();
         final List<CultConnection> resumed = new ArrayList<>();
+        final List<UUID> drained = new ArrayList<>();
+        final List<UUID> closed = new ArrayList<>();
         final Probe probe = new Probe();
         /** How many of the next watches to refuse. */
         int refusedWatches;
         /** How many of the next handler removals fail before removing anything. */
         int failedRemovals;
+        /** Whether detached connections swap their handlers for a watch. */
+        boolean swaps = true;
+        /** Whether the watches only drain. */
+        boolean drains;
+
+        @Override
+        public boolean swaps(CultConnection connection) {
+            return swaps;
+        }
 
         @Override
         public @Nullable UUID player(CultConnection connection) {
@@ -522,7 +613,8 @@ class DormantDetachTest {
                     connection.dormant(),
                     new int[0],
                     play,
-                    DormancyController.hooks());
+                    DormancyController.hooks(),
+                    drains);
         }
 
         @Override
@@ -561,6 +653,13 @@ class DormantDetachTest {
         }
 
         @Override
-        public void closed(DormantWatch watch) {}
+        public void closed(DormantWatch watch) {
+            closed.add(watch.player());
+        }
+
+        @Override
+        public void drained(DormantWatch watch) {
+            drained.add(watch.player());
+        }
     }
 }

@@ -76,6 +76,65 @@ def runtime_status(native, pattern):
     raise AssertionError('Runtime ownership did not reach '+pattern+'; see '+str(native.log_path))
 
 
+def plain(text):
+    return re.sub(r'\x1b\[[0-9;]*m|§.', '', text)
+
+
+def net(native, command, pattern):
+    """Runs `cult net <command>` on the proxy console and returns the first answer matching pattern."""
+    offset=len(native.log())
+    native.command('cult net '+command)
+    deadline=time.monotonic()+20
+    while time.monotonic()<deadline:
+        match=re.search(pattern,plain(native.log()[offset:]))
+        if match: return match
+        time.sleep(.2)
+    raise AssertionError('cult net '+command+' gave no answer matching '+pattern+'; see '+str(native.log_path))
+
+
+def counted(native, inspected, dormant):
+    match=net(native,'all status',r'(\d+) players, (\d+) inspected, (\d+) dormant')
+    seen=(int(match.group(2)),int(match.group(3)))
+    assert seen==(inspected,dormant), f'status shows {seen[0]} inspected and {seen[1]} dormant, expected {inspected} and {dormant}'
+
+
+def dormant_round(args, native, lifecycle, participants, peers, transitions, case, round, current):
+    """Turns checking off, lets the clients play, turns it on and switches everyone; the tapes then replay in full.
+    Java peers are checked again at their switch; Bedrock clients stay unchecked until they reconnect."""
+    total=args.players*2+args.java_peers
+    online=args.players+args.java_peers
+    for client,output in participants:
+        request=output / f'switch-request-{round}.json'
+        lifecycle.wait_for(lambda: client.poll() is not None or request.is_file(),180)
+        assert client.poll() is None, (output / 'runner.log').read_text()
+    if round==1: counted(native,online,0)
+    off=net(native,'all toggle off',r'now dormant \((\d+) players not checked\)')
+    assert int(off.group(1))==online, f'toggle off left {off.group(1)} of {online} players unchecked'
+    counted(native,0,online)
+    time.sleep(args.transfer_delay)
+    on=net(native,'all toggle on',r'now checking \((\d+) players not checked yet')
+    assert int(on.group(1))==online, f'toggle on reported {on.group(1)} of {online} players unchecked'
+    runtime_status(native,current[:12]+f'.*CURRENT sessions={total} ')
+    for i,(client,output) in enumerate(participants):
+        switch=json.loads((output / f'switch-request-{round}.json').read_text())
+        native.command('send '+switch['username']+' '+switch['target'])
+        runtime_status(native,current[:12]+f'.*CURRENT sessions={total} ')
+        (output / f'switch-complete-{round}.json').write_text(json.dumps({'previous':current,'current':current}))
+        transitions.append({'case':case,'round':round,'player':i,'kind':'bedrock','target':switch['target'],
+            'selectedHash':current,'sessions':total,'dormant':True})
+        time.sleep(args.transfer_delay)
+    for peer in peers:
+        joins=peer.joins
+        target_server='lobby' if round%2==0 else 'factions'
+        native.command('send '+peer.name+' '+target_server)
+        lifecycle.wait_for(lambda: peer.closed or peer.joins>joins)
+        assert not peer.closed, 'Java peer disconnected at a switch while dormant'
+        runtime_status(native,current[:12]+f'.*CURRENT sessions={total} ')
+        transitions.append({'case':case,'round':round,'player':peer.name,'kind':'java','target':target_server,
+            'selectedHash':current,'sessions':total,'dormant':True})
+    counted(native,args.java_peers,args.players)
+
+
 def java_peer_type(lifecycle):
     source=textwrap.dedent(inspect.getsource(lifecycle.Bot.read))
     line=next(line for line in source.splitlines() if "elif name == 'keep_alive':" in line)
@@ -169,7 +228,7 @@ def exercise(args, paper, velocity, lifecycle, folder):
                     'ac.cultac.bedrockreplay.regression.LiveHandoffReplay',
                     str(args.scenarios / case), str(observer_control), str(output), str(args.bedrock_port),
                     str(fixture_controls[0]),str(fixture_controls[1]),str(args.rounds),
-                ],stdout=log,stderr=subprocess.STDOUT)
+                ]+(['dormant'] if args.dormant else []),stdout=log,stderr=subprocess.STDOUT)
                 clients.append(client);participants.append((client,output))
             for client,output in participants:
                 lifecycle.wait_for(lambda: client.poll() is not None or (output / 'connected.json').is_file(),120)
@@ -181,6 +240,9 @@ def exercise(args, paper, velocity, lifecycle, folder):
                 (output / 'start.json').write_text('{}')
                 time.sleep(args.transfer_delay)
             for round in range(1,args.rounds):
+                if args.dormant:
+                    dormant_round(args,native,lifecycle,participants,peers,transitions,case,round,current_hash)
+                    continue
                 first_client,first_output=participants[0]
                 request=first_output / f'switch-request-{round}.json'
                 lifecycle.wait_for(lambda: first_client.poll() is not None or request.is_file(),180)
@@ -245,12 +307,15 @@ def exercise(args, paper, velocity, lifecycle, folder):
                 assert client.returncode==0, (output / 'runner.log').read_text()
                 assert json.loads((output / 'result.json').read_text())['passed']
             runtime_status(native,current_hash[:12]+f'.*CURRENT sessions={args.java_peers} ')
-            print(case+f': {args.players} Bedrock players gradually drained over {args.transfer_delay}s intervals; full tapes/mutations PASS',flush=True)
+            if args.dormant:
+                print(case+f': {args.players} Bedrock players through {args.rounds-1} dormant rounds; full tapes PASS',flush=True)
+            else:
+                print(case+f': {args.players} Bedrock players gradually drained over {args.transfer_delay}s intervals; full tapes/mutations PASS',flush=True)
         for peer in peers: peer.close()
         runtime_status(native,current_hash[:12]+'.*CURRENT sessions=0 ')
         (folder / 'result.json').write_text(json.dumps({'passed':True,'transitions':transitions,
             'rounds':args.rounds,'cases':args.cases,'bedrockPlayers':args.players,'javaPeers':args.java_peers,
-            'transferDelaySeconds':args.transfer_delay,'runtime':target,'pluginSha256':initial_plugin_hash,
+            'transferDelaySeconds':args.transfer_delay,'dormant':args.dormant,'runtime':target,'pluginSha256':initial_plugin_hash,
             'topology':'ViaVersion/ViaBackwards on both Paper backends; Geyser/Cult on Velocity'},indent=2))
     finally:
         for client in clients:
@@ -278,10 +343,15 @@ def main():
     parser.add_argument('--paper-api', type=Path)
     parser.add_argument('--java-port', type=int, default=26970)
     parser.add_argument('--bedrock-port', type=int, default=19870)
+    parser.add_argument('--dormant', action='store_true',
+                        help='Replace each engine update with `cult net all toggle off`, play, `toggle on` and a '
+                             'backend switch; round 0 is checked, later rounds replay unchecked Bedrock clients')
     args = parser.parse_args()
     if args.players < 1 or args.java_peers < 0 or not 0 <= args.transfer_delay <= 45:
         parser.error('Use >=1 Bedrock player, >=0 Java peers and 0..45 second transfer intervals')
-    if args.rounds < 3:
+    if args.dormant and args.rounds < 2:
+        parser.error('--dormant needs a checked round and at least one dormant round')
+    if not args.dormant and args.rounds < 3:
         parser.error('--rounds must include two baseline rounds and at least one mutated round')
     for name in ('replay_root', 'scenarios', 'velocity_lock', 'plugin', 'artifact_root'):
         setattr(args, name, getattr(args, name).resolve())

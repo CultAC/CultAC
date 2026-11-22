@@ -138,8 +138,8 @@ refused, and nothing is sent.
 
 Commands:
 
-- `status`: for each server, its CultAC build, whether it is a proxy or a server, the players online and inspected,
-  whether it checks players, observe-only mode (and the environment variable that pins it), whether punishment
+- `status`: for each server, its CultAC build, whether it is a proxy or a server, the players online, inspected and
+  dormant (not checked after a `toggle off`), whether it checks players, observe-only mode (and the environment variable that pins it), whether punishment
   commands run, the checks switched off, the average time per prediction, and how long the server and its running
   CultAC engine have been up. For a backend name, each proxy reports the players and settings on the backends named.
 - `reload`: reloads CultAC's configuration, as `/cult reload` does. It runs on proxies and servers only; a backend name
@@ -150,9 +150,9 @@ Commands:
   alerts and setbacks are unaffected. Without `on` or `off` it shows the current state.
 - `toggle on|off`: with `off`, CultAC checks no one on the matched instances or servers and frees its memory. With
   `on`, players who join are checked, and for players already online checking starts again at their next server
-  switch or reconnect. Without `on` or `off` it shows the current state and where it comes from. Each proxy answers
-  with how many of the players the target names it does not check. On a proxy it covers Java players; Bedrock players
-  and servers that are not proxies keep being checked.
+  switch or reconnect. Without `on` or `off` it shows the current state and where it comes from. Each proxy and server
+  answers with how many of the players the target names it does not check. Bedrock players, and players on a server
+  that is not a proxy, are checked again when they reconnect.
 - `check <check> <on|off>`: switches one check on or off for the players the target names. Tab completion offers each
   check's current name; any name a check has or had works.
 - `update <build>` or `update latest [channel]`, optionally followed by `--canary`: installs a signed numbered build

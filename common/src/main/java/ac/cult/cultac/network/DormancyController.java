@@ -13,6 +13,7 @@ import ac.cult.reload.api.HostContext;
 import io.netty.channel.ChannelPipeline;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,7 +29,8 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Dormant mode for the connections this generation owns. A player is checked while the network's shared
  * {@code toggle} is on for the backend server they are on, and dormant while it is off: CultAC then holds no player,
- * decoder or encoder for them, only a {@link DormantWatch}. A player goes dormant as soon as the setting turns off for
+ * decoder or encoder for them, only a {@link DormantWatch}, or, on a connection that does not {@link Platform#swaps
+ * swap}, CultAC's handlers without a player. A player goes dormant as soon as the setting turns off for
  * them, once their connection to a server where it is off completed, and at a reconfiguration acknowledgement on the way
  * to such a server; a dormant player is checked again at an acknowledgement on the way to a server where it is on, or
  * when they join again. A connection never keeps a watch next to CultAC's handlers.
@@ -52,13 +54,31 @@ public final class DormancyController {
             Platform hooks = platform;
             if (hooks != null) hooks.closed(watch);
         }
+
+        @Override
+        public void drained(DormantWatch watch) {
+            Platform hooks = platform;
+            try {
+                if (hooks != null) hooks.drained(watch);
+            } finally {
+                RuntimeEnvironment.release(watch.channel(), CompletableFuture.completedFuture(null));
+            }
+        }
     };
 
     /** The platform side of dormant mode. */
     public interface Platform {
-        /** The player of a connection that can go dormant; null for any other, such as a Bedrock one. Any thread. */
+        /** The player of a connection that can go dormant; null for any other. Any thread. */
         @Nullable
         UUID player(CultConnection connection);
+
+        /**
+         * Whether a detached {@code connection} swaps CultAC's handlers for a watch; one that does not keeps them, and
+         * its player is checked again only when they join again.
+         */
+        default boolean swaps(CultConnection connection) {
+            return true;
+        }
 
         /** The backend server whose settings {@code player} follows; null when it is not known. Any thread. */
         @Nullable
@@ -94,6 +114,17 @@ public final class DormancyController {
 
         /** A watched connection closed. */
         void closed(DormantWatch watch);
+
+        /**
+         * A draining watch answered its last retired ping and left its open connection, whose engine lease is released
+         * after this returns.
+         */
+        default void drained(DormantWatch watch) {}
+
+        /** The dormant players this generation holds neither a watch nor a connection of. Any thread. */
+        default Collection<UUID> unwatched() {
+            return List.of();
+        }
     }
 
     private DormancyController() {}
@@ -160,12 +191,13 @@ public final class DormancyController {
     public static int dormantPlayers(@Nullable Collection<String> backends) {
         Platform hooks = platform;
         if (hooks == null) return 0;
-        List<UUID> players = new ArrayList<>();
+        Set<UUID> players = new HashSet<>();
         for (DormantWatch watch : DormantWatch.all()) players.add(watch.player());
         for (CultConnection connection : CultAPI.INSTANCE.getNetworkManager().connections()) {
             User user = connection.user();
             if (connection.dormant() != null && user != null && user.getUUID() != null) players.add(user.getUUID());
         }
+        players.addAll(hooks.unwatched());
         if (backends == null) return players.size();
         Set<String> on = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         on.addAll(backends);
@@ -182,13 +214,17 @@ public final class DormancyController {
      * detaches an inspected player switching to a server where they are dormant, and swaps the handlers of a detached
      * one, attaching it again when it switches to a server where it is checked. A detached connection whose swap fails
      * keeps its handlers and is left to its swap retries, unless it switches to a server where it is checked and CultAC
-     * fails closed: that one is closed.
+     * fails closed: that one is closed. A connection that does not {@link Platform#swaps swap} is only detached.
      */
     static boolean reconfiguring(CultConnection connection) throws Exception {
         Platform hooks = platform;
         UUID player = hooks == null ? null : hooks.player(connection);
         if (player == null) return true;
         boolean dormant = dormant(hooks.target(player));
+        if (!hooks.swaps(connection)) {
+            if (dormant && detach(connection) != null) hooks.detached(player);
+            return true;
+        }
         if (connection.dormant() == null) {
             if (dormant && detach(connection) != null) {
                 hooks.detached(player);
@@ -267,7 +303,7 @@ public final class DormancyController {
             return;
         if (!dormant(hooks.backend(player)) || detach(connection) == null) return;
         hooks.detached(player);
-        trySwap(hooks, connection, 0);
+        if (hooks.swaps(connection)) trySwap(hooks, connection, 0);
     }
 
     /**

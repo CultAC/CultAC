@@ -308,7 +308,12 @@ final class NetCommands {
          * players here are not checked: all of them or, given {@code backends}, those on one of them.
          */
         default CompletableFuture<Integer> dormant(@Nullable List<String> backends) {
-            return CompletableFuture.completedFuture(0);
+            return CompletableFuture.completedFuture(dormantPlayers(backends));
+        }
+
+        /** How many players here are not checked: all of them or, given {@code backends}, those on one of them. */
+        default int dormantPlayers(@Nullable List<String> backends) {
+            return 0;
         }
 
         /** How this instance's loader installs numbered builds. */
@@ -337,13 +342,13 @@ final class NetCommands {
                 if (platform.holder(player.uuid()) == Holder.OTHER) elsewhere++;
             }
             return new State(
-                    true,
+                    NetworkModule.setting(NetSettings.TOGGLE).on(),
                     NetworkModule.setting(NetSettings.OBSERVE).on(),
                     List.copyOf(NetworkModule.checksOff(null)),
                     baseline().pins(),
                     online.size(),
                     CultAPI.INSTANCE.getPlayerDataManager().size() + elsewhere,
-                    0);
+                    DormancyController.dormantPlayers(null));
         }
 
         @Override
@@ -428,7 +433,12 @@ final class NetCommands {
 
         @Override
         public CompletableFuture<Integer> dormant(@Nullable List<String> backends) {
-            return DormancyController.settle().thenApply(ignored -> DormancyController.dormantPlayers(backends));
+            return DormancyController.settle().thenApply(ignored -> dormantPlayers(backends));
+        }
+
+        @Override
+        public int dormantPlayers(@Nullable List<String> backends) {
+            return DormancyController.dormantPlayers(backends);
         }
 
         private boolean configHolds(boolean observeOnly) {
@@ -508,8 +518,8 @@ final class NetCommands {
                     new Text(
                             "net-status-backends-line",
                             "&f%build% &8· &7%role% &8· &7on &f%backends%&7: &f%players% &7players, &f%inspected%"
-                                    + " &7inspected &8· &7%toggle% &8· &7%observe% &8· &7%punish% &8· &7checks off:"
-                                    + " &f%checks%")),
+                                    + " &7inspected, &f%dormant% &7dormant &8· &7%toggle% &8· &7%observe% &8· &7%punish%"
+                                    + " &8· &7checks off: &f%checks%")),
             Map.entry("refused-permission", REFUSED_PERMISSION),
             Map.entry(
                     "refused-disabled",
@@ -1237,6 +1247,7 @@ final class NetCommands {
         params.put("backends", listed(backends));
         params.put("players", String.valueOf(players));
         params.put("inspected", String.valueOf(inspected));
+        params.put("dormant", String.valueOf(local.dormantPlayers(backends)));
         return Reply.of(true, "status-backends", params);
     }
 
@@ -1247,7 +1258,11 @@ final class NetCommands {
     private void settings(Map<String, String> params, State state, @Nullable List<String> backends) {
         params.put("build", String.valueOf(local.build()));
         params.put("role", service.proxy() ? RosterCache.PROXY : RosterCache.SERVER);
-        params.put("toggle", state.checking() ? "checking" : "dormant");
+        params.put(
+                "toggle",
+                backends == null
+                        ? state.checking() ? "checking" : "dormant"
+                        : described(NetSettings.TOGGLE, backends, false));
         params.put("observe", described(NetSettings.OBSERVE, backends, false));
         params.put("punish", described(NetSettings.PUNISH, backends, false));
         params.put("checks", checksOff(backends));

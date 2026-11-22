@@ -25,7 +25,8 @@ import org.jetbrains.annotations.Nullable;
  * Sits where {@code cult-decoder} sits on a connection CultAC does not inspect. It reads the packet id of each
  * serverbound frame and nothing else, except a pong's id while pings written for a removed player may still be answered:
  * those pongs are swallowed as the decoder would. It hands each reconfiguration acknowledgement to its {@link Hooks}
- * before forwarding it. All of it runs on the channel's event loop.
+ * before forwarding it; a draining watch hands over none and leaves once no retired ping is left. All of it runs on the
+ * channel's event loop.
  */
 public final class DormantWatch extends ChannelInboundHandlerAdapter {
     public static final String NAME = "cult-dormant";
@@ -52,6 +53,9 @@ public final class DormantWatch extends ChannelInboundHandlerAdapter {
 
         /** The connection closed while watched. */
         void closed(DormantWatch watch);
+
+        /** A draining watch answered its last retired ping and left the pipeline. On the channel's event loop. */
+        default void drained(DormantWatch watch) {}
     }
 
     /** The serverbound packet ids the watch reacts to; -1 for one the protocol lacks. */
@@ -76,6 +80,7 @@ public final class DormantWatch extends ChannelInboundHandlerAdapter {
     private final Hooks hooks;
     private final Ids ids;
     private final IntOpenHashSet retired;
+    private final boolean drain;
     private boolean play;
 
     /**
@@ -93,6 +98,24 @@ public final class DormantWatch extends ChannelInboundHandlerAdapter {
             int[] retired,
             boolean play,
             Hooks hooks) {
+        this(channel, version, player, nativePlayer, platformPlayer, state, retired, play, hooks, false);
+    }
+
+    /**
+     * @param drain whether the watch only drains: it hands no acknowledgement to its hooks, and once no retired ping is
+     *     left, at {@link #retire} or a pong, it leaves the pipeline and reports {@link Hooks#drained}
+     */
+    public DormantWatch(
+            Channel channel,
+            ProtocolVersion version,
+            UUID player,
+            @Nullable Object nativePlayer,
+            @Nullable Object platformPlayer,
+            Map<String, Object> state,
+            int[] retired,
+            boolean play,
+            Hooks hooks,
+            boolean drain) {
         this.channel = channel;
         this.player = player;
         this.nativePlayer = nativePlayer;
@@ -102,6 +125,7 @@ public final class DormantWatch extends ChannelInboundHandlerAdapter {
         this.ids = IDS.computeIfAbsent(version, Ids::of);
         this.retired = new IntOpenHashSet(retired);
         this.play = play;
+        this.drain = drain;
     }
 
     /** The watches installed on this generation's connections. */
@@ -143,6 +167,12 @@ public final class DormantWatch extends ChannelInboundHandlerAdapter {
     /** Adds {@code ids} to the CultAC pings the client may still answer. On the channel's event loop. */
     void retire(int[] ids) {
         for (int id : ids) retired.add(id);
+        drainedIfDone();
+    }
+
+    /** Whether this watch only drains. */
+    public boolean drains() {
+        return drain;
     }
 
     /** Whether the client's serverbound stream is in play. On the channel's event loop. */
@@ -203,16 +233,37 @@ public final class DormantWatch extends ChannelInboundHandlerAdapter {
         if (id >= 0) {
             if (play) {
                 if (id == ids.playPong) {
-                    if (swallowed(frame, at)) return;
-                } else if (id == ids.acknowledged) {
+                    if (swallowed(frame, at)) {
+                        drainedIfDone();
+                        return;
+                    }
+                } else if (id == ids.acknowledged && !drain) {
                     acknowledged(ctx, frame);
                     return;
+                } else if (id == ids.acknowledged) {
+                    retired.clear();
+                    play = false;
                 }
             } else if (id == ids.configurationPong) {
-                if (swallowed(frame, at)) return;
+                if (swallowed(frame, at)) {
+                    drainedIfDone();
+                    return;
+                }
             } else if (id == ids.finish) play = true;
         }
         ctx.fireChannelRead(frame);
+        drainedIfDone();
+    }
+
+    /** Takes a draining watch with no retired ping left out of the pipeline. */
+    private void drainedIfDone() {
+        if (!drain || !retired.isEmpty() || channel.pipeline().context(this) == null) return;
+        channel.pipeline().remove(this);
+        try {
+            hooks.drained(this);
+        } catch (Throwable failure) {
+            CultNetworkManager.reportFailure("dormant drain", failure);
+        }
     }
 
     /** Takes a pong answering a retired ping and releases it unless {@code disable-pong-cancelling} forwards it. */

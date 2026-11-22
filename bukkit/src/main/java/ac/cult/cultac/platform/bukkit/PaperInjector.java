@@ -24,10 +24,12 @@ import org.bukkit.craftbukkit.CraftServer;
 final class PaperInjector {
     private static final Key KEY = Key.key("cultac", "injector");
     private final CultNetworkManager manager;
+    private final PaperDormancy dormancy;
     private volatile boolean registered;
 
-    PaperInjector(CultNetworkManager manager) {
+    PaperInjector(CultNetworkManager manager, PaperDormancy dormancy) {
         this.manager = manager;
+        this.dormancy = dormancy;
     }
 
     void enable() {
@@ -85,6 +87,7 @@ final class PaperInjector {
     private synchronized void inject(Channel channel, boolean existing) {
         if (!registered || manager.connection(channel) != null) return;
         if (!(channel.pipeline().get("packet_handler") instanceof Connection nativeConnection)) return;
+        if (dormancy.skips(channel)) return;
         var inbound = existing ? installedPhase(channel, "decoder", PacketDecoder.class) : ConnectionPhase.HANDSHAKE;
         var outbound = existing ? installedPhase(channel, "encoder", PacketEncoder.class) : ConnectionPhase.HANDSHAKE;
         var connection = manager.createConnection(new BukkitConnectionAdapter(nativeConnection, channel), channel);
