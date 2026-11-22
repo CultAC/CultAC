@@ -10,6 +10,7 @@ import ac.cult.cultac.manager.init.stop.StoppableInitable;
 import ac.cult.cultac.manager.init.stop.TerminateGeyserBedrockBridge;
 import ac.cult.cultac.manager.init.stop.TerminateNetworkManager;
 import ac.cult.cultac.manager.player.PlayerNetworkSettings;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.latency.SectionStore;
@@ -69,6 +70,7 @@ public class InitManager {
                 .add(new NetworkManagerStart())
                 .addAll(extraStartableInitables)
                 .add(PlayerNetworkSettings::start)
+                .add(DormancyController::start)
                 .add(NetworkModule::start)
                 .build();
 

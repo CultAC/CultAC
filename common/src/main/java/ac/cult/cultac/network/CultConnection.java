@@ -22,6 +22,7 @@ import java.lang.reflect.Method;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -29,6 +30,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
 
 /** Authoritative identity, player attachment and transport state for one channel. */
 public final class CultConnection
@@ -123,6 +125,33 @@ public final class CultConnection
         }
     }
 
+    /** Takes every retired CultAC ping id not yet answered. */
+    public int[] drainRetiredPings() {
+        synchronized (retiredPings) {
+            int[] ids = retiredPings.toIntArray();
+            retiredPings.clear();
+            return ids;
+        }
+    }
+
+    /** Whether the connection completed a CultAC login. */
+    public boolean loginNotified() {
+        return loginNotified;
+    }
+
+    /**
+     * The state captured when the connection's player was taken out of inspection while the connection stayed open,
+     * the connection's continuation and {@link DormantWatch#LOGIN_NOTIFIED}; null while it is inspected.
+     */
+    public @Nullable Map<String, Object> dormant() {
+        return dormant;
+    }
+
+    /** Marks the connection dormant with the state its player left; on the packet owner. */
+    public void dormant(Map<String, Object> state) {
+        dormant = Map.copyOf(state);
+    }
+
     private boolean ownerResolved, prepared;
     private Consumer<CultConnection> initializer = ignored -> {};
     private BiConsumer<Object, ChannelPromise> reentrantWriter;
@@ -133,6 +162,7 @@ public final class CultConnection
     private volatile PacketLogObserver packetObserver = PacketLogObserver.NONE;
     private io.netty.util.concurrent.GenericFutureListener<io.netty.util.concurrent.Future<? super Void>> closeListener;
     private volatile ConnectionContinuation continuation;
+    private volatile @Nullable Map<String, Object> dormant;
     /** Codec contexts bound to this connection, by base identity; a slot holds one immutable context or none. */
     private final ProtocolContext[] contexts = new ProtocolContext[CONTEXT_SLOTS];
 
@@ -599,6 +629,11 @@ public final class CultConnection
         afterClientTick.add(Objects.requireNonNull(task));
     }
 
+    /** Whether a task waits for the next forwarded tick end. On the owner. */
+    public boolean hasClientTickTasks() {
+        return !afterClientTick.isEmpty();
+    }
+
     /** Releases tick-bound tasks after a forwarded tick end, leaving play, or the synthetic tick-end timeout. */
     public void clientTickEnded() {
         midClientTick = false;
@@ -644,17 +679,23 @@ public final class CultConnection
             levelLost();
     }
 
-    /** Run before forwarding the ack to the host, which may immediately connect the next backend. */
+    /**
+     * Run before forwarding the ack to the host, which may immediately connect the next backend. A connection no newer
+     * generation adopts goes to {@link DormancyController#reconfiguring}.
+     */
     public boolean handoffAtReconfiguration() {
         if (!owner.inEventLoop()) throw new IllegalStateException("Hand-off requires the packet owner");
         var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
-        if (host == null || !host.platform().equals("velocity")) return true;
+        if (host != null && !host.platform().equals("velocity")) return true;
         var player = this.player;
+        var user = this.user;
+        // A dormant connection's player is gone; its user still names the native player.
+        var platformPlayer =
+                player != null ? player.platformPlayer : dormant != null && user != null ? user.getPlayer() : null;
         try {
-            host.handoff(
-                    channel,
-                    player == null || player.platformPlayer == null ? null : player.platformPlayer.getNative());
-            return true;
+            if (host != null && host.handoff(channel, platformPlayer == null ? null : platformPlayer.getNative()))
+                return true;
+            return DormancyController.reconfiguring(this);
         } catch (Throwable failure) {
             // The releasing generation's config decides: the adopting one failed and may not have loaded.
             if (CultAPI.INSTANCE.getConfigManager().failsOpen()) {

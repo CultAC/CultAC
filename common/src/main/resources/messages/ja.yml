@@ -68,6 +68,7 @@ help:
     - "/%command% net <target> reload &f- &7Reload the config on every CultAC server the target names"
     - "/%command% net <target> observe [on|off] &f- &7Show or switch observe-only for the players the target names"
     - "/%command% net <target> punish [on|off] &f- &7Show or switch punishment commands for the players the target names"
+    - "/%command% net <target> toggle [on|off] &f- &7Show or switch checking for the players the target names"
     - "/%command% net <target> check <check> <on|off> &f- &7Switch a check for the players the target names"
     - "/%command% net <target> update <build>|latest [channel] [--canary] &f- &7Install a build on every proxy the target names; this proxy updates last"
     - "/%command% spectate <player> &f- &7プレイヤーを観戦します"
@@ -196,6 +197,11 @@ net-observe-applied: "&f%players%: now %state%"
 net-observe-failed: "&c%players%: set to %state%, but reloading failed; see the console"
 net-punish-state: "&f%players%: %state%"
 net-punish-applied: "&f%players%: now %state%"
+# Answers to toggle. %state% is checking or dormant (with where it comes from for a bare toggle), %count% how many
+# players on this instance, or on the servers named, CultAC does not check.
+net-toggle-state: "&f%players%: %state%"
+net-toggle-off-applied: "&f%players%: now %state% &7(%count% players not checked)"
+net-toggle-on-applied: "&f%players%: now %state% &7(%count% players not checked yet; checking starts again at their next server switch or reconnect)"
 net-check-applied: "&f%check% %state% &7(%players%)"
 net-check-unknown: "&cno check %check% here"
 # /cult net <target> update. %build% is a build number (b150) or latest with its channel, %line% the loader's install

@@ -22,7 +22,8 @@ import org.incendo.cloud.suggestion.SuggestionProvider;
 /**
  * {@code /cult net <target> <command>}: runs one network command on every CultAC instance the target names, the
  * target being one or more instance ids, backend servers, patterns or keywords joined by commas. The commands are
- * {@code status}, {@code reload}, {@code observe [on|off]}, {@code punish [on|off]} and {@code check <check> <on|off>}.
+ * {@code status}, {@code reload}, {@code observe [on|off]}, {@code punish [on|off]}, {@code toggle [on|off]} and
+ * {@code check <check> <on|off>}.
  * Each needs {@code cult.net} and its own {@code cult.net.<command>}, and completes only after a target it can run on.
  */
 public class CultNet implements BuildableCommand {
@@ -44,7 +45,7 @@ public class CultNet implements BuildableCommand {
                     .permission(permission(name))
                     .futureHandler(context -> run(context, name, List.of())));
         }
-        for (String name : List.of("observe", "punish")) {
+        for (String name : List.of("observe", "punish", "toggle")) {
             Command.Builder<Sender> setting = targeted.required(command(name)).permission(permission(name));
             commandManager.command(setting.futureHandler(context -> run(context, name, List.of())));
             for (String state : List.of("on", "off"))

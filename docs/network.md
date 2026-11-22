@@ -148,6 +148,11 @@ Commands:
   the current mode and where it comes from.
 - `punish on|off`: runs or withholds the commands of `punishments.yml` for the players the target names; checks,
   alerts and setbacks are unaffected. Without `on` or `off` it shows the current state.
+- `toggle on|off`: with `off`, CultAC checks no one on the matched instances or servers and frees its memory. With
+  `on`, players who join are checked, and for players already online checking starts again at their next server
+  switch or reconnect. Without `on` or `off` it shows the current state and where it comes from. Each proxy answers
+  with how many of the players the target names it does not check. On a proxy it covers Java players; Bedrock players
+  and servers that are not proxies keep being checked.
 - `check <check> <on|off>`: switches one check on or off for the players the target names. Tab completion offers each
   check's current name; any name a check has or had works.
 - `update <build>` or `update latest [channel]`, optionally followed by `--canary`: installs a signed numbered build
@@ -167,13 +172,14 @@ Commands:
   once (its running build replaces the plugin jar as it stops) and it takes network updates from then on.
 
 Each command needs `cult.net` and its own node, `cult.net.<command>` (`cult.net.status`, `cult.net.reload`,
-`cult.net.observe`, `cult.net.punish`, `cult.net.check`, `cult.net.update`), on the server it is typed on; the console
-holds them all. A receiving server runs it only when the sender held that node, and a command forwarded from another
-server can never start one.
+`cult.net.observe`, `cult.net.punish`, `cult.net.toggle`, `cult.net.check`, `cult.net.update`), on the server it is
+typed on; the console holds them all. A receiving server runs it only when the sender held that node, and a command
+forwarded from another server can never start one.
 
 `observe`, `punish` and `check` apply per player: on a proxy, each player follows the setting issued last for the
 backend server they are on or for the proxy itself, and a player who moves to another backend takes its settings at
-once. `/cult observe` and the `observe-only` key set the mode of their own server.
+once. `toggle` applies per player the same way; for a player who moves to another backend it takes effect as they
+switch. `/cult observe` and the `observe-only` key set the mode of their own server.
 
 `network.commands` in `config.yml` sets what a server takes; each key's environment variable wins when set and not
 blank:

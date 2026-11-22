@@ -1,0 +1,295 @@
+package ac.cult.cultac.platform.velocity;
+
+import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.network.ConnectionContinuation;
+import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.CultNetworkManager;
+import ac.cult.cultac.network.DormancyController;
+import ac.cult.cultac.network.DormantWatch;
+import ac.cult.cultac.network.routing.NetworkModule;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.platform.velocity.bridge.BridgeService;
+import ac.cult.cultac.platform.velocity.cloud.CloudBackends;
+import ac.cult.cultac.protocol.netty.CultDecoder;
+import com.velocitypowered.api.proxy.Player;
+import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.ServerConnection;
+import com.velocitypowered.api.proxy.player.PlayerSettings;
+import com.velocitypowered.api.proxy.player.SkinParts;
+import io.netty.channel.Channel;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Dormant mode for Java players on this proxy, through {@link DormancyController}. The setting for the backend server
+ * a player is switching to decides at each reconfiguration acknowledgement; a dormant player attached again gets the
+ * brand, client settings and plugin channels Velocity holds for them. Bedrock players stay inspected.
+ */
+final class VelocityDormancy implements DormancyController.Platform {
+    private final ProxyServer proxy;
+    private final CultNetworkManager manager;
+    private final VelocityTransport transport;
+    private final BridgeService bridge;
+    private final Supplier<@Nullable CloudBackends> cloudBackends;
+    private volatile @Nullable Method inFlight;
+    private volatile @Nullable Method clientChannels;
+
+    VelocityDormancy(
+            ProxyServer proxy,
+            CultNetworkManager manager,
+            VelocityTransport transport,
+            BridgeService bridge,
+            Supplier<@Nullable CloudBackends> cloudBackends) {
+        this.proxy = proxy;
+        this.manager = manager;
+        this.transport = transport;
+        this.bridge = bridge;
+        this.cloudBackends = cloudBackends;
+    }
+
+    @Override
+    public @Nullable UUID player(CultConnection connection) {
+        if (connection.bedrockBridge() != null || !(connection.platform() instanceof VelocityConnectionAdapter adapter))
+            return null;
+        return adapter.nativePlayer().getUniqueId();
+    }
+
+    @Override
+    public @Nullable String backend(UUID player) {
+        Player online = proxy.getPlayer(player).orElse(null);
+        return NetworkModule.backend(player, online == null ? null : current(online));
+    }
+
+    @Override
+    public @Nullable String target(UUID player) {
+        Player online = proxy.getPlayer(player).orElse(null);
+        return online == null ? backend(player) : target(online);
+    }
+
+    @Override
+    public String decoder() {
+        return CultDecoder.NAME;
+    }
+
+    @Override
+    public DormantWatch watch(CultConnection connection, boolean play) {
+        var adapter = (VelocityConnectionAdapter) connection.platform();
+        Player player = adapter.nativePlayer();
+        return new DormantWatch(
+                connection.channel(),
+                adapter.getObservedProtocol(),
+                player.getUniqueId(),
+                player,
+                adapter.playerBinding().player(),
+                connection.dormant(),
+                connection.drainRetiredPings(),
+                play,
+                DormancyController.hooks());
+    }
+
+    @Override
+    public void removeHandlers(CultConnection connection) {
+        transport.removeHandlers(connection);
+    }
+
+    @Override
+    public void detached(UUID player) {
+        bridge.dormant(player);
+    }
+
+    @Override
+    public boolean accepting() {
+        return transport.running();
+    }
+
+    @Override
+    public void resume(DormantWatch watch) {
+        if (watch.nativePlayer() instanceof Player player) attach(player, watch.channel(), watch.state());
+    }
+
+    @Override
+    public void closed(DormantWatch watch) {
+        UUID player = watch.player();
+        bridge.awake(player);
+        UUID connectionId = watch.state().get("connection-id") instanceof String id ? UUID.fromString(id) : null;
+        PlatformPlayer platformPlayer = watch.platformPlayer() instanceof PlatformPlayer known
+                ? known
+                : watch.nativePlayer() == null
+                        ? null
+                        : CultAPI.INSTANCE.getPlatformPlayerFactory().getFromNativePlayerType(watch.nativePlayer());
+        CultAPI.INSTANCE.getPlayerDataManager().dormantQuit(player, connectionId, platformPlayer);
+    }
+
+    /** A Java player at PostLogin; true when they are dormant and got only a watch. On the channel's event loop. */
+    boolean joined(Player player, Channel channel) {
+        if (!DormancyController.dormant(NetworkModule.backend(player.getUniqueId(), null))) return false;
+        if (VelocityProtocols.disconnectUnsupportedClient(player, channel)) return true;
+        watch(player, channel, Map.of(DormantWatch.LOGIN_NOTIFIED, false), new int[0]);
+        return true;
+    }
+
+    /** Releases a watched connection to a newer generation, removing the watch; null when this generation has none. */
+    @Nullable
+    Map<String, Object> release(Channel channel) {
+        if (!channel.eventLoop().inEventLoop()
+                || !(channel.pipeline().get(DormantWatch.NAME) instanceof DormantWatch watch)) return null;
+        return watch.release();
+    }
+
+    /** Adopts a connection an older generation held dormant, at its reconfiguration acknowledgement. */
+    void adopt(Player player, Channel channel, Map<String, Object> released) {
+        Map<String, Object> state = new HashMap<>(released);
+        state.remove(DormantWatch.DORMANT);
+        int[] retired = state.remove(DormantWatch.RETIRED) instanceof int[] ids ? ids : new int[0];
+        if (DormancyController.dormant(target(player))) {
+            watch(player, channel, state, retired);
+            return;
+        }
+        attach(player, channel, state);
+    }
+
+    /** An inspected connection adopted at its acknowledgement goes dormant there when it switches to a dormant server. */
+    void adopted(Channel channel) {
+        CultConnection connection = manager.connection(channel);
+        if (connection != null) DormancyController.detachAtAcknowledgement(connection);
+    }
+
+    /** Removes every watch of this generation. */
+    CompletableFuture<Void> remove() {
+        List<CompletableFuture<Void>> removed = new ArrayList<>();
+        for (DormantWatch watch : List.copyOf(DormantWatch.all())) {
+            Channel channel = watch.channel();
+            try {
+                removed.add(CompletableFuture.runAsync(
+                        () -> {
+                            if (channel.pipeline().context(watch) != null)
+                                channel.pipeline().remove(watch);
+                        },
+                        channel.eventLoop()));
+            } catch (RuntimeException closed) {
+                // A loop that no longer runs has no pipeline left to clean.
+            }
+        }
+        return CompletableFuture.allOf(removed.toArray(CompletableFuture[]::new));
+    }
+
+    private void watch(Player player, Channel channel, Map<String, Object> state, int[] retired) {
+        var watch = new DormantWatch(
+                channel,
+                VelocityProtocols.read(player, channel).observed(),
+                player.getUniqueId(),
+                player,
+                null,
+                state,
+                retired,
+                false,
+                DormancyController.hooks());
+        VelocityPacketPipeline.watch(channel.pipeline(), watch);
+        bridge.dormant(player.getUniqueId());
+    }
+
+    private void attach(Player player, Channel channel, Map<String, Object> state) {
+        boolean continued = Boolean.TRUE.equals(state.get(DormantWatch.LOGIN_NOTIFIED));
+        bridge.awake(player.getUniqueId());
+        transport.attach(
+                player, channel, null, continued ? ConnectionContinuation.from(refreshed(state, player)) : null);
+        bridge.adopted(player);
+        CloudBackends backends = cloudBackends.get();
+        if (backends != null) backends.adopted(player);
+    }
+
+    /** {@code captured} with the brand, client settings and plugin channels Velocity holds for the client now. */
+    private Map<String, Object> refreshed(Map<String, Object> captured, Player player) {
+        Map<String, Object> state = new HashMap<>(captured);
+        String brand = player.getClientBrand();
+        if (brand != null) state.put("brand", brand);
+        if (player.hasSentPlayerSettings()) {
+            try {
+                state.put("client-information", information(player.getPlayerSettings()));
+            } catch (RuntimeException unreadable) {
+                // The captured settings stand.
+            }
+        }
+        Collection<String> channels = clientChannels(player);
+        if (channels != null) state.put("registered-channels", List.copyOf(channels));
+        return state;
+    }
+
+    private static Map<String, Object> information(PlayerSettings settings) {
+        SkinParts skin = settings.getSkinParts();
+        int parts = (skin.hasCape() ? 0x01 : 0)
+                | (skin.hasJacket() ? 0x02 : 0)
+                | (skin.hasLeftSleeve() ? 0x04 : 0)
+                | (skin.hasRightSleeve() ? 0x08 : 0)
+                | (skin.hasLeftPants() ? 0x10 : 0)
+                | (skin.hasRightPants() ? 0x20 : 0)
+                | (skin.hasHat() ? 0x40 : 0);
+        return Map.of(
+                "language",
+                settings.getLocale().toString().toLowerCase(Locale.ROOT),
+                "view-distance",
+                (int) settings.getViewDistance(),
+                "chat-visibility",
+                switch (settings.getChatMode()) {
+                    case COMMANDS_ONLY -> "SYSTEM";
+                    case HIDDEN -> "HIDDEN";
+                    default -> "FULL";
+                },
+                "chat-colors",
+                settings.hasChatColors(),
+                "model-customisation",
+                parts,
+                "main-hand",
+                settings.getMainHand().name(),
+                "text-filtering",
+                settings.isTextFilteringEnabled(),
+                "allows-listing",
+                settings.isClientListingAllowed(),
+                "particle-status",
+                settings.getParticleStatus().name());
+    }
+
+    /** The plugin channels the client registered, as Velocity's connected player keeps them; null when unreadable. */
+    private @Nullable Collection<String> clientChannels(Player player) {
+        try {
+            Method method = clientChannels;
+            if (method == null) clientChannels = method = player.getClass().getMethod("getClientsideChannels");
+            if (!(method.invoke(player) instanceof Collection<?> channels)) return null;
+            List<String> names = new ArrayList<>();
+            for (Object channel : channels) {
+                if (channel instanceof String name) names.add(name);
+            }
+            return names;
+        } catch (ReflectiveOperationException | RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    /** The backend server a player at a reconfiguration acknowledgement is switching to, else the one they are on. */
+    private @Nullable String target(Player player) {
+        try {
+            Method method = inFlight;
+            if (method == null) inFlight = method = player.getClass().getMethod("getConnectionInFlight");
+            if (method.invoke(player) instanceof ServerConnection server)
+                return server.getServerInfo().getName();
+        } catch (ReflectiveOperationException | RuntimeException unreadable) {
+            // Velocity without the in-flight connection getter: the server the player is on decides.
+        }
+        return backend(player.getUniqueId());
+    }
+
+    private static @Nullable String current(Player player) {
+        return player.getCurrentServer()
+                .map(server -> server.getServerInfo().getName())
+                .orElse(null);
+    }
+}
