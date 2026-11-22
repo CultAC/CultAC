@@ -214,11 +214,9 @@ public final class VelocityCandidates {
         Vec3 collided = new Vec3(x ? clippedX : velocity.x, y ? clippedY : velocity.y, z ? clippedZ : velocity.z);
         if (cleared) return List.of(new Moved(collided, x || z));
         // A clipped axis may also have been free; a free one may also have been clipped.
-        boolean otherX =
-                !hiddenX && (x ? scale.x != 0.0D && !certainlyClipped(result, true) : mayHaveClipped(result, true));
+        boolean otherX = !hiddenX && (x ? scale.x != 0.0D && !endsAtLimit(result, true) : endsAtLimit(result, true));
         boolean otherY = y ? scale.y != 0.0D && !certainlyClippedVertically(result) : mayHaveClippedVertically(result);
-        boolean otherZ =
-                !hiddenZ && (z ? scale.z != 0.0D && !certainlyClipped(result, false) : mayHaveClipped(result, false));
+        boolean otherZ = !hiddenZ && (z ? scale.z != 0.0D && !endsAtLimit(result, false) : endsAtLimit(result, false));
         if (!otherX && !otherY && !otherZ) return List.of(new Moved(collided, x || z));
         // Unclipped, Entity#move leaves deltaMovement as the move over the stuck scale; checkFallDamage's current
         // follows it.
@@ -292,10 +290,7 @@ public final class VelocityCandidates {
      */
     private static boolean mayHaveClippedVertically(PredictionResult result) {
         var collisions = result.getCollideAxisData();
-        if (collisions == null) return false;
-        var limit = requestedMovementY(result) < 0 ? collisions.getYNeg() : collisions.getYPos();
-        if (limit == null || !limit.isLikelyCollide()) return false;
-        return reachesVerticalLimit(result, collisions);
+        return collisions != null && reachesVerticalLimit(result, collisions);
     }
 
     private static boolean reachesVerticalLimit(
@@ -324,22 +319,11 @@ public final class VelocityCandidates {
     }
 
     /**
-     * Whether Entity#collide certainly clipped the closest movement on X or Z: the axis stops at a known collider's
-     * limit. A stop short of a known limit is reachable without one, so it does not prove the clip.
+     * Whether the closest movement on X or Z ends at a known collider's limit. On a clipped axis this proves
+     * Entity#collide clipped it, since a stop short of a known limit is reachable without one; on an axis the
+     * movement completed, it may have been a longer move Entity#collide stopped.
      */
-    private static boolean certainlyClipped(PredictionResult result, boolean xAxis) {
-        var collisions = result.getCollideAxisData();
-        if (collisions == null) return false;
-        var axis = xAxis ? collisions.getX() : collisions.getZ();
-        if (axis == null || !axis.isLikelyCollide()) return false;
-        return CultMath.equal(clippedAxis(result, xAxis), axis.getResult());
-    }
-
-    /**
-     * Whether Entity#collide may have clipped an axis the closest movement completed unclipped: a move that ends at a
-     * known collider's limit may have been a longer one it stopped.
-     */
-    private static boolean mayHaveClipped(PredictionResult result, boolean xAxis) {
+    private static boolean endsAtLimit(PredictionResult result, boolean xAxis) {
         var collisions = result.getCollideAxisData();
         if (collisions == null) return false;
         var axis = xAxis ? collisions.getX() : collisions.getZ();
