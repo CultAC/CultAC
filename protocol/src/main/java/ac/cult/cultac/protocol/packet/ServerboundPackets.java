@@ -9,6 +9,7 @@ import ac.cult.cultac.protocol.codec.connection.ChatCommandSignedCodec;
 import ac.cult.cultac.protocol.codec.connection.ClientCommandCodec;
 import ac.cult.cultac.protocol.codec.connection.ClientInformationCodec;
 import ac.cult.cultac.protocol.codec.connection.CommandSuggestionCodec;
+import ac.cult.cultac.protocol.codec.connection.ContainerCloseCodecs;
 import ac.cult.cultac.protocol.codec.connection.CustomClickActionCodec;
 import ac.cult.cultac.protocol.codec.connection.CustomPayloadCodec;
 import ac.cult.cultac.protocol.codec.connection.EditBookCodec;
@@ -40,6 +41,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommandSigned;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientInformation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCommandSuggestion;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomClickAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundEditBook;
@@ -155,11 +157,8 @@ public final class ServerboundPackets {
             PLAY.add("edit_book", ServerboundEditBook.class, new EditBookCodec());
     public static final PacketType<ServerboundRenameItem> RENAME_ITEM =
             PLAY.add("rename_item", ServerboundRenameItem.class, new RenameItemCodec());
-    public static final PacketType<ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose>
-            CONTAINER_CLOSE = PLAY.add(
-                    "container_close",
-                    ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose.class,
-                    new ac.cult.cultac.protocol.codec.connection.ContainerCloseCodecs.Serverbound());
+    public static final PacketType<ServerboundContainerClose> CONTAINER_CLOSE =
+            PLAY.add("container_close", ServerboundContainerClose.class, new ContainerCloseCodecs.Serverbound());
     public static final PacketType<Opaque> CONTAINER_BUTTON_CLICK = PLAY.ignored("container_button_click");
     public static final PacketType<Opaque> CONTAINER_SLOT_STATE_CHANGED = PLAY.ignored("container_slot_state_changed");
     public static final PacketType<Opaque> PLACE_RECIPE = PLAY.ignored("place_recipe");

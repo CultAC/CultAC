@@ -12,11 +12,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.GZIPInputStream;
 
 /** Exact static vanilla IDs. Dynamic/custom registries still come from connection configuration. */
 public final class ModelRegistryData {
-    private static final Map<ProtocolVersion, ModelRegistryData> CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<ProtocolVersion, ModelRegistryData> CACHE = new ConcurrentHashMap<>();
     private final ProtocolVersion version;
     private final Map<String, IdTable> registries;
     private final List<String> states;
