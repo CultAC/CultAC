@@ -89,7 +89,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
         var processor = Mockito.mock(SimulationProcessor.class);
         Mockito.when(player.checkManager.getSimulationProcessor()).thenReturn(processor);
         Mockito.doAnswer(call -> {
-                    player.bedrockState.recordActorCreation(call.getArgument(0));
+                    player.bedrockState.recordActorCreation();
                     return null;
                 })
                 .when(processor)

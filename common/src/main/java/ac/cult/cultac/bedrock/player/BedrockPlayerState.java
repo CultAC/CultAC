@@ -143,7 +143,7 @@ public final class BedrockPlayerState {
         this.playerUuid = playerUuid;
     }
 
-    public void recordActorCreation(long runtimeEntityId) {
+    public void recordActorCreation() {
         collisionDefinition = null;
         movementCorrections.clear();
         predictedVehicle = null;

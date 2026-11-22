@@ -670,7 +670,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (!this.player.isBedrockMovement() || this.player.bedrockState == null) return;
         // Start fresh camera history before the new actor's first frame, while
         // retaining metadata already acknowledged for that actor.
-        this.player.bedrockState.recordActorCreation(runtimeEntityId);
+        this.player.bedrockState.recordActorCreation();
         this.player.compensatedEntities.getSelf().bedrockRuntimeId = runtimeEntityId;
         this.player.compensatedEntities.getSelf().bedrockAttributes = BedrockActorAttributes.EMPTY;
         this.profileCarry = null;
