@@ -39,6 +39,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveMobEffect;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRotateHead;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetCamera;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundTeleportEntity;
@@ -58,9 +59,12 @@ import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.ClientSaddle;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityFallingBlock;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHook;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHurtingProjectile;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRavager;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
@@ -529,28 +533,122 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (player.isBedrockMovement() && player.bedrockState != null) player.bedrockState.clientActors.tick();
         PacketEntity velocityVehicle = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
         java.util.function.Consumer<PacketEntity> tick = entity -> {
-            if (player.isBedrockMovement()
-                    && entity
-                            == ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(
-                                    player)) return;
-            if (player.compensatedEntities.vehicles.isRiddenDrivenBoat(entity)) {
-                ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenBoatTick.tick(player, entity);
-                return;
+            if (entity instanceof PacketEntityHorse horse && !player.isBedrockMovement()) {
+                tickHorseAtClientTickEnd(horse, velocityVehicle);
+            } else {
+                tickEntityAtClientTickEnd(entity, velocityVehicle);
             }
-            if (entity == velocityVehicle && player.compensatedEntities.vehicles.isLocallyTickedVelocityRoot(entity)) {
-                return;
-            }
-            if (player.isBedrockMovement() && player.compensatedEntities.isInBedrockLimbo(entity)) return;
-            if (player.isBedrockMovement()) entity.beginBedrockClientTick();
-            entity.onMovement(player, true);
-            player.compensatedEntities.vehicles.tickRemoteLivingVelocity(entity);
-            // LivingEntity#aiStep replaces frost after interpolating, for remote entities too.
-            entity.tickClientFrost(player);
         };
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_17)) {
             player.compensatedEntities.tickClientEntities(tick);
         } else {
             player.compensatedEntities.forEachTrackedEntity(tick);
+        }
+    }
+
+    /** Whether the entity took its interpolation step here. */
+    private boolean tickEntityAtClientTickEnd(PacketEntity entity, PacketEntity velocityVehicle) {
+        if (player.isBedrockMovement()
+                && entity
+                        == ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(
+                                player)) return false;
+        if (player.compensatedEntities.vehicles.isRiddenDrivenBoat(entity)) {
+            ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenBoatTick.tick(player, entity);
+            return false;
+        }
+        if (entity == velocityVehicle && player.compensatedEntities.vehicles.isLocallyTickedVelocityRoot(entity)) {
+            return false;
+        }
+        if (player.isBedrockMovement() && player.compensatedEntities.isInBedrockLimbo(entity)) return false;
+        if (player.isBedrockMovement()) entity.beginBedrockClientTick();
+        entity.onMovement(player, true);
+        player.compensatedEntities.vehicles.tickRemoteLivingVelocity(entity);
+        // LivingEntity#aiStep replaces frost after interpolating, for remote entities too.
+        entity.tickClientFrost(player);
+        return true;
+    }
+
+    /**
+     * A horse's client tick with its head. AbstractHorse#getControllingPassenger is a saddled horse's first passenger
+     * when that is a player, and LivingEntity#aiStep runs travelRidden for it while the horse is alive. The local
+     * player's yaw at that tick is the one its Rot reports in the same tick. Entity#setOldPosAndRot takes xo and zo
+     * before the tick, and Mob#tickHeadTurn reads them after the interpolation step.
+     */
+    private void tickHorseAtClientTickEnd(PacketEntityHorse horse, PacketEntity velocityVehicle) {
+        PacketEntity first = horse.passengers.isEmpty() ? null : horse.passengers.get(0);
+        boolean local = first == player.compensatedEntities.playerEntity;
+        boolean controlled = horse.hasSaddle && (local || first instanceof PacketEntityPlayer);
+        boolean controlledByLocal = controlled && local && !horse.isDead;
+        // Camel#getRiddenRotation keeps the camel's own rotation while it refuses to move.
+        boolean controllerYawKnown = controlledByLocal && !(horse instanceof PacketEntityCamel);
+        horse.head.tick(
+                horse.clientPhysicalPitch,
+                horse.clientPhysicalYawCurrent,
+                controllerYawKnown ? player.xRot : Float.NaN,
+                controlled && !controllerYawKnown);
+        Vec3 old = horse.clientPhysicalPositionExact ? horse.clientPhysicalPosition : null;
+        boolean stepped = tickEntityAtClientTickEnd(horse, velocityVehicle);
+        boolean refuses = horse instanceof PacketEntityCamel camel
+                && camel.refuseToMove(player.compensatedWorld.endedTickGameTime());
+        float maxHeadYRot = horse instanceof PacketEntityCamel ? 30.0F : 75.0F;
+        boolean turnedAfter = refuses || horse.riding != null;
+        Vec3 now = horse.clientPhysicalPosition;
+        if (controlledByLocal || refuses) {
+            // AbstractHorse#tickRidden leaves the head at the yaw, which BodyRotationControl#clientTick keeps;
+            // CamelBodyRotationControl skips clientTick while Camel#refuseToMove.
+            horse.head.turnWithBody(false, Float.NaN, maxHeadYRot, turnedAfter);
+        } else if (!stepped || old == null || now == null || !horse.clientPhysicalPositionExact) {
+            horse.head.turnWithBody(true, Float.NaN, maxHeadYRot, turnedAfter);
+        } else {
+            double xd = now.x - old.x;
+            double zd = now.z - old.z;
+            horse.head.turnWithBody(
+                    xd * xd + zd * zd > 2.5000003E-7F,
+                    horse.clientPhysicalYawCurrent ? horse.clientPhysicalYaw : Float.NaN,
+                    maxHeadYRot,
+                    turnedAfter);
+        }
+    }
+
+    /**
+     * ClientPacketListener#handleRotateMob: LivingEntity#lerpHeadTo lerps the head to the sent yaw over three of the
+     * entity's ticks. AbstractHorse#addPassenger reads that head yaw back.
+     */
+    @CultPacketHandler
+    public void onRotateHead(
+            PacketSendEvent<ClientboundRotateHead> event, CultPlayer player, ClientboundRotateHead packet) {
+        if (player.isBedrockMovement()) return;
+        TrackerData tracked = player.compensatedEntities.getTrackedEntity(packet.entityId());
+        if (tracked == null
+                || !EntityTypeUtil.isHorseFamily(tracked.getEntityType())
+                        && !EntityTypeUtil.isCamelFamily(tracked.getEntityType())) return;
+        int entityId = packet.entityId();
+        float headYaw = packet.headYaw();
+        whenHandled(event, entityProof(), () -> {
+            if (player.compensatedEntities.getEntity(entityId) instanceof PacketEntityHorse horse) {
+                horse.head.lerpTo(headYaw);
+            }
+        });
+    }
+
+    /**
+     * AbstractHorse#addPassenger turns a rider it gains with Entity#absSnapRotationTo to LivingEntity#getViewYRot(0)
+     * and Entity#getViewXRot(0); ClientPacketListener#handleSetEntityPassengersPacket gives it the local player again on
+     * every set_passengers that lists it.
+     */
+    private void turnToHorseLook(PacketEntityHorse horse) {
+        if (!horse.head.knowsRiderLook(horse.clientPhysicalYawCurrent)) return;
+        float yaw = horse.head.riderYaw();
+        float pitch = horse.head.riderPitch(horse.clientPhysicalPitch);
+        // Entity#setYRot and Entity#setXRot keep a rotation that is not finite out.
+        if (Float.isFinite(yaw)) {
+            player.xRot = yaw;
+            player.lastTickXRot = yaw;
+            player.mountYaw = Float.NaN;
+        }
+        if (Float.isFinite(pitch)) {
+            player.yRot = pitch;
+            player.lastTickYRot = pitch;
         }
     }
 
@@ -612,6 +710,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         packet.position().z()),
                 packet.yaw(),
                 packet.pitch(),
+                packet.headYaw(),
                 packet.data(),
                 transaction,
                 packet.uuid(),
@@ -1584,6 +1683,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         player.latencyUtils.addRealTimeTask(transaction, () -> {
             PacketEntity mounted = player.compensatedEntities.getEntity(vehicleId);
             boolean firstMount = mountsLocalPlayer && mounted != null && !ridesIndirectly(mounted);
+            // Entity#startRiding refuses a vehicle that rides the player, before AbstractHorse#addPassenger.
+            if (mountsLocalPlayer
+                    && mounted instanceof PacketEntityHorse horse
+                    && !player.isBedrockMovement()
+                    && !player.compensatedEntities.ridesIndirectly(horse, player.compensatedEntities.getSelf())) {
+                turnToHorseLook(horse);
+            }
             if (mountsLocalPlayer
                     && mounted != null
                     && !player.isBedrockMovement()
@@ -2482,7 +2588,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     public void addEntity(
             int entityID, int type, Vec3 position, float xRot, float yRot, int extraData, int transaction) {
-        addEntity(entityID, type, position, xRot, yRot, extraData, transaction, null, Vec3.ZERO);
+        addEntity(entityID, type, position, xRot, yRot, xRot, extraData, transaction, null, Vec3.ZERO);
     }
 
     private void addEntity(
@@ -2491,6 +2597,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             Vec3 position,
             float xRot,
             float yRot,
+            float headYaw,
             int extraData,
             int transaction,
             java.util.UUID uuid,
@@ -2512,6 +2619,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             if (spawned != null) {
                 spawned.deltaMovement = velocity;
                 if (uuid != null) spawned.scoreboardName = uuid.toString();
+                if (spawned instanceof PacketEntityHorse horse && !player.isBedrockMovement())
+                    horse.head.spawn(headYaw, yRot);
             }
             clearPacketHandlerDeltaMovement(entityID, spawnDeltaSequence);
             if (uuid != null

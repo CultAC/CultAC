@@ -36,9 +36,9 @@ public final class AddEntityCodec implements PacketCodec<ClientboundAddEntity> {
         Vec3d velocity = modernVelocity ? Wire.readLpVec3(input) : null;
         float pitch = Wire.readAngle(input);
         float yaw = Wire.readAngle(input);
-        input.readByte(); // Head rotation is not consumed.
+        float headYaw = Wire.readAngle(input);
         int data = Wire.readVarInt(input);
         if (!modernVelocity) velocity = Wire.readShortVelocity(input);
-        return new ClientboundAddEntity(entityId, entityType, position, yaw, pitch, data, uuid, velocity);
+        return new ClientboundAddEntity(entityId, entityType, position, yaw, pitch, data, uuid, velocity, headYaw);
     }
 }

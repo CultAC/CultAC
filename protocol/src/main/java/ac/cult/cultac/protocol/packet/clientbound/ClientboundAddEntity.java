@@ -11,13 +11,27 @@ public record ClientboundAddEntity(
         float pitch,
         int data,
         java.util.UUID uuid,
-        Vec3d velocity)
+        Vec3d velocity,
+        float headYaw)
         implements ClientboundPacket {
     public ClientboundAddEntity {
         Objects.requireNonNull(entityType, "entityType");
         Objects.requireNonNull(position, "position");
         Objects.requireNonNull(uuid, "uuid");
         Objects.requireNonNull(velocity, "velocity");
+    }
+
+    /** A spawn whose head yaw is its yaw, as a mob's is when it is created. */
+    public ClientboundAddEntity(
+            int entityId,
+            String entityType,
+            Vec3d position,
+            float yaw,
+            float pitch,
+            int data,
+            java.util.UUID uuid,
+            Vec3d velocity) {
+        this(entityId, entityType, position, yaw, pitch, data, uuid, velocity, yaw);
     }
 
     public ClientboundAddEntity(
