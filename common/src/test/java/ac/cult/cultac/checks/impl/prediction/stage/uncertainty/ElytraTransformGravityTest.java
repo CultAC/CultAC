@@ -22,6 +22,7 @@ import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -71,7 +72,7 @@ class ElytraTransformGravityTest {
             when(context.getEntities()).thenReturn(entities);
             PredVector start = new PredVector(VELOCITY.add(0, 0.044D, 0))
                     .withVelocityRange(new SimpleCollisionBox(0, -0.01D, 0, 0, 0.012D, 0));
-            List<PredVector> glides = new java.util.ArrayList<>();
+            List<PredVector> glides = new ArrayList<>();
             for (PredVector candidate : ElytraTransform.candidates(context, List.of(start)))
                 glides.add(new ElytraTransform()
                         .handleUncertainty(

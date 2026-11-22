@@ -1,12 +1,15 @@
 package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.data.ClientPistonDeltas;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
+import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
+import ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -31,7 +34,7 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
         var next = new ArrayList<State>(states.size());
         for (var state : states)
             next.add(new State(
-                    state.velocity().with(ac.cult.cultac.protocol.value.Direction.Axis.Y, y),
+                    state.velocity().with(Direction.Axis.Y, y),
                     state.fallDistance(),
                     state.stuckSpeed(),
                     state.movementPatch(),
@@ -165,7 +168,7 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
             PistonStart pistonStart,
             boolean powderContact,
             int playerEyeFluidContact,
-            ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder,
+            ClientFluidTagOrder fluidTagOrder,
             boolean spinRebound,
             double fallDistanceMax,
             Boolean vanillaMath) {
@@ -178,7 +181,7 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                 PistonStart pistonStart,
                 boolean powderContact,
                 int playerEyeFluidContact,
-                ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder,
+                ClientFluidTagOrder fluidTagOrder,
                 boolean spinRebound,
                 double fallDistanceMax) {
             this(
@@ -203,7 +206,7 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                 PistonStart pistonStart,
                 boolean powderContact,
                 int playerEyeFluidContact,
-                ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder,
+                ClientFluidTagOrder fluidTagOrder,
                 boolean spinRebound) {
             this(
                     velocity,
@@ -282,6 +285,7 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
         public boolean fallRangeMovesDifferently() {
             return hasFallDistanceRange() && fallDistanceMax > 2.5 && fallDistance <= 5.0;
         }
+
         public State(
                 Vec3 velocity,
                 double fallDistance,
@@ -290,7 +294,7 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                 PistonStart pistonStart,
                 boolean powderContact,
                 int playerEyeFluidContact,
-                ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder) {
+                ClientFluidTagOrder fluidTagOrder) {
             this(velocity, fallDistance, stuckSpeed, movementPatch, pistonStart, powderContact,
                     playerEyeFluidContact, fluidTagOrder, false);
         }
@@ -348,7 +352,7 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     movementPatch,
                     pistonStart,
                     powderContact,
-                    ac.cult.cultac.utils.nmsutil.ClientFluidQueries.eyeContactFromWater(playerEyeInWater));
+                    ClientFluidQueries.eyeContactFromWater(playerEyeInWater));
         }
 
         public State(
@@ -389,7 +393,7 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     vanillaMath);
         }
 
-        public State withFluidTagOrder(ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder order) {
+        public State withFluidTagOrder(ClientFluidTagOrder order) {
             return new State(
                     velocity,
                     fallDistance,

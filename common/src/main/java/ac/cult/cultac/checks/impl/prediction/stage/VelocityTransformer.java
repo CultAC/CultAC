@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockPushOut;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFluidInputs;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide;
@@ -24,6 +25,7 @@ import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.WaterCurrent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import lombok.AllArgsConstructor;
 import lombok.Setter;
 
@@ -42,15 +44,13 @@ public class VelocityTransformer {
     public static final String SPRINT_JUMP_REASON = "Jumping sprinting";
 
     public List<PredVector> generateMovementVectors(CultPlayer player, List<PredVector> input) {
-        if (ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(
-                simulationContext)) {
+        if (JavaRiddenTravel.clearsWithoutTravel(simulationContext)) {
             List<PredVector> stopped = new ArrayList<>(input.size());
             for (PredVector velocity : input)
                 stopped.add(velocity.with(Vec3.ZERO, "LivingEntity#travelRidden cannot simulate"));
             return stopped;
         }
-        if (simulationContext.getVehicle() != null
-                && ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(simulationContext.getVehicle().type)) {
+        if (simulationContext.getVehicle() != null && EntityTypeUtil.isBoat(simulationContext.getVehicle().type)) {
             return input;
         }
 
@@ -248,7 +248,7 @@ public class VelocityTransformer {
         String reason = lava ? "lava current" : "water current";
         List<PredVector> parts = JavaVelocityRange.splitAtSlowSquare(vector);
         // A current at or above the minimum push is the same on both sides: no split.
-        if (parts.size() == 1 || java.util.Objects.equals(currents.of(Vec3.ZERO, lava), currents.of(FAST, lava)))
+        if (parts.size() == 1 || Objects.equals(currents.of(Vec3.ZERO, lava), currents.of(FAST, lava)))
             return List.of(vector.add(current, reason));
         var split = new ArrayList<PredVector>(parts.size());
         for (PredVector part : parts) {

@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -100,8 +101,7 @@ public class EntityPush implements UncertaintyHandler {
     public static void addVehiclePushCandidates(
             CultPlayer player, List<PredVector> start, SimulationContext state, PredictionResult lastResult) {
         if (player.isBedrockMovement()) return;
-        var candidates = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks.beforeTravel(
-                player, state, start);
+        var candidates = JavaEntityVelocityTicks.beforeTravel(player, state, start);
         if (candidates != start) {
             start.clear();
             start.addAll(candidates);

@@ -11,6 +11,7 @@ import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.UnaryOperator;
 
 public class ElytraTransform implements UncertaintyHandler {
     /** Holds for a start trace, whose pre-collision velocity is its position: the pipeline runs this first. */
@@ -50,7 +51,7 @@ public class ElytraTransform implements UncertaintyHandler {
         Vec3 movement =
                 JavaMovementMath.calculate(player, start, () -> transformElytra(player, context, start, gravity));
         // Gliding turns vertical speed into horizontal: a carried range maps through the same glide.
-        java.util.function.UnaryOperator<Vec3> glide = velocity ->
+        UnaryOperator<Vec3> glide = velocity ->
                 JavaMovementMath.calculate(player, start, () -> transformElytra(player, context, velocity, gravity));
         PredVector glided = start.with(movement, "elytra");
         // A sample at a collision or an edge inside the range: the glide moves where the move meets it.
@@ -66,7 +67,7 @@ public class ElytraTransform implements UncertaintyHandler {
         Candidate candidate = start.firstInLineage(Candidate.class);
         if (candidate == null || start.getVelocityRange() == null) return null;
         var elytra = new ElytraTransform();
-        java.util.function.UnaryOperator<Vec3> glide = velocity -> JavaMovementMath.calculate(
+        UnaryOperator<Vec3> glide = velocity -> JavaMovementMath.calculate(
                 player, start, () -> elytra.transformElytra(player, context, velocity, candidate.gravity));
         return JavaVelocityRange.mapped(start, start.with(glide.apply(start), "elytra"), glide);
     }

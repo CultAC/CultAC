@@ -1,15 +1,18 @@
 package ac.cult.cultac.checks.impl.prediction.runner;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementEngine;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockSetbackJumpGuard;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
@@ -19,6 +22,7 @@ import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.crash.CrashF;
 import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
 import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
+import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
@@ -36,6 +40,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMathRouter;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
@@ -50,6 +55,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiptideRelease;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaUnreportedTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVehicleReport;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaWithheldTravel;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfile;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
@@ -68,6 +74,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -81,6 +88,7 @@ import ac.cult.cultac.utils.data.ClientPistonDeltas;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.HeadRotation;
+import ac.cult.cultac.utils.data.ItemUseInventory;
 import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.StuckSpeedData;
@@ -93,6 +101,8 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
@@ -106,10 +116,15 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
 import ac.cult.cultac.utils.nmsutil.PassengerRideTick;
 import ac.cult.cultac.utils.nmsutil.ReusableVelocitySet;
+import ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -442,8 +457,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     movedSelf |= last != null;
                     DesyncStatus hard = last == null
                             ? DesyncStatus.UNKNOWN
-                            : ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision.afterMove(
-                                    this.lastPrediction, last.delta(), last.movement());
+                            : ClientHorizontalCollision.afterMove(this.lastPrediction, last.delta(), last.movement());
                     passHard = passHard == null || passHard == hard ? hard : DesyncStatus.UNKNOWN;
                 }
                 JavaPassState end = result.state();
@@ -470,7 +484,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .velocity());
                         }
                     }
-                    velocity = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange.hull(
+                    velocity = JavaVelocityRange.hull(
                             velocity instanceof PredVector vector ? vector.withVelocityRange(null) : velocity, corners);
                 }
                 // The pass falls both ends of a carried fall distance range by the same move, or resets both.
@@ -506,8 +520,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (vehicle == null) this.pistonDeltas = end.pistonDeltas();
         else {
             vehicle.blockEntityState = end;
-            if (vehicle instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityStrider strider)
-                strider.commitFluidHeights(first.fluidHeights());
+            if (vehicle instanceof PacketEntityStrider strider) strider.commitFluidHeights(first.fluidHeights());
             vehicle.deltaMovement = end.velocity();
             vehicle.onGround = end.onGround();
             if (vehicle.isBoat() && first.boatLastYd() != null) this.player.boatData.lastYd = first.boatLastYd();
@@ -640,12 +653,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return new PredictionCommit(this.profileCarry, this.validPlayerStartingVels);
     }
 
-    public void applyInactiveBedrockAttributes(
-            ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent event) {
+    public void applyInactiveBedrockAttributes(BedrockReplayAttributeEvent event) {
         if (!this.player.isBedrockMovement()) return;
         this.applyProfileCommit(
-                ((ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent) event.ordinary())
-                        .apply(this.getCurrentPredictionCommit()));
+                ((BedrockReplayAttributeEvent) event.ordinary()).apply(this.getCurrentPredictionCommit()));
     }
 
     public void applyAcknowledgedBedrockGliding(boolean gliding) {
@@ -661,8 +672,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         // retaining metadata already acknowledged for that actor.
         this.player.bedrockState.recordActorCreation(runtimeEntityId);
         this.player.compensatedEntities.getSelf().bedrockRuntimeId = runtimeEntityId;
-        this.player.compensatedEntities.getSelf().bedrockAttributes =
-                ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
+        this.player.compensatedEntities.getSelf().bedrockAttributes = BedrockActorAttributes.EMPTY;
         this.profileCarry = null;
         this.validPlayerStartingVels = new HashSet<>(Set.of(Vec3.ZERO));
     }
@@ -861,15 +871,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         // committed travel's.
         for (Boolean table : new Boolean[] {null, Boolean.TRUE, Boolean.FALSE}) {
             var group = new ArrayList<JavaPredictionCarry.State>(carried.size());
-            for (var state : carried) if (java.util.Objects.equals(table, state.vanillaMath())) group.add(state);
+            for (var state : carried) if (Objects.equals(table, state.vanillaMath())) group.add(state);
             if (group.isEmpty()) continue;
             var velocities = new ArrayList<Vec3>(group.size());
             for (var state : group) velocities.add(state.velocity());
             PredVector math = table == null
                     ? this.lastPrediction.getInitialStartingVel()
                     : new JavaMovementMath(new PredVector(Vec3.ZERO), table);
-            var pushed = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks.afterPlayerTick(
-                    this.player, context, math, end, velocities);
+            var pushed = JavaEntityVelocityTicks.afterPlayerTick(this.player, context, math, end, velocities);
             for (int i = 0; i < group.size(); i++) {
                 var state = group.get(i);
                 for (Vec3 velocity : pushed.get(i)) {
@@ -1847,8 +1856,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.certainSpinHit = true;
         } else if (hit.living() != absent) {
             this.player.riptideSpinCertain = false;
-        } else if (result.getCollideAxisData()
-                instanceof ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision move) {
+        } else if (result.getCollideAxisData() instanceof JavaMoveCollision move) {
             // A non-living entity in the list suppresses the empty-list horizontal-collision branch too.
             if (move.horizontalCollision() && hit.anyEntity() == absent) this.player.riptideSpinAttackTicks = 0;
             else if (move.horizontalCollision() && hit.anyEntity() != certain) this.player.riptideSpinCertain = false;
@@ -1988,7 +1996,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.profileCarry = carry.withVelocityY(0);
         if (this.startingVelsBeforeRide != null) this.startingVelsBeforeRide = withZeroY(this.startingVelsBeforeRide);
         this.passengerRideTick.setMotionY(0);
-        self.deltaMovement = self.deltaMovement.with(ac.cult.cultac.protocol.value.Direction.Axis.Y, 0);
+        self.deltaMovement = self.deltaMovement.with(Direction.Axis.Y, 0);
         // Pending packet modifiers are a decomposition of that same delta. Zero only the contributions already
         // written, keeping their identities for AntiKB.
         this.player.checkManager.getKnockbackHandler().resetVerticalBefore(sequence);
@@ -2003,7 +2011,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             next.add(
                     velocity instanceof PredVector vector
                             ? vector.withY(0, "PlayerInfo spectator")
-                            : velocity.with(ac.cult.cultac.protocol.value.Direction.Axis.Y, 0));
+                            : velocity.with(Direction.Axis.Y, 0));
         return next;
     }
 
@@ -2039,7 +2047,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.passengerRideTick.begin(this.player, this.profileCarry, this.lastOnGround,
                 this.recordedMovesActor == this.player.compensatedEntities.getSelf() ? this.recordedMoves : List.of());
         // Entity#startRiding changes the pose immediately, before the first passenger tick.
-        this.player.refreshPlayerPose(ac.cult.cultac.utils.enums.Pose.STANDING);
+        this.player.refreshPlayerPose(Pose.STANDING);
     }
 
     /** Records whether this client tick ran the local player's Entity#rideTick. */
@@ -2447,7 +2455,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         for (var state : otherCarry.states())
             if (state.vanillaMath() == null || state.vanillaMath() != table)
                 states.add(state.withVanillaMath(!table).withPistonStart(anchor));
-        var velocities = new java.util.LinkedHashSet<Vec3>();
+        var velocities = new LinkedHashSet<Vec3>();
         for (var state : states) velocities.add(state.velocity());
         return new PredictionCommit(
                 new JavaPredictionCarry(ownCarry.actor(), ownCarry.fallDistance(), states, ownCarry.powderContact()),
@@ -2696,10 +2704,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         var travels = new ArrayList<PredictionResult>();
         for (PredictionResult candidate : invalidOrValidRealities)
             if (candidate.getValidMovements().readsDebugVelocity(invalidOrValidRealities)) travels.add(candidate);
-        travels.sort(java.util.Comparator.comparingDouble(PredictionResult::getOffset)
+        travels.sort(Comparator.comparingDouble(PredictionResult::getOffset)
                 .thenComparingDouble(PredictionResult::selectionOffset)
                 .thenComparingDouble(PredictionResult::getFlagSeverity));
-        var perContext = new java.util.IdentityHashMap<SimulationContext, Integer>();
+        var perContext = new IdentityHashMap<SimulationContext, Integer>();
         for (PredictionResult candidate : travels) {
             if (perContext.merge(candidate.getSimulationContext(), 1, Integer::sum) > DEBUG_READ_TRAVELS) continue;
             for (PredictionResult reading : candidate.getValidMovements().debugVelocityReadings()) {
@@ -3350,8 +3358,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             MovementProfile movementProfile) {
         if (!player.isBedrockMovement()
                 && JavaMovementEngine.supportsExactEffects(player.getClientVersion())
-                && this.profileCarry
-                        instanceof ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry carry
+                && this.profileCarry instanceof JavaPredictionCarry carry
                 && !carry.states().isEmpty()
                 && carry.actor()
                         == (currentPredictionVehicle() == null
@@ -3472,9 +3479,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (anchored != null ? anchored.onGround() : this.lastOnGround == DesyncStatus.TRUE) return false;
         Vec3 at = anchored == null ? start : anchored.position();
         SimpleCollisionBox box = GetBoundingBox.getCollisionBoxForPlayer(this.player, at.x, at.y, at.z);
-        return ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff.groundWithinStep(this.player, box, state.fallDistance())
-                != ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff.groundWithinStep(
-                        this.player, box, state.fallDistanceMax());
+        return SneakEdgeBackoff.groundWithinStep(this.player, box, state.fallDistance())
+                != SneakEdgeBackoff.groundWithinStep(this.player, box, state.fallDistanceMax());
     }
 
     /** Whether powder snow lies within the box this state's travel could sweep from {@code start}, plus a block. */
@@ -3490,8 +3496,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         int minX = (int) Math.floor(start.x - 0.3 - reach), maxX = (int) Math.floor(start.x + 0.3 + reach);
         int minY = (int) Math.floor(start.y - reach), maxY = (int) Math.floor(start.y + 1.8 + reach);
         int minZ = (int) Math.floor(start.z - 0.3 - reach), maxZ = (int) Math.floor(start.z + 0.3 + reach);
-        return this.player.compensatedWorld.containsBlock(
-                minX, minY, minZ, maxX, maxY, maxZ, ac.cult.blocksim.data.BlockIds.POWDER_SNOW);
+        return this.player.compensatedWorld.containsBlock(minX, minY, minZ, maxX, maxY, maxZ, BlockIds.POWDER_SNOW);
     }
 
     /** A JVM's tag order remains attached to its complete state across ticks, including dry ticks. */
@@ -3511,7 +3516,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
      */
     private List<JavaPredictionCarry.State> movementPatchStates(List<JavaPredictionCarry.State> states) {
         if (this.player.getClientVersion() != ClientVersion.V_1_21_9) return states;
-        var patched = new java.util.LinkedHashSet<JavaPredictionCarry.State>();
+        var patched = new LinkedHashSet<JavaPredictionCarry.State>();
         for (var state : states)
             patched.add(
                     state.movementPatch() != null
@@ -3691,7 +3696,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             context.setNoPhysicsHorizontalCollision(horizontal);
         }
         if (player.usesModernJavaItemUse()) {
-            context.setItemUse(ac.cult.cultac.utils.data.ItemUseInventory.prepare(player));
+            context.setItemUse(ItemUseInventory.prepare(player));
             context.setServerUseTracked(player.itemUseBurst.tracking());
         }
         context.setBedrockMovement(player.isBedrockMovement());

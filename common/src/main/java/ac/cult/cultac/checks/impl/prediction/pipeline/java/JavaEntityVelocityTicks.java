@@ -6,6 +6,9 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRavager;
+import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientEntityTeams;
 import ac.cult.cultac.utils.latency.ClientRavagerRoars;
 import ac.cult.cultac.utils.math.Vec3;
@@ -137,14 +140,17 @@ public final class JavaEntityVelocityTicks {
         return unpushed.size() == pushed.size() ? List.of(pushed) : List.of(pushed, unpushed);
     }
 
-    static List<Tick> passengerTicks(
-            CultPlayer player, SimulationContext context, Vec3 position, ac.cult.cultac.utils.enums.Pose pose) {
+    static List<Tick> passengerTicks(CultPlayer player, SimulationContext context, Vec3 position, Pose pose) {
         return ticks(player, context, position, false, pose, true);
     }
 
     private static List<Tick> ticks(
-            CultPlayer player, SimulationContext context, Vec3 position, boolean before,
-            ac.cult.cultac.utils.enums.Pose passengerPose, boolean pushes) {
+            CultPlayer player,
+            SimulationContext context,
+            Vec3 position,
+            boolean before,
+            Pose passengerPose,
+            boolean pushes) {
         if (player.isBedrockMovement()) return List.of();
         var entities = context.getEntities();
         long localOrder = entities.clientTickOrder(entities.getSelf());
@@ -207,8 +213,8 @@ public final class JavaEntityVelocityTicks {
                         // zero and the tick adds nothing, so skip building the candidate lists. Boats and shulkers
                         // push by their own rules.
                         if (!boat
-                                && !(entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityShulker)
-                                && !(entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntitySelf)
+                                && !(entity instanceof PacketEntityShulker)
+                                && !(entity instanceof PacketEntitySelf)
                                 && !JavaLivingEntityPushes.anyCandidateIntersects(
                                         player, entity, box, candidateBox, physicalBox)) continue;
                         boxes = entity.getPossibleMovementCollisionBoxCandidates();
@@ -220,7 +226,7 @@ public final class JavaEntityVelocityTicks {
                     // move's proof leaves a tracked entity a single candidate.
                     SimpleCollisionBox from = boxes.getLast();
                     Vec3 impulse;
-                    if (entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityShulker shulker) {
+                    if (entity instanceof PacketEntityShulker shulker) {
                         // A rider's push uses the position before positionRider, including its independent
                         // block-entity shove. Its shell is shaped at that position, before this tick's peek.
                         impulse = shulker.livingPushImpulse(rider ? from : null, box, position);
@@ -253,7 +259,7 @@ public final class JavaEntityVelocityTicks {
             boolean before,
             long localOrder,
             List<Tick> ticks,
-            ac.cult.cultac.utils.enums.Pose passengerPose) {
+            Pose passengerPose) {
         if (!PacketEntityRavager.usesRoarCountdown(player.getClientVersion())) return;
         var entities = context.getEntities();
         List<PacketEntityRavager> ravagers = entities.ravagers();
@@ -303,11 +309,7 @@ public final class JavaEntityVelocityTicks {
      * after aiStep, so entities ticking after the player meet the box its acknowledged scale gives, while the travel
      * and earlier entities meet the one it travelled with.
      */
-    private static float targetScale(
-            CultPlayer player,
-            SimulationContext context,
-            boolean before,
-            ac.cult.cultac.utils.enums.Pose passengerPose) {
+    private static float targetScale(CultPlayer player, SimulationContext context, boolean before, Pose passengerPose) {
         return before || passengerPose != null ? context.getScale() : player.getScale();
     }
 

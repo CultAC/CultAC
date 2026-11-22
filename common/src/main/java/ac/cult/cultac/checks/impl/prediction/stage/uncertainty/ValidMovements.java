@@ -7,6 +7,8 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaForwardMove;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementMath;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVehicleReport;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
@@ -251,8 +253,7 @@ public class ValidMovements {
         if (radius.x == 0 && radius.y == 0 && radius.z == 0) return;
         // A vehicle following its interpolation target reports that target, not this travel: no gap to allow.
         if (result.getSimulationContext().getVehicle() != null
-                && ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVehicleReport.followsTarget(
-                        player, result.getSimulationContext())) return;
+                && JavaVehicleReport.followsTarget(player, result.getSimulationContext())) return;
         beforeDebugAllowance = closestTrace;
         MovementTrace adjusted = withDebugAllowance(closestTrace, radius);
         debugAllowance = adjusted.positionOnlyDelta().subtract(closestTrace.positionOnlyDelta());
@@ -474,8 +475,7 @@ public class ValidMovements {
         if (waterInputChoice >= 0
                 || player.isBedrockMovement()
                 || context.getVehicle() != null
-                || ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs.usesReportedKeys(
-                        player, context)
+                || JavaTravelInputs.usesReportedKeys(player, context)
                 || context.usesFallFlyingMovement()
                 || !context.getWorldData().isInLiquid()
                 || collisionIgnoredMaxStartingVelExtents == null

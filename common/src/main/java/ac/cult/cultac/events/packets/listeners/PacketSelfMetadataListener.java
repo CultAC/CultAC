@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -10,6 +11,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAnimate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSwingAnimation;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.utils.data.ItemUseInventory;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
@@ -148,13 +150,10 @@ public class PacketSelfMetadataListener {
                         player.bedPosition = new Vec3(
                                 bedPos.getX() + 0.5,
                                 bedPos.getY()
-                                        + (player.getClientVersion()
-                                                                .isNewerThanOrEquals(
-                                                                        ac.cult.cultac.network.protocol.ClientVersion
-                                                                                .V_26_3)
-                                                        && ac.cult.blocksim.data.BlockIds.is(
+                                        + (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
+                                                        && BlockIds.is(
                                                                 player.compensatedWorld.getBlockStateIdAt(bedPos),
-                                                                ac.cult.blocksim.data.BlockIds.STRAW_BED)
+                                                                BlockIds.STRAW_BED)
                                                 ? 0.375
                                                 : 0.6875),
                                 bedPos.getZ() + 0.5);
@@ -164,9 +163,7 @@ public class PacketSelfMetadataListener {
                     }
                     // The local pose metadata is stripped above, so a 1.14+ Java client keeps its pose until
                     // Player#updatePlayerPose after its next aiStep; Entity#setPos boxed it with that pose.
-                    if (player.isBedrockMovement()
-                            || player.getClientVersion()
-                                    .isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_14)) {
+                    if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_14)) {
                         player.refreshPlayerPose();
                     } else {
                         player.refreshPlayerPose(player.pose);
@@ -195,7 +192,7 @@ public class PacketSelfMetadataListener {
                             // LivingEntity#onSyncedDataUpdated leaves the pose to Player#updatePlayerPose after aiStep.
                             player.isRiptidePose = isRiptiding;
                             boolean clientUsing = player.clientItemUse.definitelyUsing();
-                            ac.cult.cultac.utils.data.ItemUseInventory.metadata(player, (byte) handValue);
+                            ItemUseInventory.metadata(player, (byte) handValue);
                             RiptideUtil.serverUseFlags(player, (byte) handValue, clientUsing);
                         });
                     }

@@ -12,6 +12,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActors;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
 import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
@@ -34,6 +35,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -42,6 +44,7 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.FluidTypeFlowing;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -112,8 +115,7 @@ public class WorldStageBuilder {
         int state = player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(position.x, position.y, position.z));
         if (player.isBedrockMovement()
                 && BlockIds.is(state, BlockIds.POWDER_SNOW)
-                && player.getInventory().getBoots().getItem() == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS)
-            return DesyncStatus.UNKNOWN;
+                && player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS) return DesyncStatus.UNKNOWN;
         return climbing;
     }
 
@@ -164,8 +166,7 @@ public class WorldStageBuilder {
             canFluidHop = wasInWaterOrLava
                     && didCollide
                     && (simulationContext.getVehicle() == null
-                            || !ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(
-                                    simulationContext.getVehicle().type));
+                            || !EntityTypeUtil.isBoat(simulationContext.getVehicle().type));
         }
 
         // MCP-Reborn Entity#baseTick refreshes wasTouchingWater/fluid heights
@@ -851,7 +852,7 @@ public class WorldStageBuilder {
                 || !context.getWorldData().isPushable()) return;
         // LivingEntity#pushEntities runs before Level#tickBlockEntities. From 26.3 the report is after that
         // pass, but a later entity still touched the player at the endpoint of travel, in its chosen pose.
-        var pass = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.passAfterTravel(prediction);
+        var pass = JavaMovementEngine.passAfterTravel(prediction);
         PredictionScratch scratch = PredictionScratch.of(player);
         SimpleCollisionBox sweepOut = scratch == null ? new SimpleCollisionBox() : scratch.recountSweep;
         SimpleCollisionBox sweep = pass == null
@@ -1124,12 +1125,9 @@ public class WorldStageBuilder {
         CultPlayer player = bubblePlayer;
         int blockAbove = player.compensatedWorld.getBlockStateIdAt(pos.getX(), pos.getY() + 1, pos.getZ());
         boolean isDown = BlockProps.DRAG.has(state) && BlockProps.DRAG.booleanValue(state);
-        boolean airAbove = player.compensatedWorld
-                        .geometry()
-                        .collision(blockAbove, pos)
-                        .isEmpty()
-                && ac.cult.cultac.utils.nmsutil.ClientFluidQueries.modelFluid(blockAbove)
-                        .isEmpty();
+        boolean airAbove =
+                player.compensatedWorld.geometry().collision(blockAbove, pos).isEmpty()
+                        && ClientFluidQueries.modelFluid(blockAbove).isEmpty();
         if (isDown) {
             if (airAbove) bubbleAirDownwards++;
             else bubblePushDownwards++;

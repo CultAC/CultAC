@@ -4,11 +4,14 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate.Action;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate.Entry;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam;
 import ac.cult.cultac.protocol.value.GameMode;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -20,9 +23,7 @@ import java.util.stream.Collectors;
 public class PlayerInfoListener {
     @CultPacketHandler
     public void onPlayerTeam(
-            PacketSendEvent<ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam> event,
-            CultPlayer player,
-            ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam packet) {
+            PacketSendEvent<ClientboundSetPlayerTeam> event, CultPlayer player, ClientboundSetPlayerTeam packet) {
         if (!player.isBedrockMovement())
             prove(event, player, () -> player.compensatedEntities.teamCollision.apply(packet));
     }
@@ -80,10 +81,9 @@ public class PlayerInfoListener {
         long sequence = receiver.nextImpulseSequence();
         // This is the outbound local-player lifetime, not hasClientLoaded: packet handlers can write motion
         // before LocalPlayer#tick is enabled. Capture it here, before later login/configuration writes.
-        boolean localPlayerPresent = event.getPhase() == ac.cult.cultac.protocol.ConnectionPhase.PLAY
+        boolean localPlayerPresent = event.getPhase() == ConnectionPhase.PLAY
                 && receiver.packetStateData.javaLocalPlayerPresent
-                && receiver.getClientVersion().isNewerThanOrEquals(
-                        ac.cult.cultac.network.protocol.ClientVersion.V_1_21_2);
+                && receiver.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
         prove(event, receiver, () -> receiver.compensatedEntities.clientPlayerModes.update(
                 packet, visibleModes, receiver.compensatedEntities.entityMap.values(), (id, mode) -> {
                     if (localPlayerPresent && receiver.playerUUID.equals(id) && mode == GameMode.SPECTATOR)

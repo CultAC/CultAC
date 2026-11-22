@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
@@ -226,8 +227,7 @@ public class PredictionResult {
         }
         Vec3 closest = getAcceptedClosestToTarget();
         // Every Java Entity#move includes its input before clipping. No input may be added after that collision.
-        if (collideAxisData instanceof ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision)
-            return closest;
+        if (collideAxisData instanceof JavaMoveCollision) return closest;
         Vec3 inputTarget = getTarget();
         var pass = JavaMovementEngine.passAfterTravel(this);
         if (pass != null && !simulationContext.isWithheldPosition()) {
