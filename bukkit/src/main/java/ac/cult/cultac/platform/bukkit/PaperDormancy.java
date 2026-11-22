@@ -38,8 +38,9 @@ final class PaperDormancy implements DormancyController.Platform {
     private static final String DRAINED_KEY = "cultac.dormant.drained";
 
     /**
-     * The players whose watch drained, by UUID, to their connection id as text, empty for none, until they quit; one
-     * map for every generation of this server, as a drained connection holds no generation.
+     * The players whose watch drained, by UUID, to their connection id as text, empty for none, until they quit or
+     * their connection closes; one map for every generation of this server, as a drained connection holds no
+     * generation.
      */
     private final Map<UUID, String> drained;
 
@@ -154,14 +155,22 @@ final class PaperDormancy implements DormancyController.Platform {
         CultAPI.INSTANCE.getPlayerDataManager().dormantQuit(watch.player(), connectionId(watch), platformPlayer(watch));
     }
 
-    /** Keeps what the drained connection holds until its player quits; a connection that ended is released at once. */
+    /**
+     * Keeps what the drained connection holds until its player quits or, while this generation is current, the
+     * connection closes, which a player who never joined does without a quit; a connection that ended is released at
+     * once.
+     */
     @Override
     public void drained(DormantWatch watch) {
         UUID player = watch.player();
         String connectionId = watch.state().get("connection-id") instanceof String id ? id : "";
+        Object nativePlayer = watch.nativePlayer();
         drained.put(player, connectionId);
+        watch.channel().closeFuture().addListener(closed -> {
+            if (current() && drained.remove(player, connectionId)) release(player, connectionId, nativePlayer);
+        });
         if ((!watch.channel().isActive() || quitting(watch.channel())) && drained.remove(player, connectionId))
-            release(player, connectionId, watch.nativePlayer());
+            release(player, connectionId, nativePlayer);
     }
 
     /**
@@ -191,6 +200,12 @@ final class PaperDormancy implements DormancyController.Platform {
                         nativePlayer == null
                                 ? null
                                 : CultAPI.INSTANCE.getPlatformPlayerFactory().getFromNativePlayerType(nativePlayer));
+    }
+
+    /** Whether this generation answers for the server. */
+    private static boolean current() {
+        HostContext host = RuntimeEnvironment.host();
+        return host == null || host.current();
     }
 
     /** Whether the player of {@code channel} left the server, whose quit may have run already. */

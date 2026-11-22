@@ -32,7 +32,9 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class DormantWatch extends ChannelInboundHandlerAdapter {
     public static final String NAME = "cult-dormant";
-    /** State key: whether the connection completed a CultAC login before it went dormant. */
+    /**
+     * State key: whether CultAC ran the connection's login steps, before it went dormant or at a join while dormant.
+     */
     public static final String LOGIN_NOTIFIED = "login-notified";
     /** State key: marks a released connection as dormant. */
     public static final String DORMANT = "dormant";

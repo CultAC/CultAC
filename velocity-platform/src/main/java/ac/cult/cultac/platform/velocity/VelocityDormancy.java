@@ -110,6 +110,11 @@ final class VelocityDormancy implements DormancyController.Platform {
     }
 
     @Override
+    public void awake(UUID player) {
+        bridge.awake(player);
+    }
+
+    @Override
     public boolean accepting() {
         return transport.running();
     }
@@ -134,9 +139,10 @@ final class VelocityDormancy implements DormancyController.Platform {
 
     /**
      * A player at PostLogin; true when they are dormant, by the server Velocity is connecting them to or, with none in
-     * flight, as {@link DormancyController#dormant} decides for an unknown server, and got only a watch (Java) or
-     * CultAC's handlers without a CultAC player (Bedrock). Anyone else is attached, and goes dormant once their
-     * connection to a server where they are dormant completed. On the channel's event loop.
+     * flight, as {@link DormancyController#dormant} decides for an unknown server, and got only a watch and the login
+     * steps that need no CultAC player (Java), or CultAC's handlers without a CultAC player (Bedrock). Anyone else is
+     * attached, and goes dormant once their connection to a server where they are dormant completed. On the channel's
+     * event loop.
      */
     boolean joined(Player player, Channel channel, @Nullable PacketOwner bedrock) {
         if (!DormancyController.dormant(inFlight(player))) return false;
@@ -146,7 +152,12 @@ final class VelocityDormancy implements DormancyController.Platform {
             return true;
         }
         if (VelocityProtocols.disconnectUnsupportedClient(player, channel)) return true;
-        watch(player, channel, Map.of(DormantWatch.LOGIN_NOTIFIED, false), new int[0]);
+        UUID connectionId = UUID.randomUUID();
+        Map<String, Object> state = Map.of(DormantWatch.LOGIN_NOTIFIED, true, "connection-id", connectionId.toString());
+        watch(player, channel, state, new int[0]);
+        PlatformPlayer platformPlayer =
+                CultAPI.INSTANCE.getPlatformPlayerFactory().getFromNativePlayerType(player);
+        CultAPI.INSTANCE.getPlayerDataManager().dormantJoin(platformPlayer, connectionId);
         return true;
     }
 

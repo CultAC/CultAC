@@ -141,12 +141,12 @@ public final class NetworkModule {
     }
 
     /**
-     * Whether {@code key}'s value for a player can differ from the instance's by the backend server they are on; while
-     * it cannot, the instance's value is every player's. Any thread.
+     * {@code key}'s value for a player on {@code backend}, the backend server their proxy sent them to; for a player
+     * whose backend is not known, the instance's value while it is every player's, else null. Any thread.
      */
-    public static boolean backendScoped(String key) {
+    public static @Nullable NetSettings.Value playerSetting(String key, @Nullable String backend) {
         NetSettings settings = settings();
-        return settings != null && settings.backendScoped(key);
+        return settings != null ? settings.playerValue(key, backend) : NetSettings.value(baseline(), key, null);
     }
 
     /**

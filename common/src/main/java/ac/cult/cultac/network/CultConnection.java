@@ -152,6 +152,11 @@ public final class CultConnection
         dormant = Map.copyOf(state);
     }
 
+    /** Takes the dormant mark off a connection whose player is inspected again; on the packet owner. */
+    void awake() {
+        dormant = null;
+    }
+
     private boolean ownerResolved, prepared;
     private Consumer<CultConnection> initializer = ignored -> {};
     private BiConsumer<Object, ChannelPromise> reentrantWriter;
