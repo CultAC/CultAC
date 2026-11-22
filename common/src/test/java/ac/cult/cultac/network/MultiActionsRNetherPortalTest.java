@@ -62,6 +62,42 @@ class MultiActionsRNetherPortalTest {
         }
     }
 
+    /**
+     * Entity#checkInsideBlocks visits the blocks of the player's box deflated by 1.0E-5, so a box whose face lies on
+     * the portal column's face visits no portal block.
+     */
+    @Test
+    void clicksWithTheBoxAgainstThePortalFaceDoNotFlag() throws Exception {
+        try (var f = standingBesidePortalColumn(1.0 - 0.3F)) {
+            assertEquals(0, clickViolations(f));
+        }
+    }
+
+    /** NetherPortalBlock keeps the full-block entity-inside shape: a box inside the column's block meets it. */
+    @Test
+    void clicksWithTheBoxInsideThePortalBlockFlag() throws Exception {
+        try (var f = standingBesidePortalColumn(1.01 - 0.3F)) {
+            assertEquals(1, clickViolations(f));
+        }
+    }
+
+    /** A survivor standing at {@code x} beside a nether portal column at block x 1, two client ticks later. */
+    private static JavaTickFixture standingBesidePortalColumn(double x) throws Exception {
+        var f = new JavaTickFixture();
+        f.player.setExperimentalChecks(true);
+        for (int y = JavaTickFixture.FLOOR_Y; y < JavaTickFixture.FLOOR_Y + 3; y++) {
+            f.player.compensatedWorld.updateBlock(new BlockPos(1, y, 0), BlockIds.NETHER_PORTAL.defaultState());
+        }
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        f.player.packetStateData.playerLoadedIntoLevel = true;
+        Vec3 standing = new Vec3(x, JavaTickFixture.FLOOR_Y, 0.5);
+        f.place(standing, Vec3.ZERO);
+        f.tick(standing, true);
+        f.tickEnd();
+        f.player.openWindow.onClientOpenOrCloseWindow(true);
+        return f;
+    }
+
     /** ServerPlayer#teleport's same-level respawn carrying {@code portalCooldown}, placed inside a portal. */
     private static JavaTickFixture respawnedInPortal(GameMode mode, int portalCooldown) throws Exception {
         var f = new JavaTickFixture();

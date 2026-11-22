@@ -77,6 +77,7 @@ public class WorldStageBuilder {
     private final SimpleCollisionBox sweepFromBox = new SimpleCollisionBox();
     private final SimpleCollisionBox sweepToBox = new SimpleCollisionBox();
     private final SimpleCollisionBox sweptBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox portalReachBox = new SimpleCollisionBox();
     private final SimpleCollisionBox pusherContactBox = new SimpleCollisionBox();
     private final SimpleCollisionBox entityBoundsBox = new SimpleCollisionBox();
     private final SimpleCollisionBox entityScratchBox = new SimpleCollisionBox();
@@ -240,19 +241,16 @@ public class WorldStageBuilder {
                 && (player.swimState.swimming() && player.gamemode != GameMode.SPECTATOR
                         ? isInWater.determineOptimistically()
                         : underwater && player.compensatedWorld.getWaterFluidLevelAt(from.x, from.y, from.z) > 0);
-        // Portal contact uses the swept inside-block volume. Java Entity#checkInsideBlocks sweeps the box of the pose
-        // travel moved, which reaches a portal at head height.
-        player.intersectedWithNetherPortal = Collisions.hasState(
-                player,
-                player.isBedrockMovement()
-                        ? simulationContext
+        // Portal contact uses the swept inside-block volume.
+        player.intersectedWithNetherPortal = player.isBedrockMovement()
+                ? Collisions.hasState(
+                        player,
+                        simulationContext
                                 .getFromMinimumExtent(sweepFromBox)
-                                .union(simulationContext.getToMinimumExtent(sweepToBox))
-                        : simulationContext
-                                .getFromActualPose(sweepFromBox)
-                                .union(simulationContext.getToActualPose(sweepToBox)),
-                block -> BlockIds.is(block, BlockIds.NETHER_PORTAL),
-                (block, pos) -> true);
+                                .union(simulationContext.getToMinimumExtent(sweepToBox)),
+                        block -> BlockIds.is(block, BlockIds.NETHER_PORTAL),
+                        (block, pos) -> true)
+                : javaNetherPortalContact(player, simulationContext);
 
         DesyncStatus honeySlide = isSlidingDown(player, simulationContext);
         // MCP-Reborn Entity#checkSupportingBlock stores mainSupportingBlockPos
@@ -336,6 +334,22 @@ public class WorldStageBuilder {
                 simulationContext.getVehicle() != null && minFluidState.isInWater(),
                 spinTarget != SpinTarget.NONE,
                 spinTarget == SpinTarget.PLAYER);
+    }
+
+    /**
+     * Java portal contact: Entity#checkInsideBlocks replays the travel in the box of its pose, axis by axis in the
+     * Direction#axisStepOrder of the move, and NetherPortalBlock keeps the full-block entity-inside shape, so a box
+     * whose face only lies on a portal block's face meets none.
+     */
+    private boolean javaNetherPortalContact(CultPlayer player, SimulationContext context) {
+        SimpleCollisionBox from = context.getFromActualPose(sweepFromBox);
+        SimpleCollisionBox to = context.getToActualPose(sweepToBox);
+        Vec3 movement = context.getPacketMovement();
+        return Collisions.hasState(
+                player,
+                portalReachBox.set(from).union(to),
+                block -> BlockIds.is(block, BlockIds.NETHER_PORTAL),
+                (block, pos) -> Collisions.canFullBlockAffectInsideBlockMovement(from, to, movement, pos));
     }
 
     // EntityFluidInteraction#update finds the eye only among the fluids inside Entity#getFluidInteractionBox.
