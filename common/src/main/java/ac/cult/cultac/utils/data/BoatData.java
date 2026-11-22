@@ -37,6 +37,10 @@ public class BoatData {
     public SimpleCollisionBox fluidInteractionBox;
     public boolean oldStatusMayBeInAir;
     private PacketEntity controlledBoat;
+    // A respawned LocalPlayer's KeyboardInput holds Input.EMPTY until its first aiStep.
+    private boolean keysAwaitAiStep;
+    // The first aiStep's keys reach the boat only at the rideTick after the boat's tick in progress.
+    private boolean keysReadAfterTickEnd;
 
     /** A new LocalPlayer's keys: Input.EMPTY until its first PLAYER_INPUT. */
     public void clearInput() {
@@ -44,6 +48,27 @@ public class BoatData {
         nextVehicleForward = vehicleForward = 0f;
         nextVehicleJump = vehicleJump = false;
         nextVehicleKeys = vehicleKeys = KnownInput.DEFAULT;
+    }
+
+    /**
+     * ClientPacketListener#handleRespawn gives the new LocalPlayer a fresh KeyboardInput, whose keyPresses stay
+     * Input.EMPTY until KeyboardInput#tick in its first LocalPlayer#aiStep; until then LocalPlayer#rideTick hands
+     * AbstractBoat#setInput no keys, even with a kept lastSentInput.
+     */
+    public void onNewKeyboardInput() {
+        nextVehicleKeys = KnownInput.DEFAULT;
+        keysAwaitAiStep = true;
+    }
+
+    /**
+     * LocalPlayer#aiStep ran: KeyboardInput#tick read the held keys, which equal {@code lastSentInput} once
+     * LocalPlayer#sendChanges sent any change.
+     */
+    public void onAiStep(KnownInput lastSentInput) {
+        if (!keysAwaitAiStep) return;
+        keysAwaitAiStep = false;
+        keysReadAfterTickEnd = true;
+        nextVehicleKeys = lastSentInput;
     }
 
     /**
@@ -60,6 +85,7 @@ public class BoatData {
      * instance does not control the boat.
      */
     public void onClientTickEnd(CultPlayer player) {
+        keysReadAfterTickEnd = false;
         if (controlledBoat == null || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return;
         if (!controlledBoat.passengers.isEmpty()
                 && controlledBoat.passengers.get(0) == player.compensatedEntities.getSelf()) {
@@ -142,7 +168,7 @@ public class BoatData {
                 waterLevel = 0.0D;
                 landFriction = 0.0F;
                 lastYd = 0.0D;
-                if (hasCompletedPassengerTickAfterObservedMount(player, boatEntityId)) {
+                if (!keysReadAfterTickEnd && hasCompletedPassengerTickAfterObservedMount(player, boatEntityId)) {
                     // MCP-Reborn ClientLevel ticks the root boat before passenger
                     // rideTick, and LocalPlayer#rideTick copies the latest keys
                     // into AbstractBoat#setInput after LocalPlayer#tick sends the

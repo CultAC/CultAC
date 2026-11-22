@@ -471,6 +471,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             player.packetStateData.respawnShiftPending = false;
             player.isSneaking = true;
         }
+        player.boatData.onAiStep(player.packetStateData.knownInput);
         // Noncontrolling passengers skip sendIsSprintingIfNeeded, but still run aiStep: a vehicle that
         // cannot sprint clears the local flag and, if it was set, the modifier. Keep the announcement separate.
         PacketEntity vehicle = player.compensatedEntities.getSelf().getRiding();

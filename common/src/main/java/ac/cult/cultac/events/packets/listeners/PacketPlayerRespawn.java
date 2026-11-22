@@ -295,6 +295,7 @@ public class PacketPlayerRespawn {
             // shift at the first LocalPlayer#aiStep.
             player.packetStateData.respawnShiftPending =
                     !player.isBedrockMovement() && player.packetStateData.knownInput.shift();
+            if (!player.isBedrockMovement()) player.boatData.onNewKeyboardInput();
             // KEEP_ENTITY_DATA copies the old pose, which refreshPlayerPose below takes from the old shift key.
             if (!keepEntityData || player.isBedrockMovement()) player.isSneaking = false;
             // ClientPacketListener#handleRespawn gives every new LocalPlayer a fresh KeyboardInput.
