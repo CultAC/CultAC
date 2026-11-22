@@ -30,7 +30,6 @@ public final class ConfigPatcher {
     // Block-style keys whose value is an alias of a mapping, by their literal keys, with the anchor each names.
     private final Map<List<String>, String> mappingAliases = new HashMap<>();
 
-    // ... (formatValue and YAML_KEYWORDS/SPECIAL_CHARS constants are unchanged) ...
     private static final Set<String> YAML_KEYWORDS_TO_QUOTE = new HashSet<>(Arrays.asList(
             "y", "Y", "yes", "Yes", "YES", "n", "N", "no", "No", "NO", "true", "True", "TRUE", "false", "False",
             "FALSE", "on", "On", "ON", "off", "Off", "OFF", "null", "Null", "NULL", "~"));
@@ -328,8 +327,6 @@ public final class ConfigPatcher {
         }
     }
 
-    // ... (generateListBlock, formatValue, getIndentation, save, NodePosition are unchanged from previous correct
-    // version) ...
     private String generateListBlock(List<?> list, int indentation) {
         if (list.isEmpty()) return "";
         StringBuilder block = new StringBuilder();

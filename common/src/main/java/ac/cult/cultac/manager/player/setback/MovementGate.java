@@ -130,7 +130,7 @@ public final class MovementGate {
         if (teleports.isDebug()) {
             LogUtil.info(player.getName() + " : T1 : dist= " + distance);
         }
-        return distance > 4.0D; // this could probably be reduced further now that it's only checking x and z
+        return distance > 4.0D;
     }
 
     /**

@@ -169,8 +169,6 @@ public class BlockPlace {
             // Here vanilla refers from
             // Set check can replace -> get block -> call block canBeReplaced -> check can replace boolean (default
             // true)
-            // uh... what?  I'm unsure what Mojang is doing here.  I think they just made a stupid mistake.
-            // as this code is quite old.
             boolean flag = getClickedLocation().getY() > 0.5D;
             Direction clickedFace = getDirection();
             if (slabType == 1) {
@@ -262,17 +260,6 @@ public class BlockPlace {
         isCancelled = true;
     }
 
-    // All method with rants about mojang must go below this line
-
-    // MOJANG??? Why did you remove this from the damn packet.  YOU DON'T DO BLOCK PLACING RIGHT!
-    // You use last tick vector on the server and current tick on the client...
-    // You also have 0.03 for FIVE YEARS which will mess this up.  nice one mojang
-    // * 0.0004 as of 2/24/2022
-    // Fix your damn netcode
-    //
-    // You also have the desync caused by eye height as apparently tracking the player's ticks wasn't important to you
-    // No mojang, you really do need to track client ticks to get their accurate eye height.
-    // another damn desync added... maybe next decade it will get fixed and double the amount of issues.
     public Vector3dm getClickedLocation() {
         if (cursor != null) return new Vector3dm(cursor.x, cursor.y, cursor.z);
 

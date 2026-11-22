@@ -163,14 +163,12 @@ public final class JavaTeleportTracker {
                     : null;
             if (pistonTeleport != null && pistonTeleport.matched()) clamped = pistonTeleport.position();
 
-            // There was some previous claims that rounding was performed here, I see no evidence of this.
             // TODO: Investigate vehicle teleports working for players too on 26.1?
 
             double xDiff = Math.abs(clamped.x - physicalFeetPosition.x);
             double yDiff = Math.abs(clamped.y - physicalFeetPosition.y);
             double zDiff = Math.abs(clamped.z - physicalFeetPosition.z);
 
-            // idk why mojang just doesn't set the movement threshold to 0, but I'm not fighting over 0.0002
             boolean xPass =
                     xDiff <= (exactPosition ? 0 : teleportPos.isRelativeX() ? player.getMovementThreshold() : 0);
             boolean yPass =

@@ -48,11 +48,8 @@ import java.util.List;
 import java.util.Map;
 import lombok.Getter;
 
-// Updated to support modern 1.17 protocol
 public class CompensatedInventory extends CultProcessor implements CheckListener {
-    // "Temporarily" public for debugging
     public Inventory inventory;
-    // "Temporarily" public for debugging
     public AbstractContainerMenu menu;
     // Mojang uses player inventory slot 40 as the SWAP button for offhand clicks.
     // Cult's compensated storage keeps the protocol offhand slot at 45.

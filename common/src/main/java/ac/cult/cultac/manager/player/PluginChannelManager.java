@@ -89,7 +89,6 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         if (isBrand(channelName) && payload.length > 0) {
             if (this.brand != null) {
                 // TODO: Brand spoof check again
-                // player.checkManager.getListener(BrandSpoofA.class).flag("Sent multiple brands");
                 return;
             }
             updateBrand(readBrandPayload(payload));

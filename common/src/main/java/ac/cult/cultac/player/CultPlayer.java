@@ -1628,7 +1628,6 @@ public class CultPlayer implements GrimUser {
         spoofHealth = config.getBooleanElse("cult.networking.spoof-health", false);
     }
 
-    // TODO: Create a configurable timer for this
     @Override
     public final void reload(ConfigManager config) {
         updatePermissions();
