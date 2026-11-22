@@ -1,6 +1,7 @@
 package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -16,7 +17,8 @@ import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 @CheckData(
-        name = "MultiActionsF",
+        name = "MultiActionsD",
+        formerNames = @FormerName(name = "MultiActionsF", until = 2),
         stableKey = "cult.multiactions.block_and_entity_interact",
         description = "Interacting with a block and an entity in the same tick",
         experimental = true)

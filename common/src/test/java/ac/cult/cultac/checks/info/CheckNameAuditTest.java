@@ -51,6 +51,28 @@ class CheckNameAuditTest {
     }
 
     @Test
+    void aSelectorOfACategoryNamesEveryCheckItSelectsOrNoLongerSelects() {
+        List<String> newer = CheckNameAudit.warnings(config(2, 2, List.of("Inventory"), null));
+        assertEquals(1, newer.size(), newer.toString());
+        assertTrue(
+                newer.get(0)
+                        .endsWith("where those checks are MultiActionsC, MultiActionsD, MultiActionsH, MultiActionsI,"
+                                + " MultiActionsJ, MultiActionsK, MultiActionsL, MultiActionsM, MultiActionsN,"
+                                + " MultiActionsO, MultiActionsP, MultiActionsQ, MultiActionsR, MultiActionsS,"
+                                + " MultiActionsT"),
+                newer.get(0));
+
+        // Version 3 moves these out of MultiActions, so a file of it selects them with "Inventory".
+        assertEquals(
+                List.of("punishments.yml: \"multiactions\" selects InventoryA, InventoryB, InventoryC, InventoryD,"
+                        + " InventoryE, InventoryF, InventoryG, InventoryH, InventoryI, InventoryJ, InventoryK as name"
+                        + " version 2 names them, and punishment-check-name-version is 3, where no group selects them"),
+                CheckNameAudit.warnings(config(3, 3, List.of("MultiActions"), null)));
+        assertEquals(List.of(), CheckNameAudit.warnings(config(3, 3, List.of("MultiActions", "Inventory"), null)));
+        assertEquals(List.of(), CheckNameAudit.warnings(config(3, 3, List.of("MultiActions", "!Inventory"), null)));
+    }
+
+    @Test
     void settingsUnderANameOfAnotherVersionAreNamed() {
         List<String> newer = CheckNameAudit.warnings(config(1, 1, List.of(), "AttackEntityVisibility"));
         assertEquals(1, newer.size(), newer.toString());
@@ -60,6 +82,16 @@ class CheckNameAuditTest {
         List<String> older = CheckNameAudit.warnings(config(2, 2, List.of(), "bAttackMobVisibility"));
         assertEquals(1, older.size(), older.toString());
         assertTrue(older.get(0).endsWith("where that check is bAttackEntityVisibility"), older.get(0));
+
+        // Version 3 sets five checks under InventoryD.
+        List<String> merged = CheckNameAudit.warnings(config(2, 2, List.of("InventoryD"), "InventoryD"));
+        assertEquals(2, merged.size(), merged.toString());
+        for (String warning : merged) {
+            assertTrue(
+                    warning.endsWith("where those checks are MultiActionsI, MultiActionsJ, MultiActionsK,"
+                            + " MultiActionsL, MultiActionsS"),
+                    warning);
+        }
     }
 
     @Test

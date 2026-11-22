@@ -69,7 +69,9 @@ class CheckNameStampFileTest {
         assertTrue(policy.status(CheckCatalog.find("InteractPlayerVisibility")).groups().isEmpty());
         assertFalse(policy.status(CheckCatalog.find("InteractEntityVisibility")).groups().isEmpty());
 
-        Files.writeString(punishments, WRITTEN_BEFORE_THE_STAMP + CheckNames.PUNISHMENTS_KEY + ": 3\n");
+        Files.writeString(
+                punishments,
+                WRITTEN_BEFORE_THE_STAMP + CheckNames.PUNISHMENTS_KEY + ": " + (CheckNames.LATEST + 1) + "\n");
         config.reload();
         assertThrows(IllegalStateException.class, () -> CheckNames.validate(config));
         assertThrows(IllegalStateException.class, () -> new BaseConfigManager().load(config));

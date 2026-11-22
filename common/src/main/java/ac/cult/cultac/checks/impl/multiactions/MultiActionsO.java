@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.RotationListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -13,7 +14,8 @@ import org.jetbrains.annotations.NotNull;
 
 // cinematic camera doesn't apply in inventories.
 @CheckData(
-        name = "MultiActionsO",
+        name = "InventoryG",
+        formerNames = @FormerName(name = "MultiActionsO", until = 2),
         stableKey = "cult.multiactions.inventory_rotation",
         description = "Rotating while in an inventory")
 public class MultiActionsO extends Check implements RotationListener, ClientTickEndListener {

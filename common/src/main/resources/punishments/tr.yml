@@ -88,6 +88,7 @@ Punishments:
       - "NoSneakSlow"
       - "Sprint"
       - "MultiActions"
+      - "Inventory"
       - "Place"
       - "Baritone"
       - "Break"
@@ -135,7 +136,11 @@ Punishments:
 #   1: AttackMobVisibility, bAttackMobVisibility. InteractEntityVisibility covers players too.
 #   2: AttackEntityVisibility, bAttackEntityVisibility. InteractPlayerVisibility covers players,
 #      InteractEntityVisibility everything else.
+#   3: MultiActionsC, D and H are InventoryA, B and C. MultiActionsI, J, K, L and S are one
+#      check, InventoryD, whose verbose names the action. MultiActionsM, N, O, P, Q, R and T
+#      are InventoryE to K. MultiActionsE, F and G are MultiActionsC, D and E.
+#      "MultiActions" selects MultiActionsA to E, and "Inventory" selects the Inventory checks.
 # A file without this line is read as version 1.
-punishment-check-name-version: 2
+punishment-check-name-version: 3
 
 cult-config-version: 5

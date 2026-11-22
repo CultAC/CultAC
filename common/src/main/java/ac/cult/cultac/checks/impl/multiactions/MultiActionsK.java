@@ -1,12 +1,14 @@
 package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 
 @CheckData(
-        name = "MultiActionsK",
+        name = "InventoryD",
+        formerNames = @FormerName(name = "MultiActionsK", until = 2),
         stableKey = "cult.multiactions.inventory_place",
         description = "Placed a block while in an inventory")
 public class MultiActionsK extends BlockPlaceCheck {
@@ -15,9 +17,15 @@ public class MultiActionsK extends BlockPlaceCheck {
         super(player);
     }
 
+    private boolean flagAction() {
+        return InventoryActions.reportedTogether(this)
+                ? flag(InventoryActions.V.write(verbose(), InventoryActions.ACTION_PLACE))
+                : flag();
+    }
+
     @Override
     public void onBlockPlace(BlockPlace place) {
-        if (player.openWindow.mustBeOpen() && flag() && shouldModifyPackets() && shouldCancel()) {
+        if (player.openWindow.mustBeOpen() && flagAction() && shouldModifyPackets() && shouldCancel()) {
             place.resync();
             player.closeInventorySafely();
         }

@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -10,7 +11,8 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 @CheckData(
-        name = "MultiActionsD",
+        name = "InventoryB",
+        formerNames = @FormerName(name = "MultiActionsD", until = 2),
         stableKey = "cult.multiactions.inventory_close_while_moving",
         description = "Closed inventory while moving")
 public class MultiActionsD extends Check implements CheckListener {

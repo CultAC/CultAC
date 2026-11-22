@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.StampedConfig;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsP;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsWindow;
@@ -18,6 +20,7 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -44,6 +47,7 @@ import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import io.netty.buffer.ByteBuf;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -159,6 +163,34 @@ class InventoryWindowChecksTest {
             check.onDecodedPacketReceive(swing);
             check.onDecodedPacketReceive(clickEvent(f, click(0, 36, WindowClickType.PICKUP)));
             verify(check).flag();
+        }
+    }
+
+    @Test
+    void anInventoryActionNamesItsActionInTheVerboseOnlyWhereItIsReportedAsInventoryD() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            f.player.openWindow.onClientOpenOrCloseWindow(true);
+            f.player.setExperimentalChecks(true);
+            var verbose = new ArrayList<String>();
+            f.player.observer = new PlayerObserver() {
+                @Override
+                public void flagged(Check check, double violations, Supplier<String> text) {
+                    verbose.add(text.get());
+                }
+            };
+            var check = new MultiActionsS(f.player);
+            var swing = new PacketReceiveEvent<>(
+                    f.user, ConnectionPhase.PLAY, ServerboundPackets.SWING, ServerboundSwing.PUNCH);
+            var stored = new ArrayList<Boolean>();
+            for (int version = CheckNames.FIRST; version <= CheckNames.LATEST; version++) {
+                check.reload(StampedConfig.of(Map.of(CheckNames.CONFIG_KEY, version)));
+                check.onDecodedPacketReceive(swing);
+                check.onDecodedPacketReceive(clickEvent(f, click(0, 36, WindowClickType.PICKUP)));
+                stored.add(check.isLastFlagStoredBinaryVerbose());
+            }
+            assertEquals(List.of("", "", "action=swing"), verbose);
+            assertEquals(List.of(false, false, true), stored);
         }
     }
 
