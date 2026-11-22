@@ -65,7 +65,7 @@ class CloudConnectionTeamTest {
 
     private static CloudSettings settings(String url, boolean team) {
         return new CloudSettings(
-                url, "test-key", CloudSettings.DEFAULT_SERVER_ID, "proxy", CloudSettings.PROTOCOLS, false, team);
+                url, "test-key", CloudSettings.DEFAULT_SERVER_ID, "proxy", CloudSettings.PROTOCOLS, team);
     }
 
     private static void reply(Channel channel, Reply.Builder reply) {

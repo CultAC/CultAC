@@ -22,7 +22,6 @@ import ac.cult.cultac.cloud.intake.v3.IntakeMessage;
 import ac.cult.cultac.cloud.intake.v3.Join;
 import ac.cult.cultac.cloud.intake.v3.Meta;
 import ac.cult.cultac.cloud.intake.v3.Outcome;
-import ac.cult.cultac.cloud.intake.v3.PerfPart;
 import ac.cult.cultac.cloud.intake.v3.PortalRole;
 import ac.cult.cultac.cloud.intake.v3.Record;
 import ac.cult.cultac.cloud.intake.v3.Refused;
@@ -591,7 +590,10 @@ class IntakeWireTest {
                 .build();
         ByteArrayOutputStream message = new ByteArrayOutputStream();
         message.writeBytes(replies.toByteArray());
-        // A reply of a kind this client does not know: Reply field 11, a string.
+        // Replies of kinds this client does not know: the reserved Reply fields 7 and 8, which older services still
+        // send, and field 11, a string.
+        message.writeBytes(new byte[] {0x0A, 0x04, 0x3A, 0x02, 0x08, 0x01});
+        message.writeBytes(new byte[] {0x0A, 0x04, 0x42, 0x02, 0x08, 0x05});
         message.writeBytes(new byte[] {0x0A, 0x03, 0x5A, 0x01, 0x78});
 
         List<IntakeWire.Reply> read = IntakeWire.replies(message.toByteArray());
@@ -1113,10 +1115,6 @@ class IntakeWireTest {
         assertFalse(IntakeWire.endsMessage(builder.build(PLAYER, 1)));
         assertFalse(IntakeWire.endsMessage(Intake.newBuilder()
                 .addMessages(IntakeMessage.newBuilder().setDiag(DiagPart.getDefaultInstance()))
-                .build()
-                .toByteArray()));
-        assertFalse(IntakeWire.endsMessage(Intake.newBuilder()
-                .addMessages(IntakeMessage.newBuilder().setPerf(PerfPart.getDefaultInstance()))
                 .build()
                 .toByteArray()));
         assertFalse(IntakeWire.endsMessage(new byte[0]));

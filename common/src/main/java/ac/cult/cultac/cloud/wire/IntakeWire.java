@@ -10,7 +10,6 @@ import ac.cult.cultac.cloud.intake.v3.IntakeMessage;
 import ac.cult.cultac.cloud.intake.v3.Join;
 import ac.cult.cultac.cloud.intake.v3.Leave;
 import ac.cult.cultac.cloud.intake.v3.Meta;
-import ac.cult.cultac.cloud.intake.v3.PerfLimits;
 import ac.cult.cultac.cloud.intake.v3.PortalRole;
 import ac.cult.cultac.cloud.intake.v3.Registry;
 import ac.cult.cultac.cloud.intake.v3.Replies;
@@ -1253,8 +1252,6 @@ public final class IntakeWire {
                     DiagLimitsReply,
                     DiagWatchReply,
                     DiagCutReply,
-                    PerfLimitsReply,
-                    PerfStartReply,
                     TeamStateReply,
                     TeamSweepReply {
         /** The player it is for; null for a reply to the whole socket. */
@@ -1281,22 +1278,6 @@ public final class IntakeWire {
 
     /** Diagnostics: send the player's SuperDebug of a range. */
     public record DiagCutReply(UUID player, Cut cut) implements Reply {}
-
-    /** Perf: the socket's new limits. */
-    public record PerfLimitsReply(PerfLimits limits) implements Reply {
-        @Override
-        public UUID player() {
-            return null;
-        }
-    }
-
-    /** Perf: record a profile of {@code seconds} under {@code profile}. */
-    public record PerfStartReply(UUID profile, int seconds) implements Reply {
-        @Override
-        public UUID player() {
-            return null;
-        }
-    }
 
     /** Team sync: whether the organization takes portal roles now; replaces the last state. */
     public record TeamStateReply(boolean enabled) implements Reply {
@@ -1381,14 +1362,6 @@ public final class IntakeWire {
                                         cut.getToSeq(),
                                         cut.getFullFromSeq(),
                                         cut.getFullToSeq())));
-                    }
-                }
-                case PERF_LIMITS -> replies.add(new PerfLimitsReply(reply.getPerfLimits()));
-                case PERF_START -> {
-                    var start = reply.getPerfStart();
-                    if (start.getProfile().size() == 16) {
-                        replies.add(new PerfStartReply(uuid(start.getProfile()), (int)
-                                Math.min(Integer.MAX_VALUE, Integer.toUnsignedLong(start.getSeconds()))));
                     }
                 }
                 case TEAM_STATE -> replies.add(new TeamStateReply(reply.getTeamState().getEnabled()));

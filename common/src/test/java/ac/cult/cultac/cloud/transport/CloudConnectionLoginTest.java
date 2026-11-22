@@ -131,31 +131,6 @@ class CloudConnectionLoginTest {
     }
 
     @Test
-    void connectOffersPerfOnlyWhenTheSettingsTurnItOn() throws Exception {
-        try (Globals globals = new Globals();
-                Receiver receiver = new Receiver()) {
-            CloudConnections connections = receiver.connections;
-            connections.configure(settings(receiver.url(), "test-key", CloudSettings.PROTOCOLS));
-            connections.forServer("proxy.a");
-            receiver.allowConnect();
-            String body = receiver.connectBodies.poll(5, TimeUnit.SECONDS);
-            assertNotNull(body);
-            JsonObject connect = JsonParser.parseString(body).getAsJsonObject();
-            assertFalse(connect.has("perf"), body);
-            assertTrue(connect.has("diag"), body);
-
-            CloudSettings off = settings(receiver.url(), "test-key", CloudSettings.PROTOCOLS);
-            connections.configure(new CloudSettings(
-                    off.url(), off.apiKey(), off.serverIdTemplate(), off.proxyId(), off.protocols(), true, false));
-            connections.forServer("proxy.a");
-            receiver.allowConnect();
-            connect = JsonParser.parseString(receiver.connectBodies.poll(5, TimeUnit.SECONDS))
-                    .getAsJsonObject();
-            assertEquals(1, connect.get("perf").getAsInt());
-        }
-    }
-
-    @Test
     void aMissingCodecReconnectsOnceSayingTextIsNotStripped() throws Exception {
         Set<Integer> unstripped = unstripped();
         try (Globals globals = new Globals();

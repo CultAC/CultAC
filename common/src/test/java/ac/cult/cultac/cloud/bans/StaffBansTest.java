@@ -1078,7 +1078,7 @@ class StaffBansTest {
 
     @Test
     void noCommandSetSendsNothing() throws Exception {
-        CloudSettings settings = new CloudSettings(base(), KEY, "{server}", "arena-1", List.of(5), false, false);
+        CloudSettings settings = new CloudSettings(base(), KEY, "{server}", "arena-1", List.of(5), false);
 
         StaffBans.configure(settings, StaffBans.Commands.NONE, "arena-1", false);
         StaffBans.configure(settings, new StaffBans.Commands("ban %player%", ""), null, false);
