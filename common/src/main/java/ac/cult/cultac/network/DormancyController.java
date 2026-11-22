@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.reload.api.HostContext;
+import io.netty.channel.ChannelPipeline;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -19,6 +20,7 @@ import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jetbrains.annotations.Nullable;
@@ -27,8 +29,9 @@ import org.jetbrains.annotations.Nullable;
  * Dormant mode for the connections this generation owns. A player is checked while the network's shared
  * {@code toggle} is on for the backend server they are on, and dormant while it is off: CultAC then holds no player,
  * decoder or encoder for them, only a {@link DormantWatch}. A player goes dormant as soon as the setting turns off for
- * them, and at a reconfiguration acknowledgement on the way to a server where it is off; a dormant player is checked
- * again at an acknowledgement on the way to a server where it is on, or when they join again.
+ * them, once their connection to a server where it is off completed, and at a reconfiguration acknowledgement on the way
+ * to such a server; a dormant player is checked again at an acknowledgement on the way to a server where it is on, or
+ * when they join again. A connection never keeps a watch next to CultAC's handlers.
  */
 public final class DormancyController {
     /** How many times in quick succession a detached connection tries to swap its handlers before trying once a second. */
@@ -138,7 +141,10 @@ public final class DormancyController {
         return CompletableFuture.allOf(detaching.toArray(CompletableFuture[]::new));
     }
 
-    /** {@code player} joined or switched backend server: detached when they are dormant there. Any thread. */
+    /**
+     * {@code player} joined, or their connection to a backend server completed: detached when they are dormant there.
+     * Any thread.
+     */
     public static void playerChanged(UUID player) {
         Platform hooks = platform;
         User user = hooks == null ? null : CultAPI.INSTANCE.getNetworkManager().getUser(player);
@@ -175,7 +181,8 @@ public final class DormancyController {
      * At a reconfiguration acknowledgement no newer generation adopted, on the packet owner, before it is forwarded:
      * detaches an inspected player switching to a server where they are dormant, and swaps the handlers of a detached
      * one, attaching it again when it switches to a server where it is checked. A detached connection whose swap fails
-     * keeps its handlers and is left to its swap retries.
+     * keeps its handlers and is left to its swap retries, unless it switches to a server where it is checked and CultAC
+     * fails closed: that one is closed.
      */
     static boolean reconfiguring(CultConnection connection) throws Exception {
         Platform hooks = platform;
@@ -185,13 +192,29 @@ public final class DormancyController {
         if (connection.dormant() == null) {
             if (dormant && detach(connection) != null) {
                 hooks.detached(player);
-                if (swap(hooks, connection, false) == null) retrySwap(hooks, connection, 1);
+                if (swap(hooks, connection, false) == null) {
+                    if (!connection.channel().isActive()) return false;
+                    retrySwap(hooks, connection, 1);
+                }
             }
             return true;
         }
         DormantWatch watch = swap(hooks, connection, false);
+        if (watch == null) {
+            if (!connection.channel().isActive()) return false;
+            if (dormant) return true;
+            String why =
+                    "their dormant connection could not take a watch at a switch to a server where they are checked";
+            if (!CultAPI.INSTANCE.getConfigManager().failsOpen()) {
+                LogUtil.error("Disconnecting " + name(connection) + "; " + why);
+                connection.channel().close();
+                return false;
+            }
+            LogUtil.warn("Not checking " + name(connection) + " until their next switch; " + why);
+            return true;
+        }
         HostContext host = RuntimeEnvironment.host();
-        if (watch != null && !dormant && hooks.accepting() && (host == null || host.current())) resume(hooks, watch);
+        if (!dormant && hooks.accepting() && (host == null || host.current())) resume(hooks, watch);
         return true;
     }
 
@@ -207,8 +230,15 @@ public final class DormancyController {
         return true;
     }
 
+    /** Attaches a watched connection again; closes it instead, logged, while CultAC's decoder is still on it. */
     private static void resume(Platform hooks, DormantWatch watch) throws Exception {
         var pipeline = watch.channel().pipeline();
+        if (pipeline.get(hooks.decoder()) != null) {
+            LogUtil.error("Disconnecting " + watch.player()
+                    + "; CultAC's handlers are still on their dormant connection: " + pipeline.names());
+            watch.channel().close();
+            return;
+        }
         if (pipeline.context(watch) != null) pipeline.remove(watch);
         hooks.resume(watch);
     }
@@ -241,12 +271,15 @@ public final class DormancyController {
     }
 
     /**
-     * Swaps the handlers of a detached connection once its encoder settles, trying again until the swap succeeds or
-     * the connection is gone. A detached connection that still holds CultAC's handlers has one such chain of tries.
+     * Swaps the handlers of a detached connection once its encoder settles, trying again until the swap succeeds, the
+     * connection or its decoder is gone, or this generation takes no more tasks. A detached connection that still holds
+     * CultAC's handlers has one such chain of tries.
      */
     private static void trySwap(Platform hooks, CultConnection connection, int attempt) {
-        if (CultAPI.INSTANCE.getNetworkManager().connection(connection.channel()) != connection
-                || !connection.channel().isActive()) return;
+        var channel = connection.channel();
+        if (CultAPI.INSTANCE.getNetworkManager().connection(channel) != connection
+                || !channel.isActive()
+                || channel.pipeline().context(hooks.decoder()) == null) return;
         boolean play = connection.phase(PacketDirection.SERVERBOUND) == ConnectionPhase.PLAY;
         if (swappable(connection) && swap(hooks, connection, play) != null) return;
         retrySwap(hooks, connection, attempt + 1);
@@ -256,12 +289,24 @@ public final class DormancyController {
     private static void retrySwap(Platform hooks, CultConnection connection, int attempt) {
         Runnable retry = () -> trySwap(hooks, connection, attempt);
         if (attempt > SWAP_ATTEMPTS) {
-            connection.owner().schedule(() -> connection.execute(retry), SLOW_SWAP_MILLIS, TimeUnit.MILLISECONDS);
+            submit(() -> connection
+                    .owner()
+                    .schedule(() -> submit(() -> connection.execute(retry)), SLOW_SWAP_MILLIS, TimeUnit.MILLISECONDS));
             return;
         }
         // A swap inside the encoder's own write would discard what that write emits, so each try is a task of its own.
-        if (connection.hasClientTickTasks()) connection.afterClientTick(() -> connection.executeLater(retry));
-        else connection.executeLater(retry);
+        if (connection.hasClientTickTasks())
+            connection.afterClientTick(() -> submit(() -> connection.executeLater(retry)));
+        else submit(() -> connection.executeLater(retry));
+    }
+
+    /** Submits a swap try; the chain of tries ends where the connection's owner or this generation refuses it. */
+    private static void submit(Runnable submission) {
+        try {
+            submission.run();
+        } catch (RejectedExecutionException | IllegalStateException refused) {
+            // Nothing of this generation is left to swap.
+        }
     }
 
     /**
@@ -291,8 +336,8 @@ public final class DormancyController {
      * Replaces CultAC's handlers on a detached connection with a watch, on its packet owner, in one task: installs the
      * watch in front of the platform's decoder on the decoder's executor, removes CultAC's handlers, releases the
      * connection and hands the watch the pings retired by then. Null when the swap failed, which it logs: a connection
-     * whose watch could not be installed is left as it was; one whose handlers could not all be removed keeps the
-     * watch, or is closed where CultAC fails closed.
+     * whose watch could not be installed is left as it was; one whose handler removal failed has it run once more, and
+     * is closed when a CultAC handler is left after that.
      */
     private static @Nullable DormantWatch swap(Platform hooks, CultConnection connection, boolean play) {
         var channel = connection.channel();
@@ -309,7 +354,6 @@ public final class DormancyController {
             CultNetworkManager.reportFailure("dormant handler swap", name(connection), failure);
             return null;
         }
-        boolean removed = true;
         try {
             connection
                     .removeHandlers(() -> hooks.removeHandlers(connection))
@@ -317,19 +361,37 @@ public final class DormancyController {
                     .join();
         } catch (CompletionException failure) {
             Throwable cause = failure.getCause() == null ? failure : failure.getCause();
-            String why = "removing CultAC's handlers from their dormant connection failed";
-            if (!CultAPI.INSTANCE.getConfigManager().failsOpen()) {
-                LogUtil.error("Disconnecting " + name(connection) + "; " + why, cause);
+            try {
+                hooks.removeHandlers(connection);
+            } catch (RuntimeException again) {
+                cause.addSuppressed(again);
+            }
+            List<String> left = handlersLeft(pipeline);
+            if (!left.isEmpty()) {
+                LogUtil.error(
+                        "Disconnecting " + name(connection) + "; CultAC's handlers " + left
+                                + " stayed on their dormant connection",
+                        cause);
                 if (pipeline.context(watch) != null) pipeline.remove(watch);
                 channel.close();
                 return null;
             }
-            LogUtil.warn("Watching " + name(connection) + " with CultAC handlers left; " + why, cause);
-            removed = false;
+            LogUtil.warn(
+                    "Removing CultAC's handlers from " + name(connection) + "'s dormant connection took two tries",
+                    cause);
         }
         CultAPI.INSTANCE.getNetworkManager().release(channel);
         watch.retire(connection.drainRetiredPings());
-        return removed ? watch : null;
+        return watch;
+    }
+
+    /** The CultAC handlers on {@code pipeline} but a watch. */
+    private static List<String> handlersLeft(ChannelPipeline pipeline) {
+        List<String> left = new ArrayList<>();
+        for (String name : pipeline.names()) {
+            if (name.startsWith("cult-") && !name.equals(DormantWatch.NAME)) left.add(name);
+        }
+        return left;
     }
 
     private static String name(CultConnection connection) {

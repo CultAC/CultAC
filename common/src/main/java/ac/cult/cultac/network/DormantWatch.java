@@ -242,6 +242,10 @@ public final class DormantWatch extends ChannelInboundHandlerAdapter {
             ctx.channel().close();
             return;
         }
+        if (!ctx.channel().isActive()) {
+            frame.release();
+            return;
+        }
         if (!left) play = false;
         ctx.fireChannelRead(frame);
     }

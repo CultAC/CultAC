@@ -284,6 +284,9 @@ class ObserveOnlyCallSiteTest {
             reload/host/GenerationManager.java#stop() shutdown
             velocity/CultVelocityPlugin.java#login(PostLoginEvent) disconnect x2
             velocity/CultVelocityPlugin.java#shutdown(ProxyShutdownEvent) shutdown
+            [] a dormant connection that would keep part of CultAC's handlers
+            network/DormancyController.java#resume(Platform,DormantWatch) close
+            network/DormancyController.java#swap(Platform,CultConnection,boolean) close
             [] tasks and futures
             cloud/transport/CloudConnection.java#onNext(List) cancel
             companion/api/ApiModule.java#disable() cancel

@@ -127,11 +127,11 @@ final class VelocityDormancy implements DormancyController.Platform {
 
     /**
      * A Java player at PostLogin; true when they are dormant on the server Velocity is connecting them to and got only a
-     * watch. While that server is not known they are attached, and go dormant once Velocity names it. On the channel's
-     * event loop.
+     * watch. While no connection to a server is in flight they are attached, and go dormant once their connection to a
+     * server where they are dormant completed. On the channel's event loop.
      */
     boolean joined(Player player, Channel channel) {
-        if (!DormancyController.dormant(target(player))) return false;
+        if (!DormancyController.dormant(inFlight(player))) return false;
         if (VelocityProtocols.disconnectUnsupportedClient(player, channel)) return true;
         watch(player, channel, Map.of(DormantWatch.LOGIN_NOTIFIED, false), new int[0]);
         return true;
@@ -285,15 +285,21 @@ final class VelocityDormancy implements DormancyController.Platform {
 
     /** The backend server a player at a reconfiguration acknowledgement is switching to, else the one they are on. */
     private @Nullable String target(Player player) {
+        String connecting = inFlight(player);
+        return connecting != null ? connecting : backend(player.getUniqueId());
+    }
+
+    /** The backend server Velocity is connecting {@code player} to; null while none is in flight or it is unreadable. */
+    private @Nullable String inFlight(Player player) {
         try {
             Method method = inFlight;
             if (method == null) inFlight = method = player.getClass().getMethod("getConnectionInFlight");
             if (method.invoke(player) instanceof ServerConnection server)
                 return server.getServerInfo().getName();
         } catch (ReflectiveOperationException | RuntimeException unreadable) {
-            // Velocity without the in-flight connection getter: the server the player is on decides.
+            // Velocity without the in-flight connection getter.
         }
-        return backend(player.getUniqueId());
+        return null;
     }
 
     private static @Nullable String current(Player player) {
