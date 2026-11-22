@@ -103,7 +103,8 @@ class ModeChangeRoundTripTest {
                 int[] pings = survival(f);
                 SetBackData[] first = new SetBackData[1];
                 int[] firstAtMs = {-1};
-                int setbacks = run(f, rttMs, pings[2], first, firstAtMs);
+                // LivingEntity#travelInAir keeps 0.91F of a spectator's last move for the first survival travel.
+                int setbacks = run(f, rttMs, pings[2], first, firstAtMs, STEP.x * 0.91F);
                 if (rttMs < DEFAULT_LIMIT_MS) {
                     assertEquals(0, setbacks, rttMs + " ms");
                 } else {
@@ -122,11 +123,17 @@ class ModeChangeRoundTripTest {
         return run(f, rttMs, answer, new SetBackData[1], new int[] {-1});
     }
 
+    private static int run(JavaTickFixture f, int rttMs, int answer, SetBackData[] first, int[] firstAtMs) {
+        return run(f, rttMs, answer, first, firstAtMs, 0);
+    }
+
     /**
      * Two seconds of 50 ms client ticks: until the answer the client still flies and moves {@link #STEP} a tick; it
-     * answers every ping through {@code answer} {@code rttMs} after the change was sent and then falls.
+     * answers every ping through {@code answer} {@code rttMs} after the change was sent and then falls, starting with
+     * {@code drift} along X.
      */
-    private static int run(JavaTickFixture f, int rttMs, int answer, SetBackData[] first, int[] firstAtMs) {
+    private static int run(
+            JavaTickFixture f, int rttMs, int answer, SetBackData[] first, int[] firstAtMs, double drift) {
         Vec3 at = HOVER;
         boolean answered = false;
         double velocity = 0;
@@ -157,9 +164,11 @@ class ModeChangeRoundTripTest {
             } else {
                 // LivingEntity#travelInAir moves by the velocity, then applies gravity and drag.
                 double moved = velocity;
+                double movedX = drift;
                 velocity = (velocity - 0.08) * (double) 0.98F;
-                at = at.add(0, moved, 0);
-                if (moved == 0) {
+                drift *= 0.91F;
+                at = at.add(movedX, moved, 0);
+                if (moved == 0 && movedX == 0) {
                     f.tickEnd();
                 } else {
                     PredictionResult r = f.tick(at, false);

@@ -79,8 +79,9 @@ public final class VelocityCandidates {
     static List<Moved> engineCandidates(PredictionResult result, PredictionResult lastPrediction) {
         if (result.getSimulationContext().isNoPhysics()) {
             // Entity#move's early noPhysics branch changes position only; it never clips or clears deltaMovement.
+            // The reported move is that deltaMovement.
             return List.of(new Moved(
-                    preCollisionVelocity(result).add(acceptedInput(result)),
+                    result.getSimulationContext().getPacketMovement(),
                     result.getSimulationContext().isNoPhysicsHorizontalCollision()));
         }
         if (consumedRequiredStuckSpeedThisMove(result, lastPrediction)) {

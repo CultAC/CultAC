@@ -152,7 +152,10 @@ public final class TravelVelocityTransformer {
         if (result.getSimulationContext().getVehicle() == null
                 && player.isFlying
                 && result.getInitialStartingVel() != null) {
-            double flightY = result.getInitialStartingVel().y * 0.6;
+            // A noPhysics travel adds no Y and its move never clips, so the moved Y is the Y the travel started with.
+            double travelledY =
+                    result.getSimulationContext().isNoPhysics() ? playerVelocity.y : result.getInitialStartingVel().y;
+            double flightY = travelledY * 0.6;
             frictions.replaceAll(velocity -> new Vec3(velocity.x, flightY, velocity.z));
         }
 
