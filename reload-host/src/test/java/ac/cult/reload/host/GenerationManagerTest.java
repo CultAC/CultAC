@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ac.cult.cultac.fixture.FixtureEntrypoint;
+import ac.cult.reload.api.HostContext;
 import ac.grim.grimac.api.GrimAbstractAPI;
 import ac.grim.grimac.api.GrimUser;
 import java.io.IOException;
@@ -598,6 +599,38 @@ class GenerationManagerTest {
             Files.copy(first, first.resolveSibling("again.jar"));
             assertTrue(await(manager.update("again.jar")).startsWith("Already running"));
             assertFalse(events.contains("same:superseded"));
+        } finally {
+            await(manager.stop());
+        }
+    }
+
+    @Test
+    void enginesInstallBuildsThroughTheLoadersInstallerAndAreRefusedWithoutOne() throws Exception {
+        var manager = start();
+        try {
+            @SuppressWarnings("unchecked")
+            var host = ((WeakReference<HostContext>) controls.get("host:initial")).get();
+            assertEquals(
+                    "update refused: this server does not install builds",
+                    await(host.installBuild(150, "dev", "Mod from p3")));
+            assertThrows(ExecutionException.class, () -> await(host.latestBuild("dev")));
+
+            var installs = new CopyOnWriteArrayList<String>();
+            manager.buildInstaller(new GenerationManager.BuildInstaller() {
+                public CompletionStage<String> install(long number, String branch, String requestedBy) {
+                    installs.add(number + " " + branch + " " + requestedBy);
+                    return CompletableFuture.completedFuture("b149 → b150 (dev abc1234), 0 players draining");
+                }
+
+                public CompletionStage<Long> latest(String branch) {
+                    return CompletableFuture.completedFuture(150L);
+                }
+            });
+            assertEquals(
+                    "b149 → b150 (dev abc1234), 0 players draining",
+                    await(host.installBuild(150, "dev", "Mod from p3")));
+            assertEquals(List.of("150 dev Mod from p3"), installs);
+            assertEquals(150L, await(host.latestBuild("dev")));
         } finally {
             await(manager.stop());
         }

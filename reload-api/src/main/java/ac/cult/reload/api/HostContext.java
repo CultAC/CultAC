@@ -3,6 +3,7 @@ package ac.cult.reload.api;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Supplier;
 
@@ -55,4 +56,19 @@ public interface HostContext {
     CompletionStage<String> update(String filename);
 
     List<String> status();
+
+    /**
+     * Installs signed build {@code number} as {@code /cult update <number>} does (state file, log, webhook), naming
+     * {@code requestedBy} in the log and webhook lines; a non-null {@code branch} requires the manifest to be signed for
+     * it. Completes with the result line. Loaders built before this method existed lack it, so engines look it up
+     * before calling it.
+     */
+    default CompletionStage<String> installBuild(long number, String branch, String requestedBy) {
+        return CompletableFuture.completedFuture("update refused: this server does not install builds");
+    }
+
+    /** The newest build number of {@code branch}: one GitHub API request. */
+    default CompletionStage<Long> latestBuild(String branch) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("this server does not list builds"));
+    }
 }

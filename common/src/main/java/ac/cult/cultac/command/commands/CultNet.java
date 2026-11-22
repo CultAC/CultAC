@@ -65,10 +65,36 @@ public class CultNet implements BuildableCommand {
             commandManager.command(check.literal(state)
                     .futureHandler(context -> run(context, "check", List.of(context.<String>get("check"), state))));
         }
+        commandManager.command(targeted.required(command("update"))
+                .required(
+                        "build",
+                        StringParser.stringParser(),
+                        SuggestionProvider.blockingStrings((context, input) -> List.of("latest")))
+                .optional(
+                        "options",
+                        StringParser.greedyStringParser(),
+                        SuggestionProvider.blockingStrings((context, input) -> List.of("--canary")))
+                .permission(permission("update"))
+                .futureHandler(context -> run(
+                        context,
+                        "update",
+                        words(
+                                context.<String>get("build"),
+                                context.<String>optional("options").orElse("")))));
     }
 
     private static CompletableFuture<Void> run(CommandContext<Sender> context, String command, List<String> args) {
         return NetworkModule.runNetworkCommand(context.sender(), context.<String>get("target"), command, args);
+    }
+
+    /** {@code first} followed by each word of {@code rest}. */
+    private static List<String> words(String first, String rest) {
+        List<String> words = new ArrayList<>();
+        words.add(first);
+        for (String word : rest.strip().split("\\s+")) {
+            if (!word.isEmpty()) words.add(word);
+        }
+        return words;
     }
 
     /** The literal {@code name}, completed only when the target typed before it names something it can run on. */

@@ -150,11 +150,26 @@ Commands:
   alerts and setbacks are unaffected. Without `on` or `off` it shows the current state.
 - `check <check> <on|off>`: switches one check on or off for the players the target names. Tab completion offers each
   check's current name; any name a check has or had works.
+- `update <build>` or `update latest [channel]`, optionally followed by `--canary`: installs a signed numbered build
+  on every proxy the target names, as `/cult update` does on each one (see
+  [Numbered builds on Velocity](../README.md#numbered-builds-on-velocity)). `latest` is the newest build of a channel,
+  by default the channel of the build running where the command is typed. That server looks it up once, and every
+  proxy installs that build only if it is signed for that channel; when it cannot look it up, each proxy looks it up
+  itself, one GitHub API request each (60 an hour per address without `update.token`). Each proxy answers when it
+  starts and again with its install line, which it also logs and posts to `update.webhook` with the sender's name.
+  Servers that are not proxies answer that they skip it, and a backend name is refused. The proxy the command is typed
+  on updates itself last, once the others have answered or the wait for them has ended. With `--canary`, one proxy
+  installs the build first: the first by name other than the one the command is typed on. The others, the one the
+  command is typed on included, update only once it runs the new build. The wait ends for a
+  proxy that has not answered within 10 seconds, and for an install line after 11 minutes. To roll back, install an
+  older build number; a proxy with `update.build: latest` still starts the newest build of its channel when it
+  restarts. A proxy whose CultAC plugin jar is older than this command answers that it needs a restart: restart it
+  once (its running build replaces the plugin jar as it stops) and it takes network updates from then on.
 
 Each command needs `cult.net` and its own node, `cult.net.<command>` (`cult.net.status`, `cult.net.reload`,
-`cult.net.observe`, `cult.net.punish`, `cult.net.check`), on the server it is typed on; the console holds them all. A
-receiving server runs it only when the sender held that node, and a command forwarded from another server can never
-start one.
+`cult.net.observe`, `cult.net.punish`, `cult.net.check`, `cult.net.update`), on the server it is typed on; the console
+holds them all. A receiving server runs it only when the sender held that node, and a command forwarded from another
+server can never start one.
 
 `observe`, `punish` and `check` apply per player: on a proxy, each player follows the setting issued last for the
 backend server they are on or for the proxy itself, and a player who moves to another backend takes its settings at
