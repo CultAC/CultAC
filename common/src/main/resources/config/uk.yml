@@ -326,6 +326,17 @@ network:
   # Ім'я цього сервера в мережі. Кожен сервер повинен мати власне.
   # Залиште порожнім, щоб використовувати id проксі RedisBungee, потім cloud.proxy-id, потім IP і порт цього сервера.
   instance-id: ""
+  # /cult net <target> <command> runs a command on several servers at once. Each key's environment variable wins
+  # when set and not blank: CULTAC_NETWORK_COMMANDS, CULTAC_NETWORK_COMMANDS_ACCEPT (a comma list) and
+  # CULTAC_NETWORK_COMMANDS_WEBHOOK.
+  commands:
+    # Whether this server runs network commands sent from other servers.
+    enabled: true
+    # The network commands this server runs; it refuses the others.
+    accept: [status, reload, observe, toggle, check, update]
+    # What goes to update.webhook: summary (the sending server posts each command and its summary), every (each
+    # server posts the command it ran) or none.
+    webhook: summary
 
 # Лише для Velocity: нумеровані збірки, що встановлюються через /cult update <build>, /cult update latest [branch] і
 # перелічуються через /cult update builds [branch]. Змінна середовища CULTAC_UPDATE_* кожного параметра має пріоритет, якщо задана й не порожня.

@@ -120,6 +120,29 @@ class RosterCacheTest {
     }
 
     @Test
+    void anOlderBuildsBodyParsesAsBeforeAndTheInstanceFieldsRoundTrip() {
+        cache.apply("old", full(List.of(ALICE_ONLINE), 1L), 0);
+        assertEquals(List.of("Alice"), names(0));
+        assertEquals(List.of(new RosterCache.Instance("old", null, null, null)), cache.instances(0));
+
+        RosterCache.State state = new RosterCache.State(
+                false, true, List.of("simulation"), List.of("CULTAC_OBSERVE_ONLY"), 3, 2, 1, List.of("BRG_1", "lobby"));
+        JsonObject body = full(List.of(BOB_ONLINE), 1L);
+        body.addProperty(RosterCache.ROLE, RosterCache.PROXY);
+        body.addProperty(RosterCache.BUILD, "b310@0123456789ab");
+        JsonObject json = state.toJson();
+        json.getAsJsonArray("backends").add("not a name");
+        body.add(RosterCache.STATE, json);
+        cache.apply("p3", body, 0);
+        cache.apply("p3", delta(List.of(), List.of(BOB), 2L), 0);
+
+        assertEquals(List.of("Alice"), names(0));
+        assertEquals(
+                new RosterCache.Instance("p3", RosterCache.PROXY, "b310@0123456789ab", state),
+                cache.instances(0).get(1));
+    }
+
+    @Test
     void aMalformedBrandsEntryIsSkippedAndTheRestApplies() {
         JsonObject body = full(List.of(ALICE_ONLINE, BOB_ONLINE), 1L);
         JsonObject brands = new JsonObject();

@@ -287,7 +287,23 @@ class NetworkUriUpgradeTest {
             Map<String, Object> data = new Yaml().load(source);
             assertEquals(20, data.get("config-version"));
             assertEquals(
-                    Map.of("type", "none", "redis", REDIS_DEFAULTS, "nats", NATS_DEFAULTS, "instance-id", ""),
+                    Map.of(
+                            "type",
+                            "none",
+                            "redis",
+                            REDIS_DEFAULTS,
+                            "nats",
+                            NATS_DEFAULTS,
+                            "instance-id",
+                            "",
+                            "commands",
+                            Map.of(
+                                    "enabled",
+                                    true,
+                                    "accept",
+                                    List.of("status", "reload", "observe", "toggle", "check", "update"),
+                                    "webhook",
+                                    "summary")),
                     network(data));
         }
     }
