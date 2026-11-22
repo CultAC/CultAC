@@ -166,7 +166,7 @@ final class VelocityDormancy implements DormancyController.Platform {
         DormantWatch watch = watch(player, channel, state, new int[0]);
         PlatformPlayer platformPlayer =
                 CultAPI.INSTANCE.getPlatformPlayerFactory().getFromNativePlayerType(player);
-        CultAPI.INSTANCE.getPlayerDataManager().dormantJoin(platformPlayer, connectionId, channel);
+        CultAPI.INSTANCE.getPlayerDataManager().dormantJoin(platformPlayer, connectionId);
         // The inactive event may have passed before the watch was added; leaving first keeps a pending one from
         // releasing again.
         if (!channel.isActive() && watch.leave()) closed(watch);
