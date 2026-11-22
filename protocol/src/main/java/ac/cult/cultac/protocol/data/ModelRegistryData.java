@@ -153,14 +153,4 @@ public final class ModelRegistryData {
         if (id < 0 || id >= states.size()) throw new MalformedPacketException("Unknown block state ID " + id);
         return states.get(id);
     }
-
-    /** -1 means absent in the target; callers must not silently substitute air or an unrelated ID. */
-    public int translateBlockState(int id, ModelRegistryData target) {
-        return target.blockStateId(blockStateName(id));
-    }
-
-    /** Translates IDs only; component payloads require the exact source protocol's codecs. */
-    public int translateRegistryId(String registry, int id, ModelRegistryData target) {
-        return target.registry(registry).id(registry(registry).name(id));
-    }
 }

@@ -99,10 +99,6 @@ public class BlockPos implements Comparable<BlockPos> {
                 axis == Direction.Axis.Z ? steps : 0);
     }
 
-    public BlockPos atY(int y) {
-        return new BlockPos(getX(), y, getZ());
-    }
-
     public BlockPos above() {
         return above(1);
     }
@@ -238,10 +234,6 @@ public class BlockPos implements Comparable<BlockPos> {
 
         public MutableBlockPos set(BlockPos pos) {
             return set(pos.getX(), pos.getY(), pos.getZ());
-        }
-
-        public MutableBlockPos setWithOffset(BlockPos pos, int x, int y, int z) {
-            return set(pos.getX() + x, pos.getY() + y, pos.getZ() + z);
         }
     }
 }

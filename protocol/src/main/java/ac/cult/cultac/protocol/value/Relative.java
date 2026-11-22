@@ -17,10 +17,6 @@ public enum Relative {
         this.mask = 1 << bit;
     }
 
-    public int mask() {
-        return mask;
-    }
-
     public static int pack(java.util.Set<Relative> values) {
         int mask = 0;
         for (Relative relative : values) mask |= relative.mask;
