@@ -22,6 +22,7 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
     public float standAnim = 0.0F;
     public float standAnimO = 0.0F;
     public long horseFlagsRevision;
+    public final ClientHeadRotation head = new ClientHeadRotation();
 
     public PacketEntityHorse(CultPlayer player, int entityId, int type, double x, double y, double z, float xRot) {
         super(player, entityId, type, x, y, z, xRot);
@@ -41,6 +42,11 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
     /** AbstractHorse#isTamed: FLAG_TAME of DATA_ID_FLAGS. */
     public boolean isTamed() {
         return isTame;
+    }
+
+    @Override
+    protected void onClientRotationPlaced() {
+        head.rotationPlaced();
     }
 
     @Override

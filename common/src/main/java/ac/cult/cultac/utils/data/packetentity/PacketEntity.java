@@ -1459,7 +1459,11 @@ public class PacketEntity {
         this.clientPhysicalYaw = yaw;
         this.clientPhysicalPitch = pitch;
         this.clientPhysicalYawCurrent = true;
+        onClientRotationPlaced();
     }
+
+    /** The yaw and pitch were set apart from an interpolation step. */
+    protected void onClientRotationPlaced() {}
 
     private Vec3 positionFromCollisionBox(SimpleCollisionBox box) {
         return new Vec3((box.maxX - box.minX) / 2 + box.minX, box.minY, (box.maxZ - box.minZ) / 2 + box.minZ);

@@ -24,6 +24,7 @@ import ac.cult.cultac.protocol.codec.entity.PlayerCombatKillCodec;
 import ac.cult.cultac.protocol.codec.entity.PlayerInfoUpdateCodec;
 import ac.cult.cultac.protocol.codec.entity.RemoveEntitiesCodec;
 import ac.cult.cultac.protocol.codec.entity.RemoveMobEffectCodec;
+import ac.cult.cultac.protocol.codec.entity.RotateHeadCodec;
 import ac.cult.cultac.protocol.codec.entity.SetCameraCodec;
 import ac.cult.cultac.protocol.codec.entity.SetHealthCodec;
 import ac.cult.cultac.protocol.codec.entity.SetPassengersCodec;
@@ -81,6 +82,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveMobEffect;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRotateHead;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderCenter;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderLerpSize;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderSize;
@@ -177,6 +179,8 @@ public final class ClientboundPackets {
             PLAY.add("teleport_entity", ClientboundTeleportEntity.class, new TeleportEntityCodec());
     public static final PacketType<ClientboundEntityPositionSync> ENTITY_POSITION_SYNC =
             PLAY.add("entity_position_sync", ClientboundEntityPositionSync.class, new EntityPositionSyncCodec());
+    public static final PacketType<ClientboundRotateHead> ROTATE_HEAD =
+            PLAY.add("rotate_head", ClientboundRotateHead.class, new RotateHeadCodec());
     public static final PacketType<ClientboundMoveMinecart> MOVE_MINECART = PLAY.add(
             "move_minecart", "move_minecart_along_track", ClientboundMoveMinecart.class, new MoveMinecartCodec());
     public static final PacketType<ClientboundEntityMotion> ENTITY_MOTION =

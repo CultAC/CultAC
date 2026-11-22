@@ -139,7 +139,8 @@ public final class ObservedPacketValues implements PacketValueAdapter {
                         packet.pitch(),
                         data,
                         packet.uuid(),
-                        packet.velocity());
+                        packet.velocity(),
+                        packet.headYaw());
             }
             case "minecraft:block_event" -> {
                 var packet = new BlockEventCodec().read(input, context);
