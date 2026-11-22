@@ -48,6 +48,8 @@ public class BoatData {
      * first tick each runs uncontrolled, which an unloaded chunk or a frozen tick rate can postpone.
      */
     private final List<PacketEntity> turningBoats = new ArrayList<>(1);
+    // A respawned LocalPlayer's KeyboardInput holds Input.EMPTY until its first aiStep.
+    private boolean keysAwaitAiStep;
 
     /** A new LocalPlayer's keys: Input.EMPTY until its first PLAYER_INPUT. */
     public void clearInput() {
@@ -55,6 +57,26 @@ public class BoatData {
         nextVehicleForward = vehicleForward = 0f;
         nextVehicleJump = vehicleJump = false;
         nextVehicleKeys = KnownInput.DEFAULT;
+    }
+
+    /**
+     * ClientPacketListener#handleRespawn gives the new LocalPlayer a fresh KeyboardInput, whose keyPresses stay
+     * Input.EMPTY until KeyboardInput#tick in its first LocalPlayer#aiStep; until then LocalPlayer#rideTick hands
+     * AbstractBoat#setInput no keys, even with a kept lastSentInput.
+     */
+    public void onNewKeyboardInput() {
+        nextVehicleKeys = KnownInput.DEFAULT;
+        keysAwaitAiStep = true;
+    }
+
+    /**
+     * LocalPlayer#aiStep ran: KeyboardInput#tick read the held keys, which equal {@code lastSentInput} once
+     * LocalPlayer#sendChanges sent any change.
+     */
+    public void onAiStep(KnownInput lastSentInput) {
+        if (!keysAwaitAiStep) return;
+        keysAwaitAiStep = false;
+        nextVehicleKeys = lastSentInput;
     }
 
     /**

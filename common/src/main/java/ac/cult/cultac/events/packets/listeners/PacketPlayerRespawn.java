@@ -341,6 +341,7 @@ public class PacketPlayerRespawn {
             }
             player.packetStateData.respawnShiftPending =
                     !player.isBedrockMovement() && player.packetStateData.knownInput.shift();
+            if (!player.isBedrockMovement()) player.boatData.onNewKeyboardInput();
             // LocalPlayer#isShiftKeyDown reads the fresh KeyboardInput's Input.EMPTY until the first aiStep.
             player.isSneaking = false;
             if (!keepEntityData) {
