@@ -4,6 +4,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -84,7 +85,11 @@ public final class TravelVelocityTransformer {
         if (result.getSimulationContext().getVehicle() == null
                 && player.isFlying
                 && result.getInitialStartingVel() != null) {
-            double flightY = result.getInitialStartingVel().y * 0.6;
+            // Player#tick gives a spectator noPhysics: its travel adds no Y and its move never clips, so the moved Y is
+            // the Y the travel started with.
+            double travelledY =
+                    player.gamemode == GameMode.SPECTATOR ? playerVelocity.y : result.getInitialStartingVel().y;
+            double flightY = travelledY * 0.6;
             frictions.replaceAll(velocity -> new Vec3(velocity.x, flightY, velocity.z));
         }
 
