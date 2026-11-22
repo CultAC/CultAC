@@ -419,8 +419,13 @@ public final class ClientVisibility {
         double error = EyePositionTolerance.BUFFER + positionError;
         var envelope = entity.toBoundingBox(
                 player, entity.getPossibleCollisionBoxes().union(entity.getPossibleMovementCollisionBoxes()));
+        // Minecraft#startUseItem precedes ClientLevel#tickEntities: a shulker holds its last client tick's shell.
+        PacketEntityShulker shulker =
+                entity instanceof PacketEntityShulker shell && !player.isBedrockMovement() ? shell : null;
+        if (shulker != null) envelope = shulker.tickedBoundingBox(envelope);
         double width = Double.MAX_VALUE, height = Double.MAX_VALUE, depth = Double.MAX_VALUE;
         for (SimpleCollisionBox candidate : entity.getPossibleMovementCollisionBoxCandidates()) {
+            if (shulker != null) candidate = shulker.tickedSmallestBoundingBox(candidate.copy());
             width = Math.min(width, candidate.maxX - candidate.minX);
             height = Math.min(height, candidate.maxY - candidate.minY);
             depth = Math.min(depth, candidate.maxZ - candidate.minZ);

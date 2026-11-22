@@ -29,6 +29,8 @@ public class PacketEntityShulker extends PacketEntity {
     private boolean lastStepGrew;
     // The largest Shulker#getPhysicalPeek of peeks, of their next step, and whether that step may grow one.
     private float physicalPeek;
+    // The smallest Shulker#getPhysicalPeek of peeks.
+    private float smallestPhysicalPeek;
     private float nextPhysicalPeek;
     private boolean nextStepGrows;
     private boolean atRest = true;
@@ -105,6 +107,14 @@ public class PacketEntityShulker extends PacketEntity {
         return grow(box, physicalPeek);
     }
 
+    /**
+     * The smallest Shulker#makeBoundingBox the shulker may have after the client tick that ended last: {@code box}, the
+     * closed box, grown by the smallest physical peek it may hold.
+     */
+    public SimpleCollisionBox tickedSmallestBoundingBox(SimpleCollisionBox box) {
+        return grow(box, smallestPhysicalPeek);
+    }
+
     private SimpleCollisionBox grow(SimpleCollisionBox box, float physicalPeek) {
         double grow = (double) physicalPeek * scale;
         Direction direction = facing.getOppositeFace();
@@ -121,10 +131,14 @@ public class PacketEntityShulker extends PacketEntity {
 
     private void update() {
         physicalPeek = 0.0F;
+        smallestPhysicalPeek = Float.MAX_VALUE;
         nextPhysicalPeek = 0.0F;
         nextStepGrows = false;
         atRest = peeks.size() == 1;
-        for (float amount : peeks.keySet()) physicalPeek = Math.max(physicalPeek, physicalPeek(amount));
+        for (float amount : peeks.keySet()) {
+            physicalPeek = Math.max(physicalPeek, physicalPeek(amount));
+            smallestPhysicalPeek = Math.min(smallestPhysicalPeek, physicalPeek(amount));
+        }
         forEachTarget((amount, target, sequence) -> {
             float next = physicalPeek(step(amount, target));
             nextPhysicalPeek = Math.max(nextPhysicalPeek, next);
