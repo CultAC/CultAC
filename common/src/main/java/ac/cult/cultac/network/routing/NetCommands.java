@@ -1787,8 +1787,8 @@ final class NetCommands {
 
         /**
          * Shows {@code reply} from {@code from}; from an instance not expected, only after a broadcast or when it is
-         * possible. Silent possible instances, and after a broadcast silent older ones, keep the command open until its
-         * deadline.
+         * possible. Silent possible instances keep the command open until its deadline; older builds drop the command
+         * unread, so none is waited for.
          */
         synchronized void accept(String from, Reply reply) {
             if (finished || answered.contains(from)) return;
@@ -1799,9 +1799,7 @@ final class NetCommands {
             sender.sendMessage(line(sender, from, reply));
             if (!reply.last()) return;
             answered.add(from);
-            if (answered.containsAll(expected)
-                    && answered.containsAll(possible)
-                    && (!broadcast || answered.containsAll(older))) finish();
+            if (answered.containsAll(expected) && answered.containsAll(possible)) finish();
         }
 
         synchronized void finish() {

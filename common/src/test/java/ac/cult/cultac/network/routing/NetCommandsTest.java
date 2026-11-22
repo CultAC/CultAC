@@ -18,6 +18,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
@@ -297,6 +298,20 @@ class NetCommandsTest {
         assertTrue(staff.plain().stream().anyMatch(line -> line.startsWith("p7 » b1 · server · 1 players")));
         assertTrue(heard("2 of 3 answered"), staff.plain().toString());
         assertTrue(heard("Did not answer: p9"), staff.plain().toString());
+        assertTrue(
+                heard("Older builds (cannot run network commands): p5"),
+                staff.plain().toString());
+    }
+
+    @Test
+    void aBroadcastEndsWhenEveryCurrentInstanceAnsweredWithoutWaitingForAnOlderBuild() throws Exception {
+        NetworkService a = started("p3", new Players().proxy(null), new Net());
+        started("p7", new Players(), new Net());
+        roster("p5", null);
+
+        a.netCommands().issue(staff, "all", "status", List.of()).get(2, TimeUnit.SECONDS);
+
+        assertTrue(heard("2 of 2 answered"), staff.plain().toString());
         assertTrue(
                 heard("Older builds (cannot run network commands): p5"),
                 staff.plain().toString());
