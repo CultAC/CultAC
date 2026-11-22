@@ -12,8 +12,8 @@ import java.util.regex.Pattern;
 /**
  * The upload's settings, read from the config and the environment. An empty {@code url} or {@code apiKey}, or no {@code protocols},
  * leaves the upload off. {@code serverIdTemplate} names each socket's server id through {@link CloudServerIds};
- * {@code protocols} are the intake protocols this platform offers, highest last. {@code perf} offers the service CPU and
- * allocation profiles of this process; {@code team} offers team sync, the portal roles of this process's players.
+ * {@code protocols} are the intake protocols this platform offers, highest last. {@code team} offers team sync, the
+ * portal roles of this process's players.
  */
 public record CloudSettings(
         String url,
@@ -21,7 +21,6 @@ public record CloudSettings(
         String serverIdTemplate,
         String proxyId,
         List<Integer> protocols,
-        boolean perf,
         boolean team) {
     static final String TEAM_ENV = "CULTAC_CLOUD_TEAM_SYNC";
     public static final String DEFAULT_SERVER_ID = "{proxy}.{server}";
@@ -34,7 +33,7 @@ public record CloudSettings(
     /** Visible ASCII only, so the key always makes a valid {@code Authorization} header. */
     private static final Pattern API_KEY = Pattern.compile("[\\x21-\\x7E]+");
 
-    public static final CloudSettings OFF = new CloudSettings("", "", DEFAULT_SERVER_ID, "", List.of(), false, false);
+    public static final CloudSettings OFF = new CloudSettings("", "", DEFAULT_SERVER_ID, "", List.of(), false);
 
     public CloudSettings {
         url = url == null ? "" : url.strip().replaceAll("/+$", "");
@@ -46,8 +45,8 @@ public record CloudSettings(
     }
 
     /**
-     * Reads {@code cloud.url}, {@code cloud.api-key}, {@code cloud.server-id}, {@code cloud.proxy-id},
-     * {@code cloud.perf} and {@code cloud.team-sync}, an empty {@code cloud.server-id} picking {@code defaultServerId}. {@code CULTAC_CLOUD_URL}
+     * Reads {@code cloud.url}, {@code cloud.api-key}, {@code cloud.server-id}, {@code cloud.proxy-id} and
+     * {@code cloud.team-sync}, an empty {@code cloud.server-id} picking {@code defaultServerId}. {@code CULTAC_CLOUD_URL}
      * and {@code CULTAC_CLOUD_API_KEY} win over the config; an empty {@code cloud.proxy-id} takes
      * {@code CULTAC_PROXY_ID}.
      */
@@ -80,21 +79,12 @@ public record CloudSettings(
                 serverId.isBlank() ? defaultServerId : serverId,
                 proxyId,
                 protocols,
-                perf(config, env),
                 team(config, env));
     }
 
     /** The service's address: {@code CULTAC_CLOUD_URL}, else {@code cloud.url}; empty is off. */
     static String url(ConfigManager config, Function<String, String> env) {
         return CloudModule.setting(config, env, "cloud.url", "CULTAC_CLOUD_URL", "");
-    }
-
-    /**
-     * Whether connect offers perf profiles: {@code CULTAC_CLOUD_PERF} when it is true/1/yes or false/0/no, else
-     * {@code cloud.perf}, off by default.
-     */
-    static boolean perf(ConfigManager config, Function<String, String> env) {
-        return flag(config, env, "cloud.perf", "CULTAC_CLOUD_PERF");
     }
 
     /**
@@ -153,6 +143,6 @@ public record CloudSettings(
     @Override
     public String toString() {
         return "CloudSettings[url=" + url + ", apiKey=" + (apiKey.isEmpty() ? "" : "<set>") + ", serverIdTemplate="
-                + serverIdTemplate + ", proxyId=" + proxyId + ", protocols=" + protocols + ", perf=" + perf + ", team=" + team + "]";
+                + serverIdTemplate + ", proxyId=" + proxyId + ", protocols=" + protocols + ", team=" + team + "]";
     }
 }

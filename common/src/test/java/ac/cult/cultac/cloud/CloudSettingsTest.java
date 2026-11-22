@@ -105,45 +105,10 @@ class CloudSettingsTest {
     @Test
     void theKeyIsNotInToString() {
         CloudSettings settings = new CloudSettings(
-                "https://intake.example", "issued-token-0123456789", "{server}", "lobby", List.of(5), false, false);
+                "https://intake.example", "issued-token-0123456789", "{server}", "lobby", List.of(5), false);
         String text = settings.toString();
         assertFalse(text.contains("issued-token-0123456789"), text);
         assertTrue(text.contains("https://intake.example"), text);
-    }
-
-    @Test
-    void perfIsOffByDefault() {
-        ConfigManager config = config(Map.of());
-        Mockito.when(config.getBooleanElse(Mockito.eq("cloud.perf"), Mockito.anyBoolean()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
-        assertFalse(CloudSettings.perf(config, name -> null));
-        assertFalse(CloudSettings.OFF.perf());
-    }
-
-    @Test
-    void perfFollowsTheConfig() {
-        ConfigManager config = config(Map.of());
-        Mockito.when(config.getBooleanElse(Mockito.eq("cloud.perf"), Mockito.anyBoolean()))
-                .thenReturn(true);
-        assertTrue(CloudSettings.perf(config, name -> null));
-    }
-
-    @Test
-    void theEnvironmentWinsOverTheConfigForPerf() {
-        ConfigManager off = config(Map.of());
-        Mockito.when(off.getBooleanElse(Mockito.eq("cloud.perf"), Mockito.anyBoolean()))
-                .thenReturn(false);
-        ConfigManager on = config(Map.of());
-        Mockito.when(on.getBooleanElse(Mockito.eq("cloud.perf"), Mockito.anyBoolean()))
-                .thenReturn(true);
-        for (String yes : List.of("true", "1", "yes", " YES ")) {
-            assertTrue(CloudSettings.perf(off, Map.of("CULTAC_CLOUD_PERF", yes)::get), yes);
-        }
-        for (String no : List.of("false", "0", "no", "False")) {
-            assertFalse(CloudSettings.perf(on, Map.of("CULTAC_CLOUD_PERF", no)::get), no);
-        }
-        assertTrue(CloudSettings.perf(on, Map.of("CULTAC_CLOUD_PERF", "")::get));
-        assertTrue(CloudSettings.perf(on, Map.of("CULTAC_CLOUD_PERF", "maybe")::get));
     }
 
     @Test

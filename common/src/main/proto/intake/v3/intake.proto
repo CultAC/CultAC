@@ -38,8 +38,8 @@ message ConnectRequest {
   Agent agent = 3;
   // The diagnostics version the server offers (1); absent when it takes no diagnostics.
   optional uint32 diag = 4;
-  // The perf version the server offers (1); absent when it takes no perf profiles.
-  optional uint32 perf = 5;
+  reserved 5;
+  reserved "perf";
   // The team sync version the server offers (1); absent when it reports no portal roles.
   optional uint32 team = 6;
 }
@@ -63,8 +63,8 @@ message ConnectResponse {
   uint32 max_message_bytes = 3;
   // Present when the service takes the diagnostics the request offered: its current limits.
   DiagLimits diag = 4;
-  // Present when the service takes the perf profiles the request offered: its current limits.
-  PerfLimits perf = 5;
+  reserved 5;
+  reserved "perf";
   // Present when the service takes the team sync the request offered: the organization's current state.
   TeamState team = 6;
 }
@@ -83,11 +83,11 @@ message IntakeMessage {
     Chunk chunk = 4;
     // Diagnostics: one part of a bundle the service cut (DiagCut).
     DiagPart diag = 5;
-    // Perf: one part of a profile the service started (PerfStart).
-    PerfPart perf = 6;
     // Team sync: portal roles, only while the socket's last TeamState is enabled.
     TeamRoles team = 7;
   }
+  reserved 6;
+  reserved "perf";
 }
 
 // A player's capture starts. Fields 1 to 15 are session facts; the client follows from 16.
@@ -677,13 +677,12 @@ message Reply {
     DiagLimits diag_limits = 4;
     DiagWatch diag_watch = 5;
     DiagCut diag_cut = 6;
-    // Perf, only to a socket whose connect offered perf.
-    PerfLimits perf_limits = 7;
-    PerfStart perf_start = 8;
     // Team sync, only to a socket whose connect offered team.
     TeamState team_state = 9;
     TeamSweep team_sweep = 10;
   }
+  reserved 7, 8;
+  reserved "perf_limits", "perf_start";
 }
 
 // The answer to a JOIN: the packet ids to capture, in the client's protocol.
@@ -772,167 +771,6 @@ enum DiagCoverage {
   DIAG_COVERAGE_FULL = 1;
   DIAG_COVERAGE_PARTIAL = 2;
   DIAG_COVERAGE_NONE = 3;
-}
-
-// Perf: the server-wide limits, at connect and whenever they change; each replaces the last. The receiver clamps each
-// value to its own compiled maximum.
-message PerfLimits {
-  bool enabled = 1;
-  uint32 max_seconds = 2;
-  uint32 execution_period_ms = 3;
-  uint32 native_period_ms = 4;
-  uint32 allocation_samples_per_second = 5;
-  uint32 part_bytes = 6;
-  uint32 profile_bytes = 7;            // whole zstd blob
-  uint32 upload_bytes_per_second = 8;
-  bool whole_jvm = 9;                  // false: only stacks with an anticheat frame
-  uint32 skip_mspt_micros = 10;
-}
-
-// Perf: record a profile for seconds from now and send it as PerfParts.
-message PerfStart {
-  bytes profile = 1;                   // 16-byte UUID like player ids, echoed in every part
-  uint32 seconds = 2;
-}
-
-// Perf: one slice of a profile, in index order from 0; the part with last set ends the profile.
-message PerfPart {
-  bytes profile = 1;
-  uint32 index = 2;
-  bool last = 3;
-  bytes data = 4;                      // a slice of zstd(PerfProfile)
-  PerfOutcome outcome = 5;             // last part only
-  string reason = 6;
-}
-
-enum PerfOutcome {
-  PERF_OUTCOME_UNSPECIFIED = 0;
-  PERF_OUTCOME_OK = 1;
-  PERF_OUTCOME_SKIPPED_LAG = 2;
-  PERF_OUTCOME_BUSY = 3;
-  PERF_OUTCOME_FAILED = 4;
-  PERF_OUTCOME_DISABLED = 5;
-}
-
-// Perf: the profile the PerfParts' data reassembles to.
-message PerfProfile {
-  string platform = 1;                 // "paper" | "velocity"
-  string server_id = 2;
-  string commit = 3;
-  string version = 4;
-  string config_hash = 5;
-  string mode = 6;
-  uint64 start_millis = 7;
-  uint64 wall_nanos = 8;
-  uint64 process_cpu_nanos = 9;
-  uint32 cores = 10;
-  uint64 recorder_cpu_nanos = 11;      // the recorder thread's own CPU
-  uint64 own_thread_alloc_bytes = 12;  // exact, ThreadMXBean, the anticheat's own threads
-  double player_seconds = 13;
-  uint32 players_min = 14;
-  uint32 players_max = 15;
-  repeated uint32 tick_micros_p50_p95_max = 16;  // paper only; empty on velocity
-  uint32 gc_count = 17;
-  uint64 gc_pause_nanos = 18;
-  uint64 heap_used_after_gc_bytes = 19;
-  string jvm = 20;
-  repeated string jvm_flags = 21;
-  repeated string frames = 22;         // "class.method"; index = frame id
-  repeated string thread_groups = 23;  // index = group id: "tick", "netty", "anticheat", "other"
-  repeated PerfStack stacks = 24;
-  repeated PerfClassAlloc alloc_classes = 25;
-  uint64 cpu_samples_total = 26;       // before pruning
-  uint64 native_samples_total = 27;    // before pruning
-  uint64 alloc_bytes_total = 28;       // before pruning
-  bool whole_jvm = 29;
-  string cpu_sampler = 30;              // "cpu-time" (jdk.CPUTimeSample) | "execution" (jdk.ExecutionSample)
-  uint64 cpu_sample_period_nanos = 31;  // CPU one cpu_samples unit stands for; 0 in older profiles
-  uint64 cpu_samples_lost = 32;         // cpu-time only: samples JFR reports it dropped
-  uint64 process_user_nanos = 33;       // Linux /proc/self/stat; 0 elsewhere
-  uint64 process_sys_nanos = 34;
-  repeated PerfThreadCpu jvm_thread_cpu = 35;  // Linux /proc/self/task: CPU of the JVM's own threads by kind
-  bool alloc_calibrated = 36;           // alloc_bytes scaled per thread group to ThreadMXBean's exact bytes
-  repeated PerfAllocCalibration alloc_calibration = 37;  // per group: sampled (after the first-sample drop) vs exact
-  optional uint64 heap_committed_bytes = 38;  // MemoryMXBean at the window end
-  optional uint64 heap_max_bytes = 39;        // absent when the heap has no maximum
-  repeated PerfMemoryPool heap_pools = 40;    // every heap MemoryPoolMXBean at the window end
-  repeated PerfBufferPool buffer_pools = 41;  // every BufferPoolMXBean at the window end
-  repeated PerfCollector collectors = 42;     // every GarbageCollectorMXBean, counted within the window
-  optional uint32 tracked_players = 43;          // the anticheat's players at the window end
-  optional uint32 section_store_entries = 44;    // block containers the shared section store holds
-  optional uint32 section_store_capacity = 45;   // and at most holds
-  optional uint32 section_pool_dimensions = 46;  // dimensions the pool registry holds
-  optional uint32 section_pools = 47;            // section positions with a pool
-  optional uint64 section_pool_references = 48;  // chunk sections the players retain in the pools
-  PerfMachineLoad machine_load = 49;             // Linux /proc and /sys; absent elsewhere
-}
-
-// The machine around the process over the window; each field is absent when its source is unreadable.
-message PerfMachineLoad {
-  optional uint64 user_millis = 1;               // /proc/stat cpu line, all CPUs, within the window
-  optional uint64 nice_millis = 2;
-  optional uint64 system_millis = 3;
-  optional uint64 idle_millis = 4;
-  optional uint64 iowait_millis = 5;
-  optional uint64 irq_millis = 6;
-  optional uint64 softirq_millis = 7;
-  optional uint64 steal_millis = 8;
-  optional uint32 cpus_online = 9;               // cpuN lines of /proc/stat at the window end
-  optional uint64 max_cpu_softirq_millis = 10;   // the one CPU with the most softirq time within the window
-  optional uint64 max_cpu_busy_millis = 11;      // the one CPU with the most non-idle, non-iowait time
-  optional uint64 run_queue_wait_millis = 12;    // this process's threads runnable but waiting for a CPU
-  optional uint64 timeslices = 13;               // this process's threads' timeslices run on a CPU
-  optional uint64 voluntary_switches = 14;       // this process's threads' voluntary context switches
-  optional uint64 involuntary_switches = 15;     // this process's threads' involuntary context switches
-  optional uint64 cpu_pressure_some_micros = 16; // /proc/pressure/cpu: time some task waited for a CPU
-  optional uint32 cur_freq_khz = 17;             // scaling_cur_freq, mean over CPUs at the window end
-  optional uint32 max_freq_khz = 18;             // cpuinfo_max_freq of cpu0
-  optional bool smt_active = 19;                 // /sys/devices/system/cpu/smt/active at the window end
-}
-
-message PerfStack {
-  repeated uint32 frames = 1;          // root first, leaf last
-  uint32 thread_group = 2;
-  uint64 cpu_samples = 3;
-  uint64 native_samples = 4;
-  uint64 alloc_bytes = 5;
-}
-
-message PerfClassAlloc {
-  string class_name = 1;
-  uint64 bytes = 2;
-  bool own_stack = 3;                  // on a stack with an anticheat frame
-}
-
-message PerfThreadCpu {
-  string kind = 1;      // "gc" | "jit" | "vm" | "jfr"
-  uint64 nanos = 2;
-  uint32 threads = 3;
-}
-
-message PerfAllocCalibration {
-  uint32 thread_group = 1;   // index into thread_groups
-  uint64 sampled_bytes = 2;  // sampled weights after dropping each thread's first sample, before scaling
-  uint64 exact_bytes = 3;    // ThreadMXBean; 0 when unknown
-}
-
-message PerfMemoryPool {
-  string name = 1;
-  optional uint64 used_bytes = 2;
-  optional uint64 used_after_gc_bytes = 3;  // as the pool's last collection left it; absent when the JVM keeps none
-}
-
-message PerfBufferPool {
-  string name = 1;  // "direct", "mapped", ...
-  optional uint64 count = 2;
-  optional uint64 used_bytes = 3;
-  optional uint64 capacity_bytes = 4;
-}
-
-message PerfCollector {
-  string name = 1;
-  optional uint64 window_count = 2;   // collections within the window
-  optional uint64 window_millis = 3;  // accumulated collection time within the window, as the bean reports it
 }
 
 // Team sync: whether the organization takes portal roles, at connect and whenever it changes; each replaces the last.

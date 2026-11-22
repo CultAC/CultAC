@@ -461,7 +461,7 @@ class CloudFlagsTest {
     @Test
     void anUploadThatIsOffSendsNothing() throws Exception {
         CloudFlags.configure(CloudSettings.OFF, "arena-1");
-        CloudFlags.configure(new CloudSettings(base(), KEY, "{server}", "arena-1", List.of(5), false, false), null);
+        CloudFlags.configure(new CloudSettings(base(), KEY, "{server}", "arena-1", List.of(5), false), null);
         Thread.sleep(200);
 
         assertTrue(seen.isEmpty());

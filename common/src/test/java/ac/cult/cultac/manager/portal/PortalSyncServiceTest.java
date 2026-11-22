@@ -17,7 +17,7 @@ class PortalSyncServiceTest {
 
     private static CloudSettings cloud(String apiKey, boolean team) {
         return new CloudSettings(
-                "https://intake.example", apiKey, CloudSettings.OWN_SERVER_ID, "lobby", List.of(5), false, team);
+                "https://intake.example", apiKey, CloudSettings.OWN_SERVER_ID, "lobby", List.of(5), team);
     }
 
     @Test

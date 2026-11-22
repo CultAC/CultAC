@@ -33,11 +33,6 @@ While the upload is on, each player's session is streamed from the moment they r
   version, brand and ping, the server software, and the version of any enabled plugin known to rewrite movement or
   packets, such as ViaVersion or ProtocolLib) and uploads a window of it when the service asks for one. Nothing is kept or sent for
   unwatched players.
-- **Performance profiles, only with `cloud.perf` and on request.** Off by default. When on, the intake service may ask
-  for a short JFR profile of the whole server process: CPU and allocation stack samples (class and method names),
-  the bytes CultAC's own code allocated by class, garbage-collection pauses, tick times, the online player count, and
-  the JVM's name, version and flags, and on Linux the CPU time of the process and of the JVM's own GC, compiler, VM
-  and JFR threads, read from `/proc`. It is recorded off the main thread and skipped while the server lags.
 - **Staff portal roles, only with `cloud.team-sync`.** Off by default. When on, the UUID, name and portal role of
   players holding a `cult.portal.*` permission, and of synced players who lost it, are sent to the intake service so
   its portal lists them in your organization. See [Team sync](#team-sync).
@@ -111,7 +106,6 @@ The `cloud:` block in `plugins/CultAC/config.yml` (`plugins/cultac/config.yml` o
 | `cloud.server-id` | `""` | Each upload socket's server id. Empty picks the platform's default, below. |
 | `cloud.proxy-id` | `""` | On Velocity, this proxy's name. On Paper, this server's own name. |
 | `cloud.uncaptured-servers` | `[]` | Backends whose players are not captured while they are on them, below. |
-| `cloud.perf` | `false` | Lets the intake service ask for performance profiles, below. `CULTAC_CLOUD_PERF` (`true`/`1`/`yes`, `false`/`0`/`no`) overrides it when set. |
 | `cloud.team-sync` | `false` | Reports staff portal roles to the intake service, below. `CULTAC_CLOUD_TEAM_SYNC` (`true`/`1`/`yes`, `false`/`0`/`no`) overrides it when set. |
 
 Empty means off: the upload stays off while `url` or `api-key` is empty. It also stays off, with one warning, while
@@ -196,7 +190,7 @@ implicitly, but a LuckPerms `*` grants admin.
   nothing is sent and what was queued is dropped; when one turns it on, every checked player online is reported again.
 - It needs the upload configured: nothing is sent while the upload is off (`url`, `api-key` or a required `proxy-id`
   missing), or while no player keeps a socket open. Observe-only does not change it. Turning `cloud.team-sync` on or
-  off and running `/cult reload` reconnects the sockets, as `cloud.perf` does.
+  off and running `/cult reload` reconnects the sockets.
 
 On Velocity the online check asks the proxy's permission provider (LuckPerms-Velocity answers it), and the LuckPerms
 change listener and offline sweep run when LuckPerms is installed on the proxy. On Paper they use Paper's permissions

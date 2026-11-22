@@ -996,8 +996,6 @@ public final class CloudCapture implements PlayerObserver {
             case IntakeWire.DiagCutReply cut ->
                 PredictionDiagnostics.INSTANCE.cut(player, uplink.diagnostics(), cut.cut());
             case IntakeWire.DiagLimitsReply ignored -> {}
-            case IntakeWire.PerfLimitsReply ignored -> {}
-            case IntakeWire.PerfStartReply ignored -> {}
             case IntakeWire.TeamStateReply ignored -> {}
             case IntakeWire.TeamSweepReply ignored -> {}
             case IntakeWire.Event ignored -> {}
