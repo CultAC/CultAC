@@ -57,6 +57,10 @@ final class VelocityConnectionAdapter implements PlatformConnection {
         return owner;
     }
 
+    Player nativePlayer() {
+        return nativePlayer;
+    }
+
     Object bedrockBridge() {
         return bedrockBridge;
     }

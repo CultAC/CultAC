@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.command.commands.CultReload;
 import ac.cult.cultac.manager.config.BaseConfigManager;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.routing.NetworkPlatform.Holder;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import ac.cult.cultac.network.routing.RosterCache.Instance;
@@ -140,9 +141,15 @@ final class NetCommands {
                     true,
                     NetCommands::switchArgs,
                     args -> switched(NetSettings.PUNISH, args)),
-            CHECK,
+            NetSettings.TOGGLE,
             new Spec(
-                    CHECK, 10_000, true, args -> args.size() == 2 && onOff(args.get(1)) != null, NetCommands::checked),
+                    NetSettings.TOGGLE,
+                    10_000,
+                    true,
+                    NetCommands::switchArgs,
+                    args -> switched(NetSettings.TOGGLE, args)),
+            CHECK,
+            new Spec(CHECK, 10_000, true, args -> args.size() == 2 && onOff(args.get(1)) != null, NetCommands::checked),
             NetUpdates.NAME,
             NetUpdates.SPEC);
 
@@ -155,12 +162,15 @@ final class NetCommands {
         };
     }
 
-    /** The arguments of {@code observe} and {@code punish}: none to show the setting, else on or off. */
+    /** The arguments of {@code observe}, {@code punish} and {@code toggle}: none to show the setting, else on or off. */
     private static boolean switchArgs(List<String> args) {
         return args.isEmpty() || (args.size() == 1 && onOff(args.getFirst()) != null);
     }
 
-    /** What {@code observe} or {@code punish} sets with {@code args}: {@code key} on or off, nothing when bare. */
+    /**
+     * What {@code observe}, {@code punish} or {@code toggle} sets with {@code args}: {@code key} on or off, nothing when
+     * bare.
+     */
     private static NetSettings.@Nullable Setting switched(String key, List<String> args) {
         return args.isEmpty() ? null : new NetSettings.Setting(key, Boolean.TRUE.equals(onOff(args.getFirst())));
     }
@@ -293,6 +303,14 @@ final class NetCommands {
             return CompletableFuture.completedFuture(true);
         }
 
+        /**
+         * Takes the players the shared {@code toggle} now turns off for out of inspection, then completes with how many
+         * players here are not checked: all of them or, given {@code backends}, those on one of them.
+         */
+        default CompletableFuture<Integer> dormant(@Nullable List<String> backends) {
+            return CompletableFuture.completedFuture(0);
+        }
+
         /** How this instance's loader installs numbered builds. */
         default NetUpdates.Builds builds() {
             return NetUpdates.CULT;
@@ -408,6 +426,11 @@ final class NetCommands {
                     .thenApply(ok -> ok && CultAPI.INSTANCE.getConfigManager().isObserveOnly() == observeOnly);
         }
 
+        @Override
+        public CompletableFuture<Integer> dormant(@Nullable List<String> backends) {
+            return DormancyController.settle().thenApply(ignored -> DormancyController.dormantPlayers(backends));
+        }
+
         private boolean configHolds(boolean observeOnly) {
             try {
                 return Boolean.valueOf(observeOnly)
@@ -520,6 +543,16 @@ final class NetCommands {
                             "&c%players%: set to %state%, but reloading failed; see the console")),
             Map.entry("punish-state", new Text("net-punish-state", "&f%players%: %state%")),
             Map.entry("punish-applied", new Text("net-punish-applied", "&f%players%: now %state%")),
+            Map.entry("toggle-state", new Text("net-toggle-state", "&f%players%: %state%")),
+            Map.entry(
+                    "toggle-off-applied",
+                    new Text("net-toggle-off-applied", "&f%players%: now %state% &7(%count% players not checked)")),
+            Map.entry(
+                    "toggle-on-applied",
+                    new Text(
+                            "net-toggle-on-applied",
+                            "&f%players%: now %state% &7(%count% players not checked yet; checking starts again at"
+                                    + " their next server switch or reconnect)")),
             Map.entry("check-applied", new Text("net-check-applied", "&f%check% %state% &7(%players%)")),
             Map.entry("check-unknown", new Text("net-check-unknown", "&cno check %check% here")));
 
@@ -1025,6 +1058,7 @@ final class NetCommands {
                         .exceptionally(failure -> false)
                         .thenApply(ok -> Reply.of(ok, ok ? "reloaded" : "reload-failed", Map.of()));
             case NetSettings.OBSERVE, NetSettings.PUNISH -> switched(request, backends);
+            case NetSettings.TOGGLE -> toggle(request, backends);
             case CHECK -> CompletableFuture.completedFuture(check(request, backends));
             case NetUpdates.NAME -> updates.run(request.id(), request.origin(), request.name(), request.args());
             default ->
@@ -1056,6 +1090,35 @@ final class NetCommands {
                         ok,
                         ok ? "observe-applied" : "observe-failed",
                         Map.of("players", players, "state", described(key, null, false))));
+    }
+
+    /**
+     * {@code toggle}: bare, shows the setting; else answers with the value its record, merged on receipt, left, once the
+     * players it turns off for are out of inspection, and how many players here are not checked.
+     */
+    private CompletionStage<Reply> toggle(Received request, @Nullable List<String> backends) {
+        String key = NetSettings.TOGGLE;
+        String players = players(backends);
+        if (request.args().isEmpty())
+            return CompletableFuture.completedFuture(Reply.of(
+                    true, "toggle-state", Map.of("players", players, "state", described(key, backends, true))));
+        String pin = service.netSettings().value(key).pin();
+        if (pin != null) return CompletableFuture.completedFuture(Reply.of(false, "pinned", Map.of("env", pin)));
+        String code =
+                Boolean.TRUE.equals(onOff(request.args().getFirst())) ? "toggle-on-applied" : "toggle-off-applied";
+        return service.netSettings()
+                .settled()
+                .thenCompose(ignored -> local.dormant(backends))
+                .thenApply(count -> Reply.of(
+                        true,
+                        code,
+                        Map.of(
+                                "players",
+                                players,
+                                "state",
+                                described(key, backends, false),
+                                "count",
+                                String.valueOf(count))));
     }
 
     /** {@code check <check> <on|off>}: answers with the value its record, merged on receipt, left. */
@@ -1105,6 +1168,7 @@ final class NetCommands {
         String state = switch (key) {
             case NetSettings.OBSERVE -> value.on() ? "observe-only" : "enforcing";
             case NetSettings.PUNISH -> value.on() ? "punishing" : "punishments paused";
+            case NetSettings.TOGGLE -> value.on() ? "checking" : "dormant";
             default -> value.on() ? NetSettings.ON : NetSettings.OFF;
         };
         if (value.pin() != null) return state + " (pinned by " + value.pin() + ")";

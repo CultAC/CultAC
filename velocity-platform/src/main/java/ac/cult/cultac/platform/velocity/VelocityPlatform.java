@@ -8,6 +8,8 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.World;
 import ac.cult.cultac.checks.CheckPermissions;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.manager.init.start.StartableInitable;
+import ac.cult.cultac.network.DormancyController;
+import ac.cult.cultac.network.DormantWatch;
 import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.network.routing.NetworkModule;
@@ -68,6 +70,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private final VelocityServer server;
     private final BridgeService bridge;
     private final VelocityNetwork network;
+    private final VelocityDormancy dormancy;
     private final @Nullable VelocityCompressedForward compressedForward;
     /** Set while the cloud upload is on and the bridge has started. */
     private volatile @Nullable CloudBackends cloudBackends;
@@ -119,6 +122,8 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             transports.set(transport);
             this.bridge =
                     new BridgeService(proxy, nativePlugin, transport::channel, manager::connection, plugin.getLogger());
+            this.dormancy = new VelocityDormancy(proxy, manager, transport, bridge, () -> cloudBackends);
+            transport.dormancy(dormancy);
             this.server = new VelocityServer(proxy, senders, bridge::tps);
             this.network = new VelocityNetwork(proxy, nativePlugin, transport::channel);
             manager.setPacketOwnerResolver(channel -> {
@@ -164,6 +169,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         load();
         CloudModule.platformHooks(this::cloudTurnedOn, this::cloudTurnedOff);
         NetworkModule.platform(network);
+        DormancyController.platform(dormancy);
         network.listen();
         if (compressedForward != null) {
             compressedForward.listen();
@@ -345,15 +351,23 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             VelocityTransport.refuseUnbridged(player);
             return;
         }
-        transport.attach(player, channel, owner, null);
+        transport.join(player, channel, owner);
     }
 
     java.util.Map<String, Object> release(Channel channel) {
-        return transport.release(channel);
+        var dormant = dormancy.release(channel);
+        return dormant != null ? dormant : transport.release(channel);
     }
 
-    /** Adopts both halves of a translated session before forwarding its reconfiguration acknowledgement. */
+    /**
+     * Adopts both halves of a translated session before forwarding its reconfiguration acknowledgement; a Java player
+     * switching to a dormant server is watched instead.
+     */
     void adopt(com.velocitypowered.api.proxy.Player player, Channel channel, java.util.Map<String, Object> state) {
+        if (Boolean.TRUE.equals(state.get(DormantWatch.DORMANT))) {
+            dormancy.adopt(player, channel, state);
+            return;
+        }
         if (state.get("bedrock") instanceof java.util.Map<?, ?> continued) {
             var session = state.get("bedrock-session");
             if (session == null || !ac.cult.cultac.runtime.RuntimeEnvironment.owns(session))
@@ -365,6 +379,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         bridge.adopted(player);
         CloudBackends backends = cloudBackends;
         if (backends != null) backends.adopted(player);
+        dormancy.adopted(channel);
     }
 
     java.util.concurrent.CompletionStage<Void> disconnect(Channel channel) {

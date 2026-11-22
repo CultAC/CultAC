@@ -382,7 +382,7 @@ class NetCommandsTest {
                 };
         new CultNet().register(manager, null);
         assertEquals(List.of("brg_1,BRG_2", "brg_1,BRG_*"), suggest(manager, "cult net brg_1,b"));
-        assertEquals(List.of("check", "observe", "punish", "status"), suggest(manager, "cult net BRG_1,p7 "));
+        assertEquals(List.of("check", "observe", "punish", "status", "toggle"), suggest(manager, "cult net BRG_1,p7 "));
     }
 
     @Test

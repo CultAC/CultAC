@@ -90,6 +90,11 @@ public final class TestNetworks {
         NetworkModule.start(service);
     }
 
+    /** Merges {@code records} into {@code service}'s shared settings, as a received delta does. */
+    public static void merge(NetworkService service, Collection<NetSettings.Record> records) {
+        service.netSettings().merge(records);
+    }
+
     /** Sends what {@code service} was told since its last roster message, as its delta schedule would. */
     public static void sendDelta(NetworkService service) {
         service.sendDelta();

@@ -71,6 +71,9 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     private final Set<String> missingServers = ConcurrentHashMap.newKeySet();
     private final Set<String> rejections = ConcurrentHashMap.newKeySet();
     private final Set<UUID> malformedPlayers = ConcurrentHashMap.newKeySet();
+    /** Players CultAC does not inspect, whose frames no encoder would strip; they get no session. */
+    private final Set<UUID> dormant = ConcurrentHashMap.newKeySet();
+
     private final Set<String> authFailures = ConcurrentHashMap.newKeySet();
     /** Backend connections whose session ended at a backend configuration phase, awaiting the return to PLAY. */
     private final Map<UUID, ServerConnection> reconfiguring = new ConcurrentHashMap<>();
@@ -303,6 +306,19 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
         player.getCurrentServer().ifPresent(server -> reconfiguring.put(player.getUniqueId(), server));
     }
 
+    /** CultAC stopped inspecting {@code playerId}: closes their session and opens none until {@link #awake}. */
+    public void dormant(UUID playerId) {
+        dormant.add(playerId);
+        reconfiguring.remove(playerId);
+        var session = sessions.get(playerId);
+        if (session != null) session.close("player not inspected");
+    }
+
+    /** CultAC inspects {@code playerId} again. */
+    public void awake(UUID playerId) {
+        dormant.remove(playerId);
+    }
+
     @Subscribe
     public void onServerPostConnect(ServerPostConnectEvent event) {
         if (closed) return;
@@ -330,6 +346,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     public void onDisconnect(DisconnectEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
         malformedPlayers.remove(playerId);
+        dormant.remove(playerId);
         reconfiguring.remove(playerId);
         var session = sessions.get(playerId);
         if (session != null
@@ -343,7 +360,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     @Nullable
     ProxyBridgeSession open(UUID playerId, Object connection, BridgeBackend backend) {
         byte[] key = secret;
-        if (closed || key == null) return null;
+        if (closed || key == null || dormant.contains(playerId)) return null;
         var existing = sessions.get(playerId);
         if (existing != null) {
             if (existing.connection() == connection) return existing;

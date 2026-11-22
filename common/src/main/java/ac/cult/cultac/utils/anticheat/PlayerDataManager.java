@@ -163,6 +163,40 @@ public class PlayerDataManager {
     }
 
     /**
+     * Takes the player off a connection that stays open uninspected, on its packet owner: {@link #remove}, the quit
+     * event and, for a connection that completed its login, the datastore quit. Alert subscriptions and toggles stay
+     * with the native connection.
+     */
+    public void detachDormant(final User user, boolean loginNotified) {
+        CultPlayer tracked = user.getCultPlayer();
+        if (remove(user)) {
+            Channels.QUIT.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(tracked));
+            Dialogs.forget(user.getUUID(), tracked);
+        }
+        if (loginNotified && user.getUUID() != null && CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
+            CultAPI.INSTANCE
+                    .getDataStoreLifecycle()
+                    .liveWriteHooks()
+                    .onQuitFromUserDisconnect(user, tracked, System.currentTimeMillis());
+        }
+    }
+
+    /**
+     * A connection CultAC watched uninspected has closed: releases what the native connection held, as a
+     * disconnect does. {@code player} is the platform player it last had, null when this generation never had one.
+     */
+    public void dormantQuit(UUID uuid, @Nullable UUID connectionId, @Nullable PlatformPlayer player) {
+        if (connectionId != null && CultAPI.INSTANCE.getDataStoreLifecycle() != null)
+            CultAPI.INSTANCE.getDataStoreLifecycle().releaseToggles(uuid, connectionId);
+        CultAPI.INSTANCE.getAlertManager().handlePlayerQuit(player);
+        if (CultAPI.INSTANCE.getSpectateManager() != null
+                && CultAPI.INSTANCE.getNetworkManager().getUser(uuid) == null)
+            CultAPI.INSTANCE.getSpectateManager().onQuit(uuid);
+        if (player != null && CultAPI.INSTANCE.getPlatformPlayerFactory() != null)
+            CultAPI.INSTANCE.getPlatformPlayerFactory().invalidatePlayer(player);
+    }
+
+    /**
      * Ends only this exact connection. Another User presenting the same UUID has
      * its own session attachment and cannot be removed by this path.
      */
