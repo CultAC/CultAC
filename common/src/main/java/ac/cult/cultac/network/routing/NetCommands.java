@@ -580,6 +580,8 @@ final class NetCommands {
         syncObserve().whenComplete((ok, failure) -> {
             if (failure != null)
                 LogUtil.warn("Could not bring the loaded config to the network's observe-only value", failure);
+            else if (!Boolean.TRUE.equals(ok))
+                LogUtil.warn("Could not bring the loaded config to the network's observe-only value; see config.yml");
         });
     }
 
