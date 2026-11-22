@@ -358,6 +358,9 @@ final class NetCommands {
             new Text("net-no-match", "%prefix% &cNothing matches %term%; nothing was sent.");
     private static final Text NOT_LISTED =
             new Text("net-not-listed", "%prefix% &eNo proxy lists %term%; the setting applies when it appears.");
+    private static final Text SYNCING = new Text(
+            "net-syncing",
+            "%prefix% &cThis server is still loading the network's shared settings; try again in a few seconds.");
     private static final Text BACKEND_TERM =
             new Text("net-backend-term", "%prefix% &c%cmd% runs on CultAC instances only; %term% is a backend server.");
     private static final Text SENT = new Text("net-sent", "%prefix% &7%cmd% sent to %count% instances (%target%)");
@@ -469,6 +472,10 @@ final class NetCommands {
         if (sender instanceof RemoteCommandSource || !holds(sender, spec.permission())) {
             sender.sendMessage(
                     REFUSED_PERMISSION.render(sender, Map.of("sender", sender.getName(), "node", spec.permission())));
+            return none;
+        }
+        if (setting != null && !service.netSettings().caughtUp()) {
+            sender.sendMessage(SYNCING.render(sender, Map.of()));
             return none;
         }
         boolean bus = service.enabled();

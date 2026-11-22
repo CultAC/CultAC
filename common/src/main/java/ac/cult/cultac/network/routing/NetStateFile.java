@@ -5,6 +5,8 @@ import static ac.cult.cultac.manager.config.BaseConfigManager.DORMANT_KEY;
 import static ac.cult.cultac.manager.config.BaseConfigManager.OBSERVE_ONLY_KEY;
 import static ac.cult.cultac.manager.config.BaseConfigManager.PAUSE_PUNISHMENTS_KEY;
 
+import ac.cult.cultac.checks.info.CheckCatalog;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.manager.config.update.ConfigPatcher;
 import ac.cult.cultac.manager.config.update.ConfigPatcher.NodePosition;
 import ac.cult.cultac.manager.config.update.ConfigPatcher.PendingChange;
@@ -32,35 +34,35 @@ import org.yaml.snakeyaml.Yaml;
 
 /**
  * The network's shared settings on disk: {@value NetSettings#FILE} in the data folder, {@code {records:[{k, v, t, at,
- * by, id}], written:{dormant, observe-only, pause-punishments, checks-off}}}, {@code written} holding the config.yml
- * values CultAC last wrote, replaced in one move; and those values in config.yml itself.
+ * by, id}], written:{dormant, observe-only, pause-punishments, checks-off}, writing:{...}}}, {@code written} holding
+ * the config.yml values CultAC last wrote and {@code writing}, present only while CultAC writes config.yml, the values
+ * it is writing, replaced in one move; and those values in config.yml itself. {@code checks-off} holds stable keys in
+ * the file and the names checks have in this build in config.yml, which may name a check by any name.
  */
 final class NetStateFile {
     private NetStateFile() {}
 
-    /** The shared state {@code file} holds; empty when there is none or it does not read, which is logged. */
-    static Map<String, Object> read(@Nullable Path file) {
+    /**
+     * The shared state {@code file} holds; empty when there is none or it does not read, which is logged. A value it was
+     * writing that {@code config} holds counts as written.
+     */
+    static Map<String, Object> read(@Nullable Path file, @Nullable Path config) {
         if (file == null || !Files.isRegularFile(file)) return NetSettings.state(List.of(), Map.of());
         try {
             JsonObject json = JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8))
                     .getAsJsonObject();
-            Map<String, Object> written = new HashMap<>();
-            if (json.get("written") instanceof JsonObject values) {
-                for (Map.Entry<String, JsonElement> value : values.entrySet()) {
-                    if (value.getValue() instanceof JsonPrimitive flag && flag.isBoolean())
-                        written.put(value.getKey(), flag.getAsBoolean());
-                    else if (value.getValue() instanceof JsonArray listed) {
-                        List<String> names = new ArrayList<>();
-                        for (JsonElement name : listed) {
-                            if (name instanceof JsonPrimitive text && text.isString()) names.add(text.getAsString());
-                        }
-                        written.put(value.getKey(), names);
-                    }
+            Map<String, Object> written = new HashMap<>(values(json.get("written")));
+            Map<String, Object> writing = values(json.get("writing"));
+            if (!writing.isEmpty() && config != null && Files.isRegularFile(config)) {
+                Map<String, Object> held = readConfig(config);
+                for (Map.Entry<String, Object> value : writing.entrySet()) {
+                    if (value.getValue().equals(held.get(value.getKey())))
+                        written.put(value.getKey(), value.getValue());
                 }
             }
             List<Record> records =
                     NetSettings.merged(List.of(), NetSettings.records(json.get("records")), new HashSet<>());
-            return NetSettings.state(records, NetSettings.written(written));
+            return NetSettings.state(records, written);
         } catch (IOException | RuntimeException unreadable) {
             LogUtil.warn("Ignoring " + file + ", which does not read (" + unreadable.getMessage()
                     + "); the other instances send the network's shared settings again");
@@ -68,20 +70,31 @@ final class NetStateFile {
         }
     }
 
-    /** Replaces {@code file} with {@code records} and {@code written} in one move. */
-    static void write(Path file, List<Record> records, Map<String, Object> written) throws IOException {
-        JsonObject json = new JsonObject();
-        json.add("records", NetSettings.json(records));
-        JsonObject values = new JsonObject();
-        for (Map.Entry<String, Object> value : new TreeMap<>(written).entrySet()) {
-            if (value.getValue() instanceof Boolean flag) values.addProperty(value.getKey(), flag);
-            else if (value.getValue() instanceof List<?> listed) {
-                JsonArray names = new JsonArray();
-                for (Object name : listed) names.add(String.valueOf(name));
-                values.add(value.getKey(), names);
+    private static Map<String, Object> values(@Nullable JsonElement json) {
+        Map<String, Object> values = new HashMap<>();
+        if (json instanceof JsonObject object) {
+            for (Map.Entry<String, JsonElement> value : object.entrySet()) {
+                if (value.getValue() instanceof JsonPrimitive flag && flag.isBoolean())
+                    values.put(value.getKey(), flag.getAsBoolean());
+                else if (value.getValue() instanceof JsonArray listed) {
+                    List<String> names = new ArrayList<>();
+                    for (JsonElement name : listed) {
+                        if (name instanceof JsonPrimitive text && text.isString()) names.add(text.getAsString());
+                    }
+                    values.put(value.getKey(), names);
+                }
             }
         }
-        json.add("written", values);
+        return NetSettings.written(values);
+    }
+
+    /** Replaces {@code file} with {@code records}, {@code written} and {@code writing}, empty for none, in one move. */
+    static void write(Path file, List<Record> records, Map<String, Object> written, Map<String, Object> writing)
+            throws IOException {
+        JsonObject json = new JsonObject();
+        json.add("records", NetSettings.json(records));
+        json.add("written", json(written));
+        if (!writing.isEmpty()) json.add("writing", json(writing));
         Path target = file.toAbsolutePath();
         Path temporary = Files.createTempFile(target.getParent(), ".network-state-", ".tmp");
         try {
@@ -96,40 +109,66 @@ final class NetStateFile {
         }
     }
 
+    private static JsonObject json(Map<String, Object> values) {
+        JsonObject json = new JsonObject();
+        for (Map.Entry<String, Object> value : new TreeMap<>(values).entrySet()) {
+            if (value.getValue() instanceof Boolean flag) json.addProperty(value.getKey(), flag);
+            else if (value.getValue() instanceof List<?> listed) {
+                JsonArray names = new JsonArray();
+                for (Object name : listed) names.add(String.valueOf(name));
+                json.add(value.getKey(), names);
+            }
+        }
+        return json;
+    }
+
     /**
      * config.yml's {@code dormant}, {@code observe-only}, {@code pause-punishments} and {@code checks-off}, a missing one
-     * at its default.
+     * at its default, {@code checks-off} by stable key.
      */
     static Map<String, Object> readConfig(Path config) throws IOException {
         Object loaded = new Yaml().load(Files.readString(config, StandardCharsets.UTF_8));
         Map<?, ?> values = loaded instanceof Map<?, ?> map ? map : Map.of();
-        List<String> off = new ArrayList<>();
-        if (values.get(CHECKS_OFF_KEY) instanceof List<?> listed) {
-            for (Object check : listed) {
-                if (check != null && !check.toString().isBlank())
-                    off.add(check.toString().strip());
-            }
-        }
         return NetSettings.config(
                 Boolean.TRUE.equals(values.get(DORMANT_KEY)),
                 Boolean.TRUE.equals(values.get(OBSERVE_ONLY_KEY)),
                 Boolean.TRUE.equals(values.get(PAUSE_PUNISHMENTS_KEY)),
-                off);
+                values.get(CHECKS_OFF_KEY) instanceof List<?> listed
+                        ? BaseConfigManager.checkKeys(listed, CHECKS_OFF_KEY)
+                        : List.of());
     }
 
-    /** Sets {@code values}, top-level config.yml keys, in {@code config}, keeping the rest of its text. */
-    static void writeConfig(Path config, Map<String, Object> values) throws IOException {
-        ConfigPatcher patcher = new ConfigPatcher(config.toFile());
-        for (Map.Entry<String, Object> value : new TreeMap<>(values).entrySet()) {
-            List<String> path = List.of(value.getKey());
-            if (patcher.inFlowCollection(path)) {
-                patcher.replaceInFlowCollection(path, value.getValue());
-                continue;
+    /**
+     * Sets {@code values}, top-level config.yml keys, in {@code config}, keeping the rest of its text, under the host's
+     * config.yml lock; {@code checks-off} lists stable keys and is written as the checks' names in this build.
+     */
+    static void writeConfig(Path config, Map<String, Object> values, Object lock) throws IOException {
+        synchronized (lock) {
+            ConfigPatcher patcher = new ConfigPatcher(config.toFile());
+            for (Map.Entry<String, Object> value : new TreeMap<>(values).entrySet()) {
+                List<String> path = List.of(value.getKey());
+                Object written = value.getKey().equals(CHECKS_OFF_KEY) && value.getValue() instanceof List<?> keys
+                        ? names(keys)
+                        : value.getValue();
+                if (patcher.inFlowCollection(path)) {
+                    patcher.replaceInFlowCollection(path, written);
+                    continue;
+                }
+                NodePosition position = patcher.getNodePosition(path);
+                if (position == null) patcher.addMissingValue(path, written);
+                else patcher.applyChange(new PendingChange(position, written));
             }
-            NodePosition position = patcher.getNodePosition(path);
-            if (position == null) patcher.addMissingValue(path, value.getValue());
-            else patcher.applyChange(new PendingChange(position, value.getValue()));
+            patcher.save();
         }
-        patcher.save();
+    }
+
+    /** The names in this build of the checks of {@code keys}, stable keys; a key of no check here stays as it is. */
+    private static List<String> names(List<?> keys) {
+        List<String> names = new ArrayList<>();
+        for (Object key : keys) {
+            CheckCatalog.Entry check = CheckCatalog.byStableKey(String.valueOf(key));
+            names.add(check == null ? String.valueOf(key) : check.name());
+        }
+        return names;
     }
 }

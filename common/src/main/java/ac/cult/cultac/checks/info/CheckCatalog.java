@@ -223,9 +223,15 @@ public final class CheckCatalog {
      * @param configName the prefix of the check's own config keys
      * @param altName the second name punishments match; {@link CheckData#NO_ALTERNATIVE_NAME} for a {@code @CheckData}
      *     check without one, {@code null} for a {@code CheckInfo} check without one
+     * @param stableKey the check's identity, the same under every name and in every build
      */
     public record Entry(
-            String name, String configName, @Nullable String altName, boolean experimental, CheckCategory category) {}
+            String name,
+            String configName,
+            @Nullable String altName,
+            boolean experimental,
+            CheckCategory category,
+            String stableKey) {}
 
     public static final List<Entry> ENTRIES = List.of(
             check(AimDuplicateLook.class, COMBAT),
@@ -431,7 +437,8 @@ public final class CheckCatalog {
                 Check.configName(data.name(), data.configName()),
                 data.alternativeName(),
                 data.experimental(),
-                category);
+                category,
+                data.stableKey());
     }
 
     private static Entry check(CheckInfo info, CheckCategory category) {
@@ -440,7 +447,8 @@ public final class CheckCatalog {
                 Check.configName(info.getName(), info.getConfigName()),
                 info.getAltName(),
                 info.isExperimental(),
-                category);
+                category,
+                info.getStableKey());
     }
 
     public static @Nullable Entry find(String query) {
@@ -448,6 +456,24 @@ public final class CheckCatalog {
             if (entry.name().equalsIgnoreCase(query)
                     || entry.configName().equalsIgnoreCase(query)
                     || (hasAltName(entry) && entry.altName().equalsIgnoreCase(query))) return entry;
+        }
+        return null;
+    }
+
+    /** The check {@code typed} names, whatever its case: as {@link #find} finds it, else by its stable key. */
+    public static @Nullable Entry named(String typed) {
+        Entry found = find(typed);
+        if (found != null) return found;
+        for (Entry entry : ENTRIES) {
+            if (entry.stableKey().equalsIgnoreCase(typed)) return entry;
+        }
+        return null;
+    }
+
+    /** The check whose stable key is {@code stableKey}; null when this build has none. */
+    public static @Nullable Entry byStableKey(String stableKey) {
+        for (Entry entry : ENTRIES) {
+            if (entry.stableKey().equals(stableKey)) return entry;
         }
         return null;
     }
