@@ -243,11 +243,6 @@ final class OfflineBedrockReplayEvents {
         return value != null && value.isJsonPrimitive() ? value.getAsInt() : fallback;
     }
 
-    private static long longValue(JsonObject object, String key, long fallback) {
-        JsonElement value = object == null ? null : object.get(key);
-        return value != null && value.isJsonPrimitive() ? value.getAsLong() : fallback;
-    }
-
     private static boolean booleanValue(JsonObject object, String key, boolean fallback) {
         JsonElement value = object == null ? null : object.get(key);
         return value != null && value.isJsonPrimitive() ? value.getAsBoolean() : fallback;

@@ -589,10 +589,6 @@ public final class InboundTransactionAcceptanceTest {
         return (CultPlayer.TrackedTransaction) method.invoke(player, CultPlayer.PING_LEADING, 0);
     }
 
-    private static PacketReceiveEvent receiveEvent(CultPlayer player, ServerboundPong packet) {
-        return RecordReceiveTestEvents.pong(player, packet.id());
-    }
-
     private static CultPlayer offlineJavaPlayer() {
         return offlineJavaPlayer(ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol()));
     }
