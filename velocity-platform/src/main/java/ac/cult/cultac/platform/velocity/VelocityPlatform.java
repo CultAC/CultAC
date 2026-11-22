@@ -91,12 +91,12 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         try {
             this.codecs = ProtocolCodecs.decoder();
             cleanup.push(ProtocolCodecs::close);
-            this.plugin = ac.cult.cultac.runtime.RuntimeEnvironment.host() == null
+            this.plugin = RuntimeEnvironment.host() == null
                     ? new VelocityPlugin(directory, logger)
                     : ac.cult.reload.host.SharedPlugin.create(
                             directory,
                             logger,
-                            ac.cult.cultac.runtime.RuntimeEnvironment.host().build());
+                            RuntimeEnvironment.host().build());
             this.senders = new VelocitySenders(proxy, permissions);
             this.players = new VelocityPlayers(proxy, senders);
             this.scheduler = new VelocityScheduler(world -> ((VelocityWorld) world).connection());
@@ -139,7 +139,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             var runtime = ProtocolRuntime.create(
                     ProtocolData.load(ProtocolVersion.V26_3), ClientPacketCodecs.connectionCatalog(), 32767);
             manager.configureTransport(runtime, transport::install, () -> {}, transport::remove);
-            if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
+            if (RuntimeEnvironment.host() == null)
                 CultAPI.INSTANCE
                         .getExtensionManager()
                         .registerResolver(context -> context == nativePlugin ? plugin : null);
@@ -318,7 +318,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
 
     @Override
     public void registerAPIService() {
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
+        if (RuntimeEnvironment.host() == null)
             GrimAPIProvider.init(CultAPI.INSTANCE.getExternalAPI());
     }
 
@@ -371,7 +371,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         }
         if (state.get("bedrock") instanceof java.util.Map<?, ?> continued) {
             var session = state.get("bedrock-session");
-            if (session == null || !ac.cult.cultac.runtime.RuntimeEnvironment.owns(session))
+            if (session == null || !RuntimeEnvironment.owns(session))
                 throw new IllegalStateException("Missing transferred Bedrock session");
             GeyserBedrockBridgeRuntime.adoptSession(session, continued);
         } else if (dormancy.adoptDormant(player, channel, state)) {
@@ -423,7 +423,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                         .join();
             }
         } finally {
-            if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
+            if (RuntimeEnvironment.host() == null)
                 proxy.getEventManager().unregisterListeners(nativePlugin);
             scheduler.close();
             ProtocolCodecs.close();
