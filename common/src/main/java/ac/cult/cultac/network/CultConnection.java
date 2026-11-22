@@ -147,7 +147,7 @@ public final class CultConnection
         return dormant;
     }
 
-    /** Marks the connection dormant with the state its player left; on the packet owner. */
+    /** Marks the connection dormant with the state its player left; on the packet owner, or before its login. */
     public void dormant(Map<String, Object> state) {
         dormant = Map.copyOf(state);
     }

@@ -11,11 +11,13 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelPipeline;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -255,10 +257,24 @@ public final class DormantWatch extends ChannelInboundHandlerAdapter {
         drainedIfDone();
     }
 
+    /**
+     * Takes this watch out of its pipeline; false when it is not in it, or another thread took it out first. Any
+     * thread.
+     */
+    public boolean leave() {
+        ChannelPipeline pipeline = channel.pipeline();
+        if (pipeline.context(this) == null) return false;
+        try {
+            pipeline.remove(this);
+            return true;
+        } catch (NoSuchElementException taken) {
+            return false;
+        }
+    }
+
     /** Takes a draining watch with no retired ping left out of the pipeline. */
     private void drainedIfDone() {
-        if (!drain || !retired.isEmpty() || channel.pipeline().context(this) == null) return;
-        channel.pipeline().remove(this);
+        if (!drain || !retired.isEmpty() || !leave()) return;
         try {
             hooks.drained(this);
         } catch (Throwable failure) {

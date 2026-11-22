@@ -141,6 +141,15 @@ public final class NetworkModule {
     }
 
     /**
+     * Whether {@code key}'s value for a player can differ from the instance's by the backend server they are on; while
+     * it cannot, the instance's value is every player's. Any thread.
+     */
+    public static boolean backendScoped(String key) {
+        NetSettings settings = settings();
+        return settings != null && settings.backendScoped(key);
+    }
+
+    /**
      * The stable keys of the checks switched off for a player on {@code backend}, the backend server their proxy sent
      * them to; null, for a player whose backend is not known, gives the instance's. Any thread.
      */

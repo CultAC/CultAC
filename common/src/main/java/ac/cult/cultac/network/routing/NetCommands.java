@@ -304,7 +304,7 @@ final class NetCommands {
         }
 
         /**
-         * Takes the players the shared {@code toggle} now turns off for out of inspection, then completes with how many
+         * Takes the players the shared {@code toggle} turns off for out of inspection, then completes with how many
          * players here are not checked: all of them or, given {@code backends}, those on one of them.
          */
         default CompletableFuture<Integer> dormant(@Nullable List<String> backends) {

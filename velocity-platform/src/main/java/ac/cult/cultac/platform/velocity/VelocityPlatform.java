@@ -361,7 +361,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
 
     /**
      * Adopts both halves of a translated session before forwarding its reconfiguration acknowledgement; a Java player
-     * switching to a dormant server is watched instead.
+     * switching to a dormant server gets a watch.
      */
     void adopt(com.velocitypowered.api.proxy.Player player, Channel channel, java.util.Map<String, Object> state) {
         if (Boolean.TRUE.equals(state.get(DormantWatch.DORMANT))) {

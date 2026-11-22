@@ -40,6 +40,8 @@ import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -68,6 +70,7 @@ class DormantDetachTest {
 
     private final AtomicLong at = new AtomicLong(10);
     private final List<Client> clients = new ArrayList<>();
+    private final List<CultConnection> joins = new ArrayList<>();
     private RecordConsumerServices services;
     private NetworkService network;
     private TestPlatform platform;
@@ -88,6 +91,11 @@ class DormantDetachTest {
     @AfterEach
     void stop() throws Exception {
         try {
+            for (CultConnection joined : joins) {
+                if (joined.user() != null)
+                    CultAPI.INSTANCE.getPlayerDataManager().onDisconnect(joined.user());
+                ((EmbeddedChannel) joined.channel()).finishAndReleaseAll();
+            }
             for (Client client : clients) client.close();
         } finally {
             DormancyController.platform(null);
@@ -273,6 +281,24 @@ class DormantDetachTest {
         settle();
         assertNull(joining.f.user.getCultPlayer(), "a player goes dormant once their server is known to be off");
         assertTrue(joining.watch().play());
+
+        toggle("proxies", NetSettings.OFF);
+        assertTrue(DormancyController.dormant(null), "a newer record for the whole instance decides for every server");
+    }
+
+    @Test
+    void aJoinWhileTheWholeInstanceIsOffGetsNoCultPlayer() throws Exception {
+        Client online = new Client(null);
+        toggle("all", NetSettings.OFF);
+
+        assertTrue(DormancyController.dormant(null), "a Java join with no server in flight gets only a watch");
+        CultConnection bedrock = join(true);
+        assertNotNull(bedrock.user());
+        assertNull(bedrock.user().getCultPlayer(), "a Bedrock join keeps CultAC's handlers and gets no CultAC player");
+        assertNotNull(bedrock.channel().pipeline().get(CultDecoder.NAME));
+        settle();
+        assertNull(online.f.user.getCultPlayer(), "a player whose server is not known follows the instance");
+        assertEquals(2, DormancyController.dormantPlayers(null));
     }
 
     @Test
@@ -393,6 +419,28 @@ class DormantDetachTest {
         assertNull(c.f.user.getCultPlayer());
     }
 
+    /**
+     * A connection opening on a channel of its own and logging in as the platform attaches one, marked as joining
+     * dormant when {@code dormant}.
+     */
+    private CultConnection join(boolean dormant) {
+        EmbeddedChannel channel = new EmbeddedChannel();
+        channel.pipeline().addLast("decoder", new ChannelInboundHandlerAdapter());
+        channel.pipeline().addLast("encoder", new ChannelOutboundHandlerAdapter());
+        var platformConnection = OfflineCultTestBootstrap.platformConnection();
+        when(platformConnection.authenticatedProfile())
+                .thenReturn(new User.Profile(UUID.randomUUID(), ".Dormant_Join"));
+        CultConnection connection = CultAPI.INSTANCE.getNetworkManager().createConnection(platformConnection, channel);
+        joins.add(connection);
+        if (dormant) DormancyController.joinedDormant(connection);
+        connection.phase(PacketDirection.SERVERBOUND, ConnectionPhase.CONFIGURATION);
+        connection.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.CONFIGURATION);
+        CultDecoder.install(connection);
+        CultEncoder.install(connection);
+        connection.prepare();
+        return connection;
+    }
+
     /** Runs as an engine under {@code host} until closed. */
     private static AutoCloseable hosted(HostContext host) throws ReflectiveOperationException {
         Field context = RuntimeEnvironment.class.getDeclaredField("context");
@@ -414,7 +462,7 @@ class DormantDetachTest {
                         UUID.randomUUID().toString())));
     }
 
-    /** Detaches every connection the setting now makes dormant and runs their packet owners' tasks. */
+    /** Detaches every connection the setting makes dormant and runs their packet owners' tasks. */
     private void settle() {
         CompletableFuture<Void> settled = DormancyController.settle();
         for (Client client : clients) client.f.channel.runPendingTasks();
