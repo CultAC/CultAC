@@ -4,6 +4,7 @@ import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
+import ac.cult.blocksim.engine.EntityCollisionContext;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
@@ -11,7 +12,7 @@ import ac.cult.blocksim.interaction.PlacementContext;
 
 public final class ScaffoldingBehavior extends BlockBehavior {
     @Override
-    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos, ac.cult.blocksim.engine.EntityCollisionContext context) {
+    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos, EntityCollisionContext context) {
         if (context.placement()) return Shapes.empty();
         if (context.isAbove(1, pos, true) && !context.descending()) {
             // The generated empty-context collision is the stable top and four posts.
@@ -22,7 +23,7 @@ public final class ScaffoldingBehavior extends BlockBehavior {
             ? Shapes.create(0, 0, 0, 1, 2.0 / 16, 1) : Shapes.empty();
     }
     @Override
-    public VoxelShape outlineShape(SimLevel level, int state, BlockPos pos, ac.cult.blocksim.engine.EntityCollisionContext context) {
+    public VoxelShape outlineShape(SimLevel level, int state, BlockPos pos, EntityCollisionContext context) {
         return context.isHoldingItem("minecraft:scaffolding")
             ? Shapes.block() : super.outlineShape(level, state, pos, context);
     }

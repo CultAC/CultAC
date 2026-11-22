@@ -1,12 +1,13 @@
 package ac.cult.blocksim.interaction;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /** BlockItem's explicit age component writes only when it differs from the sampled initial age. */
 public record WriteCondition(UUID plantAgeSample, int excludedAge) {
     public WriteCondition {
-        java.util.Objects.requireNonNull(plantAgeSample);
+        Objects.requireNonNull(plantAgeSample);
         if (excludedAge < 0 || excludedAge >= 25) throw new IllegalArgumentException("Only initial plant ages 0..24 are conditional");
     }
     public boolean isPresent(Map<UUID, Integer> samples) {

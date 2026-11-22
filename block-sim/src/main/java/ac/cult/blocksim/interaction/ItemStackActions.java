@@ -1,12 +1,13 @@
 package ac.cult.blocksim.interaction;
 
 import ac.cult.blocksim.behavior.ItemBehaviorRegistry;
-import ac.cult.blocksim.data.ItemTemplates;
 import ac.cult.blocksim.data.ItemComponents;
-import ac.cult.blocksim.engine.SimCooldowns;
+import ac.cult.blocksim.data.ItemTemplates;
 import ac.cult.blocksim.engine.BlockSimClientVersion;
+import ac.cult.blocksim.engine.SimCooldowns;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.engine.SimPlayer;
+import java.util.Objects;
 
 /** ItemStack's client wrappers, before item dispatch and after the item result. */
 public final class ItemStackActions implements StackActions {
@@ -15,8 +16,8 @@ public final class ItemStackActions implements StackActions {
     private final SimCooldowns cooldowns;
     private final ItemTemplates templates;
     public ItemStackActions(ItemBehaviorRegistry behaviors, AdventureRuleMatcher adventure, SimCooldowns cooldowns, ItemTemplates templates) {
-        this.behaviors = java.util.Objects.requireNonNull(behaviors); this.adventure = java.util.Objects.requireNonNull(adventure);
-        this.cooldowns = java.util.Objects.requireNonNull(cooldowns); this.templates = java.util.Objects.requireNonNull(templates);
+        this.behaviors = Objects.requireNonNull(behaviors); this.adventure = Objects.requireNonNull(adventure);
+        this.cooldowns = Objects.requireNonNull(cooldowns); this.templates = Objects.requireNonNull(templates);
     }
 
     @Override

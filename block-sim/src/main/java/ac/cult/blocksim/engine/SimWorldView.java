@@ -1,5 +1,13 @@
 package ac.cult.blocksim.engine;
 
+import ac.cult.blocksim.data.Box;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
+import ac.cult.blocksim.entity.EntityTypes;
+import ac.cult.blocksim.entity.PaintingSize;
+import com.google.gson.JsonElement;
+import java.util.List;
+import java.util.Set;
+
 /** The proven client-visible world. All state IDs belong to the input version. */
 public interface SimWorldView {
     int stateAt(BlockPos pos);
@@ -19,7 +27,7 @@ public interface SimWorldView {
     /** The received dimension key, independent of its dimension-type attributes. */
     String dimensionKey();
     /** Recipe property sets are replaced by the received update-recipes packet. */
-    java.util.Set<String> recipeInputs(String key);
+    Set<String> recipeInputs(String key);
     /** Resolved from the client's synced dimension/biome/timeline attributes at this tick. */
     boolean creakingActiveAt(BlockPos pos);
     /** WATER_EVAPORATES at this position, resolved from received dimension, biome and timeline data. */
@@ -35,27 +43,27 @@ public interface SimWorldView {
     int detectorRailOutputAt(BlockPos pos);
     boolean hasSittingCatAt(BlockPos pos);
     /** EntityType.canSpawn reads received feature flags and difficulty. */
-    boolean canSpawn(ac.cult.blocksim.entity.EntityTypes.Type type);
+    boolean canSpawn(EntityTypes.Type type);
     boolean hasFeature(String key);
-    boolean hasMinecartIn(ac.cult.blocksim.data.Box box);
+    boolean hasMinecartIn(Box box);
     /**
      * Level.getEntities(null, box): EntityGetter filters with EntitySelector.NO_SPECTATORS, so every
      * non-spectator entity counts, including the local player and non-collidable entities.
      */
-    boolean hasEntityIn(ac.cult.blocksim.data.Box box);
+    boolean hasEntityIn(Box box);
     /** EntityGetter.getEntityCollisions: a null source tests collidable entities; a boat also tests pushable entities. */
-    boolean hasEntityCollision(ac.cult.blocksim.data.Box box, boolean boatSource);
+    boolean hasEntityCollision(Box box, boolean boatSource);
     /** EntityGetter.isUnobstructed(null, shape), used by block placement. */
-    boolean isUnobstructed(ac.cult.blocksim.engine.shapes.VoxelShape shape);
+    boolean isUnobstructed(VoxelShape shape);
     /** BoatItem checks eye containment within pickable entities in the expanded view box. */
     boolean hasPickableEntityAtEye(SimPlayer player);
-    boolean hasBorderCollision(ac.cult.blocksim.data.Box box, Vec3 source);
-    java.util.List<ac.cult.blocksim.entity.PaintingSize> placeablePaintings();
-    ac.cult.blocksim.entity.PaintingSize paintingSize(com.google.gson.JsonElement holder);
+    boolean hasBorderCollision(Box box, Vec3 source);
+    List<PaintingSize> placeablePaintings();
+    PaintingSize paintingSize(JsonElement holder);
     /** Frames allow overlapping types in different directions; paintings also reject their own type. */
-    boolean hasHangingEntityOverlap(ac.cult.blocksim.data.Box box, Direction direction, String type, boolean allowSameType);
+    boolean hasHangingEntityOverlap(Box box, Direction direction, String type, boolean allowSameType);
     /** MovingPistonBlock delegates to the client-visible piston block entity. Local coordinates. */
-    ac.cult.blocksim.engine.shapes.VoxelShape movingPistonCollisionAt(BlockPos pos);
+    VoxelShape movingPistonCollisionAt(BlockPos pos);
 
     /** A query whose client answer the host has not proved; the facade converts it to the UNDECIDED decline. */
     final class UndecidedQueryException extends RuntimeException {

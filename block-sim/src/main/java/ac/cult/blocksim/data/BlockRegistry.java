@@ -1,8 +1,11 @@
 package ac.cult.blocksim.data;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 
 /** Versioned global state IDs with vanilla's mixed-radix property neighbor table. */
 public final class BlockRegistry {
@@ -29,8 +32,8 @@ public final class BlockRegistry {
         this.blockIndices = new int[facts.size()];
         int blockIndex = 0;
         var keys = new HashMap<String, BlockDefinition>();
-        var propertyTables = new java.util.IdentityHashMap<BlockDefinition, Map<String, BlockDefinition.Property>>();
-        var indices = new java.util.IdentityHashMap<BlockDefinition.Property, Map<String, Integer>>();
+        var propertyTables = new IdentityHashMap<BlockDefinition, Map<String, BlockDefinition.Property>>();
+        var indices = new IdentityHashMap<BlockDefinition.Property, Map<String, Integer>>();
         for (BlockDefinition block : blocks) {
             if (keys.put(block.key(), block) != null) throw new IllegalArgumentException("Duplicate " + block.key());
             long product = 1;
@@ -60,8 +63,8 @@ public final class BlockRegistry {
             if (byState[id] == null) throw new IllegalArgumentException("Missing state " + id);
         }
         byKey = Map.copyOf(keys);
-        properties = java.util.Collections.unmodifiableMap(propertyTables);
-        valueIndices = java.util.Collections.unmodifiableMap(indices);
+        properties = Collections.unmodifiableMap(propertyTables);
+        valueIndices = Collections.unmodifiableMap(indices);
         shapes = exactShapes == null ? new StateShapes(this.facts) : exactShapes;
     }
 
@@ -83,7 +86,7 @@ public final class BlockRegistry {
     public String serialize(int state) {
         var block = block(state);
         if (block.properties().isEmpty()) return block.key();
-        var text = new java.util.StringJoiner(",", block.key() + "[", "]");
+        var text = new StringJoiner(",", block.key() + "[", "]");
         for (var property : block.properties()) {
             int index = (state - block.firstState()) / property.stride() % property.values().size();
             text.add(property.name() + "=" + property.values().get(index));

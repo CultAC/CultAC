@@ -1,34 +1,40 @@
 package ac.cult.blocksim.data;
 
+import ac.cult.blocksim.data.nbt.CanonicalSnbt;
+import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.engine.SimItemStack;
+import com.google.gson.JsonParser;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
 
 /** Item bindings and immutable default components from the official data generator. */
 public final class ItemRegistry {
     private final Map<String, ItemDefinition> items;
     private final Map<String, Components> defaults;
     private final boolean[] containerItems;
-    private final java.util.function.Function<String, Components> compensatedDefaults;
+    private final Function<String, Components> compensatedDefaults;
 
     public ItemRegistry(DataTables data) {
         this(data, key -> null);
     }
     /** The override reads only registry components established at the proven client tick. */
-    public ItemRegistry(DataTables data, java.util.function.Function<String, Components> compensatedDefaults) {
-        this.compensatedDefaults = java.util.Objects.requireNonNull(compensatedDefaults);
+    public ItemRegistry(DataTables data, Function<String, Components> compensatedDefaults) {
+        this.compensatedDefaults = Objects.requireNonNull(compensatedDefaults);
         var items = new HashMap<String, ItemDefinition>();
         var defaults = new HashMap<String, Components>();
         containerItems = new boolean[data.items().size()];
         for (ItemDefinition item : data.items()) {
             if (items.put(item.key(), item) != null) throw new IllegalArgumentException("Duplicate item " + item.key());
-            var report = com.google.gson.JsonParser.parseString(item.defaultComponentsJson()).getAsJsonObject();
+            var report = JsonParser.parseString(item.defaultComponentsJson()).getAsJsonObject();
             String nbt = item.bindings().get("components.defaultNbt");
-            var encoding = nbt == null ? Map.<String, ac.cult.blocksim.data.nbt.NbtValue>of()
-                : ((ac.cult.blocksim.data.nbt.NbtValue.Compound)ac.cult.blocksim.data.nbt.CanonicalSnbt.parse(nbt)).values();
+            var encoding = nbt == null ? Map.<String, NbtValue>of()
+                : ((NbtValue.Compound)CanonicalSnbt.parse(nbt)).values();
             defaults.put(item.key(), new Components(report.getAsJsonObject("components").asMap(), encoding));
             containerItems[item.id()] = item.block().isEmpty()
-                    || !java.util.List.of(data.registry().block(item.block()).bindings().get("classHierarchy").split(","))
+                    || !List.of(data.registry().block(item.block()).bindings().get("classHierarchy").split(","))
                             .contains("net.minecraft.world.level.block.ShulkerBoxBlock");
         }
         this.items = Map.copyOf(items);

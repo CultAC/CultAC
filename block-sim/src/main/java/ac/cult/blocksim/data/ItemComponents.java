@@ -6,9 +6,11 @@ import ac.cult.blocksim.engine.SimItemStack;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Typed views of the component fields consumed by inventory, movement and item actions. */
 public final class ItemComponents {
@@ -30,7 +32,7 @@ public final class ItemComponents {
         public HolderSet { entries = List.copyOf(entries); }
         public boolean contains(DataTables data, String registry, String key) {
             return tag == null ? entries.contains(key)
-                    : data.tags().getOrDefault(registry + ":" + tag, java.util.Set.of()).contains(key);
+                    : data.tags().getOrDefault(registry + ":" + tag, Set.of()).contains(key);
         }
     }
     public record ToolRule(HolderSet blocks, Float speed, Boolean correctForDrops) {}
@@ -125,7 +127,7 @@ public final class ItemComponents {
         if (value == null) return Map.of();
         var levels = new LinkedHashMap<String, Integer>();
         value.entrySet().forEach(entry -> levels.put(HolderSets.identifier(entry.getKey()), entry.getValue().getAsInt()));
-        return java.util.Collections.unmodifiableMap(levels);
+        return Collections.unmodifiableMap(levels);
     }
 
     public static List<BookPage> writableBook(Components components) {

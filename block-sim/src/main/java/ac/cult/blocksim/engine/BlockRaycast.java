@@ -1,6 +1,7 @@
 package ac.cult.blocksim.engine;
 
 import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.blocksim.interaction.BlockHit;
 import java.util.function.Function;
 
@@ -9,7 +10,7 @@ public final class BlockRaycast {
     public enum Fluid { NONE, SOURCE_ONLY, ANY }
     @FunctionalInterface
     public interface ShapeQuery {
-        ac.cult.blocksim.engine.shapes.VoxelShape get(int state, BlockPos pos);
+        VoxelShape get(int state, BlockPos pos);
     }
     public record Pick(BlockHit hit, boolean miss) { }
     private BlockRaycast() { }

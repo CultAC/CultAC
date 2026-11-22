@@ -6,6 +6,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +57,7 @@ public final class EntityTypes {
         String path = "/block-sim/" + version + "/entity-types.tsv";
         var stream = EntityTypes.class.getResourceAsStream(path);
         if (stream == null) throw new IOException("Missing entity table " + path);
-        var types = new java.util.ArrayList<Type>();
+        var types = new ArrayList<Type>();
         try (var reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
             reader.readLine();
             for (String row; (row = reader.readLine()) != null; ) {
@@ -70,7 +72,7 @@ public final class EntityTypes {
     }
     private static List<Vec3> points(String field) {
         if (field.isEmpty()) return List.of();
-        return java.util.Arrays.stream(field.split(";")).map(point -> {
+        return Arrays.stream(field.split(";")).map(point -> {
             String[] xyz = point.split(",");
             return new Vec3(Double.parseDouble(xyz[0]), Double.parseDouble(xyz[1]), Double.parseDouble(xyz[2]));
         }).toList();

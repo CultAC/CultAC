@@ -1,10 +1,12 @@
 package ac.cult.blocksim.generator;
 
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import static org.junit.jupiter.api.Assertions.*;
 
 class SourceScannerTest {
     @TempDir Path root;
@@ -44,7 +46,7 @@ class SourceScannerTest {
         Path file = root.resolve("world/item/Fixture.java");
         Files.createDirectories(file.getParent());
         Files.writeString(file, "class Fixture { int use() { ");
-        assertThrows(java.io.IOException.class, () -> SourceScanner.scan(root));
+        assertThrows(IOException.class, () -> SourceScanner.scan(root));
     }
 
     @Test void generationRefusesUnpinnedGameBytes() throws Exception {

@@ -1,10 +1,11 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.shapes.SupportType;
-import ac.cult.blocksim.data.StateFacts;
+import java.util.Locale;
 import java.util.Set;
 
 public final class SupportRules {
@@ -30,7 +31,7 @@ public final class SupportRules {
     public boolean testAttachment(String rule, SimLevel level, int state, BlockPos pos, Set<String> water) {
         Direction direction = switch (rule) {
             case "ceiling_full", "ceiling_center_dry" -> Direction.UP;
-            case "wall_full", "wall_solid" -> Direction.valueOf(level.registry().value(state, "facing").toUpperCase(java.util.Locale.ROOT)).opposite();
+            case "wall_full", "wall_solid" -> Direction.valueOf(level.registry().value(state, "facing").toUpperCase(Locale.ROOT)).opposite();
             default -> Direction.DOWN;
         };
         BlockPos supportPos = pos.relative(direction);

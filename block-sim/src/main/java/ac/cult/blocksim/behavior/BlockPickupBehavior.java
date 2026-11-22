@@ -1,7 +1,10 @@
 package ac.cult.blocksim.behavior;
 
 import ac.cult.blocksim.engine.BlockPos;
+import ac.cult.blocksim.engine.EntityCollisionContext;
 import ac.cult.blocksim.engine.SimLevel;
+import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 
 /** Liquid sources, bubble columns and powder snow share the client pickup write. */
 public class BlockPickupBehavior extends BlockBehavior {
@@ -9,14 +12,14 @@ public class BlockPickupBehavior extends BlockBehavior {
     private final boolean sourceOnly;
     public BlockPickupBehavior(String bucket, boolean sourceOnly) { this.bucket = bucket; this.sourceOnly = sourceOnly; }
     @Override
-    public ac.cult.blocksim.engine.shapes.VoxelShape collisionShape(SimLevel level, int state, BlockPos pos, ac.cult.blocksim.engine.EntityCollisionContext context) {
+    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos, EntityCollisionContext context) {
         // LiquidBlock alwaysCollideWithFluid is independent of its source/flowing level.
-        if (sourceOnly && context.alwaysCollideWithFluid()) return ac.cult.blocksim.engine.shapes.Shapes.block();
+        if (sourceOnly && context.alwaysCollideWithFluid()) return Shapes.block();
         if (!"minecraft:powder_snow_bucket".equals(bucket)) return super.collisionShape(level, state, pos, context);
-        if (context.placement()) return ac.cult.blocksim.engine.shapes.Shapes.empty();
-        if (context.fallDistance() > 2.5) return ac.cult.blocksim.engine.shapes.Shapes.create(0, 0, 0, 1, .9F, 1);
+        if (context.placement()) return Shapes.empty();
+        if (context.fallDistance() > 2.5) return Shapes.create(0, 0, 0, 1, .9F, 1);
         return context.fallingBlock() || context.powderSnowWalkable() && context.isAbove(1, pos) && !context.descending()
-            ? ac.cult.blocksim.engine.shapes.Shapes.block() : ac.cult.blocksim.engine.shapes.Shapes.empty();
+            ? Shapes.block() : Shapes.empty();
     }
     @Override
     public String pickupBlock(SimLevel level, int state, BlockPos pos, boolean creativePlayer) {

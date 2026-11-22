@@ -8,6 +8,7 @@ import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.interaction.PlacementContext;
 import ac.cult.blocksim.interaction.SimInteraction;
 import ac.cult.blocksim.interaction.UseContext;
+import java.util.Locale;
 import java.util.Set;
 
 public final class FenceGateBehavior extends BlockBehavior {
@@ -33,7 +34,7 @@ public final class FenceGateBehavior extends BlockBehavior {
         boolean open = new Signals(level).hasNeighborSignal(pos);
         boolean inWall = direction.axisName().equals("z") && (isWall(level, level.stateAt(pos.relative(Direction.WEST))) || isWall(level, level.stateAt(pos.relative(Direction.EAST))))
             || direction.axisName().equals("x") && (isWall(level, level.stateAt(pos.relative(Direction.NORTH))) || isWall(level, level.stateAt(pos.relative(Direction.SOUTH))));
-        int result = level.registry().with(block.defaultState(), "facing", direction.name().toLowerCase(java.util.Locale.ROOT));
+        int result = level.registry().with(block.defaultState(), "facing", direction.name().toLowerCase(Locale.ROOT));
         result = level.registry().with(result, "open", Boolean.toString(open));
         result = level.registry().with(result, "powered", Boolean.toString(open));
         return level.registry().with(result, "in_wall", Boolean.toString(inWall));
@@ -46,7 +47,7 @@ public final class FenceGateBehavior extends BlockBehavior {
             state = level.registry().with(state, "open", "false");
         } else {
             Direction direction = context.horizontalDirection();
-            if (facing(level, state) == direction.opposite()) state = level.registry().with(state, "facing", direction.name().toLowerCase(java.util.Locale.ROOT));
+            if (facing(level, state) == direction.opposite()) state = level.registry().with(state, "facing", direction.name().toLowerCase(Locale.ROOT));
             state = level.registry().with(state, "open", "true");
         }
         level.setBlock(context.clickedPos(), state, 10);

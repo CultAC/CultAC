@@ -1,14 +1,15 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.blocksim.interaction.SimInteraction;
 import ac.cult.blocksim.interaction.UseContext;
-import ac.cult.blocksim.data.ItemComponents;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 /** Client consumption; potion/omen/stew listeners operate on the action's player state. */
 public final class ConsumableBehavior {
     private final Consumer<UseContext> effectListeners;
-    public ConsumableBehavior(Consumer<UseContext> effectListeners) { this.effectListeners = java.util.Objects.requireNonNull(effectListeners); }
+    public ConsumableBehavior(Consumer<UseContext> effectListeners) { this.effectListeners = Objects.requireNonNull(effectListeners); }
 
     public SimInteraction start(UseContext context) {
         if (!canConsume(context)) return SimInteraction.FAIL;

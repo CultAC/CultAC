@@ -1,36 +1,44 @@
 package ac.cult.blocksim.data;
 
+import ac.cult.blocksim.data.nbt.BinaryNbt;
+import ac.cult.blocksim.data.nbt.NbtJson;
+import ac.cult.blocksim.data.nbt.NbtValue;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /** Component additions/removals; live stacks sanitize against their captured prototype. */
 public record ComponentPatch(Components added, Set<String> removed) {
     public static final ComponentPatch EMPTY = new ComponentPatch(Components.EMPTY, Set.of());
-    public ComponentPatch { java.util.Objects.requireNonNull(added); removed = Set.copyOf(removed); }
+    public ComponentPatch { Objects.requireNonNull(added); removed = Set.copyOf(removed); }
 
     /** Complete network values from the private wire decoder, without native codec parsing. */
     public static ComponentPatch fromNetwork(byte[] bytes, byte[] layouts) {
         if (bytes == null) return EMPTY;
-        var compound = (ac.cult.blocksim.data.nbt.NbtValue.Compound) ac.cult.blocksim.data.nbt.BinaryNbt.read(bytes);
-        var details = layouts == null ? new ac.cult.blocksim.data.nbt.NbtValue.Compound(java.util.Map.of())
-                : (ac.cult.blocksim.data.nbt.NbtValue.Compound) ac.cult.blocksim.data.nbt.BinaryNbt.read(layouts);
+        var compound = (NbtValue.Compound) BinaryNbt.read(bytes);
+        var details = layouts == null ? new NbtValue.Compound(Map.of())
+                : (NbtValue.Compound) BinaryNbt.read(layouts);
         return fromNbt(compound, details);
     }
-    public static ComponentPatch fromNbt(ac.cult.blocksim.data.nbt.NbtValue.Compound compound) {
-        return fromNbt(compound, new ac.cult.blocksim.data.nbt.NbtValue.Compound(java.util.Map.of()));
+    public static ComponentPatch fromNbt(NbtValue.Compound compound) {
+        return fromNbt(compound, new NbtValue.Compound(Map.of()));
     }
-    public static ComponentPatch fromNbt(ac.cult.blocksim.data.nbt.NbtValue.Compound compound,
-                                       ac.cult.blocksim.data.nbt.NbtValue.Compound layouts) {
-        var values = new java.util.HashMap<String, com.google.gson.JsonElement>();
-        var encoded = new java.util.HashMap<String, ac.cult.blocksim.data.nbt.NbtValue>();
+    public static ComponentPatch fromNbt(NbtValue.Compound compound,
+                                       NbtValue.Compound layouts) {
+        var values = new HashMap<String, JsonElement>();
+        var encoded = new HashMap<String, NbtValue>();
         var removed = new HashSet<String>();
-        var details = new java.util.HashMap<String, ac.cult.blocksim.data.nbt.NbtValue.Compound>();
+        var details = new HashMap<String, NbtValue.Compound>();
         compound.values().forEach((key, value) -> {
             if (key.startsWith("!")) removed.add(key.substring(1));
             else {
-                values.put(key, ac.cult.blocksim.data.nbt.NbtJson.encode(value));
+                values.put(key, NbtJson.encode(value));
                 encoded.put(key, value);
-                if (layouts.values().get(key) instanceof ac.cult.blocksim.data.nbt.NbtValue.Compound layout)
+                if (layouts.values().get(key) instanceof NbtValue.Compound layout)
                     details.put(key, layout);
             }
         });
@@ -39,8 +47,8 @@ public record ComponentPatch(Components added, Set<String> removed) {
     }
 
     /** Authored codec values; received values use fromNbt to retain their exact NBT kinds. */
-    public static ComponentPatch fromJson(com.google.gson.JsonObject object) {
-        var values = new java.util.HashMap<String, com.google.gson.JsonElement>();
+    public static ComponentPatch fromJson(JsonObject object) {
+        var values = new HashMap<String, JsonElement>();
         var removed = new HashSet<String>();
         object.entrySet().forEach(entry -> {
             String key = entry.getKey();

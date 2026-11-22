@@ -1,19 +1,21 @@
 package ac.cult.blocksim.entity;
 
 import ac.cult.blocksim.data.nbt.NbtValue;
+import com.google.gson.JsonPrimitive;
+import java.util.List;
 
 public final class SignEntityComponents {
     private SignEntityComponents() { }
     static void apply(ComponentInput input) {
-        for (String side : java.util.List.of("front", "back")) {
+        for (String side : List.of("front", "back")) {
             boolean commands = hasCommands(input.nbt("minecraft:sign_text_" + side));
             String key = side + "_has_commands";
             input.fields.put(key, new NbtValue.Numeric(NbtValue.Kind.BYTE, (byte) (commands ? 1 : 0)));
-            input.internalFields.put(key, new com.google.gson.JsonPrimitive(commands));
+            input.internalFields.put(key, new JsonPrimitive(commands));
         }
         boolean waxed = input.get("minecraft:waxed") != null;
         input.fields.put("is_waxed", new NbtValue.Numeric(NbtValue.Kind.BYTE, (byte)(waxed ? 1 : 0)));
-        input.internalFields.put("is_waxed", new com.google.gson.JsonPrimitive(waxed));
+        input.internalFields.put("is_waxed", new JsonPrimitive(waxed));
     }
 
     /** SignText.hasAnyClickCommands(false) checks each unfiltered line's root style. */

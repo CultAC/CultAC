@@ -1,5 +1,6 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.BlockRaycast;
 import ac.cult.blocksim.engine.SimItemStack;
@@ -14,7 +15,7 @@ public final class ContextualItemBehavior implements ItemBehavior {
     private final ItemBehavior defaults;
     private final Kind kind;
     private final Set<String> banners;
-    private final ac.cult.blocksim.data.BlockDefinition portalFrame;
+    private final BlockDefinition portalFrame;
 
     public ContextualItemBehavior(DataTables data, ItemBehavior defaults, Kind kind) {
         this.defaults = defaults;

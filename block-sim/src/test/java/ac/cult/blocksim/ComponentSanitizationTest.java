@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import ac.cult.blocksim.data.ComponentPatch;
 import ac.cult.blocksim.data.Components;
 import ac.cult.blocksim.data.nbt.NbtValue;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -13,8 +16,8 @@ class ComponentSanitizationTest {
     @Test
     void alreadySanitizedPatchRetainsValuesEncodingsAndPublicMutationIsolation() {
         var prototype = Components.parse("{\"test:removed\":1}");
-        var source = com.google.gson.JsonParser.parseString("{\"child\":[1,2]}");
-        var typed = new NbtValue.Compound(Map.of("child", new NbtValue.Sequence(java.util.List.of(
+        var source = JsonParser.parseString("{\"child\":[1,2]}");
+        var typed = new NbtValue.Compound(Map.of("child", new NbtValue.Sequence(List.of(
                 new NbtValue.Numeric(NbtValue.Kind.INT, 1), new NbtValue.Numeric(NbtValue.Kind.INT, 2)))));
         var added = new Components(Map.of("test:new", source), Map.of("test:new", typed));
         var patch = new ComponentPatch(added, Set.of("test:removed"));
@@ -36,7 +39,7 @@ class ComponentSanitizationTest {
         assertEquals(Set.of("test:new"), clean.added().keys());
         assertEquals(Set.of("test:removed"), clean.removed());
         var number = new NbtValue.Numeric(NbtValue.Kind.INT, 3);
-        var orphaned = new Components(Map.of("test:new", new com.google.gson.JsonPrimitive(3)),
+        var orphaned = new Components(Map.of("test:new", new JsonPrimitive(3)),
                 Map.of("test:new", number, "test:orphan", number),
                 Map.of("test:orphan", new NbtValue.Compound(Map.of())));
         var result = new ComponentPatch(orphaned, Set.of()).sanitized(prototype);

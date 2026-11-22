@@ -5,6 +5,7 @@ import ac.cult.blocksim.data.ItemRegistry;
 import ac.cult.blocksim.data.ItemTemplate;
 import ac.cult.blocksim.data.ItemTemplates;
 import java.util.ArrayList;
+import java.util.Objects;
 import org.apache.commons.lang3.math.Fraction;
 
 /** Action-local bundle insertion, extraction and selection; no server slot-modifier machinery. */
@@ -15,7 +16,7 @@ public final class MutableBundleContents {
     private int selectedItem = -1;
 
     public MutableBundleContents(BundleContents contents, ItemRegistry registry) {
-        this.registry = java.util.Objects.requireNonNull(registry);
+        this.registry = Objects.requireNonNull(registry);
         var initial = contents.weight(registry);
         if (initial.valid()) {
             var templates = new ItemTemplates(registry);

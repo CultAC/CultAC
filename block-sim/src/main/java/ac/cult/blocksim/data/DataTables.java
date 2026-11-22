@@ -1,10 +1,14 @@
 package ac.cult.blocksim.data;
 
+import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,7 +61,7 @@ public record DataTables(String version, String vanillaSha256, String reportSha2
         Set<String> features = Set.copyOf(strings(in));
         int maxValidChunkCoordinate = in.readInt();
         List<List<Box>> shapes = new ArrayList<>();
-        List<ac.cult.blocksim.engine.shapes.VoxelShape> grids = new ArrayList<>();
+        List<VoxelShape> grids = new ArrayList<>();
         for (int size = count(in), i = 0; i < size; i++) {
             List<Box> boxes = new ArrayList<>();
             for (int boxCount = count(in), j = 0; j < boxCount; j++) {
@@ -74,7 +78,7 @@ public record DataTables(String version, String vanillaSha256, String reportSha2
                 int bytes = count(in);
                 byte[] occupancy = in.readNBytes(bytes);
                 if (occupancy.length != bytes) throw new IOException("Truncated shape grid");
-                try { grids.add(ac.cult.blocksim.engine.shapes.Shapes.fromGrid(coordinates, cube, java.util.BitSet.valueOf(occupancy))); }
+                try { grids.add(Shapes.fromGrid(coordinates, cube, BitSet.valueOf(occupancy))); }
                 catch (IllegalArgumentException invalid) { throw new IOException("Invalid shape grid", invalid); }
             }
         }
@@ -89,10 +93,10 @@ public record DataTables(String version, String vanillaSha256, String reportSha2
             blocks.add(new BlockDefinition(key, vanillaClass, first, states, defaultState, properties, stringMap(in), strings(in)));
         }
         List<StateFacts> facts = new ArrayList<>();
-        var exactCollision = new ArrayList<ac.cult.blocksim.engine.shapes.VoxelShape>();
-        var exactOutline = new ArrayList<ac.cult.blocksim.engine.shapes.VoxelShape>();
-        var exactSupport = new ArrayList<ac.cult.blocksim.engine.shapes.VoxelShape>();
-        var exactInteraction = new ArrayList<ac.cult.blocksim.engine.shapes.VoxelShape>();
+        var exactCollision = new ArrayList<VoxelShape>();
+        var exactOutline = new ArrayList<VoxelShape>();
+        var exactSupport = new ArrayList<VoxelShape>();
+        var exactInteraction = new ArrayList<VoxelShape>();
         for (int size = count(in), i = 0; i < size; i++) {
             float destroy = in.readFloat();
             int flags = in.readInt();
@@ -139,6 +143,6 @@ public record DataTables(String version, String vanillaSha256, String reportSha2
         int length = count(in);
         byte[] bytes = in.readNBytes(length);
         if (bytes.length != length) throw new IOException("Truncated table string");
-        return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 }

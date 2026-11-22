@@ -4,6 +4,7 @@ package ac.cult.blocksim.environment;
 
 import ac.cult.blocksim.data.nbt.NbtJson;
 import com.google.gson.JsonObject;
+import java.util.Locale;
 
 /** Only the boolean attribute operations consumed by prediction. */
 public final class BooleanRule {
@@ -23,7 +24,7 @@ public final class BooleanRule {
         }
         public static Operation read(String name) {
             for (var operation : values())
-                if (operation.name().toLowerCase(java.util.Locale.ROOT).equals(name)) return operation;
+                if (operation.name().toLowerCase(Locale.ROOT).equals(name)) return operation;
             throw new IllegalArgumentException("Unknown boolean modifier " + name);
         }
     }

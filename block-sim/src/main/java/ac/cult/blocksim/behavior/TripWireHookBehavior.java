@@ -1,12 +1,13 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
-import ac.cult.blocksim.engine.SimLevel;
-import ac.cult.blocksim.data.BlockDefinition;
-import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.engine.SimLevel;
+import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.interaction.PlacementContext;
+import java.util.Locale;
 
 public final class TripWireHookBehavior extends BlockBehavior {
     @Override
@@ -26,7 +27,7 @@ public final class TripWireHookBehavior extends BlockBehavior {
         int state = level.registry().with(level.registry().with(block.defaultState(), "powered", "false"), "attached", "false");
         for (Direction direction : context.nearestLookingDirections()) {
             if (direction.horizontal()) {
-                state = level.registry().with(state, "facing", direction.opposite().name().toLowerCase(java.util.Locale.ROOT));
+                state = level.registry().with(state, "facing", direction.opposite().name().toLowerCase(Locale.ROOT));
                 if (canSurvive(level, state, context.clickedPos())) return state;
             }
         }
