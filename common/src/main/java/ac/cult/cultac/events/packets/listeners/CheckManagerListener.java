@@ -1265,8 +1265,11 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         boolean ticked = aiStep || player.localPlayerRemovedThisTick();
         // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
         if (aiStep) FlightToggle.onClientTick(player);
-        // Entity#canUsePortal excludes a passenger.
-        if (aiStep) player.localPortalProcess.onAiStep(player.intersectedWithNetherPortal && !player.inVehicle());
+        // Entity#isAffectedByBlocks excludes the noPhysics spectator, and Entity#canUsePortal a passenger.
+        if (aiStep) {
+            player.localPortalProcess.onAiStep(
+                    player.intersectedWithNetherPortal && player.gamemode != GameMode.SPECTATOR && !player.inVehicle());
+        }
         if (aiStep && !event.isSynthetic() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
             player.ridingJumpCharge.onClientTick(
                     player.compensatedEntities.vehicles.ridingJumpable(), player.boatData.nextVehicleJump);
