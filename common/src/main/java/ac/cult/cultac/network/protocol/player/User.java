@@ -1,8 +1,18 @@
 package ac.cult.cultac.network.protocol.player;
 
+import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketDirection;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import io.netty.channel.ChannelFuture;
 import io.netty.util.concurrent.EventExecutor;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.kyori.adventure.text.Component;
@@ -20,32 +30,32 @@ public final class User {
     }
 
     private final AtomicBoolean closeRequested = new AtomicBoolean();
-    private final ac.cult.cultac.network.CultConnection cultConnection;
+    private final CultConnection cultConnection;
 
-    public User(Profile profile, ac.cult.cultac.network.CultConnection connection) {
-        this.profile = java.util.Objects.requireNonNull(profile);
-        this.cultConnection = java.util.Objects.requireNonNull(connection);
+    public User(Profile profile, CultConnection connection) {
+        this.profile = Objects.requireNonNull(profile);
+        this.cultConnection = Objects.requireNonNull(connection);
         var continued = connection.continuation();
         connectionId =
                 continued != null && continued.connectionId() != null ? continued.connectionId() : UUID.randomUUID();
         connection.bind(this);
     }
 
-    public ac.cult.cultac.network.CultConnection getCultConnection() {
+    public CultConnection getCultConnection() {
         return cultConnection;
     }
 
-    public ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
+    public ProtocolVersion getObservedProtocol() {
         return cultConnection.getObservedProtocol();
     }
 
     @Nullable
-    public ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+    public ProtocolVersion getClientProtocol() {
         var cultPlayer = getCultPlayer();
         return cultPlayer == null ? cultConnection.getClientProtocol() : cultPlayer.getClientProtocol();
     }
 
-    public ac.cult.cultac.player.CultPlayer getCultPlayer() {
+    public CultPlayer getCultPlayer() {
         return cultConnection.player();
     }
 
@@ -99,28 +109,25 @@ public final class User {
         return cultConnection.bedrockBridge();
     }
 
-    public ac.cult.cultac.protocol.ConnectionPhase getConnectionState() {
-        return cultConnection.phase(ac.cult.cultac.protocol.PacketDirection.SERVERBOUND);
+    public ConnectionPhase getConnectionState() {
+        return cultConnection.phase(PacketDirection.SERVERBOUND);
     }
 
-    public ac.cult.cultac.protocol.ConnectionPhase getEncoderState() {
-        return cultConnection.phase(ac.cult.cultac.protocol.PacketDirection.CLIENTBOUND);
+    public ConnectionPhase getEncoderState() {
+        return cultConnection.phase(PacketDirection.CLIENTBOUND);
     }
 
     public CompletionStage<Void> write(Object packet) {
-        return completion(getCultConnection()
-                .write(
-                        packet instanceof ac.cult.cultac.network.CultWrite write
-                                ? write
-                                : new ac.cult.cultac.network.CultWrite(packet, false)));
+        return completion(
+                getCultConnection().write(packet instanceof CultWrite write ? write : new CultWrite(packet, false)));
     }
 
-    public CompletionStage<Void> write(java.util.List<ac.cult.cultac.network.CultWrite> packets, boolean bundle) {
+    public CompletionStage<Void> write(List<CultWrite> packets, boolean bundle) {
         return completion(getCultConnection().write(packets, bundle));
     }
 
-    private static CompletionStage<Void> completion(io.netty.channel.ChannelFuture future) {
-        var result = new java.util.concurrent.CompletableFuture<Void>();
+    private static CompletionStage<Void> completion(ChannelFuture future) {
+        var result = new CompletableFuture<Void>();
         future.addListener(done -> {
             if (done.isSuccess()) result.complete(null);
             else result.completeExceptionally(done.cause());
@@ -144,7 +151,7 @@ public final class User {
     }
 
     public void bind(PlatformPlayer player) {
-        this.player = java.util.Objects.requireNonNull(player);
+        this.player = Objects.requireNonNull(player);
     }
 
     public static final class Profile {
