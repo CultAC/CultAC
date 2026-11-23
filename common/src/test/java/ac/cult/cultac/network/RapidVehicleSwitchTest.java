@@ -75,17 +75,16 @@ class RapidVehicleSwitchTest {
             f.player.compensatedEntities.addEntity(SECOND + 1, minecart, SECOND_POSITION, 0, 0, 0);
             f.setPassengers(SECOND + 1, List.of(f.player.entityID));
             assertSame(current, f.player.compensatedEntities.vehicles.getVelocityMovementVehicle());
+            var starvation = f.player.checkManager.getCheck(BadPacketsR.class);
+            pong(f, starvation);
             assertTrue(JavaTickFixture.exact(f.rideTick(FIRST_POSITION, true)));
             assertEquals(0, f.player.checkManager.getCheck(BadPacketsVehicle.class).violations);
 
             // Withholding the old vehicle from the server must still let BadPacketsR observe its valid update.
-            var starvation = f.player.checkManager.getCheck(BadPacketsR.class);
+            for (int tick = 0; tick < 20; tick++) f.tickEnd();
             JavaTickFixture.setField(BadPacketsR.class, starvation, "clock", System.nanoTime() - 5_000_000_000L);
             JavaTickFixture.setField(BadPacketsR.class, starvation, "lastTransTime", 0L);
-            var pong = new ServerboundPong(17);
-            var event = f.event(ServerboundPackets.PONG, pong);
-            event.setAcceptedTransactionResponse(true);
-            starvation.onPong(event, f.player, pong);
+            pong(f, starvation);
             assertEquals(0, starvation.violations);
         }
     }
@@ -130,5 +129,12 @@ class RapidVehicleSwitchTest {
         double before = f.player.checkManager.getCheck(BadPacketsVehicle.class).violations;
         f.listener.onMoveVehicle(event, f.player, packet);
         assertEquals(before, f.player.checkManager.getCheck(BadPacketsVehicle.class).violations);
+    }
+
+    private static void pong(JavaTickFixture f, BadPacketsR check) {
+        var pong = new ServerboundPong(17);
+        var event = f.event(ServerboundPackets.PONG, pong);
+        event.setAcceptedTransactionResponse(true);
+        check.onPong(event, f.player, pong);
     }
 }
