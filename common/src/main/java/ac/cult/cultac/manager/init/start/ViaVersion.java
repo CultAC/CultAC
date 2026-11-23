@@ -10,9 +10,6 @@ public class ViaVersion implements StartableInitable {
 
     @Override
     public void start() {
-        if (ViaVersionUtil.isLegacyApiInstalled()) {
-            LogUtil.error("Using unsupported ViaVersion 4.0 API, update ViaVersion to 5.0");
-        }
         if (!ViaVersionUtil.isAvailable()) return;
 
         ProtocolVersion blockedBelow = Via.getConfig().blockedProtocolVersions().blocksBelow();
