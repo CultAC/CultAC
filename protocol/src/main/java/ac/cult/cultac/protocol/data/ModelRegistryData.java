@@ -46,8 +46,8 @@ public final class ModelRegistryData {
             if (resource == null) throw new ProtocolResolutionException("Missing model registry data for " + version);
             try (var reader =
                     new BufferedReader(new InputStreamReader(new GZIPInputStream(resource), StandardCharsets.UTF_8))) {
-                // Format 2 (scripts/compact-model-registries.py) leaves IDs implicit and lists each block's
-                // property values once instead of every state.
+                // Format 2 leaves IDs implicit and lists each block's property values once;
+                // format 1 lists every state.
                 String header = reader.readLine();
                 String versionSuffix = "\t" + version.protocol() + "\t" + version.minecraftVersion();
                 boolean compact = ("cult-model-registries\t2" + versionSuffix).equals(header);
