@@ -307,6 +307,127 @@ update:
   # URL that receives each update result line.
   webhook: ""
 
+# Configurație specifică CultAC.
+cult:
+  # Omite toate verificările pentru jucătorii Bedrock (Geyser/Floodgate) sau Java.
+  # Implicit sunt verificate ambele ediții.
+  exempt-bedrock-players: false
+  exempt-java-players: false
+
+  checks:
+    bedrock-movement:
+      # Semnalează o abatere când eroarea de validare Bedrock atinge această valoare.
+      # Include eroarea deplasării verticale și comenzile orizontale care depășesc limita permisă.
+      position-flag-threshold: 0.001
+
+      # Apropie poziția simulată pentru următorul tick de poziția raportată de client,
+      # cu cel mult această distanță per tick de mișcare. 0 dezactivează opțiunea.
+      position-reconciliation-step: 0.0005
+
+      # În prezent apare doar în diagnosticare; această valoare nu declanșează abateri.
+      velocity-flag-threshold: 0.001
+
+      # Permite corectarea poziției jucătorilor Bedrock.
+      # În prezent se aplică la conectare; modificările necesită reconectarea.
+      enable-setbacks: true
+
+    fair-reach:
+      # Variația de timp în jurul intervalului de urmărire FairReach de 50 ms.
+      # În milisecunde; valoarea 15 oferă o fereastră de 35–65 ms.
+      max-position-packet-jitter-ms: 15
+
+      # Așteptarea maximă înainte de aplicarea unei actualizări a poziției țintei, în milisecunde.
+      # Actualizările confirmate de client sunt aplicate mai devreme.
+      max-ping-compensation-ms: 300
+
+      # Anulează atacurile asupra jucătorilor al căror cel mai apropiat hitbox posibil se află dincolo de
+      # raza vanilla a atacatorului (entity_interaction_range) plus această distanță, în blocuri.
+      reach-leniency: 0.1
+
+    autoclicker-limit:
+      # Media de clicuri pe secundă peste care crește contorul de detectare a autoclickerului.
+      # Se calculează pe grupuri de 50 de mișcări ale brațului luate în considerare de verificare.
+      max-cps: 25
+
+    explosion:
+      # Corectările de poziție cauzate de explozii necesită și depășirea nivelului
+      # de abateri stabilit pentru corectare de această verificare.
+
+      # Eroarea de mișcare acumulată din explozii necesară pentru a încerca o corectare a poziției.
+      max-advantage: 1
+
+      # Eroarea unei singure explozii necesară pentru a încerca o corectare a poziției
+      # fără a aștepta ca eroarea acumulată să atingă max-advantage.
+      immediate-setback-threshold: 0.01
+
+      # Înmulțește eroarea acumulată cu această valoare când eroarea răspunsului la o explozie
+      # scade sub Explosion.threshold. Valorile apropiate de 1 o reduc mai lent.
+      setback-decay-multiplier: 0.98
+
+      # Eroarea acumulată maximă din explozii păstrată de verificare.
+      max-ceiling: 2
+
+  prediction:
+    # Reglementează doar corecțiile de mișcare; depășirea acestui procent nu este niciodată înregistrată ca trișare.
+    # Istoricul se păstrează la oprirea și reluarea folosirii unui obiect, precum și după corecțiile de poziție.
+    item-use-desync:
+      max-percent: 20
+      history-ticks: 100
+
+    # Compară timpul real în care serverul folosește un obiect (mâncat, băut,
+    # încărcat) cu tick-urile încetinite declarate de client în acest timp. O datorie
+    # peste max-debt-ticks semnalează ItemUseBurst; valoarea implicită acoperă un cadru
+    # întârziat al clientului (10 tick-uri) plus rotunjirea. Creditul provine doar din tick-uri încetinite suplimentare.
+    item-use-burst:
+      max-debt-ticks: 11
+      max-credit-ticks: 2
+      # Procentul din fiecare tick de utilizare așteptat care trebuie plătit cu un tick încetinit.
+      charge-percent: 95
+
+    # Pingul maxim al tranzacțiilor sau timpul maxim tolerat fără pachete de mișcare
+    # cât timp se așteaptă reacția la respingere, în milisecunde.
+    # Se adaugă o marjă fixă de 50 ms înainte de corectarea poziției din cauza latenței.
+    max-knockback-ping-ms: 1000
+
+    # Timpul fără pachete de mișcare înainte de evaluarea unei corectări cauzate de latență,
+    # în milisecunde. Corectarea necesită ca simularea să arate că rămânerea
+    # pe loc era nevalidă.
+    max-freeze-time-ms: 5000
+
+  networking:
+    # Înlocuiește sănătatea transmisă a altor entități vii cu 1 punct de sănătate.
+    # Păstrează sănătatea observatorului, a entității pe care o călărește și a entităților moarte.
+    # Observatorii cu cult.showhealth primesc valorile reale de sănătate.
+    spoof-health: false
+
+  client-brand:
+    # Elimină prima potrivire a acestei expresii regulate din identificatorii de client primiți.
+    # Implicit elimină sufixul final " (Velocity)".
+    # Folosește un șir gol pentru dezactivare.
+    strip-pattern: ' \(Velocity\)$'
+
+  diagnostics:
+
+    # Scrie în consolă diagnosticele pentru teleportări, corectări de poziție și resincronizări.
+    teleports: false
+
+    bedrock-movement:
+      # Activează rapoarte detaliate despre mișcarea Bedrock și jurnalele de predicție asociate,
+      # conform filtrelor și intervalului minim de mai jos.
+      enabled: false
+
+      # Raportează și mișcările fără abateri a căror eroare de validare
+      # atinge min-offset.
+      log-clean-offsets: false
+
+      # Eroarea minimă de validare pentru raportarea mișcărilor fără abateri.
+      # Se folosește doar când log-clean-offsets este true.
+      min-offset: 1.0e-7
+
+      # Intervalul minim dintre rapoartele de mișcare Bedrock pentru fiecare jucător, în secunde.
+      # Setează 0 pentru a elimina timpul de așteptare.
+      cooldown-seconds: 10
+
 # The version of the check names this server uses outside punishments.yml: the names each check's
 # own settings are written under in this file (AttackEntityVisibility.setbackvl), the names in its
 # permission nodes (cult.exempt.attackentityvisibility), and the names alerts, logs, placeholders

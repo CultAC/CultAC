@@ -3,6 +3,7 @@ package ac.cult.cultac.manager.config.update;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -191,6 +192,9 @@ public final class ConfigUpdater {
             this.warning = warning;
         }
     }
+
+    /** The file whose {@code cult} section {@link #foldLegacyCultFile} moves into config.yml. */
+    public static final String LEGACY_CULT_FILE = "cult.yml";
 
     private final Class<?> resourceAnchor;
     private final Logger logger;
@@ -391,6 +395,139 @@ public final class ConfigUpdater {
                 + " migrated " + spec.versionKey + " v" + oldVersion + " → v" + spec.latestVersion
                 + " (flavor " + spec.flavor + ", backup at " + backup.getFileName() + ")");
         return new Result(true, oldVersion, spec.latestVersion, null);
+    }
+
+    /**
+     * Moves the settings of a {@code cult.yml} beside {@code configFile} into its {@code cult} section, then renames
+     * cult.yml to {@code cult.yml.migrated}. Run it before {@link #updateAll}, which lifts the section into a newer
+     * default. A section config.yml already has wins key by key; cult.yml fills the keys it lacks. When config.yml has
+     * no section, the bundled default's section, comments included, is added first and takes cult.yml's values.
+     * {@code configFresh} marks a config.yml just written from the bundled default, whose section is no operator's.
+     * A file that cannot be read or patched stays as it was, cult.yml included, for the next start to retry.
+     */
+    @SuppressWarnings("unchecked")
+    public void foldLegacyCultFile(@NotNull File configFile, boolean configFresh, @NotNull String langCode)
+            throws IOException {
+        File legacy = new File(configFile.getParentFile(), LEGACY_CULT_FILE);
+        if (!legacy.isFile()) return;
+        Map<String, Object> legacyData = readYaml(legacy.toPath());
+        Map<String, Object> configData = readYaml(configFile.toPath());
+        if (legacyData == null || configData == null) {
+            logger.warning("[cult-config-updater] " + (legacyData == null ? legacy : configFile).getName()
+                    + " cannot be read, so cult.yml stays and its settings are not in config.yml yet");
+            return;
+        }
+        Map<String, Object> settings = legacyData.get("cult") instanceof Map<?, ?> section
+                ? new LinkedHashMap<>((Map<String, Object>) section)
+                : new LinkedHashMap<>();
+        if (parseVersion(legacyData.get("config-version")) < 3) liftMaxReach(settings);
+
+        boolean operatorSection = !configFresh && configData.get("cult") instanceof Map;
+        Map<List<String>, Object> leaves = new LinkedHashMap<>();
+        collectLeaves(List.of("cult"), settings, leaves);
+        List<WriteLog.Entry> writes = new ArrayList<>();
+        int kept = 0;
+        for (Map.Entry<List<String>, Object> leaf : leaves.entrySet()) {
+            if (operatorSection && holds(configData, leaf.getKey())) {
+                kept++;
+                continue;
+            }
+            writes.add(new WriteLog.Entry(WriteLog.Op.PUT, leaf.getKey(), leaf.getValue()));
+        }
+
+        List<String> lines = new ArrayList<>(Files.readAllLines(configFile.toPath(), StandardCharsets.UTF_8));
+        if (!configData.containsKey("cult")) {
+            List<String> section;
+            try (InputStream in = openResource(resolveBundledDefaultPath(CultConfigSpecs.mainConfig(), langCode))) {
+                String bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                section = topLevelSection(bundled.lines().toList(), "cult");
+            }
+            if (!lines.isEmpty() && !lines.get(lines.size() - 1).isBlank()) lines.add("");
+            lines.addAll(section);
+        }
+        Path target = configFile.toPath().toAbsolutePath();
+        Path staged = Files.createTempFile(target.getParent(), ".cult-config-", ".tmp");
+        try {
+            Files.write(staged, lines, StandardCharsets.UTF_8);
+            applyEntries(staged.toFile(), writes);
+            Path backup = target.resolveSibling(configFile.getName() + ".pre-cult-merge.bak");
+            if (!Files.exists(backup)) Files.copy(target, backup);
+            Files.move(staged, target, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(staged);
+        }
+
+        Path renamed = legacy.toPath().resolveSibling(LEGACY_CULT_FILE + ".migrated");
+        for (int n = 1; Files.exists(renamed); n++) {
+            renamed = legacy.toPath().resolveSibling(LEGACY_CULT_FILE + ".migrated." + n);
+        }
+        Files.move(legacy.toPath(), renamed);
+        logger.info("[cult-config-updater] moved " + writes.size() + " cult.yml setting(s) into config.yml's cult"
+                + " section"
+                + (operatorSection
+                        ? "; config.yml already had a cult section, so its values win (" + kept
+                                + " cult.yml setting(s) left out)"
+                        : "")
+                + "; cult.yml renamed to " + renamed.getFileName());
+    }
+
+    private static boolean holds(Map<?, ?> map, List<String> path) {
+        Object node = map;
+        for (String key : path) {
+            if (!(node instanceof Map<?, ?> level) || !level.containsKey(key)) return false;
+            node = level.get(key);
+        }
+        return true;
+    }
+
+    /** A pre-v3 cult.yml's absolute FairReach {@code max-reach} as its distance past the 3-block default. */
+    @SuppressWarnings("unchecked")
+    private static void liftMaxReach(Map<String, Object> settings) {
+        if (!(settings.get("checks") instanceof Map<?, ?> checks)
+                || !(checks.get("fair-reach") instanceof Map<?, ?> fairReach)
+                || !(fairReach.get("max-reach") instanceof Number maxReach)) return;
+        Map<String, Object> lifted = new LinkedHashMap<>((Map<String, Object>) fairReach);
+        lifted.remove("max-reach");
+        lifted.put(
+                "reach-leniency",
+                new BigDecimal(maxReach.toString())
+                        .subtract(BigDecimal.valueOf(3))
+                        .doubleValue());
+        Map<String, Object> liftedChecks = new LinkedHashMap<>((Map<String, Object>) checks);
+        liftedChecks.put("fair-reach", lifted);
+        settings.put("checks", liftedChecks);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void collectLeaves(List<String> prefix, Map<String, Object> map, Map<List<String>, Object> out) {
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
+            List<String> path = new ArrayList<>(prefix);
+            path.add(String.valueOf(entry.getKey()));
+            if (entry.getValue() instanceof Map<?, ?> child && !child.isEmpty()) {
+                collectLeaves(path, (Map<String, Object>) child, out);
+            } else {
+                out.put(List.copyOf(path), entry.getValue());
+            }
+        }
+    }
+
+    /** The lines of top-level {@code key}'s block, from the comment lines right above it to its last indented line. */
+    private static List<String> topLevelSection(List<String> lines, String key) {
+        int start = -1;
+        for (int i = 0; i < lines.size() && start < 0; i++) {
+            if (lines.get(i).startsWith(key + ":")) start = i;
+        }
+        if (start < 0) throw new IllegalStateException("bundled config has no " + key + " section");
+        int first = start;
+        while (first > 0 && lines.get(first - 1).startsWith("#")) first--;
+        int last = start;
+        for (int i = start + 1; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (line.isBlank()) continue;
+            if (!Character.isWhitespace(line.charAt(0))) break;
+            last = i;
+        }
+        return lines.subList(first, last + 1);
     }
 
     @SuppressWarnings("unchecked")

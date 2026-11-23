@@ -165,7 +165,7 @@ public final class CloudConnection {
     private static final LogThrottle REPLY_FAILURES = new LogThrottle();
     private static final AtomicBoolean RADIUS_WARNED = new AtomicBoolean();
     /** The config files that decide what CultAC does, hashed for the service's record of each session. */
-    private static final List<String> CONFIG_FILES = List.of("config.yml", "cult.yml", "punishments.yml");
+    private static final List<String> CONFIG_FILES = List.of("config.yml", "punishments.yml");
     /** The config keys that hold credentials, which the config hash leaves out. */
     private static final List<List<String>> SECRET_KEYS = List.of(
             List.of("bridge", "secret"),
@@ -1209,7 +1209,7 @@ public final class CloudConnection {
     }
 
     private static byte[] bundledDefault(String name, String language) throws IOException {
-        String directory = name.equals("cult.yml") ? "/cult/" : "/" + name.substring(0, name.length() - 4) + "/";
+        String directory = "/" + name.substring(0, name.length() - 4) + "/";
         String path = directory + language + ".yml";
         if (CultAPI.class.getResource(path) == null) path = directory + "en.yml";
         try (InputStream in = CultAPI.class.getResourceAsStream(path)) {

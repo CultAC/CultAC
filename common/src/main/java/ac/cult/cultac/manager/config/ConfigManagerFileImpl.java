@@ -81,7 +81,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
     /** Backend ids whose per-backend yml gets loaded + auto-updated alongside the user-facing files. */
     static final List<String> BACKEND_IDS = List.of("sqlite", "mysql", "postgres", "mongo", "redis");
 
-    private void runConfigUpdates() {
+    private void runConfigUpdates(boolean configFresh) {
         Logger logger = Logger.getLogger("cult-config");
         ConfigUpdater updater = new ConfigUpdater(CultAPI.class, logger);
         // Use the multi-file API so cross-file migrations (e.g. config.yml
@@ -90,7 +90,6 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // ctx.otherFile(...). Open-ended punishments use only the Cult chain below.
         Map<File, ConfigUpdater.Spec> batch = new LinkedHashMap<>();
         batch.put(getConfigFile("config.yml"), CultConfigSpecs.mainConfig());
-        batch.put(getConfigFile("cult.yml"), CultConfigSpecs.cultSettings());
         batch.put(getConfigFile("discord.yml"), CultConfigSpecs.discord());
         batch.put(getConfigFile("messages.yml"), CultConfigSpecs.messages());
         batch.put(getConfigFile("database.yml"), CultConfigSpecs.database());
@@ -102,6 +101,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // ZH-comment bundled defaults stamped on disk to match.
         String langCode = config.getLanguage().getCode().toLowerCase();
         try {
+            updater.foldLegacyCultFile(getConfigFile("config.yml"), configFresh, langCode);
             updater.updateAll(batch, langCode);
             Map<File, ConfigUpdater.Spec> cultBatch = new LinkedHashMap<>();
             batch.forEach((file, spec) -> cultBatch.put(file, CultConfigSpecs.cultConfig(spec.resourceDirectory)));
@@ -118,7 +118,9 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         if (!initialized) {
             if (snapshotDirectory != null) {
                 var canonical = RuntimeEnvironment.host().directory();
-                for (var name : configurationNames()) {
+                var names = configurationNames();
+                names.add(ConfigUpdater.LEGACY_CULT_FILE);
+                for (var name : names) {
                     var source = canonical.resolve(name);
                     var target = snapshotDirectory.toPath().resolve(name);
                     try {
@@ -133,7 +135,6 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
             }
             initialized = true;
             config.addSource(CultAPI.class, "config", getConfigFile("config.yml"));
-            config.addSource(CultAPI.class, "cult", getConfigFile("cult.yml"));
             config.addSource(CultAPI.class, "messages", getConfigFile("messages.yml"));
             config.addSource(CultAPI.class, "discord", getConfigFile("discord.yml"));
             config.addSource(CultAPI.class, "punishments", getConfigFile("punishments.yml"));
@@ -162,6 +163,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
             config.setLanguage(Language.EN);
         }
 
+        boolean configFresh = !getConfigFile("config.yml").exists();
         try {
             // Save bundled defaults BEFORE the updater runs so any cross-file
             // migration (e.g. config.yml v9 → v10 lifting history.database.*
@@ -177,7 +179,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // missing files. Idempotent on already-current configs. Versioned
         // backups (<name>.v<oldVersion>.bak) preserve operator-rollback
         // evidence across stacked migration steps.
-        runConfigUpdates();
+        runConfigUpdates(configFresh);
 
         try {
             config.loadAll();
@@ -190,7 +192,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
 
     private static List<String> configurationNames() {
         var names = new ArrayList<>(
-                List.of("config.yml", "cult.yml", "messages.yml", "discord.yml", "punishments.yml", "database.yml"));
+                List.of("config.yml", "messages.yml", "discord.yml", "punishments.yml", "database.yml"));
         for (var id : BACKEND_IDS) names.add("databases/" + id + ".yml");
         return names;
     }
