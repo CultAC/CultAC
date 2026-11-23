@@ -109,7 +109,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
      * to exercise the transaction-only proof path.
      */
     private static final boolean REACH_BUNDLE_DELIMITER =
-            Boolean.parseBoolean(System.getProperty("cult.validation.reachBundleDelimiter", "true"));
+            !"false".equalsIgnoreCase(System.getProperty("cult.validation.reachBundleDelimiter"));
 
     private boolean useReachBundleDelimiter = REACH_BUNDLE_DELIMITER;
     private boolean hasSentPreWavePacket = true;
