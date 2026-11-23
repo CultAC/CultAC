@@ -23,8 +23,6 @@ alerts:
 verbose:
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # プレイヤーのクライアントブランドが以下の正規表現のいずれかと一致する場合、オペレータにはそのプレイヤーの情報が送信されません。
     ignored-clients:
@@ -146,22 +144,7 @@ Explosion:
 TimerA:
     setbackvl: 10
     # プレイヤーがネットワーク遅延やラグの影響で操作がサーバーの予測より遅れている場合、
-    # その遅れ分を後で使用できるように蓄積するためのミリ秒数を設定します。
-    # この値を高く設定しすぎると、1.8版の高速使用、高速回復、高速弓などの不正な動作をバイパスできる可能性があるため、
-    # 120ミリ秒がバランスの良い設定とされています。
     drift: 120
-
-# This check limits abuse of the TimerA balance by preventing the player's movement falling too far behind realtime
-TimerLimit:
-    # タイマーバランスの制限を開始し、不正利用を防止するためのPingのしきい値
-    # 正当なプレイヤーであっても、このPingのしきい値を超えるとセットバックが発生する場合があります
-    # -1で無効化
-    ping-abuse-limit-threshold: 1000
-
-# TimerAと同じチェック方法ですが、乗り物操作に適用されます
-VehicleTimer:
-    # 目標タイマー値は1.005です
-    setbackvl: 10
 
 PacketOrderI:
     # プレイヤーが1.7のアニメーションMODを使用したことで検出されている場合に有効にします
@@ -193,17 +176,12 @@ exploit:
     # 設定可能な範囲は2から4です
     distance-to-check-if-ghostblocks: 2
 
-# Nettyに参加時にプラグインが注入された場合の互換性問題をデバッグするためにログを有効にします
-debug-pipeline-on-join: false
-
 # 実験的なチェックを有効にします
 experimental-checks: false
 
 # Cultは "Timer" のような違反パケットをキャンセルすることがありますが、1秒間にキャンセルされたパケット数がXを超えた場合、
 # プレイヤーを強制的にキックしますか？これは、いくつかのパケットリミッターがCultによってキャンセルされたパケットをカウントしないためです。
 packet-spam-threshold: 100
-# packet-spam-threshold によりプレイヤーがキックされたときにスタックトレースを出力する場合は有効にする
-debug-packet-cancel: false
 
 # Cultは、飛行状態を解除されたプレイヤーがXミリ秒以上のPingを持つことを許可しません
 # これは、現在Cultが飛行中のプレイヤーをチェックしていないためです

@@ -22,8 +22,6 @@ verbose:
     # Mostra dettagli su console?
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # Ignora i seguenti client nella trasmissione del marchio agli operatori
     ignored-clients:
@@ -138,17 +136,6 @@ TimerA:
     # Millisecondi accumulabili per il timer
     drift: 120
 
-# This check limits abuse of the TimerA balance by preventing the player's movement falling too far behind realtime
-TimerLimit:
-    # Ping at which the check will start to limit timer balance, to prevent abuse.
-    # Can cause some setbacks for legitimate players but only if they are over this ping threshold.
-    # -1 to disable
-    ping-abuse-limit-threshold: 1000
-
-VehicleTimer:
-    # Livello di violazione per il timer dei veicoli
-    setbackvl: 10
-
 PacketOrderI:
     # Abilitare se i giocatori vengono segnalati per l'uso di mod di animazione 1.7
     exempt-placing-while-digging: false
@@ -167,17 +154,12 @@ exploit:
     # Distanza per controllare i ghost blocks
     distance-to-check-if-ghostblocks: 2
 
-# Enable logging plugins who have injected into netty on join to debug compatibility issues
-debug-pipeline-on-join: false
-
 # Enables experimental checks
 experimental-checks: false
 
 # Cult sometimes cancels illegal packets such as with timer, after X packets in a second cancelled, when should
 # we simply kick the player? This is required as some packet limiters don't count packets cancelled by cult.
 packet-spam-threshold: 100
-# Abilita questa opzione per stampare uno stacktrace quando un giocatore viene espulso a causa del packet-spam-threshold
-debug-packet-cancel: false
 
 # Cult può imporre che un giocatore uscito dallo stato di volo non abbia più di X ms di ping
 # Questo perché Cult al momento non controlla i giocatori in volo

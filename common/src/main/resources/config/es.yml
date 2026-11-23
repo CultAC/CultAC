@@ -21,8 +21,6 @@ alerts:
 verbose:
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # Esto quiere decir que no se va a anunciar la marca del cliente si esta cumple alguno de los siguientes regexes:
     ignored-clients:
@@ -148,21 +146,7 @@ Explosion:
 TimerA:
     setbackvl: 10
     # Milisegundos que el jugador puede acumular para ser usados mas tarde cuando se quedan por detrás
-    # Podría llegar a permitir pasos por alto de fast use/fast heal/fast bow en 1.8 si esta muy alto, 120 ms
-    # parece ser un balance bastante decente.
     drift: 120
-
-# This check limits abuse of the TimerA balance by preventing the player's movement falling too far behind realtime
-TimerLimit:
-    # Ping at which the check will start to limit timer balance, to prevent abuse.
-    # Can cause some setbacks for legitimate players but only if they are over this ping threshold.
-    # -1 to disable
-    ping-abuse-limit-threshold: 1000
-
-# La misma comprobación que TimerA, pero para vehiculos
-VehicleTimer:
-    # Target 1.005 timer
-    setbackvl: 10
 
 PacketOrderI:
     # Habilitar si los jugadores están siendo marcados por usar mods de animación de la 1.7
@@ -185,9 +169,6 @@ exploit:
     allow-building-on-ghostblocks: true
     distance-to-check-if-ghostblocks: 2
 
-# Habilitar el registro de plugins que se han inyectado a netty para intentar resolver problemas de compatibilidad.
-debug-pipeline-on-join: false
-
 # Habilitar comprobaciones experimentales
 experimental-checks: false
 
@@ -195,8 +176,6 @@ experimental-checks: false
 # cuando deberíamos simplemente expulsar al jugador? Esto es obligatorio ya que algunos limitadores de paquetes
 # no cuentan los paquetes cancelados por Cult.
 packet-spam-threshold: 100
-# Activa esto para imprimir un stacktrace cuando un jugador sea expulsado por packet-spam-threshold
-debug-packet-cancel: false
 
 # Cult puede hacer cumplir que un jugador que ha salido del estado de vuelo no tenga más de X ms de ping
 # Esto se debe a que Cult actualmente no comprueba a los jugadores que están volando

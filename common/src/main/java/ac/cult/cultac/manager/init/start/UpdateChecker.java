@@ -6,8 +6,6 @@ import ac.cult.cultac.command.commands.CultVersion;
 public class UpdateChecker implements StartableInitable {
     @Override
     public void start() {
-        if (CultAPI.INSTANCE.getConfigManager().getConfig().getBooleanElse("check-for-updates", true)) {
-            CultVersion.sendVersion(CultAPI.INSTANCE.getPlatformServer().getConsoleSender());
-        }
+        CultVersion.sendVersion(CultAPI.INSTANCE.getPlatformServer().getConsoleSender());
     }
 }

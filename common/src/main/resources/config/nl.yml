@@ -21,8 +21,6 @@ alerts:
 verbose:
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # Dit betekent dat het merk niet wordt uitgezonden naar operators als het merk overeenkomt met de volgende regexen
     ignored-clients:
@@ -144,20 +142,7 @@ Explosion:
 TimerA:
     setbackvl: 10
     # Milliseconden die de speler kan verzamelen om later te gebruiken als hij achterop raakt
-    # Kan mogelijk 1.8 snel gebruik/snelle genezing/snelle bron omleidingen toestaan als het te hoog is ingesteld, 120 ms lijkt een goede balans
     drift: 120
-
-# This check limits abuse of the TimerA balance by preventing the player's movement falling too far behind realtime
-TimerLimit:
-    # Ping waarop de controle zal beginnen om de timer-balans te beperken, om misbruik te voorkomen
-    # Kan wat tegenslag veroorzaken voor legitieme spelers, maar alleen als ze boven deze ping drempel zitten.
-    # -1 om uit te schakelen
-    ping-abuse-limit-threshold: 1000
-
-# Dezelfde controlemethode als TimerA, maar dan voor voertuigen
-VehicleTimer:
-    # Doel 1.005 timer
-    setbackvl: 10
 
 PacketOrderI:
     # Inschakelen als spelers worden gemarkeerd vanwege het gebruik van 1.7-animatiemods
@@ -184,17 +169,12 @@ exploit:
     # Het geldige bereik is beperkt van 2 tot 4
     distance-to-check-if-ghostblocks: 2
 
-# Logging plugins inschakelen die geïnjecteerd zijn in netty on join om compatibiliteitsproblemen te debuggen
-debug-pipeline-on-join: false
-
 # Experimentele controles inschakelen
 experimental-checks: false
 
 # Cult annuleert soms illegale pakketten zoals met timer, na X pakketten in een seconde geannuleerd, wanneer moeten
 # we de speler gewoon schoppen? Dit is nodig omdat sommige pakket-begrenzers pakketten die door cult worden geannuleerd niet tellen
 packet-spam-threshold: 100
-# Schakel dit in om een stacktrace af te drukken wanneer een speler wordt gekickt wegens packet-spam-threshold
-debug-packet-cancel: false
 
 # Cult kan afdwingen dat een speler die uit de vliegmodus is gezet niet meer dan X ms ping heeft
 # Dit komt doordat Cult momenteel vliegende spelers niet controleert

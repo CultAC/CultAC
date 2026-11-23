@@ -21,8 +21,6 @@ alerts:
 verbose:
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # Aceasta înseamnă că nu va transmite operatorilor brandul clientului dacă brandul se potrivește cu regex-urile de mai jos
     ignored-clients:
@@ -144,20 +142,7 @@ Explosion:
 TimerA:
     setbackvl: 10
     # Milisecunde pe care jucătorul le poate acumula pentru folosire ulterioară când rămâne în urmă
-    # Poate permite bypass-uri fast use/fast heal/fast bow pe 1.8 dacă e setat prea mare, 120 ms e un echilibru bun
     drift: 120
-
-# Acest check limitează abuzul TimerA prevenind mișcarea jucătorului să rămână prea mult în urmă față de timpul real
-TimerLimit:
-    # Ping la care check-ul începe să limiteze balanța timer, pentru a preveni abuzul.
-    # Poate cauza setback pentru jucători legitimi doar dacă sunt peste acest prag de ping.
-    # -1 pentru a dezactiva
-    ping-abuse-limit-threshold: 1000
-
-# Aceeași metodă de verificare ca TimerA, dar pentru vehicule
-VehicleTimer:
-    # Țintă timer 1.005
-    setbackvl: 10
 
 PacketOrderI:
     # activează dacă jucătorii sunt marcați folosind moduri de animații 1.7
@@ -184,17 +169,12 @@ exploit:
     # Interval valid: 2 până la 4
     distance-to-check-if-ghostblocks: 2
 
-# Activează logarea pluginurilor care s-au injectat în netty la intrare pentru debugging de compatibilitate
-debug-pipeline-on-join: false
-
 # Activează verificări experimentale
 experimental-checks: false
 
 # Cult uneori anulează pachete ilegale precum timer, după X pachete anulate într-o secundă, când să
 # deconectăm jucătorul? Este necesar deoarece unele limitatoare de pachete nu numără pachetele anulate de Cult.
 packet-spam-threshold: 100
-# Activează pentru a afișa stacktrace când un jucător e deconectat din cauza packet-spam-threshold
-debug-packet-cancel: false
 
 # Cult poate aplica ca un jucător scos din starea de zbor să nu aibă mai mult de X ms ping
 # Deoarece Cult nu verifică în prezent jucătorii care zboară
