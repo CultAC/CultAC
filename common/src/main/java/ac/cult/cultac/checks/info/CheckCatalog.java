@@ -200,9 +200,13 @@ import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
 
@@ -468,27 +472,59 @@ public final class CheckCatalog {
      */
     public static @Nullable Entry find(String query) {
         for (Entry entry : ENTRIES) {
-            if (entry.name().equalsIgnoreCase(query)
-                    || entry.configName().equalsIgnoreCase(query)
-                    || (hasAltName(entry) && entry.altName().equalsIgnoreCase(query))) return entry;
+            if (hasName(entry, query, CheckNames.LATEST)) return entry;
         }
         for (Entry entry : ENTRIES) {
             for (int version = CheckNames.FIRST; version < CheckNames.LATEST; version++) {
-                if (entry.name(version).equalsIgnoreCase(query)
-                        || entry.configName(version).equalsIgnoreCase(query)) return entry;
+                if (hasName(entry, query, version)) return entry;
             }
         }
         return null;
     }
 
-    /** The check {@code typed} names, whatever its case: as {@link #find} finds it, else by its stable key. */
-    public static @Nullable Entry named(String typed) {
+    /**
+     * Every check {@code typed} names, whatever its case, as name version {@code nameVersion} names checks: the checks
+     * {@link #find(String, int)} chooses among, else the checks named alike in the name version {@link #find(String)}
+     * finds one in, else the check whose stable key it is. Empty when it names none.
+     */
+    public static List<Entry> named(String typed, int nameVersion) {
+        List<Entry> named = withName(typed, nameVersion);
+        if (!named.isEmpty()) return named;
         Entry found = find(typed);
-        if (found != null) return found;
-        for (Entry entry : ENTRIES) {
-            if (entry.stableKey().equalsIgnoreCase(typed)) return entry;
+        if (found != null) {
+            int version = CheckNames.LATEST;
+            if (!hasName(found, typed, version)) {
+                version = CheckNames.FIRST;
+                while (!hasName(found, typed, version)) version++;
+            }
+            return withName(typed, version);
         }
-        return null;
+        for (Entry entry : ENTRIES) {
+            if (entry.stableKey().equalsIgnoreCase(typed)) return List.of(entry);
+        }
+        return List.of();
+    }
+
+    /**
+     * Names in name version {@code nameVersion} that {@link #named(String, int)} reads as exactly the checks of
+     * {@code stableKeys}, in their order and each once: a check's name there when every check the name names is among
+     * them, else its stable key. A key of no check of this build stays as it is.
+     */
+    public static List<String> names(Collection<String> stableKeys, int nameVersion) {
+        Set<String> keys = new HashSet<>(stableKeys);
+        Set<String> names = new LinkedHashSet<>();
+        for (String key : stableKeys) {
+            Entry entry = byStableKey(key);
+            if (entry == null) {
+                names.add(key);
+                continue;
+            }
+            String name = entry.name(nameVersion);
+            boolean whole = true;
+            for (Entry named : named(name, nameVersion)) whole &= keys.contains(named.stableKey());
+            names.add(whole ? name : key);
+        }
+        return List.copyOf(names);
     }
 
     /** The check whose stable key is {@code stableKey}; null when this build has none. */
@@ -504,15 +540,11 @@ public final class CheckCatalog {
      * that version names alike, the one whose newest name it is. Else the check {@link #find(String)} gives.
      */
     public static @Nullable Entry find(String query, int nameVersion) {
-        Entry named = null;
-        for (Entry entry : ENTRIES) {
-            if (!entry.name(nameVersion).equalsIgnoreCase(query)
-                    && !entry.configName(nameVersion).equalsIgnoreCase(query)
-                    && !(hasAltName(entry) && entry.altName().equalsIgnoreCase(query))) continue;
+        List<Entry> named = withName(query, nameVersion);
+        for (Entry entry : named) {
             if (entry.name().equalsIgnoreCase(query)) return entry;
-            if (named == null) named = entry;
         }
-        return named != null ? named : find(query);
+        return named.isEmpty() ? find(query) : named.getFirst();
     }
 
     /**
@@ -526,6 +558,21 @@ public final class CheckCatalog {
     private static String query(Query query) {
         Entry found = find(query.name(), query.nameVersion());
         return found != null && found.name().equals(query.latestName()) ? query.name() : query.latestName();
+    }
+
+    /** The checks whose name, config name or alternative name in {@code nameVersion} is {@code query}, in order. */
+    private static List<Entry> withName(String query, int nameVersion) {
+        List<Entry> named = new ArrayList<>();
+        for (Entry entry : ENTRIES) {
+            if (hasName(entry, query, nameVersion)) named.add(entry);
+        }
+        return named;
+    }
+
+    private static boolean hasName(Entry entry, String query, int nameVersion) {
+        return entry.name(nameVersion).equalsIgnoreCase(query)
+                || entry.configName(nameVersion).equalsIgnoreCase(query)
+                || (hasAltName(entry) && entry.altName().equalsIgnoreCase(query));
     }
 
     private static boolean hasAltName(Entry entry) {

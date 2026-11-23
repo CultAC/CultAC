@@ -409,7 +409,7 @@ class NetSettingsTest {
                 1_000,
                 true,
                 args -> args.size() == 1,
-                args -> new Setting(TOGGLE, args.getFirst().equals(ON)));
+                (args, nameVersion) -> List.of(new Setting(TOGGLE, args.getFirst().equals(ON))));
         List<String> heard = new CopyOnWriteArrayList<>();
         Sender staff = mock(Sender.class);
         when(staff.getName()).thenReturn("Mod");

@@ -1,6 +1,7 @@
 package ac.cult.cultac.network.routing;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.command.commands.CultReload;
@@ -46,7 +47,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -58,10 +59,12 @@ import org.jetbrains.annotations.Nullable;
  * every instance {@code target} names ({@link Target}). {@value #CMD} carries it from the issuer, broadcast when the
  * target can reach instances the issuer has not heard from or names several, direct when it names one, and over the
  * in-process bus when the issuer is a target itself: {@code {id, cmd, args, target, scope, origin, sender:{u, n,
- * console}, granted, setting}}. {@code scope} lists the target's terms that name backend servers; a proxy that a term
- * names only through its backends runs the command for the players on those backends. {@code setting}, sent by a
- * command that sets one, is its {@link NetSettings} record, which the issuer merged first and every instance hearing
- * the command merges when the sender held the command's node. Each target answers with
+ * console}, granted, setting, settings}}. {@code scope} lists the target's terms that name backend servers; a proxy
+ * that a term names only through its backends runs the command for the players on those backends. {@code setting},
+ * sent by a command that sets one, is its {@link NetSettings} record, and {@code settings}, sent by one that sets
+ * several, all of them, {@code setting} holding the first; the issuer merged them first and every instance hearing the
+ * command merges them when the sender held the command's node. A record names a check by its stable key, which the
+ * issuer read the typed name as in its own name version; {@code args} keep the name as typed. Each target answers with
  * {@value #REPLY}, {@code {id, final, ok, code, params, text}}; the issuer shows {@code code} with {@code params} in
  * its own messages, and {@code text}, English, for a code it does not know. Of an instance's generations only the
  * current one runs a command, and only once per id. A target refuses unless {@code network.commands} lets it and the
@@ -103,17 +106,18 @@ final class NetCommands {
 
     /**
      * One allowlisted command: how long its issuer waits for the answers, whether a target may name backend servers
-     * for it, which arguments it takes, and the shared setting they set, null for none. A setting's target may name
-     * what no roster lists yet, as the setting applies once that appears.
+     * for it, which arguments it takes, and the shared settings they set, empty for none, a check name among them read
+     * in the name version given. A setting's target may name what no roster lists yet, as the setting applies once that
+     * appears.
      */
     record Spec(
             String name,
             long replyMillis,
             boolean backends,
             Predicate<List<String>> valid,
-            Function<List<String>, NetSettings.@Nullable Setting> setting) {
+            BiFunction<List<String>, Integer, List<NetSettings.Setting>> settings) {
         Spec(String name, long replyMillis, boolean backends, Predicate<List<String>> valid) {
-            this(name, replyMillis, backends, valid, args -> null);
+            this(name, replyMillis, backends, valid, (args, nameVersion) -> List.of());
         }
 
         String permission() {
@@ -133,21 +137,21 @@ final class NetCommands {
                     10_000,
                     true,
                     NetCommands::switchArgs,
-                    args -> switched(NetSettings.OBSERVE, args)),
+                    (args, nameVersion) -> switched(NetSettings.OBSERVE, args)),
             NetSettings.PUNISH,
             new Spec(
                     NetSettings.PUNISH,
                     10_000,
                     true,
                     NetCommands::switchArgs,
-                    args -> switched(NetSettings.PUNISH, args)),
+                    (args, nameVersion) -> switched(NetSettings.PUNISH, args)),
             NetSettings.TOGGLE,
             new Spec(
                     NetSettings.TOGGLE,
                     10_000,
                     true,
                     NetCommands::switchArgs,
-                    args -> switched(NetSettings.TOGGLE, args)),
+                    (args, nameVersion) -> switched(NetSettings.TOGGLE, args)),
             CHECK,
             new Spec(CHECK, 10_000, true, args -> args.size() == 2 && onOff(args.get(1)) != null, NetCommands::checked),
             NetUpdates.NAME,
@@ -171,17 +175,22 @@ final class NetCommands {
      * What {@code observe}, {@code punish} or {@code toggle} sets with {@code args}: {@code key} on or off, nothing when
      * bare.
      */
-    private static NetSettings.@Nullable Setting switched(String key, List<String> args) {
-        return args.isEmpty() ? null : new NetSettings.Setting(key, Boolean.TRUE.equals(onOff(args.getFirst())));
+    private static List<NetSettings.Setting> switched(String key, List<String> args) {
+        return args.isEmpty()
+                ? List.of()
+                : List.of(new NetSettings.Setting(key, Boolean.TRUE.equals(onOff(args.getFirst()))));
     }
 
-    /** What {@code check <check> <on|off>} sets; null when no check of this build has that name. */
-    private static NetSettings.@Nullable Setting checked(List<String> args) {
-        CheckCatalog.Entry entry = CheckCatalog.named(args.getFirst());
-        return entry == null
-                ? null
-                : new NetSettings.Setting(
-                        NetSettings.CHECK + entry.stableKey(), Boolean.TRUE.equals(onOff(args.get(1))));
+    /**
+     * What {@code check <check> <on|off>} sets: every check {@link CheckCatalog#named(String, int)} reads the name as
+     * in {@code nameVersion}; nothing when it names no check of this build.
+     */
+    private static List<NetSettings.Setting> checked(List<String> args, int nameVersion) {
+        boolean on = Boolean.TRUE.equals(onOff(args.get(1)));
+        List<NetSettings.Setting> settings = new ArrayList<>();
+        for (CheckCatalog.Entry entry : CheckCatalog.named(args.getFirst(), nameVersion))
+            settings.add(new NetSettings.Setting(NetSettings.CHECK + entry.stableKey(), on));
+        return settings;
     }
 
     /** What {@code network.commands.webhook} posts to {@code update.webhook}. */
@@ -258,6 +267,11 @@ final class NetCommands {
         /** config.yml's values of the shared settings, as loaded now. */
         default NetSettings.Baseline baseline() {
             return NetSettings.Baseline.DEFAULT;
+        }
+
+        /** The name version check names typed here and shown in answers follow: config.yml's, as loaded now. */
+        default int checkNameVersion() {
+            return CheckNames.LATEST;
         }
 
         /** Where the shared settings are kept; null keeps them in memory only. */
@@ -381,6 +395,11 @@ final class NetCommands {
                     config.getConfig().getBooleanElse(BaseConfigManager.OBSERVE_ONLY_KEY, false),
                     config.isPausePunishments(),
                     config.getChecksOff());
+        }
+
+        @Override
+        public int checkNameVersion() {
+            return CheckNames.version(CultAPI.INSTANCE.getConfigManager().getConfig(), CheckNames.CONFIG_KEY);
         }
 
         @Override
@@ -659,8 +678,8 @@ final class NetCommands {
             usage(sender);
             return none;
         }
-        NetSettings.Setting setting = spec.setting().apply(args);
-        if (setting != null && target.text().length() > NetSettings.MAX_TARGET_LENGTH) {
+        List<NetSettings.Setting> settings = spec.settings().apply(args, local.checkNameVersion());
+        if (!settings.isEmpty() && target.text().length() > NetSettings.MAX_TARGET_LENGTH) {
             usage(sender);
             return none;
         }
@@ -669,12 +688,12 @@ final class NetCommands {
                     REFUSED_PERMISSION.render(sender, Map.of("sender", sender.getName(), "node", spec.permission())));
             return none;
         }
-        if (spec.name().equals(CHECK) && setting == null) {
+        if (spec.name().equals(CHECK) && settings.isEmpty()) {
             sender.sendMessage(line(
                     sender, service.instanceId(), Reply.of(false, "check-unknown", Map.of("check", args.getFirst()))));
             return none;
         }
-        if (setting != null && !service.netSettings().caughtUp()) {
+        if (!settings.isEmpty() && !service.netSettings().caughtUp()) {
             sender.sendMessage(SYNCING.render(sender, Map.of()));
             return none;
         }
@@ -683,7 +702,7 @@ final class NetCommands {
         List<String> unlisted = new ArrayList<>();
         for (Term term : target.terms()) {
             if (bus && !term.known(known)) {
-                if (setting == null) {
+                if (settings.isEmpty()) {
                     sender.sendMessage(
                             (term.pattern() ? NO_MATCH : UNKNOWN).render(sender, Map.of("term", term.text())));
                     return none;
@@ -731,11 +750,14 @@ final class NetCommands {
         boolean broadcast = bus && (target.open() || remote.size() > 1);
         UUID senderId = sender.getUniqueId() == null ? Sender.CONSOLE_UUID : sender.getUniqueId();
         String id = UUID.randomUUID().toString();
-        NetSettings.Record record =
-                setting == null ? null : service.netSettings().stamp(setting, target.text(), sender.getName(), id);
-        if (setting != null && record == null) {
-            usage(sender);
-            return none;
+        List<NetSettings.Record> records = new ArrayList<>();
+        for (NetSettings.Setting setting : settings) {
+            NetSettings.Record record = service.netSettings().stamp(setting, target.text(), sender.getName(), id);
+            if (record == null) {
+                usage(sender);
+                return none;
+            }
+            records.add(record);
         }
         Request request = new Request(
                 id, sender, senderId, target, spec, List.copyOf(args), expected, older, possible, broadcast);
@@ -751,7 +773,7 @@ final class NetCommands {
             inFlight.add(request.key);
             pending.put(request.id, request);
         }
-        if (record != null) service.netSettings().merge(List.of(record));
+        if (!records.isEmpty()) service.netSettings().merge(records);
         for (String term : unlisted) sender.sendMessage(NOT_LISTED.render(sender, Map.of("term", term)));
         sender.sendMessage(SENT.render(
                 sender, Map.of("cmd", spec.name(), "count", String.valueOf(expected.size()), "target", target.text())));
@@ -767,7 +789,8 @@ final class NetCommands {
             return request.done;
         }
         JsonObject body = request.body(self, granted(sender, spec), scope);
-        if (record != null) body.add("setting", record.toJson());
+        if (!records.isEmpty()) body.add("setting", records.getFirst().toJson());
+        if (records.size() > 1) body.add("settings", NetSettings.json(records));
         if (here) service.sendLocal(CMD, body);
         if (broadcast) service.broadcast(CMD, body);
         else if (bus && remote.size() == 1) service.send(remote.iterator().next(), CMD, body);
@@ -956,8 +979,8 @@ final class NetCommands {
         if (!service.current()) return;
         Received request = Received.parse(envelope);
         if (request == null) return;
-        if (request.setting() != null && request.granted().contains(PERMISSION + "." + request.cmd()))
-            service.netSettings().merge(List.of(request.setting()));
+        if (!request.settings().isEmpty() && request.granted().contains(PERMISSION + "." + request.cmd()))
+            service.netSettings().merge(request.settings());
         List<String> backends = null;
         if (!request.target().instanceWide(service.instanceId(), service.proxy())) {
             backends = Target.matching(service.backends(), request.scope());
@@ -1102,20 +1125,44 @@ final class NetCommands {
                                 String.valueOf(count))));
     }
 
-    /** {@code check <check> <on|off>}: answers with the value its record, merged on receipt, left. */
+    /**
+     * {@code check <check> <on|off>}: answers with the value each of its records, merged on receipt, left, or without
+     * one, with the value of each check the name names here, the checks named in this instance's name version.
+     */
     private Reply check(Received request, @Nullable List<String> backends) {
-        NetSettings.Record record = request.setting();
-        CheckCatalog.Entry entry = record == null
-                ? CheckCatalog.named(request.args().getFirst())
-                : CheckCatalog.byStableKey(record.k().substring(NetSettings.CHECK.length()));
-        if (entry == null)
+        int nameVersion = local.checkNameVersion();
+        List<String> keys = new ArrayList<>();
+        if (request.settings().isEmpty()) {
+            for (CheckCatalog.Entry entry : CheckCatalog.named(request.args().getFirst(), nameVersion))
+                keys.add(entry.stableKey());
+        } else {
+            for (NetSettings.Record record : request.settings()) {
+                String key = record.k().substring(NetSettings.CHECK.length());
+                if (CheckCatalog.byStableKey(key) != null) keys.add(key);
+            }
+        }
+        if (keys.isEmpty())
             return Reply.of(
                     false, "check-unknown", Map.of("check", request.args().getFirst()));
-        String key = NetSettings.CHECK + entry.stableKey();
+        Map<String, List<String>> byState = new LinkedHashMap<>();
+        for (String key : keys)
+            byState.computeIfAbsent(described(NetSettings.CHECK + key, backends, false), ignored -> new ArrayList<>())
+                    .add(key);
+        List<String> states = new ArrayList<>();
+        for (Map.Entry<String, List<String>> state : byState.entrySet())
+            states.add(byState.size() == 1
+                    ? state.getKey()
+                    : state.getKey() + " for " + String.join(", ", CheckCatalog.names(state.getValue(), nameVersion)));
         return Reply.of(
                 true,
                 "check-applied",
-                Map.of("check", entry.name(), "state", described(key, backends, false), "players", players(backends)));
+                Map.of(
+                        "check",
+                        String.join(", ", CheckCatalog.names(keys, nameVersion)),
+                        "state",
+                        String.join("; ", states),
+                        "players",
+                        players(backends)));
     }
 
     /** Whom a command ran for: every player here, or those on {@code backends}. */
@@ -1160,22 +1207,17 @@ final class NetCommands {
     /** The names of the checks switched off for every player here or, given {@code backends}, on each of them. */
     private String checksOff(@Nullable List<String> backends) {
         NetSettings settings = service.netSettings();
-        if (backends == null) return checkNames(settings.checksOff(null));
+        int nameVersion = local.checkNameVersion();
+        if (backends == null) return checkNames(settings.checksOff(null), nameVersion);
         Map<String, List<String>> groups = new LinkedHashMap<>();
         for (String backend : backends)
-            groups.computeIfAbsent(checkNames(settings.checksOff(backend)), ignored -> new ArrayList<>())
+            groups.computeIfAbsent(checkNames(settings.checksOff(backend), nameVersion), ignored -> new ArrayList<>())
                     .add(backend);
         return grouped(groups);
     }
 
-    private static String checkNames(Collection<String> stableKeys) {
-        if (stableKeys.isEmpty()) return "none";
-        List<String> names = new ArrayList<>();
-        for (String key : stableKeys) {
-            CheckCatalog.Entry entry = CheckCatalog.byStableKey(key);
-            names.add(entry == null ? key : entry.name());
-        }
-        return String.join(", ", names);
+    private static String checkNames(Collection<String> stableKeys, int nameVersion) {
+        return stableKeys.isEmpty() ? "none" : String.join(", ", CheckCatalog.names(stableKeys, nameVersion));
     }
 
     /** The one value of {@code groups}, else each value with the backends it holds on. */
@@ -1612,7 +1654,7 @@ final class NetCommands {
 
     /**
      * A command as a target received it; {@code origin} is the instance that sent it, {@code scope} the target's terms
-     * that name backend servers, {@code setting} the record of the setting it sets, null for none.
+     * that name backend servers, {@code settings} the records of the settings it sets.
      */
     private record Received(
             String id,
@@ -1625,7 +1667,7 @@ final class NetCommands {
             UUID uuid,
             boolean console,
             Set<String> granted,
-            NetSettings.@Nullable Record setting) {
+            List<NetSettings.Record> settings) {
         static @Nullable Received parse(Envelope envelope) {
             JsonObject body = envelope.body();
             try {
@@ -1651,7 +1693,16 @@ final class NetCommands {
                 }
                 JsonObject from = body.getAsJsonObject("sender");
                 if (target == null || !COMMAND_NAME.matcher(command).matches() || !acceptable(args)) return null;
-                NetSettings.Record setting = NetSettings.Record.parse(body.get("setting"));
+                List<NetSettings.Record> sent = NetSettings.records(body.get("settings"));
+                if (sent.isEmpty()) {
+                    NetSettings.Record setting = NetSettings.Record.parse(body.get("setting"));
+                    if (setting != null) sent = List.of(setting);
+                }
+                List<NetSettings.Record> settings = new ArrayList<>();
+                for (NetSettings.Record setting : sent) {
+                    if (setting.id().equals(id) && NetSettings.command(setting.k()).equals(command))
+                        settings.add(setting);
+                }
                 return new Received(
                         id,
                         command,
@@ -1663,11 +1714,7 @@ final class NetCommands {
                         UUID.fromString(from.get("u").getAsString()),
                         from.has("console") && from.get("console").getAsBoolean(),
                         Set.copyOf(granted),
-                        setting != null
-                                        && setting.id().equals(id)
-                                        && NetSettings.command(setting.k()).equals(command)
-                                ? setting
-                                : null);
+                        List.copyOf(settings));
             } catch (RuntimeException malformed) {
                 return null;
             }

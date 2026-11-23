@@ -1,13 +1,17 @@
 package ac.cult.cultac.command.commands;
 
+import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
@@ -54,14 +58,10 @@ public class CultNet implements BuildableCommand {
         }
         Command.Builder<Sender> check = targeted.required(command("check"))
                 .permission(permission("check"))
-                .required("check", StringParser.stringParser(), SuggestionProvider.blockingStrings((context, input) -> {
-                    String typed = input.peekString().toLowerCase(Locale.ROOT);
-                    List<String> names = new ArrayList<>();
-                    for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
-                        if (entry.name().toLowerCase(Locale.ROOT).startsWith(typed)) names.add(entry.name());
-                    }
-                    return names;
-                }));
+                .required(
+                        "check",
+                        StringParser.stringParser(),
+                        SuggestionProvider.blockingStrings((context, input) -> checkNames(input.peekString())));
         for (String state : List.of("on", "off")) {
             commandManager.command(check.literal(state)
                     .futureHandler(context -> run(context, "check", List.of(context.<String>get("check"), state))));
@@ -82,6 +82,18 @@ public class CultNet implements BuildableCommand {
                         words(
                                 context.<String>get("build"),
                                 context.<String>optional("options").orElse("")))));
+    }
+
+    /** The names of config.yml's check name version that start with {@code typed}, whatever its case, each once. */
+    private static List<String> checkNames(String typed) {
+        int nameVersion = CheckNames.version(CultAPI.INSTANCE.getConfigManager().getConfig(), CheckNames.CONFIG_KEY);
+        String lower = typed.toLowerCase(Locale.ROOT);
+        Set<String> names = new LinkedHashSet<>();
+        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
+            String name = entry.name(nameVersion);
+            if (name.toLowerCase(Locale.ROOT).startsWith(lower)) names.add(name);
+        }
+        return new ArrayList<>(names);
     }
 
     private static CompletableFuture<Void> run(CommandContext<Sender> context, String command, List<String> args) {

@@ -5,6 +5,7 @@ import static ac.cult.cultac.manager.config.BaseConfigManager.DORMANT_KEY;
 import static ac.cult.cultac.manager.config.BaseConfigManager.OBSERVE_ONLY_KEY;
 import static ac.cult.cultac.manager.config.BaseConfigManager.PAUSE_PUNISHMENTS_KEY;
 
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.manager.config.update.ConfigPatcher;
@@ -37,7 +38,7 @@ import org.yaml.snakeyaml.Yaml;
  * by, id}], written:{dormant, observe-only, pause-punishments, checks-off}, writing:{...}}}, {@code written} holding
  * the config.yml values CultAC last wrote and {@code writing}, present only while CultAC writes config.yml, the values
  * it is writing, replaced in one move; and those values in config.yml itself. {@code checks-off} holds stable keys in
- * the file and the names checks have in this build in config.yml, which may name a check by any name.
+ * the file and names in config.yml, read and written in config.yml's {@code check-name-version}.
  */
 final class NetStateFile {
     private NetStateFile() {}
@@ -127,20 +128,20 @@ final class NetStateFile {
      * at its default, {@code checks-off} by stable key.
      */
     static Map<String, Object> readConfig(Path config) throws IOException {
-        Object loaded = new Yaml().load(Files.readString(config, StandardCharsets.UTF_8));
-        Map<?, ?> values = loaded instanceof Map<?, ?> map ? map : Map.of();
+        Map<?, ?> values = load(config);
         return NetSettings.config(
                 Boolean.TRUE.equals(values.get(DORMANT_KEY)),
                 Boolean.TRUE.equals(values.get(OBSERVE_ONLY_KEY)),
                 Boolean.TRUE.equals(values.get(PAUSE_PUNISHMENTS_KEY)),
                 values.get(CHECKS_OFF_KEY) instanceof List<?> listed
-                        ? BaseConfigManager.checkKeys(listed, CHECKS_OFF_KEY)
+                        ? BaseConfigManager.checkKeys(listed, nameVersion(values), CHECKS_OFF_KEY)
                         : List.of());
     }
 
     /**
      * Sets {@code values}, top-level config.yml keys, in {@code config}, keeping the rest of its text, under the host's
-     * config.yml lock; {@code checks-off} lists stable keys and is written as the checks' names in this build.
+     * config.yml lock; {@code checks-off} lists stable keys and is written as {@link CheckCatalog#names} names them in
+     * config.yml's {@code check-name-version}.
      */
     static void writeConfig(Path config, Map<String, Object> values, Object lock) throws IOException {
         synchronized (lock) {
@@ -148,7 +149,7 @@ final class NetStateFile {
             for (Map.Entry<String, Object> value : new TreeMap<>(values).entrySet()) {
                 List<String> path = List.of(value.getKey());
                 Object written = value.getKey().equals(CHECKS_OFF_KEY) && value.getValue() instanceof List<?> keys
-                        ? names(keys)
+                        ? names(keys, nameVersion(load(config)))
                         : value.getValue();
                 if (patcher.inFlowCollection(path)) {
                     patcher.replaceInFlowCollection(path, written);
@@ -162,13 +163,19 @@ final class NetStateFile {
         }
     }
 
-    /** The names in this build of the checks of {@code keys}, stable keys; a key of no check here stays as it is. */
-    private static List<String> names(List<?> keys) {
-        List<String> names = new ArrayList<>();
-        for (Object key : keys) {
-            CheckCatalog.Entry check = CheckCatalog.byStableKey(String.valueOf(key));
-            names.add(check == null ? String.valueOf(key) : check.name());
-        }
-        return names;
+    private static List<String> names(List<?> keys, int nameVersion) {
+        List<String> stableKeys = new ArrayList<>();
+        for (Object key : keys) stableKeys.add(String.valueOf(key));
+        return CheckCatalog.names(stableKeys, nameVersion);
+    }
+
+    private static Map<?, ?> load(Path config) throws IOException {
+        Object loaded = new Yaml().load(Files.readString(config, StandardCharsets.UTF_8));
+        return loaded instanceof Map<?, ?> map ? map : Map.of();
+    }
+
+    /** The name version config.yml's {@code values} name checks in. */
+    private static int nameVersion(Map<?, ?> values) {
+        return CheckNames.version(values.get(CheckNames.CONFIG_KEY));
     }
 }

@@ -177,7 +177,10 @@ public class BaseConfigManager {
                             : "Switched to enforcing; check violations start from zero");
         }
         dormant = config.getBooleanElse(DORMANT_KEY, false);
-        checksOff = checkKeys(config.getStringListElse(CHECKS_OFF_KEY, List.of()), CHECKS_OFF_KEY);
+        checksOff = checkKeys(
+                config.getStringListElse(CHECKS_OFF_KEY, List.of()),
+                CheckNames.version(config, CheckNames.CONFIG_KEY),
+                CHECKS_OFF_KEY);
         pausePunishments = config.getBooleanElse(PAUSE_PUNISHMENTS_KEY, false);
 
         prefix = config.getStringElse("prefix", "&bCult &8»");
@@ -229,19 +232,19 @@ public class BaseConfigManager {
     }
 
     /**
-     * The stable keys of the checks {@code names} name, each by a name it has or had, its alternative name or its
-     * stable key, whatever the case. A name of no check is logged once, after {@code source}, where it was read, and
-     * left out.
+     * The stable keys of every check {@code names} name, each read as {@link CheckCatalog#named(String, int)} reads it
+     * in name version {@code nameVersion}. A name of no check is logged once, after {@code source}, where it was read,
+     * and left out.
      */
-    public static List<String> checkKeys(@Nullable Collection<?> names, String source) {
+    public static List<String> checkKeys(@Nullable Collection<?> names, int nameVersion, String source) {
         if (names == null) return List.of();
         Set<String> keys = new LinkedHashSet<>();
         for (Object name : names) {
             if (name == null || name.toString().isBlank()) continue;
             String typed = name.toString().strip();
-            CheckCatalog.Entry check = CheckCatalog.named(typed);
-            if (check != null) keys.add(check.stableKey());
-            else if (UNKNOWN_CHECKS.add(source + " " + typed.toLowerCase(Locale.ROOT)))
+            List<CheckCatalog.Entry> checks = CheckCatalog.named(typed, nameVersion);
+            for (CheckCatalog.Entry check : checks) keys.add(check.stableKey());
+            if (checks.isEmpty() && UNKNOWN_CHECKS.add(source + " " + typed.toLowerCase(Locale.ROOT)))
                 LogUtil.warn(source + " names " + typed + ", which is not a check of this build; it is left out");
         }
         return List.copyOf(keys);

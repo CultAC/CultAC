@@ -56,7 +56,7 @@ import org.jetbrains.annotations.Nullable;
  * config.yml's. The records of a command {@code network.commands} keeps this instance from taking decide nothing here;
  * the table still keeps and forwards them.
  *
- * <p>A setting command's issuer merges its record and ships it in the command. Every roster carries the table, a full
+ * <p>A setting command's issuer merges and ships its records in the command. Every roster carries the table, a full
  * one all of it and a delta the records new since the last. Starting, an instance broadcasts {@value #SYNC} with its
  * table, as it sends one to a peer heard from again after it expired; each receiver merges it and answers with
  * {@value #STATE}, at most once per peer every {@value #SYNC_INTERVAL_MILLIS} ms. Merging is idempotent and does not

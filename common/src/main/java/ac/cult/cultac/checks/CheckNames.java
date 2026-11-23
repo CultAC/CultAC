@@ -100,8 +100,16 @@ public final class CheckNames {
      * known version for one {@link #validate} rejects.
      */
     public static int version(@NotNull ConfigManager config, @NotNull String key) {
-        Integer written = whole(written(config, key));
-        return written == null ? FIRST : Math.max(FIRST, Math.min(LATEST, written));
+        return version(written(config, key));
+    }
+
+    /**
+     * The name version of {@code written}, a stamp as its file holds it, read as
+     * {@link #version(ConfigManager, String)} reads one.
+     */
+    public static int version(@Nullable Object written) {
+        Integer whole = whole(written);
+        return whole == null ? FIRST : Math.max(FIRST, Math.min(LATEST, whole));
     }
 
     /**
