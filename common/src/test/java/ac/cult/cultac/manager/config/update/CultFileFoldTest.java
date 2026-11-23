@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
@@ -73,43 +72,22 @@ class CultFileFoldTest {
         Map<String, Object> cult = section(new Yaml().load(Files.readString(config)), "cult");
         assertEquals(false, cult.get("exempt-bedrock-players"));
         assertEquals(true, cult.get("exempt-java-players"));
-        assertTrue(Files.exists(directory.resolve("cult.yml.migrated")));
+        assertTrue(Files.exists(directory.resolve("cult.yml")));
     }
 
     @Test
-    void aFoldWrittenBackFromACopyRetiresTheCultYmlBesideIt() throws Exception {
-        Path canonical = Files.createDirectories(directory.resolve("canonical"));
-        Path snapshot = Files.createDirectories(directory.resolve("snapshot"));
-        Path config = canonical.resolve("config.yml");
-        Path legacy = canonical.resolve("cult.yml");
-        String legacyText = "cult:\n  exempt-java-players: true\nconfig-version: 3\n";
-        Files.writeString(legacy, legacyText);
-        Files.writeString(canonical.resolve("cult.yml.migrated"), "cult: {}\n");
-        ConfigUpdater updater = new ConfigUpdater(
-                CultConfigSpecs.class, Logger.getLogger(getClass().getName()));
+    void cultYmlWinsOverTheBundledSectionOfAFreshConfig() throws Exception {
+        Path config = directory.resolve("config.yml");
+        try (var bundled = CultConfigSpecs.class.getResourceAsStream("/config/en.yml")) {
+            Files.copy(bundled, config);
+        }
+        Files.writeString(directory.resolve("cult.yml"), "cult:\n  exempt-java-players: true\nconfig-version: 3\n");
 
-        Files.writeString(config, "cult: [\n");
-        assertFalse(updater.retireFoldedCultFile(config.toFile()));
-        Files.writeString(config, "alerts:\n  print-to-console: false\nconfig-flavor: V2\nconfig-version: 20\n");
-        assertFalse(updater.retireFoldedCultFile(config.toFile()));
-        assertEquals(legacyText, Files.readString(legacy));
+        new ConfigUpdater(CultConfigSpecs.class, Logger.getLogger(getClass().getName()))
+                .foldLegacyCultFile(config.toFile(), false, "en");
 
-        Files.copy(config, snapshot.resolve("config.yml"));
-        Files.copy(legacy, snapshot.resolve("cult.yml"));
-        updater.foldLegacyCultFile(snapshot.resolve("config.yml").toFile(), false, "en");
-        Files.copy(snapshot.resolve("config.yml"), config, StandardCopyOption.REPLACE_EXISTING);
-
-        assertTrue(updater.retireFoldedCultFile(config.toFile()));
-        assertFalse(Files.exists(legacy));
-        assertEquals(legacyText, Files.readString(canonical.resolve("cult.yml.migrated.1")));
-        assertFalse(updater.retireFoldedCultFile(config.toFile()));
-
-        Files.writeString(legacy, "cult:\n  exempt-java-players: true\n  retired-setting: true\nconfig-version: 3\n");
-        Files.writeString(config, "cult:\n  exempt-bedrock-players: false\nconfig-version: 20\n");
-        assertFalse(updater.retireFoldedCultFile(config.toFile()));
-        Files.writeString(config, "cult:\n  exempt-java-players: false\nconfig-version: 20\n");
-        assertTrue(updater.retireFoldedCultFile(config.toFile()));
-        assertTrue(Files.exists(canonical.resolve("cult.yml.migrated.2")));
+        assertEquals(true, section(new Yaml().load(Files.readString(config)), "cult").get("exempt-java-players"));
+        assertTrue(Files.exists(directory.resolve("cult.yml.migrated")));
     }
 
     @ParameterizedTest

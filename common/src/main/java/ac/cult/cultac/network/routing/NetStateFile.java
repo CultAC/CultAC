@@ -102,13 +102,17 @@ final class NetStateFile {
         Path temporary = Files.createTempFile(target.getParent(), ".network-state-", ".tmp");
         try {
             Files.writeString(temporary, json.toString(), StandardCharsets.UTF_8);
-            try {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException unsupported) {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
-            }
+            replace(temporary, target);
         } finally {
             Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static void replace(Path temporary, Path target) throws IOException {
+        try {
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -155,24 +159,35 @@ final class NetStateFile {
                                 ? names(keys)
                                 : value.getValue());
             }
-            writeFlowLists(config, writes);
-            if (writes.isEmpty()) return;
-            ConfigPatcher patcher = new ConfigPatcher(config.toFile());
-            for (Map.Entry<String, Object> value : writes.entrySet()) {
-                NodePosition position = patcher.getNodePosition(value.getKey());
-                if (position == null) patcher.addMissingValue(value.getKey(), value.getValue());
-                else patcher.applyChange(new PendingChange(position, value.getValue()));
+            Path target = config.toAbsolutePath();
+            String text = Files.readString(target, StandardCharsets.UTF_8);
+            String flowed = writeFlowLists(text, writes);
+            if (writes.isEmpty() && flowed.equals(text)) return;
+            Path staged = Files.createTempFile(target.getParent(), ".cult-config-", ".tmp");
+            try {
+                Files.writeString(staged, flowed, StandardCharsets.UTF_8);
+                if (!writes.isEmpty()) {
+                    ConfigPatcher patcher = new ConfigPatcher(staged.toFile());
+                    for (Map.Entry<String, Object> value : writes.entrySet()) {
+                        NodePosition position = patcher.getNodePosition(value.getKey());
+                        if (position == null) patcher.addMissingValue(value.getKey(), value.getValue());
+                        else patcher.applyChange(new PendingChange(position, value.getValue()));
+                    }
+                    patcher.save();
+                }
+                replace(staged, target);
+            } finally {
+                Files.deleteIfExists(staged);
             }
-            patcher.save();
         }
     }
 
     /**
-     * Rewrites each list of {@code writes} whose top-level key holds a one-line flow list in {@code config} as a flow
-     * list in its place, keeping the line's trailing comment, and removes it from {@code writes}.
+     * {@code text} with each list of {@code writes} whose top-level key holds a one-line flow list there rewritten as a
+     * flow list in its place, keeping the line's trailing comment; each such list is removed from {@code writes}.
      */
-    private static void writeFlowLists(Path config, Map<String, Object> writes) throws IOException {
-        String[] lines = Files.readString(config, StandardCharsets.UTF_8).split("\n", -1);
+    private static String writeFlowLists(String text, Map<String, Object> writes) {
+        String[] lines = text.split("\n", -1);
         DumperOptions options = new DumperOptions();
         options.setDefaultFlowStyle(DumperOptions.FlowStyle.FLOW);
         options.setSplitLines(false);
@@ -193,7 +208,7 @@ final class NetStateFile {
                 break;
             }
         }
-        if (changed) Files.writeString(config, String.join("\n", lines), StandardCharsets.UTF_8);
+        return changed ? String.join("\n", lines) : text;
     }
 
     /** The names in this build of the checks of {@code keys}, stable keys; a key of no check here stays as it is. */

@@ -173,6 +173,9 @@ public final class ConfigUpdater {
     /** The file whose {@code cult} section {@link #foldLegacyCultFile} moves into config.yml. */
     public static final String LEGACY_CULT_FILE = "cult.yml";
 
+    /** config.yml as it was before {@link #foldLegacyCultFile} wrote to it; it also marks that a fold completed. */
+    public static final String CULT_MERGE_BACKUP = "config.yml.pre-cult-merge.bak";
+
     private final Class<?> resourceAnchor;
     private final Logger logger;
 
@@ -371,10 +374,10 @@ public final class ConfigUpdater {
     /**
      * Moves the settings of a {@code cult.yml} beside {@code configFile} into its {@code cult} section, then renames
      * cult.yml to {@code cult.yml.migrated}. Run it before {@link #updateAll}, which lifts the section into a newer
-     * default. A section config.yml already has wins key by key; cult.yml fills the keys it lacks. When config.yml has
-     * no section, the bundled default's section, comments included, is added first and takes cult.yml's values.
-     * {@code configFresh} marks a config.yml just written from the bundled default, whose section is no operator's.
-     * A file that cannot be read or patched stays as it was, cult.yml included, for the next start to retry.
+     * default. A section that {@link #ownsCultSection owns} its settings wins key by key and cult.yml fills the keys it
+     * lacks; any other section takes cult.yml's values. When config.yml has no section, the bundled default's section,
+     * comments included, is added first. {@code configFresh} marks a config.yml just written from the bundled default.
+     * cult.yml stays when an owned section disagrees with it, and when a file cannot be read or patched.
      */
     public void foldLegacyCultFile(@NotNull File configFile, boolean configFresh, @NotNull String langCode)
             throws IOException {
@@ -387,74 +390,75 @@ public final class ConfigUpdater {
                     + " cannot be read, so cult.yml stays and its settings are not in config.yml yet");
             return;
         }
-        boolean operatorSection = !configFresh && configData.get("cult") instanceof Map;
+        boolean operatorSection = ownsCultSection(configFile.toPath(), configData, configFresh);
         Map<List<String>, Object> leaves = legacyLeaves(legacyData);
         List<WriteLog.Entry> writes = new ArrayList<>();
-        int kept = 0;
+        List<String> differing = new ArrayList<>();
         for (Map.Entry<List<String>, Object> leaf : leaves.entrySet()) {
             if (operatorSection && holds(configData, leaf.getKey())) {
-                kept++;
+                if (!sameValue(valueAt(configData, leaf.getKey()), leaf.getValue())) {
+                    differing.add(String.join(".", leaf.getKey()));
+                }
                 continue;
             }
             writes.add(new WriteLog.Entry(WriteLog.Op.PUT, String.join(".", leaf.getKey()), leaf.getValue()));
         }
 
-        List<String> lines = new ArrayList<>(Files.readAllLines(configFile.toPath(), StandardCharsets.UTF_8));
-        if (!configData.containsKey("cult")) {
-            List<String> section;
-            try (InputStream in = openResource(resolveBundledDefaultPath(CultConfigSpecs.mainConfig(), langCode))) {
-                String bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-                section = topLevelSection(bundled.lines().toList(), "cult");
+        if (!writes.isEmpty() || !configData.containsKey("cult")) {
+            List<String> lines = new ArrayList<>(Files.readAllLines(configFile.toPath(), StandardCharsets.UTF_8));
+            if (!configData.containsKey("cult")) {
+                List<String> section;
+                try (InputStream in =
+                        openResource(resolveBundledDefaultPath(CultConfigSpecs.mainConfig(), langCode))) {
+                    String bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                    section = topLevelSection(bundled.lines().toList(), "cult");
+                }
+                if (!lines.isEmpty() && !lines.get(lines.size() - 1).isBlank()) lines.add("");
+                lines.addAll(section);
             }
-            if (!lines.isEmpty() && !lines.get(lines.size() - 1).isBlank()) lines.add("");
-            lines.addAll(section);
-        }
-        Path target = configFile.toPath().toAbsolutePath();
-        Path staged = Files.createTempFile(target.getParent(), ".cult-config-", ".tmp");
-        try {
-            Files.write(staged, lines, StandardCharsets.UTF_8);
-            applyEntries(staged.toFile(), writes);
-            Path backup = target.resolveSibling(configFile.getName() + ".pre-cult-merge.bak");
-            if (!Files.exists(backup)) Files.copy(target, backup);
-            Files.move(staged, target, StandardCopyOption.REPLACE_EXISTING);
-        } finally {
-            Files.deleteIfExists(staged);
+            Path target = configFile.toPath().toAbsolutePath();
+            Path staged = Files.createTempFile(target.getParent(), ".cult-config-", ".tmp");
+            try {
+                Files.write(staged, lines, StandardCharsets.UTF_8);
+                applyEntries(staged.toFile(), writes);
+                Path backup = target.resolveSibling(CULT_MERGE_BACKUP);
+                if (!Files.exists(backup)) Files.copy(target, backup);
+                Files.move(staged, target, StandardCopyOption.REPLACE_EXISTING);
+            } finally {
+                Files.deleteIfExists(staged);
+            }
         }
 
+        if (!differing.isEmpty()) {
+            logger.warning("[cult-config-updater] config.yml's cult section and cult.yml disagree on "
+                    + String.join(", ", differing) + "; config.yml's values are used and cult.yml stays. Copy the"
+                    + " cult.yml values you want into config.yml, then delete cult.yml");
+            return;
+        }
         Path renamed = retire(legacy.toPath());
         logger.info("[cult-config-updater] moved " + writes.size() + " cult.yml setting(s) into config.yml's cult"
-                + " section"
-                + (operatorSection
-                        ? "; config.yml already had a cult section, so its values win (" + kept
-                                + " cult.yml setting(s) left out)"
-                        : "")
-                + "; cult.yml renamed to " + renamed.getFileName());
+                + " section; cult.yml renamed to " + renamed.getFileName());
     }
 
     /**
-     * Renames the {@code cult.yml} beside {@code configFile} to {@code cult.yml.migrated} once config.yml's
-     * {@code cult} section holds every one of its settings the bundled default has, as after a fold run on a copy of
-     * this folder was written back. A file that cannot be read leaves cult.yml as it is.
-     *
-     * @return whether cult.yml was renamed
+     * Whether the {@code cult} section of {@code configFile} holds its operator's settings, so a cult.yml beside it
+     * no longer counts: the section differs from the bundled default's, or a fold already completed beside it.
+     * {@code configFresh} marks a config.yml just written from the bundled default, which holds none.
      */
-    public boolean retireFoldedCultFile(@NotNull File configFile) throws IOException {
-        File legacy = new File(configFile.getParentFile(), LEGACY_CULT_FILE);
-        if (!legacy.isFile()) return false;
-        Map<String, Object> legacyData = readYaml(legacy.toPath());
+    public boolean ownsCultSection(@NotNull File configFile, boolean configFresh) throws IOException {
         Map<String, Object> configData = readYaml(configFile.toPath());
-        if (legacyData == null || configData == null || !(configData.get("cult") instanceof Map)) return false;
+        return configData != null && ownsCultSection(configFile.toPath(), configData, configFresh);
+    }
+
+    private boolean ownsCultSection(Path configFile, Map<String, Object> configData, boolean configFresh)
+            throws IOException {
+        if (configFresh || !(configData.get("cult") instanceof Map<?, ?> section)) return false;
+        if (Files.exists(configFile.toAbsolutePath().resolveSibling(CULT_MERGE_BACKUP))) return true;
         Map<?, ?> bundled;
         try (InputStream in = openResource(resolveBundledDefaultPath(CultConfigSpecs.mainConfig(), "en"))) {
             bundled = new Yaml().load(in);
         }
-        for (List<String> path : legacyLeaves(legacyData).keySet()) {
-            if (holds(bundled, path) && !holds(configData, path)) return false;
-        }
-        Path renamed = retire(legacy.toPath());
-        logger.info("[cult-config-updater] config.yml holds every cult.yml setting; cult.yml renamed to "
-                + renamed.getFileName());
-        return true;
+        return !section.equals(bundled.get("cult"));
     }
 
     /** The leaves of a cult.yml's {@code cult} section under the paths config.yml holds them at. */
@@ -485,6 +489,20 @@ public final class ConfigUpdater {
             node = level.get(key);
         }
         return true;
+    }
+
+    private static @Nullable Object valueAt(Map<?, ?> map, List<String> path) {
+        Object node = map;
+        for (String key : path) {
+            if (!(node instanceof Map<?, ?> level)) return null;
+            node = level.get(key);
+        }
+        return node;
+    }
+
+    private static boolean sameValue(@Nullable Object a, @Nullable Object b) {
+        if (a instanceof Number x && b instanceof Number y) return Double.compare(x.doubleValue(), y.doubleValue()) == 0;
+        return Objects.equals(a, b);
     }
 
     /** A pre-v3 cult.yml's absolute FairReach {@code max-reach} as its distance past the 3-block default. */

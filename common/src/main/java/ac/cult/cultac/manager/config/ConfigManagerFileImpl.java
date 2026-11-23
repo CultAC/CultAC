@@ -9,9 +9,11 @@ import ac.grim.grimac.api.common.BasicReloadable;
 import ac.grim.grimac.api.config.ConfigManager;
 import github.scarsz.configuralize.DynamicConfig;
 import github.scarsz.configuralize.Language;
+import github.scarsz.configuralize.Source;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -27,6 +29,8 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
     private final DynamicConfig config;
     private boolean initialized = false;
     private final File snapshotDirectory;
+    private final Path canonicalDirectory;
+    private @Nullable Source legacyCultSource;
 
     // reload() replaces this; a lookup stores into the cache it read first, so one racing a reload is discarded.
     private volatile Lookups lookups = new Lookups();
@@ -62,7 +66,12 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
     }
 
     public ConfigManagerFileImpl(File snapshotDirectory) {
+        this(snapshotDirectory, snapshotDirectory == null ? null : RuntimeEnvironment.host().directory());
+    }
+
+    ConfigManagerFileImpl(File snapshotDirectory, Path canonicalDirectory) {
         this.snapshotDirectory = snapshotDirectory;
+        this.canonicalDirectory = canonicalDirectory;
         config = new DynamicConfig();
     }
 
@@ -98,6 +107,12 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         String langCode = config.getLanguage().getCode().toLowerCase();
         try {
             updater.foldLegacyCultFile(getConfigFile("config.yml"), configFresh, langCode);
+        } catch (Exception e) {
+            LogUtil.warn("Cannot move " + ConfigUpdater.LEGACY_CULT_FILE + " into config.yml, so it is read after"
+                    + " config.yml: " + e);
+        }
+        if (snapshotDirectory != null) publishMergeBackup();
+        try {
             updater.updateAll(batch, langCode);
             Map<File, ConfigUpdater.Spec> cultBatch = new LinkedHashMap<>();
             batch.forEach((file, spec) -> cultBatch.put(file, CultConfigSpecs.cultConfig(spec.resourceDirectory)));
@@ -113,18 +128,11 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         getDataFolder().mkdirs();
         if (!initialized) {
             if (snapshotDirectory != null) {
-                var canonical = RuntimeEnvironment.host().directory();
-                try {
-                    new ConfigUpdater(CultAPI.class, Logger.getLogger("cult-config"))
-                            .retireFoldedCultFile(
-                                    canonical.resolve("config.yml").toFile());
-                } catch (IOException failure) {
-                    LogUtil.warn("Cannot rename " + ConfigUpdater.LEGACY_CULT_FILE + ": " + failure);
-                }
                 var names = configurationNames();
-                names.add(ConfigUpdater.LEGACY_CULT_FILE);
+                names.add(ConfigUpdater.CULT_MERGE_BACKUP);
+                if (readsCanonicalCultFile()) names.add(ConfigUpdater.LEGACY_CULT_FILE);
                 for (var name : names) {
-                    var source = canonical.resolve(name);
+                    var source = canonicalDirectory.resolve(name);
                     var target = snapshotDirectory.toPath().resolve(name);
                     try {
                         if (Files.exists(source)) {
@@ -166,6 +174,10 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
             config.setLanguage(Language.EN);
         }
 
+        if (legacyCultSource != null) {
+            config.removeSource(legacyCultSource);
+            legacyCultSource = null;
+        }
         boolean configFresh = !getConfigFile("config.yml").exists();
         try {
             // Save bundled defaults BEFORE the updater runs so any cross-file
@@ -183,6 +195,12 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // backups (<name>.v<oldVersion>.bak) preserve operator-rollback
         // evidence across stacked migration steps.
         runConfigUpdates(configFresh);
+        File legacyCult = getConfigFile(ConfigUpdater.LEGACY_CULT_FILE);
+        if (legacyCult.isFile()) {
+            // Registered last, it answers only the keys config.yml lacks; its defaults are config.yml's.
+            legacyCultSource = new Source(config, CultAPI.class, "config", legacyCult);
+            config.addSource(legacyCultSource);
+        }
 
         try {
             config.loadAll();
@@ -190,6 +208,36 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
             throw new RuntimeException("Failed to load config", e);
         } finally {
             lookups = new Lookups();
+        }
+    }
+
+    /**
+     * Whether the canonical cult.yml still counts. Builds that predate the fold read only cult.yml, and staff can roll
+     * back to one in place, so it stays on disk and is ignored once config.yml owns its cult section.
+     */
+    private boolean readsCanonicalCultFile() {
+        if (!Files.isRegularFile(canonicalDirectory.resolve(ConfigUpdater.LEGACY_CULT_FILE))) return false;
+        try {
+            if (!new ConfigUpdater(CultAPI.class, Logger.getLogger("cult-config"))
+                    .ownsCultSection(canonicalDirectory.resolve("config.yml").toFile(), false)) return true;
+        } catch (IOException failure) {
+            LogUtil.warn("Cannot compare config.yml's cult section with the bundled default, so "
+                    + ConfigUpdater.LEGACY_CULT_FILE + " is read: " + failure);
+            return true;
+        }
+        LogUtil.info(ConfigUpdater.LEGACY_CULT_FILE + " is no longer read, since config.yml holds its settings; it can"
+                + " be deleted once no build older than this one will run");
+        return false;
+    }
+
+    private void publishMergeBackup() {
+        var backup = getConfigFile(ConfigUpdater.CULT_MERGE_BACKUP).toPath();
+        var published = canonicalDirectory.resolve(ConfigUpdater.CULT_MERGE_BACKUP);
+        try {
+            if (Files.exists(backup) && !Files.exists(published)) Files.copy(backup, published);
+        } catch (IOException failure) {
+            LogUtil.warn("Cannot copy " + ConfigUpdater.CULT_MERGE_BACKUP + " to " + canonicalDirectory + ": "
+                    + failure);
         }
     }
 
