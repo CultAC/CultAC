@@ -53,6 +53,9 @@ class VehicleSprintStateTest {
     private static final Vec3 SEAT = new Vec3(0.5, FLOOR_Y + 1, 0.5);
     private static final ServerboundPlayerInput FORWARD_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    /** LivingEntity#getFrictionInfluencedSpeed on stone with the sprint modifier, times the 0.98 forward input. */
+    private static final double SPRINT_STEP =
+            (double) 0.98F * (double) ((float) (0.1F * (1.0D + 0.3F)) * (0.21600002F / (0.6F * 0.6F * 0.6F)));
 
     /**
      * LocalPlayer#wasSprinting stays true while a passive passenger skips sendIsSprintingIfNeeded. Holding the keys
@@ -417,6 +420,7 @@ class VehicleSprintStateTest {
             SprintH check = enabled(f);
             f.player.isSprinting = true;
             f.player.openWindow.onClientOpenOrCloseWindow(true);
+            f.input(FORWARD_SPRINT);
             f.rideTick();
 
             assertTrue(f.player.isClientSprinting());
@@ -429,13 +433,64 @@ class VehicleSprintStateTest {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
             SprintH check = enabled(f);
-            f.player.isSprinting = true;
-            f.player.openWindow.onClientOpenOrCloseWindow(true);
-            f.tickEnd();
+            sprintInInventory(f, check, FORWARD_SPRINT);
 
             assertTrue(f.player.isClientSprinting());
+            assertEquals(2, check.violations);
+            sprintInInventory(f, check, new ServerboundPlayerInput(false, false, false, false, true, false, true));
+            assertEquals(4, check.violations);
+        }
+    }
+
+    /** LocalPlayer sends a tick's player_input ahead of the move its keys make; every player_input of a tick counts. */
+    @Test
+    void theKeysOfEveryPlayerInputOfATickCountForASprintInAnInventory() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 start = new Vec3(SEAT.x, FLOOR_Y, SEAT.z);
+            f.place(start, Vec3.ZERO);
+            SprintH check = enabled(f);
+            f.player.isSprinting = true;
+            f.player.openWindow.onClientOpenOrCloseWindow(true);
+            input(f, FORWARD_SPRINT);
+            f.move(start.add(0, 0, SPRINT_STEP), true);
+            input(f, new ServerboundPlayerInput(false, false, false, false, false, false, false));
+            f.tickEnd();
+
             assertEquals(1, check.violations);
         }
+    }
+
+    /**
+     * KeyboardInput#tick builds the move vector from the four movement keys alone: a player on the ground reporting
+     * only sprint and sneak stands still.
+     */
+    @Test
+    void aPlayerStandingStillWithSprintOnInAnInventoryIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            SprintH check = enabled(f);
+            sprintInInventory(f, check, new ServerboundPlayerInput(false, false, false, false, false, true, true));
+
+            assertTrue(f.player.isClientSprinting());
+            assertEquals(0, check.violations);
+        }
+    }
+
+    /** A START_SPRINTING and a tick end with {@code keys} reported while the player's inventory is open. */
+    private static void sprintInInventory(JavaTickFixture f, SprintH check, ServerboundPlayerInput keys) {
+        f.player.openWindow.onClientOpenOrCloseWindow(true);
+        input(f, keys);
+        var sprint = new ServerboundPlayerCommand(f.player.entityID, PlayerCommandAction.START_SPRINTING, 0);
+        var event = f.event(ServerboundPackets.PLAYER_COMMAND, sprint);
+        check.onPlayerCommand(event, f.player, sprint);
+        new PacketEntityAction().onPlayerCommand(event, f.player, sprint);
+        f.tickEnd();
+    }
+
+    /** A player_input through the early receive handlers, then the ordinary ones. */
+    private static void input(JavaTickFixture f, ServerboundPlayerInput keys) {
+        f.player.checkManager.dispatchEarlyReceive(f.event(ServerboundPackets.PLAYER_INPUT, keys));
+        f.input(keys);
     }
 
     /** Prevent automatic server dismount corrections from replacing the vanilla passenger carry under test. */
