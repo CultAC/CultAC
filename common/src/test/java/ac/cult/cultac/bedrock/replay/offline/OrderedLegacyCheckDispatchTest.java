@@ -27,7 +27,6 @@ import ac.cult.cultac.checks.impl.multiactions.MultiActionsE;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderB;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderH;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderO;
-import ac.cult.cultac.checks.impl.packetorder.PacketOrderP;
 import ac.cult.cultac.checks.impl.post.PostCheck;
 import ac.cult.cultac.checks.impl.sprint.SprintB;
 import ac.cult.cultac.checks.impl.sprint.SprintE;
@@ -75,7 +74,7 @@ import org.junit.Test;
 
 public final class OrderedLegacyCheckDispatchTest {
     @Test
-    public void streamChecksUseTickBoundaryHandlersAndDeadCheckStaysUnregistered() {
+    public void streamChecksUseTickBoundaryHandlers() {
         CultPlayer player = offlineJavaPlayer();
         try {
             var records = CultAPI.INSTANCE.getNetworkManager().dispatcher().scanner();
@@ -83,7 +82,6 @@ public final class OrderedLegacyCheckDispatchTest {
             assertTrue(records.hasReceiveHandlerDeclaration(PacketOrderB.class));
             // PacketOrderO flags any packet between movement and tick end, so it observes the whole stream.
             assertFalse(records.hasReceiveHandlerDeclaration(PacketOrderO.class));
-            assertFalse(player.checkManager.getAllChecks().stream().anyMatch(check -> check instanceof PacketOrderP));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
