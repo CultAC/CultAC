@@ -20,6 +20,8 @@ layout and the build/test commands are adapted to this tree.
 - Unit tests: `./gradlew :common:test`
 - Offline Bedrock replay tests: `./gradlew :common:offlineBedrockReplayTest`
 - Live smoketests (real Paper server + real client): `scripts/run-local-all-smoketests.sh`
+- Benchmarks and profiling harnesses are not committed to this repository; measure in a scratch copy outside it, and
+  keep benchmark results out of commits, PRs and comments.
 
 ## Rules applicable to both the Java and Bedrock simulation engine
 
