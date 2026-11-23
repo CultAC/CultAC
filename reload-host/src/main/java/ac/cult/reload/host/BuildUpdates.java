@@ -619,7 +619,7 @@ public final class BuildUpdates {
 
     private String repository() throws Refused {
         if (!REPOSITORY.matcher(settings.repository()).matches())
-            throw new Refused("update.repository " + settings.repository() + " is not owner/repo");
+            throw new Refused("the update repository " + settings.repository() + " is not owner/repo");
         return settings.repository();
     }
 

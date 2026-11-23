@@ -117,7 +117,6 @@ The settings live in the `update` section of the plugin's `config.yml`. `CULTAC_
 
 ```yaml
 update:
-  repository: CultAC/CultAC
   webhook: ""
   build: 142
 ```

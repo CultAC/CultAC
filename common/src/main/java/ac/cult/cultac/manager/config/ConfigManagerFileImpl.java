@@ -114,6 +114,13 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         if (!initialized) {
             if (snapshotDirectory != null) {
                 var canonical = RuntimeEnvironment.host().directory();
+                try {
+                    new ConfigUpdater(CultAPI.class, Logger.getLogger("cult-config"))
+                            .retireFoldedCultFile(
+                                    canonical.resolve("config.yml").toFile());
+                } catch (IOException failure) {
+                    LogUtil.warn("Cannot rename " + ConfigUpdater.LEGACY_CULT_FILE + ": " + failure);
+                }
                 var names = configurationNames();
                 names.add(ConfigUpdater.LEGACY_CULT_FILE);
                 for (var name : names) {

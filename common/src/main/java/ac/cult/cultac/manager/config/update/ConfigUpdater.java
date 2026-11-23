@@ -376,7 +376,6 @@ public final class ConfigUpdater {
      * {@code configFresh} marks a config.yml just written from the bundled default, whose section is no operator's.
      * A file that cannot be read or patched stays as it was, cult.yml included, for the next start to retry.
      */
-    @SuppressWarnings("unchecked")
     public void foldLegacyCultFile(@NotNull File configFile, boolean configFresh, @NotNull String langCode)
             throws IOException {
         File legacy = new File(configFile.getParentFile(), LEGACY_CULT_FILE);
@@ -388,14 +387,8 @@ public final class ConfigUpdater {
                     + " cannot be read, so cult.yml stays and its settings are not in config.yml yet");
             return;
         }
-        Map<String, Object> settings = legacyData.get("cult") instanceof Map<?, ?> section
-                ? new LinkedHashMap<>((Map<String, Object>) section)
-                : new LinkedHashMap<>();
-        if (parseVersion(legacyData.get("config-version")) < 3) liftMaxReach(settings);
-
         boolean operatorSection = !configFresh && configData.get("cult") instanceof Map;
-        Map<List<String>, Object> leaves = new LinkedHashMap<>();
-        collectLeaves(List.of("cult"), settings, leaves);
+        Map<List<String>, Object> leaves = legacyLeaves(legacyData);
         List<WriteLog.Entry> writes = new ArrayList<>();
         int kept = 0;
         for (Map.Entry<List<String>, Object> leaf : leaves.entrySet()) {
@@ -428,11 +421,7 @@ public final class ConfigUpdater {
             Files.deleteIfExists(staged);
         }
 
-        Path renamed = legacy.toPath().resolveSibling(LEGACY_CULT_FILE + ".migrated");
-        for (int n = 1; Files.exists(renamed); n++) {
-            renamed = legacy.toPath().resolveSibling(LEGACY_CULT_FILE + ".migrated." + n);
-        }
-        Files.move(legacy.toPath(), renamed);
+        Path renamed = retire(legacy.toPath());
         logger.info("[cult-config-updater] moved " + writes.size() + " cult.yml setting(s) into config.yml's cult"
                 + " section"
                 + (operatorSection
@@ -440,6 +429,53 @@ public final class ConfigUpdater {
                                 + " cult.yml setting(s) left out)"
                         : "")
                 + "; cult.yml renamed to " + renamed.getFileName());
+    }
+
+    /**
+     * Renames the {@code cult.yml} beside {@code configFile} to {@code cult.yml.migrated} once config.yml's
+     * {@code cult} section holds every one of its settings the bundled default has, as after a fold run on a copy of
+     * this folder was written back. A file that cannot be read leaves cult.yml as it is.
+     *
+     * @return whether cult.yml was renamed
+     */
+    public boolean retireFoldedCultFile(@NotNull File configFile) throws IOException {
+        File legacy = new File(configFile.getParentFile(), LEGACY_CULT_FILE);
+        if (!legacy.isFile()) return false;
+        Map<String, Object> legacyData = readYaml(legacy.toPath());
+        Map<String, Object> configData = readYaml(configFile.toPath());
+        if (legacyData == null || configData == null || !(configData.get("cult") instanceof Map)) return false;
+        Map<?, ?> bundled;
+        try (InputStream in = openResource(resolveBundledDefaultPath(CultConfigSpecs.mainConfig(), "en"))) {
+            bundled = new Yaml().load(in);
+        }
+        for (List<String> path : legacyLeaves(legacyData).keySet()) {
+            if (holds(bundled, path) && !holds(configData, path)) return false;
+        }
+        Path renamed = retire(legacy.toPath());
+        logger.info("[cult-config-updater] config.yml holds every cult.yml setting; cult.yml renamed to "
+                + renamed.getFileName());
+        return true;
+    }
+
+    /** The leaves of a cult.yml's {@code cult} section under the paths config.yml holds them at. */
+    @SuppressWarnings("unchecked")
+    private static Map<List<String>, Object> legacyLeaves(Map<String, Object> legacyData) {
+        Map<String, Object> settings = legacyData.get("cult") instanceof Map<?, ?> section
+                ? new LinkedHashMap<>((Map<String, Object>) section)
+                : new LinkedHashMap<>();
+        if (parseVersion(legacyData.get("config-version")) < 3) liftMaxReach(settings);
+        Map<List<String>, Object> leaves = new LinkedHashMap<>();
+        collectLeaves(List.of("cult"), settings, leaves);
+        return leaves;
+    }
+
+    private static Path retire(Path legacy) throws IOException {
+        Path renamed = legacy.resolveSibling(LEGACY_CULT_FILE + ".migrated");
+        for (int n = 1; Files.exists(renamed); n++) {
+            renamed = legacy.resolveSibling(LEGACY_CULT_FILE + ".migrated." + n);
+        }
+        Files.move(legacy, renamed);
+        return renamed;
     }
 
     private static boolean holds(Map<?, ?> map, List<String> path) {
