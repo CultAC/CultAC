@@ -8,7 +8,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Startup flags, read once when this class initializes from the JVM's {@code -DCult<Key>=<value>} input arguments.
- * Key case is ignored, an empty value leaves the flag unset and a value that does not parse reads as the default.
+ * Key case is ignored and an empty value leaves the flag unset. A yes/no flag reads true only for {@code true} in any
+ * case and false for any other value; a number that does not parse reads as the default.
  */
 public final class CommonCultArguments {
     private static final Map<String, String> ARGUMENTS = inputArguments();
