@@ -110,8 +110,6 @@ The settings live in the `update` section of the plugin's `config.yml`. `CULTAC_
 
 | Key | Default |
 | --- | --- |
-| `update.repository` | the `owner/repo` the plugin was built from |
-| `update.public-key` | the official signing key; a fork that signs its own builds sets its own |
 | `update.token` | none; sent only to `api.github.com`, which allows 60 anonymous requests an hour |
 | `update.webhook` | none; a Discord-style webhook that receives each install line |
 | `update.state-file` | `update-state.json` in the plugin data directory |

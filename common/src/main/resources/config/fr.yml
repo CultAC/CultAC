@@ -321,10 +321,6 @@ network:
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. CULTAC_UPDATE_TOKEN wins over token when set and not blank.
 update:
-  # owner/repo whose GitHub releases hold the builds. Empty is the repository this jar was built from.
-  repository: ""
-  # X.509 base64 Ed25519 key that build manifests must be signed with. Empty is CultAC's own build key.
-  public-key: ""
   # File remembering the installed build, which the next start fetches again. Relative to this folder; empty is
   # update-state.json.
   state-file: ""

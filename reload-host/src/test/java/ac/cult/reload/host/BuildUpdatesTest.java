@@ -900,10 +900,12 @@ class BuildUpdatesTest {
                 "update:\n  repository: someone/fork\n  public-key: config-key\n  state-file: '" + state + "'\n"
                         + "  build: 120\n  token: config-token\n  webhook: https://config\n");
         assertEquals(
-                new UpdateSettings("someone/fork", "env-token", "config-key", "https://config", state, 120),
+                new UpdateSettings(
+                        "CultAC/CultAC", "env-token", UpdateSettings.OFFICIAL_PUBLIC_KEY, "https://config", state, 120),
                 UpdateSettings.read(directory, "CultAC/CultAC", Map.of("CULTAC_UPDATE_TOKEN", "env-token")::get));
         assertEquals(
-                new UpdateSettings("someone/fork", "config-token", "config-key", "https://config", state, 120),
+                new UpdateSettings(
+                        "CultAC/CultAC", "config-token", UpdateSettings.OFFICIAL_PUBLIC_KEY, "https://config", state, 120),
                 UpdateSettings.read(directory, "CultAC/CultAC", name -> " "));
     }
 
@@ -915,7 +917,7 @@ class BuildUpdatesTest {
         var env = Map.of("CULTAC_UPDATE_TOKEN", "t");
         assertEquals(
                 new UpdateSettings(
-                        "someone/fork",
+                        "CultAC/CultAC",
                         "t",
                         UpdateSettings.OFFICIAL_PUBLIC_KEY,
                         "https://w",
