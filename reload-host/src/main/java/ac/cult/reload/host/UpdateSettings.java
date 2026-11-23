@@ -61,15 +61,13 @@ public record UpdateSettings(
             }
         }
         Map<?, ?> update = root.get("update") instanceof Map<?, ?> map ? map : Map.of();
-        String repository = value(update, "repository");
-        String publicKey = value(update, "public-key");
         String stateFile = value(update, "state-file");
         String build = value(update, "build");
         var follow = FOLLOW.matcher(build);
         return new UpdateSettings(
-                repository.isEmpty() ? defaultRepository : repository,
+                defaultRepository,
                 value(update, "token", "CULTAC_UPDATE_TOKEN", env),
-                publicKey.isEmpty() ? OFFICIAL_PUBLIC_KEY : publicKey,
+                OFFICIAL_PUBLIC_KEY,
                 value(update, "webhook"),
                 stateFile(dataDirectory, stateFile),
                 build.matches("[0-9]{1,18}") ? Long.parseLong(build) : 0,
