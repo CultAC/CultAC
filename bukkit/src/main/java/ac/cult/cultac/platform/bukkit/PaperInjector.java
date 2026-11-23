@@ -6,15 +6,12 @@ import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import io.netty.channel.Channel;
-import io.papermc.paper.network.ChannelInitializeListenerHolder;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import net.kyori.adventure.key.Key;
 import net.minecraft.network.Connection;
 
 /** Adds and removes only Cult's two I/O handlers through Paper's initializer API. */
 final class PaperInjector {
-    private static final Key KEY = Key.key("cultac", "injector");
     private final CultNetworkManager manager;
     private final PaperDormancy dormancy;
     private volatile boolean registered;
@@ -78,7 +75,6 @@ final class PaperInjector {
 
     synchronized CompletionStage<Void> unregister() {
         registered = false;
-        if (RuntimeEnvironment.host() == null) ChannelInitializeListenerHolder.removeListener(KEY);
         return CompletableFuture.allOf(manager.connections().stream()
                 .map(connection -> {
                     var completion = new CompletableFuture<Void>();
