@@ -11,7 +11,6 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.checks.DeadCheck;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsO;
@@ -415,7 +414,6 @@ public final class OrderedLegacyCheckDispatchTest {
         try {
             PacketOrderH check = player.checkManager.getListener(PacketOrderH.class);
             assertTrue(check != null);
-            assertFalse(PacketOrderH.class.isAnnotationPresent(DeadCheck.class));
 
             var shifted = new ServerboundPlayerInput(false, false, false, false, false, true, false);
             player.checkManager.dispatchReceiveHandlers(RecordReceiveTestEvents.input(player, shifted));
@@ -427,17 +425,13 @@ public final class OrderedLegacyCheckDispatchTest {
     }
 
     @Test
-    public void callbackOnlyChecksAreConstructedAndNotMarkedDead() {
+    public void callbackOnlyChecksAreConstructed() {
         CultPlayer player = offlineJavaPlayer();
         try {
             assertTrue(player.checkManager.getListener(BadPacketsB.class) != null);
             assertTrue(player.checkManager.getListener(PlayerHitboxes.class) != null);
             assertTrue(player.checkManager.getListener(EntityHitboxes.class) != null);
             assertTrue(player.checkManager.getListener(VehicleC.class) != null);
-            assertFalse(BadPacketsB.class.isAnnotationPresent(DeadCheck.class));
-            assertFalse(PlayerHitboxes.class.isAnnotationPresent(DeadCheck.class));
-            assertFalse(EntityHitboxes.class.isAnnotationPresent(DeadCheck.class));
-            assertFalse(VehicleC.class.isAnnotationPresent(DeadCheck.class));
             assertFalse(player.checkManager.getListener(VehicleC.class) instanceof PostPredictionListener);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);

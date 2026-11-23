@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.packetorder;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
-import ac.cult.cultac.checks.DeadCheck;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -21,7 +20,6 @@ import ac.grim.grimac.api.storage.verbose.VerboseTags;
         name = "PacketOrderC",
         stableKey = "cult.packetorder.interact_order",
         description = "Sent INTERACT and INTERACT_AT entity packets in the wrong order")
-@DeadCheck(reason = DeadCheck.Reason.VERSION_GATED, detail = "isApplicable() requires a client older than 26.1.")
 public class PacketOrderC extends Check implements CheckListener {
     // Shape index == KIND_* constant value.
     private static final Verbose V = Verbose.of("Skipped Interact-At")
