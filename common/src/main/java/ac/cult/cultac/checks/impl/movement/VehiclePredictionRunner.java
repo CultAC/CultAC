@@ -140,7 +140,10 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             var moved = result.getJavaCommittedMove();
             if (moved != null) strider.commitFluidHeights(moved.fluidHeights());
             var pass = JavaMovementEngine.passAfterTravel(result);
-            if (pass != null) strider.commitFluidHeights(pass.result().fluidHeights());
+            if (pass != null) {
+                strider.commitFluidHeights(pass.result().fluidHeights());
+                strider.shovedBeforeReport(player, vehicleUpdate.getTo(), pass.movement());
+            }
         }
         evaluateItemControlledVehicle(riding);
 

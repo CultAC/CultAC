@@ -223,8 +223,10 @@ public class BoundingBoxSize {
                 out.minX += sx;
                 out.minY += sy;
                 out.minZ += sz;
-            } else if (entity instanceof PacketEntityStrider strider) {
-                out.minY += (float) strider.getPassengerAttachmentYOffset() * entity.scale;
+            } else if (entity instanceof PacketEntityStrider strider && !player.isBedrockMovement()) {
+                // LivingEntity#getPassengerRidingPosition passes getScale() * getAgeScale(), 0.5 for a baby strider.
+                out.minY += strider.passengerWalkBob(player.getClientVersion())
+                        * (entity.scale * (strider.isBaby ? 0.5F : 1.0F));
             }
         }
         x += out.minX;

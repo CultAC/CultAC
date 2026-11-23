@@ -562,6 +562,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return false;
         }
         if (entity == velocityVehicle && player.compensatedEntities.vehicles.isLocallyTickedVelocityRoot(entity)) {
+            // LivingEntity#aiStep ends the root's tick with its walk animation, after the local travel.
+            if (entity instanceof PacketEntityStrider strider) strider.calculateLocalWalkAnimation(player);
             return false;
         }
         if (player.isBedrockMovement() && player.compensatedEntities.isInBedrockLimbo(entity)) return false;
