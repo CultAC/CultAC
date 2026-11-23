@@ -29,7 +29,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
+import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
 /**
@@ -144,22 +147,53 @@ final class NetStateFile {
      */
     static void writeConfig(Path config, Map<String, Object> values, Object lock) throws IOException {
         synchronized (lock) {
+            Map<String, Object> writes = new TreeMap<>();
+            for (Map.Entry<String, Object> value : values.entrySet()) {
+                writes.put(
+                        value.getKey(),
+                        value.getKey().equals(CHECKS_OFF_KEY) && value.getValue() instanceof List<?> keys
+                                ? names(keys)
+                                : value.getValue());
+            }
+            writeFlowLists(config, writes);
+            if (writes.isEmpty()) return;
             ConfigPatcher patcher = new ConfigPatcher(config.toFile());
-            for (Map.Entry<String, Object> value : new TreeMap<>(values).entrySet()) {
-                List<String> path = List.of(value.getKey());
-                Object written = value.getKey().equals(CHECKS_OFF_KEY) && value.getValue() instanceof List<?> keys
-                        ? names(keys)
-                        : value.getValue();
-                if (patcher.inFlowCollection(path)) {
-                    patcher.replaceInFlowCollection(path, written);
-                    continue;
-                }
-                NodePosition position = patcher.getNodePosition(path);
-                if (position == null) patcher.addMissingValue(path, written);
-                else patcher.applyChange(new PendingChange(position, written));
+            for (Map.Entry<String, Object> value : writes.entrySet()) {
+                NodePosition position = patcher.getNodePosition(value.getKey());
+                if (position == null) patcher.addMissingValue(value.getKey(), value.getValue());
+                else patcher.applyChange(new PendingChange(position, value.getValue()));
             }
             patcher.save();
         }
+    }
+
+    /**
+     * Rewrites each list of {@code writes} whose top-level key holds a one-line flow list in {@code config} as a flow
+     * list in its place, keeping the line's trailing comment, and removes it from {@code writes}.
+     */
+    private static void writeFlowLists(Path config, Map<String, Object> writes) throws IOException {
+        String[] lines = Files.readString(config, StandardCharsets.UTF_8).split("\n", -1);
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.FLOW);
+        options.setSplitLines(false);
+        Yaml yaml = new Yaml(options);
+        boolean changed = false;
+        for (var write = writes.entrySet().iterator(); write.hasNext(); ) {
+            var value = write.next();
+            if (!(value.getValue() instanceof List<?> list)) continue;
+            Pattern flow = Pattern.compile("^" + Pattern.quote(value.getKey()) + ":(\\s*)\\[[^\\]#]*](\\s*#.*)?(\r?)$");
+            for (int i = 0; i < lines.length; i++) {
+                Matcher matcher = flow.matcher(lines[i]);
+                if (!matcher.matches()) continue;
+                String comment = matcher.group(2) == null ? "" : matcher.group(2);
+                lines[i] = value.getKey() + ":" + matcher.group(1)
+                        + yaml.dump(list).strip() + comment + matcher.group(3);
+                write.remove();
+                changed = true;
+                break;
+            }
+        }
+        if (changed) Files.writeString(config, String.join("\n", lines), StandardCharsets.UTF_8);
     }
 
     /** The names in this build of the checks of {@code keys}, stable keys; a key of no check here stays as it is. */
