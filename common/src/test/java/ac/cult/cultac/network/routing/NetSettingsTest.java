@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.routing.NetSettings.Baseline;
 import ac.cult.cultac.network.routing.NetSettings.Record;
@@ -67,6 +68,15 @@ class NetSettingsTest {
     private static final String SPEED = "grim.legacy.speed";
     /** The stable key of AttackEntityVisibility, formerly AttackMobVisibility. */
     private static final String ATTACK_ENTITY_VISIBILITY = "cult.attack.mob.visibility";
+    /** The stable keys, sorted, of MultiActionsI, J, K, L and S, which name version 3 names InventoryD alike. */
+    private static final List<String> INVENTORY_D = List.of(
+            "cult.multiactions.inventory_attack",
+            "cult.multiactions.inventory_break",
+            "cult.multiactions.inventory_place",
+            "cult.multiactions.inventory_swing",
+            "cult.multiactions.inventory_use");
+    /** The stable key of MultiActionsJ. */
+    private static final String INVENTORY_USE = "cult.multiactions.inventory_use";
 
     private final AtomicLong clock = new AtomicLong(1_793_140_000_000L);
     private final FakeBroker broker = new FakeBroker();
@@ -103,9 +113,16 @@ class NetSettingsTest {
         final AtomicInteger reloads = new AtomicInteger();
         /** Runs at the end of each reload, as a reload tells the shared settings config.yml was loaded. */
         volatile Runnable reloaded = () -> {};
+        /** The loaded config's {@code check-name-version}. */
+        volatile int nameVersion = CheckNames.LATEST;
 
         Net(@Nullable Path directory) {
             this.directory = directory;
+        }
+
+        @Override
+        public int checkNameVersion() {
+            return nameVersion;
         }
 
         @Override
@@ -169,6 +186,36 @@ class NetSettingsTest {
     private JsonObject lastRoster() {
         List<JsonObject> rosters = networks.broadcasts(RosterCache.TYPE);
         return rosters.getLast();
+    }
+
+    /** A staff member holding every node, whose messages land in {@code heard} as plain text. */
+    private static Sender staff(List<String> heard) {
+        Sender staff = mock(Sender.class);
+        when(staff.getName()).thenReturn("Mod");
+        when(staff.getUniqueId()).thenReturn(UUID.fromString(D));
+        when(staff.hasPermission(anyString())).thenReturn(true);
+        doAnswer(invocation -> heard.add(
+                        PlainTextComponentSerializer.plainText().serialize(invocation.<Component>getArgument(0))))
+                .when(staff)
+                .sendMessage(any(Component.class));
+        return staff;
+    }
+
+    /** {@code /cult net all check <check> <state>} on {@code service}, once its answer was shown. */
+    private static void check(NetworkService service, Sender staff, String check, String state) {
+        CompletableFuture<Void> done = service.netCommands().issue(staff, "all", "check", List.of(check, state));
+        service.netCommands().expireAll().join();
+        done.join();
+    }
+
+    /** A started instance {@code p3} keeping its shared settings beside {@code config}, which it loaded. */
+    private NetworkService loaded(Path config, int nameVersion) {
+        Net net = new Net(config.getParent());
+        net.nameVersion = nameVersion;
+        NetworkService service = networks.service("p3").net(net).start();
+        service.netSettings().configLoaded();
+        networks.advance(NetSettings.CATCH_UP_MILLIS);
+        return service;
     }
 
     @Test
@@ -394,6 +441,55 @@ class NetSettingsTest {
         assertTrue(Files.readString(config).contains("checks-off: [Speed]"), Files.readString(config));
         settings.configLoaded();
         assertEquals(3, settings.records().size());
+    }
+
+    @Test
+    void aNameOfSeveralChecksSwitchesEachOfThemAndConfigYmlReadsBackTheChecksSwitched() throws IOException {
+        Path config = directory("p3").resolve("config.yml");
+        Files.writeString(config, "check-name-version: 3\nchecks-off: []\n");
+        NetworkService p3 = loaded(config, 3);
+        NetSettings settings = p3.netSettings();
+        List<String> heard = new CopyOnWriteArrayList<>();
+        Sender staff = staff(heard);
+
+        check(p3, staff, "InventoryD", OFF);
+        assertTrue(heard.contains("p3 » InventoryD off (all players)"), heard.toString());
+        for (String key : INVENTORY_D) assertFalse(settings.value(CHECK + key).on(), key);
+        assertTrue(Files.readString(config).contains("checks-off: [InventoryD]"), Files.readString(config));
+        assertEquals(INVENTORY_D, NetStateFile.readConfig(config).get("checks-off"));
+        List<Record> switched = settings.records();
+        settings.configLoaded();
+        assertEquals(switched, settings.records());
+
+        check(p3, staff, "inventoryd", ON);
+        assertTrue(heard.contains("p3 » InventoryD on (all players)"), heard.toString());
+        for (String key : INVENTORY_D) assertTrue(settings.value(CHECK + key).on(), key);
+        assertTrue(Files.readString(config).contains("checks-off: []"), Files.readString(config));
+
+        check(p3, staff, "MultiActionsJ", OFF);
+        assertTrue(heard.contains("p3 » " + INVENTORY_USE + " off (all players)"), heard.toString());
+        assertEquals(List.of(INVENTORY_USE), NetStateFile.readConfig(config).get("checks-off"));
+        switched = settings.records();
+        settings.configLoaded();
+        assertEquals(switched, settings.records());
+        for (String key : INVENTORY_D) assertEquals(!key.equals(INVENTORY_USE), settings.value(CHECK + key).on(), key);
+    }
+
+    @Test
+    void aVersion2ServerSwitchesTheCheckVersion2NamesMultiActionsC() throws IOException {
+        Path config = directory("p3").resolve("config.yml");
+        Files.writeString(config, "check-name-version: 2\nchecks-off: []\n");
+        NetworkService p3 = loaded(config, 2);
+        List<String> heard = new CopyOnWriteArrayList<>();
+
+        check(p3, staff(heard), "MultiActionsC", OFF);
+        assertTrue(heard.contains("p3 » MultiActionsC off (all players)"), heard.toString());
+        assertFalse(p3.netSettings().value(CHECK + "cult.multiactions.inventory_click_while_moving").on());
+        assertTrue(p3.netSettings().value(CHECK + "cult.multiactions.swing_while_using").on());
+        assertTrue(Files.readString(config).contains("checks-off: [MultiActionsC]"), Files.readString(config));
+        assertEquals(
+                List.of("cult.multiactions.inventory_click_while_moving"),
+                NetStateFile.readConfig(config).get("checks-off"));
     }
 
     @Test
