@@ -98,7 +98,6 @@ public final class CheckPermissions {
             "elytrah",
             "elytrai",
             "elytraj",
-            "entitycontrol",
             "entityhitboxes",
             "entityreach",
             "exploita",

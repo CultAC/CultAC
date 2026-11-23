@@ -111,7 +111,6 @@ import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
 import ac.cult.cultac.checks.impl.misc.BrandSpoofA;
 import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
-import ac.cult.cultac.checks.impl.movement.EntityControl;
 import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
@@ -318,7 +317,6 @@ public final class CheckCatalog {
             check(ElytraI.class, ELYTRA),
             check(ElytraJ.class, ELYTRA),
             check(BoatPseudo.INFO, VEHICLES),
-            check(EntityControl.INFO, VEHICLES),
             check(HappyGhastPseudo.INFO, VEHICLES),
             check(MultiActionsG.class, VEHICLES),
             check(VehicleTimer.INFO, VEHICLES),

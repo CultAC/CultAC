@@ -44,7 +44,6 @@ import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.misc.GhostBlockMitigation;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
-import ac.cult.cultac.checks.impl.movement.EntityControl;
 import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
@@ -498,7 +497,6 @@ public class CheckManager {
                 new PostCheck(player),
                 new OffsetHandler(player),
                 new DebugHandler(player),
-                new EntityControl(player), // registered listener is currently a no-op
                 new SetbackTeleportUtil(player), // setback state depends on current friction
                 player.knockbackHandler,
                 player.explosionHandler,

@@ -221,9 +221,6 @@ checks:
   BoatOffset:
     summary: "Moved a boat in an impossible way"
     details: "A cheat client controlling the boat does this."
-  EntityControl:
-    summary: "Steered a ridden mob in an impossible way"
-    details: "This covers horses, pigs and other mobs you can ride. It comes from a cheat client controlling the mob in ways Minecraft doesn't allow."
   HappyGhastOffset:
     summary: "Flew a happy ghast in an impossible way"
     details: "A cheat client steering the happy ghast does this."
