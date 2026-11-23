@@ -19,7 +19,11 @@ import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import java.util.List;
 import java.util.Optional;
 
-/** The 515d08404 collider gathering, verbatim, as the equivalence oracle for the optimized path. */
+/**
+ * The 515d08404 collider gathering and the shape helpers it calls, as the equivalence oracle for the optimized path. It
+ * reads {@code section.isEmpty()} where that revision reads {@code IS_FOURTEEN && section.isEmpty()}, the same
+ * condition because {@code IS_FOURTEEN} is constant {@code true} there.
+ */
 public final class ReferenceCollisionGathering {
     private static final double COLLISION_EPSILON = 1.0E-7;
 
