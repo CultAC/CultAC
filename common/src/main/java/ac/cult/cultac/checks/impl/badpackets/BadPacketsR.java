@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -21,14 +22,16 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
         experimental = true)
 public class BadPacketsR extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("time={ulong}ms, lst={ulong}ms, positions={uint}");
-    // LocalPlayer#sendPosition sends a position at least every 20 client ticks.
     private static final int WINDOW_TICKS = 40;
+    private static final int POSITION_REMINDER_TICKS = 20;
 
     private int positions = 0;
     private long clock = 0;
     private long lastTransTime;
     private int oldTransId = 0;
     private long windowTickNanos = ItemUseBurst.periodNanos(20F, false);
+    private int lastPositionTick;
+    private boolean positionTickKnown;
 
     public BadPacketsR(final CultPlayer player) {
         super(player);
@@ -38,6 +41,10 @@ public class BadPacketsR extends Check implements CheckListener {
     @CultPacketHandler
     public void onPong(final PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
         if (!event.isAcceptedTransactionResponse()) return;
+        if (!positionTickKnown) {
+            lastPositionTick = player.packetStateData.acceptedClientTick;
+            positionTickKnown = true;
+        }
 
         long tickNanos = ItemUseBurst.periodNanos(
                 player.packetStateData.serverTickRate,
@@ -54,7 +61,8 @@ public class BadPacketsR extends Check implements CheckListener {
                     && clock != 0
                     && player.localPlayerTicks()
                     && player.cameraEntity.isSelf()
-                    && !player.compensatedEntities.getSelf().isDead) {
+                    && !player.compensatedEntities.getSelf().isDead
+                    && positionWasDue(player)) {
                 flag(V.write(verbose()).ulong(ms).ulong(diff).uint(positions));
             } else {
                 reward();
@@ -66,6 +74,16 @@ public class BadPacketsR extends Check implements CheckListener {
             lastTransTime = System.currentTimeMillis();
             oldTransId = player.lastTransactionSent.get();
         }
+    }
+
+    // LocalPlayer#sendPosition sends a position by the 20th tick after the last one, before that tick's end; a client
+    // without tick ends is judged on the window.
+    private boolean positionWasDue(CultPlayer player) {
+        if (player.user.getBedrockBridgeConnection() != null
+                || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) {
+            return true;
+        }
+        return player.packetStateData.acceptedClientTick - lastPositionTick > POSITION_REMINDER_TICKS;
     }
 
     @CultPacketHandler
@@ -88,22 +106,28 @@ public class BadPacketsR extends Check implements CheckListener {
 
     private void countPositionUpdate(CultPlayer player) {
         if (!player.inVehicle()) {
-            positions++;
+            positionSent(player);
             return;
         }
         // LocalPlayer#sendChanges sends a passenger's Rot every tick, and a MoveVehicle only for a vehicle it controls,
         // so the Rot is the update of a passenger the vehicle does not require to move it.
         if (!player.compensatedEntities.vehicles.mustEchoMoveVehicle(
                 player.compensatedEntities.getSelf().getRiding())) {
-            positions++;
+            positionSent(player);
         }
+    }
+
+    private void positionSent(CultPlayer player) {
+        positions++;
+        lastPositionTick = player.packetStateData.acceptedClientTick;
+        positionTickKnown = true;
     }
 
     @CultPacketHandler
     public void onMoveVehicle(
             final PacketReceiveEvent<ServerboundMoveVehicle> event, CultPlayer player, ServerboundMoveVehicle packet) {
         if (player.inVehicle()) {
-            positions++;
+            positionSent(player);
         }
     }
 }
