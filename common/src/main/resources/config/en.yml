@@ -21,8 +21,6 @@ alerts:
 verbose:
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # This means it won't broadcast their brand to operators if the brand matches the following regexes
     ignored-clients:
@@ -115,18 +113,6 @@ Phase:
     setbackvl: 1 # Glitching into blocks can allow wall climbing, plus this check is relatively stable
     decay: 0.005
 
-AirLiquidPlace:
-    cancelvl: 0
-
-FabricatedPlace:
-    cancelvl: 5
-
-FarPlace:
-    cancelvl: 5
-
-RotationPlace:
-    cancelvl: 5
-
 # Prediction-based no slow check
 # Cult accounts for buggy netcode here... hard to false even when spamming right click and offhand button
 # Much more stable than other anticheats, but please report any falses... I have fixed a ton of netcode issues here.
@@ -162,25 +148,11 @@ Explosion:
 TimerA:
     setbackvl: 10
     # Milliseconds that the player can accumulate for later use when they fall behind
-    # Could potentially allow 1.8 fast use/fast heal/fast bow bypasses if set too high, 120 ms seems like a good balance
     drift: 120
-
-# DumbTimer limits how far movement can fall behind realtime.
-# The TimerLimit config key is retained for compatibility; the TimerLimit check was removed.
-TimerLimit:
-    # Maximum renewable movement backlog in milliseconds.
-    # Large packet bursts beyond this allowance can cause setbacks.
-    # -1 disables the backlog clamp
-    ping-abuse-limit-threshold: 1000
 
 NegativeTimer:
     # Number of milliseconds lost while moving before we should start flagging
     drift: 1200
-
-# Same check method as TimerA, but for vehicles
-VehicleTimer:
-    # Target 1.005 timer
-    setbackvl: 10
 
 PacketOrderI:
     # enable if players are getting flagged for using 1.7 animations mods
@@ -215,9 +187,6 @@ exploit:
     # Its valid range is limited from 2 to 4
     distance-to-check-if-ghostblocks: 2
 
-# Enable logging plugins who have injected into netty on join to debug compatibility issues
-debug-pipeline-on-join: false
-
 # Enables experimental checks
 experimental-checks: false
 
@@ -229,8 +198,6 @@ reset-item-usage-on-item-use: true
 # Cult sometimes cancels illegal packets such as with timer, after X packets in a second cancelled, when should
 # we simply kick the player? This is required as some packet limiters don't count packets cancelled by cult.
 packet-spam-threshold: 100
-# Enable this to print a stacktrace when a player is kicked due to packet-spam-threshold
-debug-packet-cancel: false
 
 # Cult is able to enforce that a player set out of flying state cannot have more than X milliseconds of ping
 # This is due to Cult not currently checking flying players

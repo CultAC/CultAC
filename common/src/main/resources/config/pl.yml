@@ -21,8 +21,6 @@ alerts:
 verbose:
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # Oznacza to, że nie będzie transmitować swojej marki operatorom, jeśli marka będzie pasować do następujących wyrażeń regularnych.
     ignored-clients:
@@ -115,18 +113,6 @@ Phase:
     setbackvl: 1 # Wchodzenie w bloki może umożliwiać wspinanie się po ścianach, dodatkowo ta kontrola jest względnie stabilna.
     decay: 0.005
 
-AirLiquidPlace:
-    cancelvl: 0
-
-FabricatedPlace:
-    cancelvl: 5
-
-FarPlace:
-    cancelvl: 5
-
-RotationPlace:
-    cancelvl: 5
-
 # Oparta na predykcji kontrola NoSlow.
 # Cult uwzględnia tutaj problematyczny kod sieciowy... trudno o fałszywe alarmy nawet przy spamowaniu prawym przyciskiem i przyciskiem offhand.
 # Znacznie stabilniejsza niż w innych antycheatach, ale prosimy zgłaszać wszelkie fałszywe alarmy... Naprawiłem tu mnóstwo problemów z kodem sieciowym.
@@ -162,24 +148,11 @@ Explosion:
 TimerA:
     setbackvl: 10
     # Liczba milisekund, które gracz może zgromadzić do późniejszego wykorzystania, gdy się opóźni.
-    # Może potencjalnie umożliwić obejścia fast use/fast heal/fast bow z wersji 1.8, jeśli ustawione zbyt wysoko. 120 ms wydaje się dobrym kompromisem.
     drift: 120
-
-# Ta kontrola ogranicza nadużywanie balansu z checku TimerA, zapobiegając zbytniemu opóźnieniu ruchu gracza względem czasu rzeczywistego.
-TimerLimit:
-    # Ping, przy którym kontrola zacznie ograniczać balans timera, aby zapobiec nadużyciom.
-    # Może powodować pewne cofnięcia u uczciwych graczy, ale tylko jeśli mają ping powyżej tego progu.
-    # -1 aby wyłączyć
-    ping-abuse-limit-threshold: 1000
 
 NegativeTimer:
     # Liczba milisekund straconych podczas ruchu, zanim zaczniemy wykrywać naruszenia.
     drift: 1200
-
-# Ta sama metoda wykrywania co w TimerA, ale dla pojazdów.
-VehicleTimer:
-    # Celuje w timer 1.005
-    setbackvl: 10
 
 PacketOrderI:
     # Włącz, jeśli gracze są oznaczani za używanie modów do animacji z 1.7.
@@ -214,9 +187,6 @@ exploit:
     # Jego prawidłowy zakres jest ograniczony od 2 do 4.
     distance-to-check-if-ghostblocks: 2
 
-# Włącz logowanie pluginów, które wstrzyknęły się do netty podczas dołączania gracza, w celu debugowania problemów z kompatybilnością.
-debug-pipeline-on-join: false
-
 # Włącza eksperymentalne checki.
 experimental-checks: false
 
@@ -228,8 +198,6 @@ reset-item-usage-on-item-use: true
 # Cult czasami anuluje nielegalne pakiety, np. przy użyciu timera. Po anulowaniu X pakietów na sekundę, kiedy powinniśmy
 # po prostu wyrzucić gracza? Jest to wymagane, ponieważ niektóre limitery pakietów nie liczą pakietów anulowanych przez Culta.
 packet-spam-threshold: 100
-# Włącz to, aby wydrukować stack trace, gdy gracz zostanie wyrzucony z powodu przekroczenia packet-spam-threshold.
-debug-packet-cancel: false
 
 # Cult jest w stanie egzekwować, że gracz, który nie jest w stanie lotu, nie może mieć więcej niż X milisekund pingu.
 # Wynika to z faktu, że Cult obecnie nie sprawdza latających graczy.

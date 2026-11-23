@@ -21,8 +21,6 @@ alerts:
 verbose:
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # Das bedeutet, dass die Marke nicht an die Betreiber weitergegeben wird, wenn die Marke mit den folgenden Regexes übereinstimmt
     ignored-clients:
@@ -115,18 +113,6 @@ Phase:
     setbackvl: 1 # Glitching in Blöcken kann das Klettern an der Wand ermöglichen, außerdem ist dieser Check relativ stabil.
     decay: 0.005
 
-AirLiquidPlace:
-    cancelvl: 0
-
-FabricatedPlace:
-    cancelvl: 5
-
-FarPlace:
-    cancelvl: 5
-
-RotationPlace:
-    cancelvl: 5
-
 # Prediction-based no slow check
 # Cult ist verantwortlich für den fehlerhaften Netcode hier... schwer zu falsen, selbst wenn man Rechtsklick und Offhand-Taste spammt.
 # Viel stabiler als andere Anticheats, aber bitte melde alle Falses... Ich habe hier eine Menge Netcode-Probleme behoben.
@@ -162,24 +148,11 @@ Explosion:
 TimerA:
     setbackvl: 10
     # Millisekunden, die der Spieler akkumulieren kann, um sie später zu nutzen, wenn er zurückfällt.
-    # Könnte möglicherweise 1,8 schnelle Nutzung/schnelle Heilung/schnelle Bogenumgehungen ermöglichen, wenn zu hoch eingestellt, 120 ms scheint eine gute Balance zu sein
     drift: 120
-
-# This check limits abuse of the TimerA balance by preventing the player's movement falling too far behind realtime
-TimerLimit:
-    # Ping at which the check will start to limit timer balance, to prevent abuse.
-    # Can cause some setbacks for legitimate players but only if they are over this ping threshold.
-    # -1 to disable
-    ping-abuse-limit-threshold: 1000
 
 NegativeTimer:
     # Anzahl der Millisekunden, die während der Bewegung verloren gehen, bevor mit der Markierung begonnen werden sollte.
     drift: 1200
-
-# Gleiche Prüfmethode wie TimerA, aber für Fahrzeuge
-VehicleTimer:
-    # Ziel 1,005 Timer
-    setbackvl: 10
 
 VehicleC:
     setbackvl: 25
@@ -214,9 +187,6 @@ exploit:
     # Ihr gültiger Bereich ist von 2 bis 4 begrenzt
     distance-to-check-if-ghostblocks: 2
 
-# Aktivieren Sie die Protokollierung von Plugins, die in netty on join injiziert wurden, um Kompatibilitätsprobleme zu beheben.
-debug-pipeline-on-join: false
-
 # Aktiviert experimentelle Prüfungen
 experimental-checks: false
 
@@ -228,8 +198,6 @@ reset-item-usage-on-item-use: true
 # Cult bricht manchmal illegale Pakete ab, z.B. mit Timer, nachdem X Pakete in einer Sekunde abgebrochen wurden, wann sollte
 # wir den Spieler einfach kicken? Dies ist erforderlich, da einige Paketbegrenzer die von Cult abgebrochenen Pakete nicht zählen.
 packet-spam-threshold: 100
-# Aktiviere dies, um einen Stacktrace auszugeben, wenn ein Spieler wegen packet-spam-threshold gekickt wird
-debug-packet-cancel: false
 
 # Cult kann erzwingen, dass ein Spieler, der aus dem Flugzustand gesetzt wurde, nicht mehr als X ms Ping haben darf
 # Dies liegt daran, dass Cult derzeit fliegende Spieler nicht überprüft

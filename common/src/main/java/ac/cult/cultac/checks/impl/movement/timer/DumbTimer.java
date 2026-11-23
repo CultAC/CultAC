@@ -139,13 +139,4 @@ public class DumbTimer extends CultProcessor implements PositionListener {
             event.setCancelled(true);
         }
     }
-
-    @Override
-    public void reload() {
-        // Keep the former TimerLimit setting so existing server configurations still apply.
-        limitAbuseOverPing = getConfig().getLongElse("TimerLimit.ping-abuse-limit-threshold", 1000L);
-        if (limitAbuseOverPing != -1) {
-            limitAbuseOverPing *= 1_000_000L;
-        }
-    }
 }

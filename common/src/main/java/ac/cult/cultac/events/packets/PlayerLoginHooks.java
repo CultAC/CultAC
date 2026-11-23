@@ -2,9 +2,7 @@ package ac.cult.cultac.events.packets;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.datastore.PlayerToggleStore;
-import ac.cult.cultac.network.netty.channel.ChannelHelper;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
-import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.util.function.BiConsumer;
 import org.jetbrains.annotations.NotNull;
 
@@ -17,11 +15,6 @@ public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHoo
         }
 
         var config = CultAPI.INSTANCE.getConfigManager();
-
-        if (config.getConfig().getBooleanElse("debug-pipeline-on-join", false)) {
-            String pipeline = ChannelHelper.pipelineHandlerNamesAsString(user.getChannel());
-            LogUtil.info("Pipeline: " + pipeline);
-        }
 
         CultAPI.INSTANCE.getPortalSync().joined(platformPlayer);
 

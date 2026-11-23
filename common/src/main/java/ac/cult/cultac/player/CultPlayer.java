@@ -557,14 +557,6 @@ public class CultPlayer implements GrimUser {
             disconnect(MessageUtil.miniMessage(MessageUtil.replacePlaceholders(
                     this, CultAPI.INSTANCE.getConfigManager().getDisconnectClosed())));
             cancelledPackets.set(0);
-
-            if (debugPacketCancel) {
-                try {
-                    throw new Exception();
-                } catch (Exception e) {
-                    LogUtil.error("Stacktrace for onPacketCancel (debug-packet-cancel=true)", e);
-                }
-            }
         }
     }
 
@@ -1665,7 +1657,6 @@ public class CultPlayer implements GrimUser {
 
     // start config
     private int spamThreshold = 100;
-    private boolean debugPacketCancel;
     private int maxTransactionTime = 60;
     /** The network's observe-only value for this player's backend server; null where the instance's own mode applies. */
     private volatile @Nullable Boolean observeOnlySet;
@@ -1689,7 +1680,6 @@ public class CultPlayer implements GrimUser {
     public final void reload(ConfigManager config) {
         updatePermissions();
         featureManager.onReload(config);
-        debugPacketCancel = config.getBooleanElse("debug-packet-cancel", false);
         maxTransactionTime = CultMath.clamp(config.getIntElse("max-transaction-time", 60), 1, 180);
         applyNetworkSettings();
         onReload();

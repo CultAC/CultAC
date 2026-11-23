@@ -21,8 +21,6 @@ alerts:
 verbose:
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # Bu, giriş yapılan clientin aşağıdaki regex'lerle eşleşmesi durumunda markalarını operatörlere yayınlamayacağı anlamına gelir
     ignored-clients:
@@ -115,18 +113,6 @@ Phase:
     setbackvl: 1 # Blokların içinde glitch yapmak duvara tırmanmaya izin verebilir, ayrıca bu kontrol nispeten stabildir
     decay: 0.005
 
-AirLiquidPlace:
-    cancelvl: 0
-
-FabricatedPlace:
-    cancelvl: 5
-
-FarPlace:
-    cancelvl: 5
-
-RotationPlace:
-    cancelvl: 5
-
 # Tahmin tabanlı yavaşlama kontrolü
 # Cult burada hatalı ağ kodunu dikkate alır... sağ tıklama ve el yan tuşunu spam yapsanız bile yanlış pozitiflik oluşturması zordur
 # Diğer anti-hilelerden çok daha stabil, ancak herhangi bir yanlış pozitif rapor edin... burada birçok ağ kodu sorununu çözdüm.
@@ -162,24 +148,13 @@ Explosion:
 TimerA:
     setbackvl: 10
     # Oyuncunun geri kaldığında biriktirebileceği milisaniye miktarı
-    # Çok yüksek ayarlandığında 1.8 hızlı kullanma/hızlı iyileşme/hızlı yay atlama durumlarına izin verebilir, 120 ms iyi bir denge gibi görünüyor
     drift: 120
-
-# This check limits abuse of the TimerA balance by preventing the player's movement falling too far behind realtime
-TimerLimit:
-    # Kontrolün zamanlayıcı dengesini sınırlamaya başlayacağı ping değeri, kötüye kullanımı önlemek için.
-    # Bu, yalnızca bu ping eşiğini aşan meşru oyuncular için bazı geri dönüşlere neden olabilir.
-    # Devre dışı bırakmak için -1 yazın
-    ping-abuse-limit-threshold: 1000
 
 NegativeTimer:
     # Uyarı vermeye başlamadan önce hareket halindeyken kaybedilen milisaniye sayısı
     drift: 1200
 
     # TimerA ile aynı kontrol yöntemi, ancak araçlar için
-VehicleTimer:
-    # Hedef 1.005 timer
-    setbackvl: 10
 
 PacketOrderI:
     # Oyuncular 1.7 animasyon modlarını kullandıkları için işaretleniyorsa etkinleştirin
@@ -214,9 +189,6 @@ exploit:
     # Geçerli aralığı 2 ile 4 arasında sınırlıdır
     distance-to-check-if-ghostblocks: 2
 
-# Netty'ye enjekte olan eklentileri giriş sırasında günlüklemeyi etkinleştirerek uyumluluk sorunlarını gider
-debug-pipeline-on-join: false
-
 # Deneysel kontrolleri etkinleştir
 experimental-checks: false
 
@@ -228,8 +200,6 @@ reset-item-usage-on-item-use: true
 # Cult bazen timer gibi yasa dışı paketleri iptal eder; bir saniyede X paket iptal edildikten sonra, ne zaman
 # oyuncuyu basitçe atmalıyız? Bu, bazı paket sınırlayıcılarının Cult tarafından iptal edilen paketleri saymaması gerektiğindendir.
 packet-spam-threshold: 100
-# Bir oyuncu packet-spam-threshold nedeniyle atıldığında stacktrace yazdırmak için bunu etkinleştirin
-debug-packet-cancel: false
 
 # Cult, uçma durumundan çıkmış bir oyuncunun X milisaniyeden fazla ping'e sahip olamayacağını uygulayabilir
 # Bu, Cult'in şu anda uçan oyuncuları kontrol etmemesindendir

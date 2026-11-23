@@ -21,8 +21,6 @@ alerts:
 verbose:
     # 是否在控制台中打印verbose信息
     print-to-console: false
-# 是否检查更新
-check-for-updates: true
 
 client-brand:
     # 这意味着如果客户端型号匹配以下正则表达式，它将不会将其客户端版本显示在聊天栏中
@@ -125,18 +123,6 @@ Phase:
     setbackvl: 1 # 错误的方块可以允许爬墙，加上这个检查是相对稳定的
     decay: 0.005
 
-AirLiquidPlace:
-    cancelvl: 0
-
-FabricatedPlace:
-    cancelvl: 5
-
-FarPlace:
-    cancelvl: 5
-
-RotationPlace:
-    cancelvl: 5
-
 # 使用模拟移动进行的NoSlow(使用物品时不会减速)检查
 # 在这里解释错误的服务器代码......即使在发送垃圾数据包时右键单击和副手按钮也很分辨
 # 比其他反作弊更稳定，但请报告任何错误......我在这里修复了大量的代码问题。
@@ -183,24 +169,10 @@ TimerA:
     setbackvl: 10
     drift: 120
     # 玩家卡顿时，可以累积以供以后使用的时间（单位：毫秒）
-    # 如果设置得太高，可能会允许 1.8版本的快速使用/快速回血/快速射弓绕过，120毫秒似乎是一个很好的平衡
-
-# 此项是config是用来防止玩家移动与实时差距过大，来限制对 TimerA 平衡机制的滥用。
-TimerLimit:
-    # 在检查玩家的延迟时对timer balance进行限制, 防止滥用
-    # 在合法玩家的延迟超过这个延迟阈值时可能会造成误拉回
-    # 填写-1则关闭
-    ping-abuse-limit-threshold: 1000
 
 NegativeTimer:
     # 玩家的移动丢失了多少毫秒？
     drift: 1200
-
-# 与 TimerA 相同的检查方法，但适用于坐骑
-VehicleTimer:
-    # 实体的1.0005Timer 检查
-    setbackvl: 10
-    # VL达到多少时回弹？
 
 PacketOrderI:
     # 如果玩家因使用1.7动画模组而误判，则启用此项
@@ -233,9 +205,6 @@ exploit:
     # 检查假方块的距离。
     # 范围限制为 2 到 4
 
-# 启用在加入时注入 netty 的日志插件以调试兼容性问题
-debug-pipeline-on-join: false
-
 # 启用实验性检查
 experimental-checks: false
 
@@ -249,8 +218,6 @@ reset-item-usage-on-item-use: true
 # 在一秒钟内取消了多少个数据包后，我们应该踢掉这个玩家？
 # 我们认为你应该启用此项，因为有些数据包限制器并不记录被Cult取消的数据包。
 packet-spam-threshold: 100
-# 启用此项可在玩家因 packet-spam-threshold 被踢时打印堆栈追踪
-debug-packet-cancel: false
 
 # 在玩家处于非飞行状态，且ping（延迟）大于多少毫秒后，Cult会踢出这个玩家？
 # 填写-1则关闭
