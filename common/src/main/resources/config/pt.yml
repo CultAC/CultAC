@@ -157,10 +157,6 @@ TimerLimit:
     # -1 desabilitará.
     ping-abuse-limit-threshold: 1000
 
-NegativeTimer:
-    # Número de milissegundos perdidos ao se mover antes de começarmos a registrar violações.
-    drift: 1200
-
 # Mesmo método usado no TimerA, mas para veículos.
 VehicleTimer:
     # Detecta até 1.005 de timer.

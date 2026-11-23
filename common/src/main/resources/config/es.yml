@@ -159,10 +159,6 @@ TimerLimit:
     # -1 to disable
     ping-abuse-limit-threshold: 1000
 
-NegativeTimer:
-    # Number of milliseconds lost while moving before we should start flagging
-    drift: 1200
-
 # La misma comprobación que TimerA, pero para vehiculos
 VehicleTimer:
     # Target 1.005 timer

@@ -145,10 +145,6 @@ TimerLimit:
     # -1 to disable
     ping-abuse-limit-threshold: 1000
 
-NegativeTimer:
-    # Millisecondi persi prima di rilevare il timer negativo
-    drift: 1200
-
 VehicleTimer:
     # Livello di violazione per il timer dei veicoli
     setbackvl: 10

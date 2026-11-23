@@ -147,7 +147,6 @@ public final class CheckPermissions {
             "multiinteracta",
             "multiinteractb",
             "multiplace",
-            "negativetimer",
             "nofall",
             "noslow",
             "nosneakslow",

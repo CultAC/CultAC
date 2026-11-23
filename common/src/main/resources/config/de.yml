@@ -154,10 +154,6 @@ TimerLimit:
     # -1 to disable
     ping-abuse-limit-threshold: 1000
 
-NegativeTimer:
-    # Anzahl der Millisekunden, die während der Bewegung verloren gehen, bevor mit der Markierung begonnen werden sollte.
-    drift: 1200
-
 # Gleiche Prüfmethode wie TimerA, aber für Fahrzeuge
 VehicleTimer:
     # Ziel 1,005 Timer

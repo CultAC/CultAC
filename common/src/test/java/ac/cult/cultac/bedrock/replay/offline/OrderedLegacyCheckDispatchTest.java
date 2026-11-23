@@ -19,7 +19,6 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsV;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
-import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
@@ -201,24 +200,17 @@ public final class OrderedLegacyCheckDispatchTest {
     }
 
     @Test
-    public void legacyTimerCallbacksRemainRegisteredWithoutRevivingNegativeTimer() throws Exception {
+    public void legacyTimerCallbacksRemainRegistered() throws Exception {
         CultPlayer player = offlineJavaPlayer();
         player.setDisabled(true);
         try {
             TickTimer tickTimer = player.checkManager.getListener(TickTimer.class);
             assertTrue(player.checkManager.getListener(DumbTimer.class) != null);
-            assertTrue(player.checkManager.getListener(NegativeTimerCheck.class) != null);
-            assertTrue(NegativeTimerCheck.class.isAnnotationPresent(DeadCheck.class));
             assertTrue(CultAPI.INSTANCE
                     .getNetworkManager()
                     .dispatcher()
                     .scanner()
                     .hasReceiveHandlerDeclaration(DumbTimer.class));
-            assertTrue(CultAPI.INSTANCE
-                    .getNetworkManager()
-                    .dispatcher()
-                    .scanner()
-                    .hasReceiveHandlerDeclaration(NegativeTimerCheck.class));
 
             ServerboundMovePlayer movement = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, false, false);
             player.checkManager.dispatchPrePredictionReceive(receiveEvent(player, movement));

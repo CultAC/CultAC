@@ -174,10 +174,6 @@ TimerLimit:
     # 填写-1则关闭
     ping-abuse-limit-threshold: 1000
 
-NegativeTimer:
-    # 玩家的移动丢失了多少毫秒？
-    drift: 1200
-
 # 与 TimerA 相同的检查方法，但适用于坐骑
 VehicleTimer:
     # 实体的1.0005Timer 检查

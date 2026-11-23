@@ -50,7 +50,6 @@ import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
-import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
@@ -497,7 +496,6 @@ public class CheckManager {
                 player.itemUseBurst,
                 new Phase(player),
                 new PostCheck(player),
-                new NegativeTimerCheck(player),
                 new OffsetHandler(player),
                 new DebugHandler(player),
                 new EntityControl(player), // registered listener is currently a no-op
@@ -730,7 +728,6 @@ public class CheckManager {
 
         registerReceive(registrations, postPredictionCheck.get(Phase.class));
         registerReceive(registrations, postPredictionCheck.get(PostCheck.class));
-        registerReceive(registrations, postPredictionCheck.get(NegativeTimerCheck.class));
         // AimDuplicateLook (rotation listener) declares no packet handlers; registering it for
         // receive dispatch would throw in registerReceive at CheckManager construction.
 

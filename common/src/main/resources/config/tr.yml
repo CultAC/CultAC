@@ -154,10 +154,6 @@ TimerLimit:
     # Devre dışı bırakmak için -1 yazın
     ping-abuse-limit-threshold: 1000
 
-NegativeTimer:
-    # Uyarı vermeye başlamadan önce hareket halindeyken kaybedilen milisaniye sayısı
-    drift: 1200
-
     # TimerA ile aynı kontrol yöntemi, ancak araçlar için
 VehicleTimer:
     # Hedef 1.005 timer
