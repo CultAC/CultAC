@@ -17,7 +17,7 @@ public class BlockPlaceCheck extends Check implements CheckListener {
     @Override
     public void onReload(@NotNull ConfigManager config) {
         if (getConfigName() != null) {
-            cancelVL = config.getIntElse(getConfigName() + ".cancelVL", getDefaultCancelVL());
+            cancelVL = config.getIntElse(getConfigName() + ".cancelvl", getDefaultCancelVL());
         }
     }
 

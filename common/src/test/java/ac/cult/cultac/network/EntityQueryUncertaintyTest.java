@@ -149,7 +149,7 @@ class EntityQueryUncertaintyTest {
         var farPlace = player.checkManager.getCheck(FarPlace.class);
         var config = mock(ConfigManager.class);
         when(config.getIntElse(anyString(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
-        when(config.getIntElse(farPlace.getConfigName() + ".cancelVL", 5)).thenReturn(cancelVL);
+        when(config.getIntElse(farPlace.getConfigName() + ".cancelvl", 5)).thenReturn(cancelVL);
         farPlace.onReload(config);
         farPlace.setEnabled(true);
         return farPlace;
