@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
@@ -9,7 +10,8 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 
 @CheckData(
-        name = "MultiActionsH",
+        name = "InventoryC",
+        formerNames = @FormerName(name = "MultiActionsH", until = 2),
         stableKey = "cult.multiactions.inventory_move",
         description = "Moving while in an inventory")
 public class MultiActionsH extends Check implements CheckListener, ClientTickEndListener {

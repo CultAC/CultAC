@@ -9,6 +9,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsC;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsE;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsI;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsJ;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsK;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsL;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsS;
 import ac.cult.cultac.checks.impl.visibility.AttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
@@ -19,6 +26,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.grim.grimac.api.config.ConfigManager;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -157,6 +165,109 @@ class CheckNamesTest {
             player.onRemove();
             channel.finishAndReleaseAll();
         }
+    }
+
+    @Test
+    void version3MovesTheInventoryChecksOutOfMultiActionsAndNamesFiveOfThemInventoryD() {
+        OfflineCultTestBootstrap.installConfig();
+        UUID uuid = UUID.randomUUID();
+        EmbeddedChannel channel = new EmbeddedChannel();
+        User user = TestUsers.create(new User.Profile(uuid, ".Check_Inv"), channel);
+        CultPlayer player = new CultPlayer(user);
+        try {
+            PlatformPlayer platform = mock(PlatformPlayer.class);
+            when(platform.hasPermission("cult.exempt.multiactionsj")).thenReturn(true);
+            player.platformPlayer = platform;
+            Check swing = player.checkManager.getCheck(MultiActionsE.class);
+            Check click = player.checkManager.getCheck(MultiActionsC.class);
+            List<Check> merged = merged(player);
+
+            for (int version = CheckNames.FIRST; version <= 2; version++) {
+                var config = StampedConfig.of(Map.of(CheckNames.CONFIG_KEY, version));
+                swing.reload(config);
+                click.reload(config);
+                merged.forEach(check -> check.reload(config));
+                merged.forEach(Check::updatePermissions);
+                assertEquals("MultiActionsE", swing.getCheckName());
+                assertEquals("MultiActionsC", click.getConfigName());
+                assertEquals(
+                        List.of("MultiActionsI", "MultiActionsJ", "MultiActionsK", "MultiActionsL", "MultiActionsS"),
+                        merged.stream().map(Check::getCheckName).toList());
+                assertEquals(
+                        List.of(false, true, false, false, false),
+                        merged.stream().map(Check::isExemptPermission).toList());
+            }
+
+            var renamed = StampedConfig.of(Map.of(CheckNames.CONFIG_KEY, 3));
+            swing.reload(renamed);
+            click.reload(renamed);
+            merged.forEach(check -> check.reload(renamed));
+            assertEquals("MultiActionsC", swing.getCheckName());
+            assertEquals("InventoryA", click.getConfigName());
+            for (Check check : merged) {
+                assertEquals("InventoryD", check.getCheckName());
+                assertEquals("InventoryD", check.getConfigName());
+                assertFalse(check.isExemptPermission());
+            }
+            when(platform.hasPermission("cult.exempt.inventoryd")).thenReturn(true);
+            merged.forEach(Check::updatePermissions);
+            assertTrue(merged.stream().allMatch(Check::isExemptPermission));
+
+            // Each action's flags stay keyed by its own stable key.
+            assertEquals(
+                    List.of(
+                            "cult.multiactions.inventory_attack",
+                            "cult.multiactions.inventory_use",
+                            "cult.multiactions.inventory_place",
+                            "cult.multiactions.inventory_break",
+                            "cult.multiactions.inventory_swing"),
+                    merged.stream().map(Check::getStableKey).toList());
+        } finally {
+            player.onRemove();
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    void punishmentsOfVersion2SelectMultiActionsJAloneAndOfVersion3SelectAllOfInventoryD() {
+        OfflineCultTestBootstrap.installConfig();
+        UUID uuid = UUID.randomUUID();
+        EmbeddedChannel channel = new EmbeddedChannel();
+        User user = TestUsers.create(new User.Profile(uuid, ".Check_Groups"), channel);
+        CultPlayer player = new CultPlayer(user);
+        try {
+            List<Check> merged = merged(player);
+            player.punishmentManager.reload(punishments(2, "MultiActionsJ"));
+            assertEquals(List.of(false, true, false, false, false), enabled(merged));
+            player.punishmentManager.reload(punishments(2, "InventoryD"));
+            assertEquals(List.of(false, false, false, false, false), enabled(merged));
+            player.punishmentManager.reload(punishments(3, "InventoryD"));
+            assertEquals(List.of(true, true, true, true, true), enabled(merged));
+            player.punishmentManager.reload(punishments(3, "MultiActionsJ"));
+            assertEquals(List.of(false, false, false, false, false), enabled(merged));
+        } finally {
+            player.onRemove();
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    private static List<Check> merged(CultPlayer player) {
+        return List.of(
+                player.checkManager.getCheck(MultiActionsI.class),
+                player.checkManager.getCheck(MultiActionsJ.class),
+                player.checkManager.getCheck(MultiActionsK.class),
+                player.checkManager.getCheck(MultiActionsL.class),
+                player.checkManager.getCheck(MultiActionsS.class));
+    }
+
+    private static List<Boolean> enabled(List<Check> checks) {
+        return checks.stream().map(Check::isEnabled).toList();
+    }
+
+    private static ConfigManager punishments(int version, String selector) {
+        Map<String, Object> group =
+                new LinkedHashMap<>(Map.of("checks", List.of(selector), "commands", List.of("5:5 [alert]")));
+        return StampedConfig.of(Map.of(CheckNames.PUNISHMENTS_KEY, version, "Punishments", List.of(group)));
     }
 
     @Test

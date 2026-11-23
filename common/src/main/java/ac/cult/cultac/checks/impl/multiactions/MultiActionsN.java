@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -10,7 +11,8 @@ import ac.cult.cultac.protocol.packet.serverbound.*;
 import ac.cult.cultac.protocol.value.*;
 
 @CheckData(
-        name = "MultiActionsN",
+        name = "InventoryF",
+        formerNames = @FormerName(name = "MultiActionsN", until = 2),
         stableKey = "cult.multiactions.inventory_inventory",
         description = "Opened their mount's inventory while another was open",
         experimental = true)

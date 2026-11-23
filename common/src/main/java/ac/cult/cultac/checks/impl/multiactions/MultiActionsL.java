@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -12,7 +13,8 @@ import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 
 @CheckData(
-        name = "MultiActionsL",
+        name = "InventoryD",
+        formerNames = @FormerName(name = "MultiActionsL", until = 2),
         stableKey = "cult.multiactions.inventory_break",
         description = "Breaking a block while in an inventory")
 public class MultiActionsL extends Check implements BlockBreakListener {
@@ -21,6 +23,12 @@ public class MultiActionsL extends Check implements BlockBreakListener {
 
     public MultiActionsL(CultPlayer player) {
         super(player);
+    }
+
+    private boolean flagAction() {
+        return InventoryActions.reportedTogether(this)
+                ? flag(InventoryActions.V.write(verbose(), InventoryActions.ACTION_DIG))
+                : flag();
     }
 
     @Override
@@ -40,7 +48,7 @@ public class MultiActionsL extends Check implements BlockBreakListener {
             return;
         }
 
-        if (flag() && shouldModifyPackets()) {
+        if (flagAction() && shouldModifyPackets()) {
             blockBreak.cancel();
             player.closeInventorySafely();
         }

@@ -83,10 +83,10 @@ checks:
   MultiActionsA:
     summary: "Attacked while using an item"
     details: "You can't attack while eating, drinking, blocking or drawing a bow. Cheat clients that fight for the player keep attacking while the item is still in use."
-  MultiActionsE:
+  MultiActionsC:
     summary: "Swung their arm while using an item"
     details: "You can't punch while eating, drinking, blocking or drawing a bow. A swing during item use points to a cheat client attacking or clicking for the player."
-  MultiActionsF:
+  MultiActionsD:
     summary: "Clicked a block and a mob or player at the same moment"
     details: "Your crosshair is on a block or on a mob or player, never both. Cheat clients that fight and build for the player at the same time can click both at once."
   MultiInteractA:
@@ -224,7 +224,7 @@ checks:
   HappyGhastOffset:
     summary: "Flew a happy ghast in an impossible way"
     details: "A cheat client steering the happy ghast does this."
-  MultiActionsG:
+  MultiActionsE:
     summary: "Attacked or used an item while rowing a boat"
     details: "Rowing a boat keeps your hands busy, so you can't attack, use items or place blocks until you stop. A cheat client acting for the player does these anyway."
   TimerVehicle:
@@ -313,15 +313,19 @@ checks:
     summary: "Finished or stopped mining a different block than they started"
     details: "Mining always finishes or stops on the block you started on. Block-breaking cheats that jump between blocks can report a different one."
   # Inventory & Items
-  MultiActionsC:
+  InventoryA:
     summary: "Clicked in an inventory while moving"
     details: "Opening an inventory stops your movement keys. Clicking items while still walking or sprinting points to InvMove, or to AutoArmor and similar cheats that move items on their own."
-  MultiActionsD:
+  InventoryB:
     summary: "Closed an inventory while moving"
     details: "Opening an inventory stops your movement keys. Closing it while still walking or sprinting points to InvMove, or to AutoArmor and similar cheats that open and close the inventory by themselves."
-  MultiActionsH:
+  InventoryC:
     summary: "Moved while an inventory was open"
     details: "Your movement keys stop working while an inventory or chest is open. InvMove cheats let the player walk and jump around anyway."
+  InventoryD:
+    summary: "Used their hands with an inventory open"
+    details: "While an inventory or chest is open, you can't attack, right-click mobs or players, use items, place blocks, mine or swing your arm. KillAura, AutoPot, Scaffold, Nuker and similar cheats do these anyway. The alert says which one it was."
+  # InventoryD's checks, each under the name check name versions 1 and 2 give it
   MultiActionsI:
     summary: "Hit or used a mob or player with an inventory open"
     details: "You can't attack or right-click mobs or players while an inventory or chest is open. Combat cheats that attack on their own, like KillAura, do this."
@@ -334,28 +338,28 @@ checks:
   MultiActionsL:
     summary: "Mined with an inventory open"
     details: "Mining doesn't work while an inventory or chest is open. Cheats that mine for the player, like Nuker, keep going anyway."
-  MultiActionsM:
-    summary: "Pressed or released sneak with an inventory open"
-    details: "Minecraft ignores the sneak key while an inventory or chest is open. Toggling sneak with it open points to InvMove or another cheat that controls the player's movement."
-  MultiActionsN:
-    summary: "Opened an inventory while another was already open"
-    details: "With an inventory open, pressing the inventory key just closes it. A modified client can ask to open the storage of the horse or chest boat they ride while another inventory is still open."
-  MultiActionsO:
-    summary: "Turned their view with an inventory open"
-    details: "Your view stays still while an inventory or chest is open. Turning with it open points to InvMove or to cheats that aim for the player."
-  MultiActionsP:
-    summary: "Dropped their held item the wrong way with an inventory open"
-    details: "Inside an inventory, dropping an item goes through the inventory screen. Their game dropped the held item the way it does with no screen open, which usually comes from a modified client or a cheat that throws items on its own."
-  MultiActionsQ:
-    summary: "Swapped to their offhand the wrong way with an inventory open"
-    details: "Inside an inventory, swapping an item to your offhand goes through the inventory screen. Their game swapped the way it does with no screen open, which usually comes from a modified client or a cheat that moves items on its own."
-  MultiActionsR:
-    summary: "Clicked in an inventory while standing in a nether portal"
-    details: "Standing in a nether portal closes any open inventory. Clicking items there anyway points to a modified client that keeps screens open inside portals."
   MultiActionsS:
     summary: "Swung their arm with an inventory open"
     details: "Punching and attacking don't work while an inventory or chest is open. A swing with it open points to a cheat that attacks or clicks on its own."
-  MultiActionsT:
+  InventoryE:
+    summary: "Pressed or released sneak with an inventory open"
+    details: "Minecraft ignores the sneak key while an inventory or chest is open. Toggling sneak with it open points to InvMove or another cheat that controls the player's movement."
+  InventoryF:
+    summary: "Opened an inventory while another was already open"
+    details: "With an inventory open, pressing the inventory key just closes it. A modified client can ask to open the storage of the horse or chest boat they ride while another inventory is still open."
+  InventoryG:
+    summary: "Turned their view with an inventory open"
+    details: "Your view stays still while an inventory or chest is open. Turning with it open points to InvMove or to cheats that aim for the player."
+  InventoryH:
+    summary: "Dropped their held item the wrong way with an inventory open"
+    details: "Inside an inventory, dropping an item goes through the inventory screen. Their game dropped the held item the way it does with no screen open, which usually comes from a modified client or a cheat that throws items on its own."
+  InventoryI:
+    summary: "Swapped to their offhand the wrong way with an inventory open"
+    details: "Inside an inventory, swapping an item to your offhand goes through the inventory screen. Their game swapped the way it does with no screen open, which usually comes from a modified client or a cheat that moves items on its own."
+  InventoryJ:
+    summary: "Clicked in an inventory while standing in a nether portal"
+    details: "Standing in a nether portal closes any open inventory. Clicking items there anyway points to a modified client that keeps screens open inside portals."
+  InventoryK:
     summary: "Switched hotbar slot with an inventory open"
     details: "You can't change your held hotbar slot while an inventory or chest is open. Switching anyway usually comes from a cheat handling items on its own, like AutoArmor or AutoPot."
   # Chat

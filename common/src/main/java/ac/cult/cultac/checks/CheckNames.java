@@ -16,17 +16,19 @@ import org.jetbrains.annotations.Nullable;
  * one itself: every build then reads a file the same way, whichever build wrote it last. A file without a version is
  * written in {@link #FIRST}.
  *
- * <p>To rename a check, or split one in two: raise {@link #LATEST}, give the check its new name and a
- * {@link FormerName} lasting until the version before, list the new permission ids in {@link CheckPermissions}, and
- * describe the new version beside both keys in every bundled {@code config} and {@code punishments} default. A check
- * split off another takes the other's name as its former name, so files of an older version go on naming both. The
- * check's {@code stableKey} never changes.
+ * <p>To rename a check, split one in two or merge several into one: raise {@link #LATEST}, give the check its new
+ * name and a {@link FormerName} lasting until the version before, list the new permission ids in
+ * {@link CheckPermissions}, and describe the new version beside both keys in every bundled {@code config} and
+ * {@code punishments} default. A check split off another takes the other's name as its former name, so files of an
+ * older version go on naming both. Checks merged into one each take the merged name and keep their own former name,
+ * so files of an older version go on naming each apart, and a file of the new version sets, exempts and selects them
+ * under the one name. The check's {@code stableKey} never changes, so the flags of merged checks stay keyed apart.
  */
 public final class CheckNames {
     /** The names checks had before any was renamed. */
     public static final int FIRST = 1;
 
-    public static final int LATEST = 2;
+    public static final int LATEST = 3;
 
     /**
      * {@code config.yml}: the version of the prefix of each check's own settings, of its permission nodes and of the

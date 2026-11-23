@@ -51,8 +51,14 @@ class CheckCatalogTest {
 
     @Test
     void noCheckIsListedTwice() {
-        Set<String> names = new HashSet<>();
-        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) assertTrue(names.add(entry.name()), entry.name());
+        Set<List<String>> names = new HashSet<>();
+        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
+            List<String> byVersion = new ArrayList<>();
+            for (int version = CheckNames.FIRST; version <= CheckNames.LATEST; version++) {
+                byVersion.add(entry.name(version));
+            }
+            assertTrue(names.add(byVersion), byVersion.toString());
+        }
     }
 
     @Test
@@ -96,6 +102,20 @@ class CheckCatalogTest {
         // InteractPlayerVisibility had this name too, up to name version 1.
         assertEquals("InteractEntityVisibility", CheckCatalog.find("InteractEntityVisibility").name());
         assertEquals("InteractPlayerVisibility", CheckCatalog.find("interactplayervisibility").name());
+    }
+
+    @Test
+    void aNameIsFoundAsTheNameVersionOfConfigYmlHasIt() {
+        assertEquals("InventoryA", CheckCatalog.find("MultiActionsC", 2).name());
+        assertEquals("MultiActionsC", CheckCatalog.find("multiactionsc", 3).name());
+        assertEquals("InventoryA", CheckCatalog.find("InventoryA", 2).name());
+        assertEquals("InventoryD", CheckCatalog.find("MultiActionsS", 3).name());
+        for (int version = CheckNames.FIRST; version <= CheckNames.LATEST; version++) {
+            for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
+                String query = CheckCatalog.query(entry.name(version), entry.name(), version);
+                assertEquals(entry.name(), CheckCatalog.find(query, version).name(), query + " in " + version);
+            }
+        }
     }
 
     @Test
