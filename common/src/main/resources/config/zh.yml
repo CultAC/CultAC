@@ -199,6 +199,9 @@ exploit:
     # 是否允许玩家在使用鞘翅时候进行的疾跑跳跃
     allow-building-on-ghostblocks: true
     # 该选项可在发生假方块时重新同步玩家方块，并允许玩家在假方块上继续放置方块
+    distance-to-check-if-ghostblocks: 2
+    # 检查假方块的距离。
+    # 范围限制为 2 到 4
 
 # 启用在加入时注入 netty 的日志插件以调试兼容性问题
 debug-pipeline-on-join: false

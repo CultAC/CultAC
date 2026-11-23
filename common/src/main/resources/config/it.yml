@@ -164,6 +164,8 @@ exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Abilita la costruzione su ghost blocks
     allow-building-on-ghostblocks: true
+    # Distanza per controllare i ghost blocks
+    distance-to-check-if-ghostblocks: 2
 
 # Enable logging plugins who have injected into netty on join to debug compatibility issues
 debug-pipeline-on-join: false

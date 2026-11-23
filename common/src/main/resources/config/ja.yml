@@ -189,6 +189,10 @@ exploit:
     # ゴーストブロックへのブロック設置をできるだけ制限します
     allow-building-on-ghostblocks: true
 
+    # 上記の設定に基づき、ゴーストブロックのチェック距離を定義します
+    # 設定可能な範囲は2から4です
+    distance-to-check-if-ghostblocks: 2
+
 # Nettyに参加時にプラグインが注入された場合の互換性問題をデバッグするためにログを有効にします
 debug-pipeline-on-join: false
 

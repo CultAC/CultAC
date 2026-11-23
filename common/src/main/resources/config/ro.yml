@@ -180,6 +180,9 @@ exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Această opțiune reduce efectul ghostblocks prin resincronizarea jucătorului când se întâmplă
     allow-building-on-ghostblocks: true
+    # Această setare, influențată de booleanul de mai sus, definește distanța verificată pentru ghostblocks
+    # Interval valid: 2 până la 4
+    distance-to-check-if-ghostblocks: 2
 
 # Activează logarea pluginurilor care s-au injectat în netty la intrare pentru debugging de compatibilitate
 debug-pipeline-on-join: false

@@ -185,6 +185,9 @@ exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Essa opção mitiga posicionar blocos em blocos fantasma, ressincronizando o jogador quando isso ocorrer.
     allow-building-on-ghostblocks: true
+    # Esse ajuste, influído pela opção acima, define a distância para verificar blocos fantasmas.
+    # O valor válido é limitado de 2 a 4.
+    distance-to-check-if-ghostblocks: 2
 
 # Registra plugins que são injetados na netty ao entrar para depurar erros de compatibilidade.
 debug-pipeline-on-join: false

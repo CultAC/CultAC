@@ -180,6 +180,9 @@ exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Ta opcja łagodzi efekt stawiania bloków na tzw. ghostblockach poprzez resynchronizację gracza, gdy to nastąpi.
     allow-building-on-ghostblocks: true
+    # To ustawienie, zależne od powyższej wartości logicznej, określa dystans do sprawdzania ghostblocków.
+    # Jego prawidłowy zakres jest ograniczony od 2 do 4.
+    distance-to-check-if-ghostblocks: 2
 
 # Włącz logowanie pluginów, które wstrzyknęły się do netty podczas dołączania gracza, w celu debugowania problemów z kompatybilnością.
 debug-pipeline-on-join: false

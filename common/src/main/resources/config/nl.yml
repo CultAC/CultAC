@@ -180,6 +180,9 @@ exploit:
     allow-sprint-jumping-when-using-elytra: true
     # Deze optie verzacht de plaatsing van de speler op ghostblocks door de speler opnieuw te synchroniseren wanneer dit gebeurt
     allow-building-on-ghostblocks: true
+    # Deze instelling, beïnvloed door de boolean hierboven, bepaalt de afstand om te controleren op ghostblocks
+    # Het geldige bereik is beperkt van 2 tot 4
+    distance-to-check-if-ghostblocks: 2
 
 # Logging plugins inschakelen die geïnjecteerd zijn in netty on join om compatibiliteitsproblemen te debuggen
 debug-pipeline-on-join: false
