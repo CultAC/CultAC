@@ -94,13 +94,9 @@ public final class OfflineBedrockReplayRunnerTest {
     private static final UUID PLAYER_UUID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final String SMALL_REPLAY_INJECTION_DOMAIN = "cultac-bedrock-small-replay-injection/v1:1";
     private static final String SMALL_REPLAY_VERTICAL_INJECTION_DOMAIN = SMALL_REPLAY_INJECTION_DOMAIN + ":vertical";
-    private static final long IMPOSSIBLE_MOVEMENT_ALLOWED_FALLOUT_TICKS = 3L;
     private static final double IMPOSSIBLE_MOVEMENT_AXIS_OFFSET = 0.01D;
     private static final double IMPOSSIBLE_HORIZONTAL_MOVEMENT_OFFSET = 0.15D;
-    private static final double IMPOSSIBLE_MOVEMENT_FLAG_OFFSET_TOLERANCE = 0.001D;
     private static final double MIN_HORIZONTAL_INPUT = 1.0E-6D;
-    private static final String KNOWN_FALSE_FLAG_SCENARIO = "largerun1";
-    private static final long KNOWN_FALSE_FLAG_TICK = 6147L;
 
     @Test
     public void impossibleMovementInjectionIndexIgnoresPositionsAndTicks() {
