@@ -1138,7 +1138,7 @@ public class WorldStageBuilder {
         return false;
     }
 
-    static SimpleCollisionBox bubbleColumnBoxAt(
+    private static SimpleCollisionBox bubbleColumnBoxAt(
             SimpleCollisionBox out, CultPlayer player, SimulationContext context, double x, double y, double z) {
         if (context.getVehicle() == null) {
             if (!player.isBedrockMovement()) {
