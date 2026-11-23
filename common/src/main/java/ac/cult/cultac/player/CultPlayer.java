@@ -381,6 +381,7 @@ public class CultPlayer implements GrimUser {
     public @Nullable String world;
     public @Nullable Vec3 bedPosition;
     public long lastBlockPlaceUseItem = 0;
+    public int totalFlyingPacketsSent;
     public final @NotNull AtomicInteger cancelledPackets = new AtomicInteger(0);
     private boolean loggedPacketSpam;
     /**

@@ -194,6 +194,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     public void endClientTick() {
         clearMainHandUseAfterSlotChange();
+        ++player.totalFlyingPacketsSent;
     }
 
     @CultPacketHandler
