@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.cultac.checks.StampedConfig;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsP;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsWindow;
+import ac.cult.cultac.checks.impl.chat.ChatD;
 import ac.cult.cultac.checks.impl.chat.ChatE;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsH;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsS;
@@ -29,7 +31,11 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.ChatVisibility;
+import ac.cult.cultac.protocol.value.ClientInformation;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.MainHand;
+import ac.cult.cultac.protocol.value.ParticleStatus;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.KnownInput;
@@ -470,11 +476,46 @@ class InventoryWindowChecksTest {
         new PacketPlayerWindow().onContainerClick(clickEvent(f, click), f.player, click);
     }
 
+    @Test
+    void aCommandTheConfiguredRegexMatchesPassesAnOpenChestOrHiddenChatWhileAnotherIsCancelled() {
+        try (var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            serverOpen(f, 1);
+            acknowledge(f, 2);
+            var check = spy(new ChatE(f.player));
+            doReturn(true).when(check).flag();
+            doReturn(true).when(check).shouldModifyPackets();
+            check.reload(StampedConfig.of(Map.of("ChatE.exempt-regex", "/pl")));
+            assertFalse(sendCommand(f, check, "pl"));
+            assertTrue(sendCommand(f, check, "pl 2"));
+            assertTrue(sendCommand(f, check));
+
+            var hidden = spy(new ChatD(f.player));
+            doReturn(true).when(hidden).flag();
+            doReturn(true).when(hidden).shouldModifyPackets();
+            hidden.reload(StampedConfig.of(Map.of("ChatD.exempt-regex", "/pl")));
+            hidden.observe(new ClientInformation(
+                    "en_us", 2, ChatVisibility.HIDDEN, true, 0, MainHand.RIGHT, false, false, ParticleStatus.ALL));
+            assertFalse(sendCommand(f, hidden, "pl"));
+            assertTrue(sendCommand(f, hidden, "pl 2"));
+        }
+    }
+
     /** Whether ChatE cancels a command over the open window. */
     private static boolean sendCommand(RecordReceiveFixture f, ChatE check) {
-        var command = new ServerboundChatCommand("shop buy");
+        return sendCommand(f, check, "shop buy");
+    }
+
+    private static boolean sendCommand(RecordReceiveFixture f, ChatE check, String text) {
+        var command = new ServerboundChatCommand(text);
         var event = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command);
         check.onCommand(event, f.player, command);
+        return event.isCancelled();
+    }
+
+    private static boolean sendCommand(RecordReceiveFixture f, ChatD check, String text) {
+        var command = new ServerboundChatCommand(text);
+        var event = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command);
+        check.onChatCommand(event, f.player, command);
         return event.isCancelled();
     }
 
