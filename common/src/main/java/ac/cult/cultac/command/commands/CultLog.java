@@ -74,14 +74,13 @@ public class CultLog implements BuildableCommand {
             Sender sender, String log, String success, String failure, Consumer<String> consumer, String type)
             throws IOException {
         byte[] body = log.getBytes(StandardCharsets.UTF_8);
-        URL mUrl =
-                URI.create(CommonCultArguments.PASTE_API_URL.value() + "post").toURL();
+        URL mUrl = URI.create(CommonCultArguments.PASTE_API_URL + "post").toURL();
         HttpURLConnection urlConn = (HttpURLConnection) mUrl.openConnection();
         try {
             urlConn.setDoOutput(true);
             urlConn.setRequestMethod("POST");
-            urlConn.setConnectTimeout(CommonCultArguments.URL_TIMEOUT.value());
-            urlConn.setReadTimeout(CommonCultArguments.URL_TIMEOUT.value());
+            urlConn.setConnectTimeout(CommonCultArguments.URL_TIMEOUT);
+            urlConn.setReadTimeout(CommonCultArguments.URL_TIMEOUT);
             urlConn.addRequestProperty(
                     "User-Agent",
                     "CultAC/" + CultAPI.INSTANCE.getExternalAPI().getGrimVersion() + " (" + CONTACT + ")");
@@ -94,7 +93,7 @@ public class CultLog implements BuildableCommand {
             if (response == HttpURLConnection.HTTP_CREATED) {
                 String location = urlConn.getHeaderField("Location");
                 String key = location.substring(location.lastIndexOf('/') + 1);
-                String url = CommonCultArguments.PASTE_URL.value() + key;
+                String url = CommonCultArguments.PASTE_URL + key;
                 consumer.accept(url);
                 sender.sendMessage(uploadedMessage(sender, success, url));
             } else {

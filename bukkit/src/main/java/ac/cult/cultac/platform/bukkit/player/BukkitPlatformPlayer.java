@@ -45,7 +45,7 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
     public BukkitPlatformPlayer(@NotNull Player bukkitPlayer) {
         super(bukkitPlayer);
         this.bukkitPlayer = bukkitPlayer;
-        if (CommonCultArguments.USE_CHAT_FAST_BYPASS.value()) {
+        if (CommonCultArguments.USE_CHAT_FAST_BYPASS) {
             this.user = CultAPI.INSTANCE.getNetworkManager().getUser(bukkitPlayer.getUniqueId(), bukkitPlayer);
         } else {
             this.user = null;

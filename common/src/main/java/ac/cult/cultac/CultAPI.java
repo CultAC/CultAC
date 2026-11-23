@@ -85,7 +85,7 @@ public final class CultAPI {
 
     // the order matters
     private static Platform detectPlatform() {
-        Platform override = CommonCultArguments.PLATFORM_OVERRIDE.value();
+        Platform override = CommonCultArguments.PLATFORM_OVERRIDE;
         if (override != null) return override;
         if (ReflectionUtils.hasClass("com.velocitypowered.api.proxy.ProxyServer")) return Platform.VELOCITY;
         if (ReflectionUtils.hasClass("io.papermc.paper.threadedregions.RegionizedServer")) return Platform.FOLIA;

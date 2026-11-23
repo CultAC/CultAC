@@ -28,7 +28,7 @@ public class PacketPluginMessage {
         }
         CultPlayer player = user.getCultPlayer();
         // kick if they do not have a proxy configured OR they have ViaVersion installed on the backend
-        if (CommonCultArguments.KICK_ON_VIA_PROXY.value()
+        if (CommonCultArguments.KICK_ON_VIA_PROXY
                 && !(player != null
                         ? player.isObserveOnly()
                         : CultAPI.INSTANCE.getConfigManager().isObserveOnly())
