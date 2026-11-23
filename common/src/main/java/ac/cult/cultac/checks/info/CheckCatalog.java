@@ -36,9 +36,7 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsO;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsP;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsQ;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsR;
-import ac.cult.cultac.checks.impl.badpackets.BadPacketsS;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsT;
-import ac.cult.cultac.checks.impl.badpackets.BadPacketsU;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsV;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsW;
@@ -50,7 +48,6 @@ import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.breaking.AirLiquidBreak;
 import ac.cult.cultac.checks.impl.breaking.FarBreak;
 import ac.cult.cultac.checks.impl.breaking.FastBreak;
-import ac.cult.cultac.checks.impl.breaking.InvalidBreak;
 import ac.cult.cultac.checks.impl.breaking.MultiBreak;
 import ac.cult.cultac.checks.impl.breaking.NoSwingBreak;
 import ac.cult.cultac.checks.impl.breaking.PositionBreakA;
@@ -92,7 +89,6 @@ import ac.cult.cultac.checks.impl.crash.CrashE;
 import ac.cult.cultac.checks.impl.crash.CrashF;
 import ac.cult.cultac.checks.impl.crash.CrashG;
 import ac.cult.cultac.checks.impl.crash.CrashH;
-import ac.cult.cultac.checks.impl.crash.CrashI;
 import ac.cult.cultac.checks.impl.elytra.ElytraA;
 import ac.cult.cultac.checks.impl.elytra.ElytraB;
 import ac.cult.cultac.checks.impl.elytra.ElytraC;
@@ -177,7 +173,6 @@ import ac.cult.cultac.checks.impl.scaffolding.DuplicateRotPlace;
 import ac.cult.cultac.checks.impl.scaffolding.FabricatedPlace;
 import ac.cult.cultac.checks.impl.scaffolding.FarPlace;
 import ac.cult.cultac.checks.impl.scaffolding.InvalidPlaceA;
-import ac.cult.cultac.checks.impl.scaffolding.InvalidPlaceB;
 import ac.cult.cultac.checks.impl.scaffolding.MultiPlace;
 import ac.cult.cultac.checks.impl.scaffolding.RotationPlace;
 import ac.cult.cultac.checks.impl.sprint.SprintA;
@@ -188,7 +183,6 @@ import ac.cult.cultac.checks.impl.sprint.SprintE;
 import ac.cult.cultac.checks.impl.sprint.SprintF;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.checks.impl.sprint.SprintH;
-import ac.cult.cultac.checks.impl.vehicle.VehicleA;
 import ac.cult.cultac.checks.impl.vehicle.VehicleB;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.impl.vehicle.VehicleD;
@@ -320,7 +314,6 @@ public final class CheckCatalog {
             check(HappyGhastPseudo.INFO, VEHICLES),
             check(MultiActionsG.class, VEHICLES),
             check(VehicleTimer.INFO, VEHICLES),
-            check(VehicleA.class, VEHICLES),
             check(VehicleB.class, VEHICLES),
             check(VehicleC.class, VEHICLES),
             check(VehicleD.class, VEHICLES),
@@ -338,9 +331,7 @@ public final class CheckCatalog {
             check(FarBreak.class, BUILDING),
             check(FarPlace.class, BUILDING),
             check(FastBreak.class, BUILDING),
-            check(InvalidBreak.class, BUILDING),
             check(InvalidPlaceA.class, BUILDING),
-            check(InvalidPlaceB.class, BUILDING),
             check(MultiActionsB.class, BUILDING),
             check(MultiBreak.class, BUILDING),
             check(MultiPlace.class, BUILDING),
@@ -389,9 +380,7 @@ public final class CheckCatalog {
             check(BadPacketsP.class, PACKETS),
             check(BadPacketsQ.class, PACKETS),
             check(BadPacketsR.class, PACKETS),
-            check(BadPacketsS.class, PACKETS),
             check(BadPacketsT.class, PACKETS),
-            check(BadPacketsU.class, PACKETS),
             check(BadPacketsV.class, PACKETS),
             check(BadPacketsVehicle.class, PACKETS),
             check(BadPacketsW.class, PACKETS),
@@ -429,7 +418,6 @@ public final class CheckCatalog {
             check(CrashF.class, CRASH),
             check(CrashG.class, CRASH),
             check(CrashH.class, CRASH),
-            check(CrashI.class, CRASH),
             check(ExploitA.class, CRASH),
             check(ExploitB.class, CRASH),
             check(ExploitC.class, CRASH),

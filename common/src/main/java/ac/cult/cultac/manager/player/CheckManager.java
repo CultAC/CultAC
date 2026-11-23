@@ -387,9 +387,7 @@ public class CheckManager {
                 new BadPacketsP(player),
                 new BadPacketsQ(player),
                 new BadPacketsR(player),
-                new BadPacketsS(player),
                 new BadPacketsT(player),
-                new BadPacketsU(player),
                 new BadPacketsV(player),
                 new BadPacketsW(player),
                 new BadPacketsY(player),
@@ -428,7 +426,6 @@ public class CheckManager {
                 new MultiInteractA(player),
                 new MultiInteractB(player),
                 player.openWindow,
-                new VehicleA(player),
                 new VehicleB(player),
                 new VehicleGround(player),
                 new VehicleD(player),
@@ -440,7 +437,6 @@ public class CheckManager {
                 new FastBreak(player),
                 new NoSwingBreak(player),
                 new FarBreak(player, visibility),
-                new InvalidBreak(player),
                 new PositionBreakA(player, visibility),
                 new PositionBreakB(player),
                 new MultiBreak(player),
@@ -533,7 +529,6 @@ public class CheckManager {
         return listenerMap(List.<BlockPlaceCheck>of(
                 new BadPacketsH(player),
                 new InvalidPlaceA(player),
-                new InvalidPlaceB(player),
                 new AirLiquidPlace(player),
                 new MultiPlace(player),
                 new MultiActionsF(player),
@@ -560,7 +555,6 @@ public class CheckManager {
                 new CrashE(player),
                 new CrashF(player),
                 new CrashH(player),
-                new CrashI(player),
                 new ExploitA(player),
                 new ExploitB(player),
                 new ExploitC(player),
@@ -642,7 +636,6 @@ public class CheckManager {
         registerPreReceive(registrations, postPredictionCheck.get(ItemUseBurst.class));
         registerPreReceive(registrations, prePredictionChecks.get(DumbTimer.class));
         registerPreReceive(registrations, prePredictionChecks.get(CrashA.class));
-        registerPreReceive(registrations, prePredictionChecks.get(CrashI.class));
         registerPreReceive(registrations, prePredictionChecks.get(VehicleTimer.class));
         registerPreReceive(registrations, packetChecks.get(SetbackBlocker.class));
         registerEarlyReceive(registrations, packetChecks.get(ClientVisibilityProcessor.class));
@@ -680,13 +673,11 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(BadPacketsQ.class));
         registerReceive(registrations, packetChecks.get(BadPacketsR.class));
         registerReceive(registrations, packetChecks.get(BadPacketsT.class));
-        registerReceive(registrations, packetChecks.get(BadPacketsU.class));
         registerReceive(registrations, packetChecks.get(BadPacketsV.class));
         registerReceive(registrations, blockPlaceCheck.get(BadPacketsH.class));
         registerReceive(registrations, packetChecks.get(PacketOrderProcessor.class));
         registerReceive(registrations, packetChecks.get(MultiActionsC.class));
         registerReceive(registrations, packetChecks.get(MultiActionsD.class));
-        registerReceive(registrations, packetChecks.get(VehicleA.class));
         registerReceive(registrations, packetChecks.get(VehicleD.class));
         registerReceive(registrations, packetChecks.get(VehicleE.class));
         registerReceive(registrations, packetChecks.get(VehicleF.class));

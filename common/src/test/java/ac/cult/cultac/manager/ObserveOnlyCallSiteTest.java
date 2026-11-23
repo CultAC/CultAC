@@ -194,7 +194,6 @@ class ObserveOnlyCallSiteTest {
             checks/impl/crash/CrashG.java#onBlockBreak(BlockBreak) cancel
             checks/impl/crash/CrashG.java#onBlockPlace(BlockPlace) resync
             checks/impl/crash/CrashG.java#onUseItem(PacketReceiveEvent,CultPlayer,ServerboundUseItem) setCancelled
-            checks/impl/crash/CrashI.java#onSelectBundleItem(PacketReceiveEvent,CultPlayer,ServerboundSelectBundleItem) setCancelled
             checks/impl/movement/SetbackBlocker.java#blockDeadJavaMovePlayer(PacketReceiveEvent) setCancelled
             checks/impl/movement/SetbackBlocker.java#blockInactiveMovePlayer(PacketReceiveEvent,ServerboundMovePlayer) setCancelled x2
             checks/impl/movement/SetbackBlocker.java#blockMovePlayer(PacketReceiveEvent,ServerboundMovePlayer,boolean) setCancelled

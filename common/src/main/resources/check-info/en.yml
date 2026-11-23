@@ -230,9 +230,6 @@ checks:
   TimerVehicle:
     summary: "Their game ran faster than normal while riding"
     details: "Like Timer, but while riding a boat, horse or other vehicle. Timer cheats make the player's game run faster than everyone else's."
-  VehicleA:
-    summary: "Sent movement keys no keyboard or controller can press"
-    details: "Their game tells the server which movement keys are held, and these values don't match any real keyboard or controller. A modified client sends values like this."
   VehicleB:
     summary: "Sent vehicle steering while not riding anything"
     details: "Your game only sends vehicle steering while you're riding something. A modified client can send it on foot."
@@ -285,15 +282,9 @@ checks:
   FastBreak:
     summary: "Broke blocks faster than Minecraft allows"
     details: "How long a block takes to mine depends on the block and the tool in your hand. FastBreak cheats finish it sooner."
-  InvalidBreak:
-    summary: "Reported mining a block side that doesn't exist"
-    details: "When you mine, your game reports which side of the block you hit. A side that doesn't exist comes from a modified client."
   InvalidPlaceA:
     summary: "Reported an impossible click spot while placing a block"
     details: "When you place a block, your game reports where on the block you clicked. A spot that isn't a real position at all comes from a modified client."
-  InvalidPlaceB:
-    summary: "Reported placing on a block side that doesn't exist"
-    details: "When you place a block, your game reports which side of the block you clicked. A side that doesn't exist comes from a modified client."
   MultiActionsB:
     summary: "Mined while using an item"
     details: "You can't mine while eating, drinking, blocking or drawing a bow. A cheat client that mines or acts for the player can do both at once."
@@ -441,15 +432,9 @@ checks:
   BadPacketsR:
     summary: "Held back their movement from the server"
     details: "Blink and some Freecam cheats hold back the player's movement, so the server doesn't see where they really are."
-  BadPacketsS:
-    summary: "Sent a connection reply that Minecraft can't send"
-    details: "Their game gave an invalid answer to one of the server's connection checks, which comes from a modified client."
   BadPacketsT:
     summary: "Right-clicked a player at a spot outside their body"
     details: "When you right-click a player, your game reports the spot on their body you clicked. A spot outside their body, or one that makes no sense, comes from a cheat client making its own right-clicks."
-  BadPacketsU:
-    summary: "Used an item with details that Minecraft never sends"
-    details: "When your game uses an item without aiming at a block, it fills in the request the same way every time. Their game filled it in differently, which comes from a modified client building its own actions."
   BadPacketsV:
     summary: "Sent position updates that Minecraft never sends"
     details: "This usually means a modified client is faking its movement."
@@ -556,9 +541,6 @@ checks:
   CrashH:
     summary: "Sent a command suggestion request that was too long"
     details: "Pressing Tab in chat asks the server for suggestions. Crash tools send oversized or broken requests to lag or crash the server."
-  CrashI:
-    summary: "Picked an item slot inside a bundle that can't exist"
-    details: "When you scroll through a bundle, your game reports which item inside it you picked. Crash tools send a pick that can't exist to cause server errors."
   ExploitA:
     summary: "Renamed an item in an anvil with a name that's too long"
     details: "The anvil only lets you type a name up to a certain length. A modified client sends a longer name to get around that."
