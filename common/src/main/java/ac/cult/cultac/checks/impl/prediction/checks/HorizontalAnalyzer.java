@@ -703,7 +703,7 @@ public class HorizontalAnalyzer implements EngineCheck {
      * {@link #getBestTheoreticalPlayerInput(double, double, float, ClientVersion)}'s x and z written into {@code out[0]}
      * and {@code out[1]}.
      */
-    static void getBestTheoreticalPlayerInput(
+    private static void getBestTheoreticalPlayerInput(
             double[] out, double wantedX, double wantedZ, float f2, ClientVersion version) {
         float radians = f2 * 0.017453292f;
         float correctSin = VanillaMath.sin(version, radians);

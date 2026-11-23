@@ -3861,7 +3861,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     /** The vector {@code (horiz, 0.0, forward)}; a shared one when both are +0.0F, 1.0F or -1.0F. */
-    static Vec3 vehicleInputs(float horiz, float forward) {
+    private static Vec3 vehicleInputs(float horiz, float forward) {
         int h = unitIndex(horiz);
         int f = unitIndex(forward);
         return h < 0 || f < 0 ? new Vec3(horiz, 0.0, forward) : UNIT_VEHICLE_INPUTS[h * 3 + f];

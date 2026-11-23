@@ -1077,7 +1077,7 @@ public final class JavaMovementEngine implements MovementEngine {
      * The distinct velocities of a list of states in first-seen order, as a {@link LinkedHashSet} adding each state's
      * velocity in turn holds them. The states list must not change while the set is read.
      */
-    static final class StateVelocities extends AbstractSet<Vec3> {
+    private static final class StateVelocities extends AbstractSet<Vec3> {
         private final List<JavaPredictionCarry.State> states;
         private final int size;
 
