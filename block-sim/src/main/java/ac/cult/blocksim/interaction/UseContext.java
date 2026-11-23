@@ -1,12 +1,14 @@
 package ac.cult.blocksim.interaction;
 
+import ac.cult.blocksim.data.ItemDefinition;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
+import ac.cult.blocksim.engine.SimCooldowns;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.engine.Vec3;
-import ac.cult.blocksim.data.ItemDefinition;
+import java.util.Objects;
 
 public class UseContext {
     private final SimLevel level;
@@ -15,7 +17,7 @@ public class UseContext {
     private final SimItemStack stack;
     private final BlockHit hit;
     private final ItemDefinition usedItem;
-    private final ac.cult.blocksim.engine.SimCooldowns cooldowns;
+    private final SimCooldowns cooldowns;
 
     public UseContext(SimLevel level, SimPlayer player, Hand hand, SimItemStack stack, BlockHit hit) {
         this(level, player, hand, stack, hit, stack == null ? null : stack.definition());
@@ -23,7 +25,7 @@ public class UseContext {
     public UseContext(SimLevel level, SimPlayer player, Hand hand, SimItemStack stack, BlockHit hit, ItemDefinition usedItem) {
         this(level, player, hand, stack, hit, usedItem, null);
     }
-    public UseContext(SimLevel level, SimPlayer player, Hand hand, SimItemStack stack, BlockHit hit, ItemDefinition usedItem, ac.cult.blocksim.engine.SimCooldowns cooldowns) {
+    public UseContext(SimLevel level, SimPlayer player, Hand hand, SimItemStack stack, BlockHit hit, ItemDefinition usedItem, SimCooldowns cooldowns) {
         this.level = level; this.player = player; this.hand = hand; this.stack = stack; this.hit = hit;
         this.usedItem = usedItem;
         this.cooldowns = cooldowns;
@@ -32,7 +34,7 @@ public class UseContext {
     public ItemDefinition usedItem() { return usedItem; }
     public UseContext forItem(ItemDefinition item) { return new UseContext(level, player, hand, stack, hit, item, cooldowns); }
     public UseContext forStack(SimItemStack stack) { return new UseContext(level, player, hand, stack, hit, usedItem, cooldowns); }
-    public ac.cult.blocksim.engine.SimCooldowns cooldowns() { return java.util.Objects.requireNonNull(cooldowns, "Instrument use requires compensated cooldowns"); }
+    public SimCooldowns cooldowns() { return Objects.requireNonNull(cooldowns, "Instrument use requires compensated cooldowns"); }
     public SimLevel level() { return level; }
     public SimPlayer player() { return player; }
     public Hand hand() { return hand; }

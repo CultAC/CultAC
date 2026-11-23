@@ -9,6 +9,8 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 
 /** ClientLevel#getPushableEntities selects only LocalPlayer; the remote entity's tick calls player.push(pusher). */
 public final class JavaLivingEntityPushes {
@@ -24,8 +26,7 @@ public final class JavaLivingEntityPushes {
                 && player.gamemode != GameMode.SPECTATOR
                 && !(before && player.packetStateData.localPlayerNoPhysics)
                 && !context.getEntities().selfCertainlyCarriesPassenger()
-                && !ac.cult.cultac.utils.nmsutil.Collisions.onClimbable(
-                        player, position.x, position.y, position.z, gliding);
+                && !Collisions.onClimbable(player, position.x, position.y, position.z, gliding);
     }
 
     /**
@@ -120,7 +121,7 @@ public final class JavaLivingEntityPushes {
             PacketEntity entity, SimpleCollisionBox position, SimpleCollisionBox out, float scale) {
         double x = (position.minX + position.maxX) * 0.5D;
         double z = (position.minZ + position.maxZ) * 0.5D;
-        return ac.cult.cultac.utils.nmsutil.GetBoundingBox.getBoundingBoxFromPosAndSize(
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(
                 out,
                 x,
                 position.minY,

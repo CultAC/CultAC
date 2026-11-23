@@ -19,8 +19,10 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Objects;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.Connection;
@@ -52,8 +54,8 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
 
     /** {@code channel} is the session's pipeline channel, never the NMS field another plugin may replace. */
     public BukkitConnectionAdapter(Connection connection, Channel channel) {
-        this.connection = java.util.Objects.requireNonNull(connection);
-        this.channel = java.util.Objects.requireNonNull(channel);
+        this.connection = Objects.requireNonNull(connection);
+        this.channel = Objects.requireNonNull(channel);
     }
 
     @Override
@@ -155,7 +157,7 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
             return;
         }
         var nativeReason = net.minecraft.network.chat.Component.literal(
-                net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(reason));
+                PlainTextComponentSerializer.plainText().serialize(reason));
         // Connection.disconnect only closes the channel; the configuration listener sends the reason first.
         if (connection.getPacketListener() instanceof ServerConfigurationPacketListenerImpl listener) {
             MinecraftServer.getServer().execute(() -> listener.disconnect(nativeReason));
@@ -204,7 +206,6 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
         var dimension = target.getWorldRegistries().dimension(dimensions.getId(level.dimensionType()));
         target.compensatedWorld.setLastClientboundDimension(target.world, dimension.dimension());
         target.compensatedWorld.setDimension(target.world, dimension);
-        target.lastJoinedWorld = System.currentTimeMillis();
     }
 
     private static Field configurationProfileField() {

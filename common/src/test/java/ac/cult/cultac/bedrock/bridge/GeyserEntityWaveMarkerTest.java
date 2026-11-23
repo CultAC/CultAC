@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.PlatformConnection;
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -16,6 +17,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.reload.integrations.GeyserQueue;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
@@ -24,12 +26,15 @@ import java.util.Map;
 import java.util.UUID;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.BedrockSession;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.netty.BedrockPacketWrapper;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler;
 import org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
+import org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket;
+import org.geysermc.geyser.entity.type.Entity;
 import org.geysermc.geyser.session.GeyserSession;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -50,12 +55,9 @@ public final class GeyserEntityWaveMarkerTest {
             transport.flush();
             assertTrue(transport.player.addTransactionResponse(transport.markers.getLast()));
 
-            var metadata = new org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket();
+            var metadata = new SetEntityDataPacket();
             metadata.setRuntimeEntityId(456L);
-            metadata.getMetadata()
-                    .put(
-                            org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes.SEAT_OFFSET,
-                            Vector3f.from(0.2F, 0.3875F, 0));
+            metadata.getMetadata().put(EntityDataTypes.SEAT_OFFSET, Vector3f.from(0.2F, 0.3875F, 0));
             transport.write(metadata);
             transport.flush();
             assertEquals(2, transport.markers.size());
@@ -64,9 +66,9 @@ public final class GeyserEntityWaveMarkerTest {
             assertEquals(new Vec3(0.2F, 0.3875F, 0), passenger.bedrockSeatOffset);
 
             // A partial size update keeps the independently written seat.
-            var size = new org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket();
+            var size = new SetEntityDataPacket();
             size.setRuntimeEntityId(456L);
-            size.getMetadata().put(org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes.WIDTH, 0.7F);
+            size.getMetadata().put(EntityDataTypes.WIDTH, 0.7F);
             transport.write(size);
             transport.flush();
             assertTrue(transport.player.addTransactionResponse(transport.markers.getLast()));
@@ -187,7 +189,7 @@ public final class GeyserEntityWaveMarkerTest {
 
     private static LevelChunkPacket chunk() {
         var chunk = new LevelChunkPacket();
-        chunk.setData(io.netty.buffer.Unpooled.buffer(1));
+        chunk.setData(Unpooled.buffer(1));
         return chunk;
     }
 
@@ -225,8 +227,7 @@ public final class GeyserEntityWaveMarkerTest {
                     })
                     .when(platform)
                     .runInModel(Mockito.any(Runnable.class));
-            User user = ac.cult.cultac.network.TestUsers.create(
-                    new User.Profile(uuid, ".Wave_Test"), javaChannel, platform);
+            User user = TestUsers.create(new User.Profile(uuid, ".Wave_Test"), javaChannel, platform);
             player = new CultPlayer(user, MovementPlatform.BEDROCK, new BedrockPlayerState(uuid));
             var manager = CultAPI.INSTANCE.getNetworkManager();
             var connections = manager.getClass().getDeclaredField("connections");
@@ -259,7 +260,7 @@ public final class GeyserEntityWaveMarkerTest {
 
         // Translates runtimeId to a zombie at the origin that the player tracks, so its moves are followed.
         PacketEntity track(long runtimeId, int javaId) {
-            var translated = Mockito.mock(org.geysermc.geyser.entity.type.Entity.class);
+            var translated = Mockito.mock(Entity.class);
             Mockito.when(translated.getEntityId()).thenReturn(javaId);
             Mockito.when(session.getEntityCache().getEntityByGeyserId(runtimeId))
                     .thenReturn(translated);

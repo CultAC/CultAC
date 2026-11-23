@@ -53,10 +53,6 @@ public enum Direction {
         return FACES[Math.abs(id % FACES.length)];
     }
 
-    public static Direction fromWireId(int id) {
-        return FACES[Math.floorMod(id, FACES.length)];
-    }
-
     public Direction getOpposite() {
         return getOppositeFace();
     }
@@ -83,15 +79,7 @@ public enum Direction {
     public enum Axis {
         X,
         Y,
-        Z;
-
-        public boolean isVertical() {
-            return this == Y;
-        }
-
-        public boolean isHorizontal() {
-            return this != Y;
-        }
+        Z
     }
 
     public enum AxisDirection {

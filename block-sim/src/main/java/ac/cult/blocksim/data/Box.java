@@ -1,5 +1,7 @@
 package ac.cult.blocksim.data;
 
+import ac.cult.blocksim.engine.Vec3;
+
 public record Box(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
     public Box {
         validateBounds(minX, minY, minZ, maxX, maxY, maxZ);
@@ -20,21 +22,21 @@ public record Box(double minX, double minY, double minZ, double maxX, double max
     public Box inflate(double amount) {
         return new Box(minX - amount, minY - amount, minZ - amount, maxX + amount, maxY + amount, maxZ + amount);
     }
-    public Box expandTowards(ac.cult.blocksim.engine.Vec3 delta) {
+    public Box expandTowards(Vec3 delta) {
         return new Box(minX + Math.min(0, delta.x()), minY + Math.min(0, delta.y()), minZ + Math.min(0, delta.z()),
             maxX + Math.max(0, delta.x()), maxY + Math.max(0, delta.y()), maxZ + Math.max(0, delta.z()));
     }
-    public boolean contains(ac.cult.blocksim.engine.Vec3 point) {
+    public boolean contains(Vec3 point) {
         return minX <= point.x() && point.x() < maxX && minY <= point.y() && point.y() < maxY
             && minZ <= point.z() && point.z() < maxZ;
     }
     /** AABB.clip: entry faces only, strict segment endpoints, and 1e-7 side tolerances. */
-    public ac.cult.blocksim.engine.Vec3 clip(ac.cult.blocksim.engine.Vec3 from, ac.cult.blocksim.engine.Vec3 to) {
+    public Vec3 clip(Vec3 from, Vec3 to) {
         return clip(minX, minY, minZ, maxX, maxY, maxZ, from, to);
     }
     /** Raw bounds for callers whose packet-derived boxes may contain non-finite coordinates. */
-    public static ac.cult.blocksim.engine.Vec3 clip(double minX, double minY, double minZ,
-            double maxX, double maxY, double maxZ, ac.cult.blocksim.engine.Vec3 from, ac.cult.blocksim.engine.Vec3 to) {
+    public static Vec3 clip(double minX, double minY, double minZ,
+            double maxX, double maxY, double maxZ, Vec3 from, Vec3 to) {
         double[] origin = {from.x(), from.y(), from.z()}, delta = {to.x() - from.x(), to.y() - from.y(), to.z() - from.z()};
         double[] lower = {minX, minY, minZ}, upper = {maxX, maxY, maxZ};
         double nearest = 1.0;
@@ -50,8 +52,8 @@ public record Box(double minX, double minY, double minZ, double maxX, double max
         }
         return nearest == 1.0 ? null : from.addScaled(to.subtract(from), nearest);
     }
-    public ac.cult.blocksim.engine.Vec3 center() {
-        return new ac.cult.blocksim.engine.Vec3(minX + .5 * (maxX - minX), minY + .5 * (maxY - minY), minZ + .5 * (maxZ - minZ));
+    public Vec3 center() {
+        return new Vec3(minX + .5 * (maxX - minX), minY + .5 * (maxY - minY), minZ + .5 * (maxZ - minZ));
     }
     public Box nextDeflated() {
         return new Box(Math.nextUp(minX), Math.nextUp(minY), Math.nextUp(minZ),

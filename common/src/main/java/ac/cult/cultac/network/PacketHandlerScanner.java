@@ -14,6 +14,7 @@ import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.lang.reflect.WildcardType;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -66,7 +67,7 @@ public final class PacketHandlerScanner {
             if (!argument.equals(record)
                     && !(argument instanceof WildcardType wildcard
                             && wildcard.getLowerBounds().length == 0
-                            && Arrays.equals(wildcard.getUpperBounds(), new java.lang.reflect.Type[] {Object.class}))) {
+                            && Arrays.equals(wildcard.getUpperBounds(), new Type[] {Object.class}))) {
                 throw invalid(owner, method, "event record argument must match the third parameter");
             }
         }

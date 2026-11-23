@@ -14,6 +14,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.util.function.Consumer;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -90,11 +91,12 @@ public class BedrockSolidActorTest {
         });
     }
 
-    private static void withBoat(double x, boolean collidable, java.util.function.Consumer<CultPlayer> test) {
+    private static void withBoat(double x, boolean collidable, Consumer<CultPlayer> test) {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
-            int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
+            int stone =
+                    DataTables.defaults().registry().block("minecraft:stone").defaultState();
             for (int bx = 59; bx <= 64; bx++)
                 for (int bz = 19; bz <= 23; bz++) {
                     player.compensatedWorld.ensureValidationChunkLoaded(bx >> 4, bz >> 4);

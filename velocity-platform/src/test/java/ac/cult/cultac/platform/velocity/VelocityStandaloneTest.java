@@ -107,7 +107,6 @@ class VelocityStandaloneTest {
         assertTrue(switched.isLoaded());
         when(connection.phase(PacketDirection.CLIENTBOUND)).thenReturn(ConnectionPhase.CONFIGURATION);
         assertFalse(switched.isLoaded());
-        assertThrows(IllegalStateException.class, () -> switched.getBlockAt(0, 64, 0));
     }
 
     @Test

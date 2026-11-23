@@ -18,6 +18,7 @@ import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.plugin.PluginContainer;
 import com.velocitypowered.api.plugin.PluginManager;
@@ -121,12 +122,13 @@ class VelocityNetworkTest {
         network.listen();
         network.listen();
         verify(events).register(eq(plugin), eq(PostLoginEvent.class), any(EventHandler.class));
+        verify(events).register(eq(plugin), eq(ServerConnectedEvent.class), any(EventHandler.class));
         verify(events).register(eq(plugin), eq(ServerPostConnectEvent.class), any(EventHandler.class));
         verify(events).register(eq(plugin), eq(DisconnectEvent.class), any(EventHandler.class));
 
         network.close();
         network.close();
-        verify(events, times(3)).unregister(eq(plugin), any(EventHandler.class));
+        verify(events, times(4)).unregister(eq(plugin), any(EventHandler.class));
     }
 
     @Test

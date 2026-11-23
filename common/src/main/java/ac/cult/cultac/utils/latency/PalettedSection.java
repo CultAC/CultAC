@@ -153,7 +153,7 @@ public final class PalettedSection {
      * As {@link #readBlocks(ByteBuf, ProtocolVersion, int, IntUnaryOperator, int, SectionPool)}, also giving a matched
      * pooled section's fluid count, which wires before 26.1 do not carry.
      */
-    public static PooledRead readBlocksPooled(
+    private static PooledRead readBlocksPooled(
             ByteBuf input,
             ProtocolVersion version,
             int registrySize,

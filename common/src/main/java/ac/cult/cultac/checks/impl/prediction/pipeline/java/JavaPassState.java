@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 import ac.cult.cultac.utils.data.ClientPistonDeltas;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 
 /**
  * The local player's Entity fields a block entity's Entity#move reads and writes: position, deltaMovement, onGround,
@@ -52,7 +53,7 @@ public record JavaPassState(
                 powderContact,
                 inWater,
                 inLava,
-                ac.cult.cultac.utils.nmsutil.ClientFluidQueries.eyeContactFromWater(playerEyeInWater));
+                ClientFluidQueries.eyeContactFromWater(playerEyeInWater));
     }
 
     public JavaPassState(

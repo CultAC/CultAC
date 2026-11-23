@@ -136,7 +136,7 @@ class CheckCatalogTest {
     @Test
     void aPartOfANameListsEveryCheckContainingIt() {
         assertEquals(
-                List.of("NegativeTimer", "TickTimer", "Timer", "TimerVehicle"),
+                List.of("TickTimer", "Timer", "TimerVehicle"),
                 CheckCatalog.containing("TIMER").stream()
                         .map(CheckCatalog.Entry::name)
                         .toList());

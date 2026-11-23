@@ -2,16 +2,18 @@ package ac.cult.cultac.events.packets;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.datastore.PlayerToggleStore;
+import ac.cult.cultac.network.UserLifecycleHooks;
 import ac.cult.cultac.network.netty.channel.ChannelHelper;
+import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.util.function.BiConsumer;
 import org.jetbrains.annotations.NotNull;
 
-public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHooks {
+public class PlayerLoginHooks implements UserLifecycleHooks {
 
     @Override
-    public void onLogin(ac.cult.cultac.network.protocol.player.User user, PlatformPlayer platformPlayer) {
+    public void onLogin(User user, PlatformPlayer platformPlayer) {
         if (platformPlayer == null) {
             return;
         }
@@ -34,6 +36,25 @@ public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHoo
             return;
         }
 
+        applyStaffState(platformPlayer);
+
+        CultAPI.INSTANCE
+                .getDataStoreLifecycle()
+                .liveWriteHooks()
+                .onJoinFromUserLogin(platformPlayer, user, System.currentTimeMillis());
+    }
+
+    /**
+     * The login steps of a player joining on a connection CultAC does not inspect, which need no CultAC player: portal
+     * sync, the alert scope, the alert, verbose and brand toggles and spectator hiding.
+     */
+    public static void joinedUninspected(@NotNull PlatformPlayer platformPlayer) {
+        CultAPI.INSTANCE.getPortalSync().joined(platformPlayer);
+        applyStaffState(platformPlayer);
+    }
+
+    /** Loads the alert scope, applies the alert, verbose and brand toggles and hides a spectator. */
+    private static void applyStaffState(@NotNull PlatformPlayer platformPlayer) {
         if (platformPlayer.hasPermission("cult.alerts")
                 || platformPlayer.hasPermission("cult.verbose")
                 || platformPlayer.hasPermission("cult.brand")) {
@@ -69,15 +90,11 @@ public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHoo
                 (p, silent) -> CultAPI.INSTANCE.getAlertManager().toggleBrands(p, silent),
                 (p, value) -> CultAPI.INSTANCE.getAlertManager().setBrandsEnabled(p, value, true));
 
+        var config = CultAPI.INSTANCE.getConfigManager();
         if (platformPlayer.hasPermission("cult.spectate")
                 && config.getConfig().getBooleanElse("spectators.hide-regardless", false)) {
             CultAPI.INSTANCE.getSpectateManager().onLogin(platformPlayer.getUniqueId());
         }
-
-        CultAPI.INSTANCE
-                .getDataStoreLifecycle()
-                .liveWriteHooks()
-                .onJoinFromUserLogin(platformPlayer, user, System.currentTimeMillis());
     }
 
     static void applyToggle(

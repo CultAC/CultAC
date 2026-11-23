@@ -9,17 +9,27 @@ import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.manager.player.SmoketestControlBridge;
+import ac.cult.cultac.network.CultWrite;
+import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.Command;
@@ -360,7 +370,7 @@ public class CultDebug implements BuildableCommand {
             sendChannels(sender, target);
             return;
         }
-        var shown = new java.util.ArrayList<ClientMod>();
+        var shown = new ArrayList<ClientMod>();
         for (ClientMod mod : mods.mods()) {
             if (internal || !isInternal(mod)) shown.add(mod);
         }
@@ -387,15 +397,15 @@ public class CultDebug implements BuildableCommand {
                     "%count%",
                     Integer.toString(hidden)));
         }
-        var byType = new java.util.TreeMap<String, java.util.List<ClientMod>>();
+        var byType = new TreeMap<String, List<ClientMod>>();
         for (ClientMod mod : shown) {
-            byType.computeIfAbsent(mod.type(), ignored -> new java.util.ArrayList<>())
+            byType.computeIfAbsent(mod.type(), ignored -> new ArrayList<>())
                     .add(mod);
         }
         for (var group : byType.entrySet()) {
             sender.sendMessage(line(target, "debug-mods-type", "&b%type%:", "%type%", group.getKey()));
             group.getValue()
-                    .sort(java.util.Comparator.comparing(mod -> modName(mod).toLowerCase(Locale.ROOT)));
+                    .sort(Comparator.comparing(mod -> modName(mod).toLowerCase(Locale.ROOT)));
             for (ClientMod mod : group.getValue()) {
                 sender.sendMessage(line(
                         target,
@@ -420,13 +430,13 @@ public class CultDebug implements BuildableCommand {
         return mod.name().isEmpty() ? mod.id() : mod.name();
     }
 
-    private static final java.util.regex.Pattern LINE_PLACEHOLDER = java.util.regex.Pattern.compile("%[a-z_]+%");
+    private static final Pattern LINE_PLACEHOLDER = Pattern.compile("%[a-z_]+%");
 
     /** The configured line for {@code key} about {@code target}; client-supplied values cannot inject tags. */
     private static Component line(CultPlayer target, String key, String fallback, String... values) {
         String message = MessageUtil.replacePlaceholders(
                 target, CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse(key, fallback));
-        var replacements = new java.util.HashMap<String, String>();
+        var replacements = new HashMap<String, String>();
         for (int i = 0; i + 1 < values.length; i += 2) replacements.put(values[i], values[i + 1]);
         // One pass, so a value holding a placeholder name is shown as it is.
         var matcher = LINE_PLACEHOLDER.matcher(message);
@@ -435,7 +445,7 @@ public class CultDebug implements BuildableCommand {
             String value = replacements.get(matcher.group());
             matcher.appendReplacement(
                     replaced,
-                    java.util.regex.Matcher.quoteReplacement(
+                    Matcher.quoteReplacement(
                             value == null ? matcher.group() : MessageUtil.miniMessageSafe(value)));
         }
         return MessageUtil.miniMessage(matcher.appendTail(replaced).toString());
@@ -507,7 +517,7 @@ public class CultDebug implements BuildableCommand {
     private void applyValidationBlock(@NotNull CommandContext<Sender> context, boolean ghostOnly) {
         Sender sender = context.sender();
         String rawArgs = ((String) context.get("args")).trim();
-        var args = new java.util.ArrayList<>(java.util.List.of(rawArgs.split("\\s+")));
+        var args = new ArrayList<>(List.of(rawArgs.split("\\s+")));
         boolean silent = ghostOnly && args.size() > 4 && args.getLast().equalsIgnoreCase("silent");
         if (silent) args.removeLast();
         String command = ghostOnly ? "validationpacketblock" : "validationblock";
@@ -571,7 +581,7 @@ public class CultDebug implements BuildableCommand {
 
         // Relatives use the target's position as Cult last accepted it, on its connection owner.
         target.runSafely(() -> {
-            var pos = new ac.cult.cultac.protocol.value.BlockPos(
+            var pos = new BlockPos(
                     x.resolve(target.x), y.resolve(target.y), z.resolve(target.z));
             if (ghostOnly) {
                 sendValidationPacketBlock(sender, target, pos, state, expectedId, silent);
@@ -598,7 +608,7 @@ public class CultDebug implements BuildableCommand {
     private static void sendValidationPacketBlock(
             Sender sender,
             CultPlayer target,
-            ac.cult.cultac.protocol.value.BlockPos pos,
+            BlockPos pos,
             int state,
             String expectedId,
             boolean silent) {
@@ -619,9 +629,9 @@ public class CultDebug implements BuildableCommand {
                         target, pos.getX(), pos.getY(), pos.getZ(), expectedId, silent ? "silent" : "packet"));
         // Silent writes skip Cult's send handlers; the ping proves the client applied the block.
         target.user.write(
-                java.util.List.of(
-                        new ac.cult.cultac.network.CultWrite(
-                                new ac.cult.cultac.network.packet.WorldPackets.BlockUpdate(pos, state), silent),
+                List.of(
+                        new CultWrite(
+                                new WorldPackets.BlockUpdate(pos, state), silent),
                         transaction.packet()),
                 true);
         sender.sendMessage(Component.text(

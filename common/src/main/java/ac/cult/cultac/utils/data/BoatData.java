@@ -23,7 +23,6 @@ public class BoatData {
 
     public boolean nullifyNextY = false;
     public double lastYd = 0.0D;
-    public double midTickY;
     public float landFriction;
     public BoatEntityStatus status;
     public BoatEntityStatus oldStatus;
@@ -161,11 +160,6 @@ public class BoatData {
         return usesWaterEntryPositionSnap(oldStatus, status);
     }
 
-    public boolean mayUseWaterEntryPositionSnap() {
-        return usesWaterEntryPositionSnap()
-                || (oldStatusMayBeInAir && status != BoatEntityStatus.IN_AIR && status != BoatEntityStatus.ON_LAND);
-    }
-
     public Vec3 adjustStuckSpeedMultiplierForCurrentTick(
             CultPlayer player, SimulationContext context, Vec3 multiplier) {
         if (multiplier == null || !BoatTransform.usesProvenWaterEntryPositionSnap(player, context)) {
@@ -218,7 +212,6 @@ public class BoatData {
             }
 
             controlledBoatTickedAt = player.packetStateData.acceptedClientTick;
-            midTickY = 0;
             nullifyNextY = false;
             oldStatusMayBeInAir = false;
 

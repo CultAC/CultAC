@@ -193,11 +193,6 @@ final class SyntheticTerrain implements Sections.Terrain {
         return count;
     }
 
-    /** The column's sections, generated on first use. */
-    CachedSection[] sections(int x, int z) {
-        return column(x, z);
-    }
-
     private CachedSection[] column(int cx, int cz) {
         return columns.computeIfAbsent(pack(cx, cz), ignored -> generate(cx, cz));
     }

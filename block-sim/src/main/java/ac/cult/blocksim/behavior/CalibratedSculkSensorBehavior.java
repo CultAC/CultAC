@@ -1,15 +1,16 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimLevel;
-import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.interaction.PlacementContext;
+import java.util.Locale;
 
 public final class CalibratedSculkSensorBehavior extends SculkSensorBehavior {
     @Override
     public int placementState(BlockDefinition block, PlacementContext context) {
-        return context.level().registry().with(super.placementState(block, context), "facing", context.horizontalDirection().name().toLowerCase(java.util.Locale.ROOT));
+        return context.level().registry().with(super.placementState(block, context), "facing", context.horizontalDirection().name().toLowerCase(Locale.ROOT));
     }
     @Override
     public int signal(SimLevel level, int state, BlockPos pos, Direction direction) {

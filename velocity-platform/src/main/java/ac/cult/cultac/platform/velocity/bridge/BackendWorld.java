@@ -24,16 +24,6 @@ public final class BackendWorld implements PlatformWorld {
     }
 
     @Override
-    public boolean isChunkLoaded(int chunkX, int chunkZ) {
-        return false;
-    }
-
-    @Override
-    public int getBlockAt(int x, int y, int z) {
-        throw new IllegalStateException("Backend world " + name + " on " + server + " is not readable on the proxy");
-    }
-
-    @Override
     public String getName() {
         return name;
     }

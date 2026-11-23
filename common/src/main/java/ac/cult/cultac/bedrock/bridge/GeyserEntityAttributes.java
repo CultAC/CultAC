@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.bridge;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent;
 import ac.cult.cultac.player.CultPlayer;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import org.geysermc.geyser.session.GeyserSession;
 
 /** Final wire values cross the same receipt and Java-spawn barriers as entity transforms. */
@@ -35,7 +36,7 @@ final class GeyserEntityAttributes {
 
     private static BedrockReplayAttributeEvent withoutHorseJumpStrength(BedrockReplayAttributeEvent event) {
         if (!event.attributes().containsKey("minecraft:horse.jump_strength")) return event;
-        var kept = new java.util.LinkedHashMap<>(event.attributes());
+        var kept = new LinkedHashMap<>(event.attributes());
         kept.remove("minecraft:horse.jump_strength");
         return new BedrockReplayAttributeEvent(kept, event.historical());
     }

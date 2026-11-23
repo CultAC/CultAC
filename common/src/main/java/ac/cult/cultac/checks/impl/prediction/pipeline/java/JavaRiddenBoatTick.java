@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
@@ -49,8 +50,7 @@ public final class JavaRiddenBoatTick {
         var priors = priors(player, boat, processor.getCurrentPredictionCarry());
         player.boatData.tick(player);
         var tickStart = BoatTransform.BoatTickState.capture(player);
-        var beforePass = ac.cult.cultac.utils.latency.ClientBlockEntityPass.EMPTY.after(
-                player.compensatedEntities.shulkerPeekMoves(true));
+        var beforePass = ClientBlockEntityPass.EMPTY.after(player.compensatedEntities.shulkerPeekMoves(true));
         Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(boat.getRiding(), boat, player);
         float yaw = boat.clientPhysicalYaw;
         var starts = new ArrayList<JavaPredictionCarry.State>(priors.size());

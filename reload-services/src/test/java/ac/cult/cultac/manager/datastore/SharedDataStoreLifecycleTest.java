@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import ac.grim.grimac.api.storage.config.WritePathConfig;
 import ac.grim.grimac.internal.storage.core.CategoryRouter;
 import ac.grim.grimac.internal.storage.core.DataStoreImpl;
+import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -19,8 +20,8 @@ class SharedDataStoreLifecycleTest {
                 new CategoryRouter(Map.of()), WritePathConfig.defaults(), Logger.getAnonymousLogger());
         var caller = Thread.currentThread();
         var previous = caller.getContextClassLoader();
-        try (var first = new URLClassLoader(new java.net.URL[0], previous);
-                var second = new URLClassLoader(new java.net.URL[0], previous)) {
+        try (var first = new URLClassLoader(new URL[0], previous);
+                var second = new URLClassLoader(new URL[0], previous)) {
             SharedDataStoreLifecycle.hostReaderThreads(store);
             caller.setContextClassLoader(first);
             Thread firstReader =

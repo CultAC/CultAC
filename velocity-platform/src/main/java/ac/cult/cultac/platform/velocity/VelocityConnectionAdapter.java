@@ -57,6 +57,10 @@ final class VelocityConnectionAdapter implements PlatformConnection {
         return owner;
     }
 
+    Player nativePlayer() {
+        return nativePlayer;
+    }
+
     Object bedrockBridge() {
         return bedrockBridge;
     }
@@ -161,10 +165,6 @@ final class VelocityConnectionAdapter implements PlatformConnection {
 
     void compressedForwarder(CompressedForwarder forwarder) {
         compressedForwarder = forwarder;
-    }
-
-    CompressedForwarder compressedForwarder() {
-        return compressedForwarder;
     }
 
     /** Read on the connection owner, which is the forwarder's event loop. */

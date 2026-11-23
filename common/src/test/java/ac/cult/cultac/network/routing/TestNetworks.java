@@ -38,6 +38,31 @@ public final class TestNetworks {
     static final NetworkSettings SETTINGS =
             new NetworkSettings(NetworkSettings.REDIS, NetworkSettings.Redis.DEFAULT, null, "", "", "");
 
+    /** Build {@code test}, checking, enforcing, no player, the default options; the same state on every roster. */
+    static final NetCommands.Local NET = new NetCommands.Local() {
+        private final RosterCache.State state = new RosterCache.State(true, false, List.of(), 0, 0, 0);
+
+        @Override
+        public String build() {
+            return "test";
+        }
+
+        @Override
+        public RosterCache.State state(NetworkPlatform platform) {
+            return state;
+        }
+
+        @Override
+        public Map<String, String> details() {
+            return Map.of();
+        }
+
+        @Override
+        public NetCommands.Options options() {
+            return NetCommands.Options.DEFAULT;
+        }
+    };
+
     private final FakeBroker broker;
     private final AtomicLong clock;
 
@@ -65,6 +90,11 @@ public final class TestNetworks {
         NetworkModule.start(service);
     }
 
+    /** Merges {@code records} into {@code service}'s shared settings, as a received delta does. */
+    public static void merge(NetworkService service, Collection<NetSettings.Record> records) {
+        service.netSettings().merge(records);
+    }
+
     /** Sends what {@code service} was told since its last roster message, as its delta schedule would. */
     public static void sendDelta(NetworkService service) {
         service.sendDelta();
@@ -79,6 +109,7 @@ public final class TestNetworks {
         public final Map<UUID, Holder> holders = new ConcurrentHashMap<>();
         private String address = "test:1";
         private boolean proxy;
+        private List<String> backends = List.of();
         private @Nullable String redisBungeeId;
         private byte @Nullable [] secret;
         private @Nullable Supplier<MessageTransport> redisBungee;
@@ -103,6 +134,12 @@ public final class TestNetworks {
             this.proxy = true;
             this.address = "proxy:25577";
             this.redisBungeeId = redisBungeeId;
+            return this;
+        }
+
+        /** The backend servers registered with this proxy. */
+        public Players backends(String... names) {
+            this.backends = List.of(names);
             return this;
         }
 
@@ -136,6 +173,11 @@ public final class TestNetworks {
         @Override
         public boolean proxy() {
             return proxy;
+        }
+
+        @Override
+        public List<String> backends() {
+            return backends;
         }
 
         @Override
@@ -216,6 +258,7 @@ public final class TestNetworks {
         private @Nullable ExecutorService receiver;
         private LogThrottle drops = new LogThrottle();
         private RemoteCommands.Commands commands = RemoteCommands.CULT;
+        private NetCommands.Local net = NET;
 
         private Builder(String instance) {
             this.instance = instance;
@@ -262,6 +305,11 @@ public final class TestNetworks {
             return this;
         }
 
+        public Builder net(NetCommands.Local net) {
+            this.net = net;
+            return this;
+        }
+
         /** Commands that add each line run here to {@code ran} and do nothing else. */
         public Builder recording(List<String> ran) {
             return commands(new RemoteCommands.Commands() {
@@ -290,7 +338,8 @@ public final class TestNetworks {
                     scheduler,
                     receiver,
                     drops,
-                    commands);
+                    commands,
+                    net);
         }
 
         public NetworkService start() {

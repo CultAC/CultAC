@@ -596,14 +596,16 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     }
 
     /**
-     * The running platform: a player is online here while this instance holds their connection, and a command runs as
-     * console on the global scheduler (the main thread on a server), the player as subject when they are still here.
+     * The running platform: a player is online here while this instance holds their connection or the platform lists
+     * them online, inspected or not, and a command runs as console on the global scheduler (the main thread on a
+     * server), the player as subject when they are still here.
      */
     static final class PlatformHost implements Host {
         @Override
         public boolean online(UUID player) {
             User user = CultAPI.INSTANCE.getNetworkManager().getUser(player);
-            return user != null && !user.getCultConnection().disconnected();
+            if (user != null && !user.getCultConnection().disconnected()) return true;
+            return CultAPI.INSTANCE.getPlatformPlayerFactory().getFromUUID(player) != null;
         }
 
         @Override

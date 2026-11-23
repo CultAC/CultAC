@@ -9,7 +9,10 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
@@ -19,6 +22,7 @@ import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.JavaPassengerFluids;
 import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
+import java.util.ArrayList;
 import java.util.List;
 
 /** The passenger's ordinary travel between Entity#rideTick's zeroing and Entity#positionRider. */
@@ -127,10 +131,13 @@ public final class JavaPassengerTravel {
             if (context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)
                     && !self.passengers.isEmpty()
                     && (water || context.getVersion().isNewerThanOrEquals(ClientVersion.V_26_3))
-                    && ClientFluidQueries.clientTags(player).entities()
-                            .getOrDefault("minecraft:can_float_while_ridden", java.util.List.of()).contains("minecraft:player")
+                    && ClientFluidQueries.clientTags(player)
+                            .entities()
+                            .getOrDefault("minecraft:can_float_while_ridden", List.of())
+                            .contains("minecraft:player")
                     && (context.getVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
-                                    ? fluids.floatableHeight() : fluids.waterHeight())
+                                    ? fluids.floatableHeight()
+                                    : fluids.waterHeight())
                             > (context.getPose().eyeHeight * context.getScale() < .4D ? 0 : .4D))
                 movement = movement.add(0, .04F, 0);
         } else {
@@ -171,11 +178,16 @@ public final class JavaPassengerTravel {
             List<JavaInsideBlockEffects.RecordedMove> recorded) {
         var moves = player.compensatedEntities.shulkerPeekMoves(true);
         if (moves.isEmpty()) return new Pass(state, recorded(context, recorded));
-        var result = JavaBlockEntityPass.run(player, context,
-                new ac.cult.cultac.utils.latency.ClientBlockEntityPass(moves.stream()
-                        .map(m -> (ac.cult.cultac.utils.latency.ClientBlockEntityPass.Mover) m).toList(),
-                        player.compensatedWorld.endedTickGameTime()), state,
-                context.getPose(), player.packetStateData.knownInput.shift(), state.position());
+        var result = JavaBlockEntityPass.run(
+                player,
+                context,
+                new ClientBlockEntityPass(
+                        moves.stream().map(m -> (ClientBlockEntityPass.Mover) m).toList(),
+                        player.compensatedWorld.endedTickGameTime()),
+                state,
+                context.getPose(),
+                player.packetStateData.knownInput.shift(),
+                state.position());
         return new Pass(result.state(), recorded(context, result.recorded().after(recorded)));
     }
 
@@ -184,8 +196,7 @@ public final class JavaPassengerTravel {
      * consumed every recorded movement, so the moves after it start the next ride tick's.
      */
     public static List<Pass> afterTick(
-            CultPlayer player, SimulationContext context, JavaPassState state, Vec3 seat,
-            ac.cult.cultac.utils.enums.Pose pose, Vec3 tickStart) {
+            CultPlayer player, SimulationContext context, JavaPassState state, Vec3 seat, Pose pose, Vec3 tickStart) {
         state = new JavaPassState(seat, state.velocity(), state.onGround(), state.support(), state.stuckSpeed(),
                 0, state.pistonDeltas(), state.powderContact(), state.inWater(), state.inLava(), state.playerEyeFluidContact());
         // Remote LivingEntity pushes and Shulker peek moves interleave in ClientLevel's entity-tick order.
@@ -194,8 +205,13 @@ public final class JavaPassengerTravel {
         long after = player.compensatedEntities.clientTickOrder(player.compensatedEntities.getSelf());
         for (var peek : peeks) {
             states = applyLateVelocities(player, context, states, pose, after, peek.tickOrder());
-            states = applyPass(player, context, states, new ac.cult.cultac.utils.latency.ClientBlockEntityPass(
-                    List.of(peek), player.compensatedWorld.endedTickGameTime()), pose, tickStart);
+            states = applyPass(
+                    player,
+                    context,
+                    states,
+                    new ClientBlockEntityPass(List.of(peek), player.compensatedWorld.endedTickGameTime()),
+                    pose,
+                    tickStart);
             after = peek.tickOrder();
         }
         states = applyLateVelocities(player, context, states, pose, after, Long.MAX_VALUE);
@@ -205,9 +221,8 @@ public final class JavaPassengerTravel {
     }
 
     private static List<Pass> applyLateVelocities(
-            CultPlayer player, SimulationContext context, List<Pass> states,
-            ac.cult.cultac.utils.enums.Pose pose, long after, long through) {
-        var result = new java.util.ArrayList<Pass>();
+            CultPlayer player, SimulationContext context, List<Pass> states, Pose pose, long after, long through) {
+        var result = new ArrayList<Pass>();
         for (var pass : states) {
             var pushed = pass.state();
             for (var tick : JavaEntityVelocityTicks.passengerTicks(player, context, pushed.position(), pose)) {
@@ -221,10 +236,13 @@ public final class JavaPassengerTravel {
     }
 
     private static List<Pass> applyPass(
-            CultPlayer player, SimulationContext context, List<Pass> states,
-            ac.cult.cultac.utils.latency.ClientBlockEntityPass pass,
-            ac.cult.cultac.utils.enums.Pose pose, Vec3 tickStart) {
-        var next = new java.util.ArrayList<Pass>();
+            CultPlayer player,
+            SimulationContext context,
+            List<Pass> states,
+            ClientBlockEntityPass pass,
+            Pose pose,
+            Vec3 tickStart) {
+        var next = new ArrayList<Pass>();
         for (var current : states) {
             var result = JavaBlockEntityPass.run(player, context, pass, current.state(), pose,
                     player.packetStateData.knownInput.shift(), tickStart);
@@ -242,8 +260,8 @@ public final class JavaPassengerTravel {
 
     private static float inputSpeed(
             CultPlayer player, PacketEntity self, boolean water, boolean lava, boolean ground, float friction) {
-        float livingSpeed = (float) player.compensatedEntities.getPossiblePlayerMovementSpeeds(false,
-                ac.cult.cultac.utils.data.ClientSprintState.Outcome.PRIOR)[0];
+        float livingSpeed = (float)
+                player.compensatedEntities.getPossiblePlayerMovementSpeeds(false, ClientSprintState.Outcome.PRIOR)[0];
         if (water) {
             float efficiency = (float) self.waterMovementEfficiency * (ground ? 1 : .5F);
             return efficiency > 0 ? .02F + (livingSpeed - .02F) * efficiency : .02F;

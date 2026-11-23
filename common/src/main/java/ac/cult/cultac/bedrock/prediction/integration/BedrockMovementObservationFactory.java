@@ -3,45 +3,18 @@ package ac.cult.cultac.bedrock.prediction.integration;
 import ac.cult.cultac.bedrock.prediction.BedrockMovementObservation;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
 import ac.cult.cultac.utils.math.Vec3;
 
 final class BedrockMovementObservationFactory {
     private BedrockMovementObservationFactory() {}
 
-    static BedrockMovementObservation fromValidationSelection(
-            BedrockMovementResult result,
-            Vec3 actualPhysicalFeet,
-            Vec3d validationSelectedPosition,
-            Vec3d inputReferencePosition,
-            BedrockMoveVector observedMoveVector) {
-        if (result == null
-                || actualPhysicalFeet == null
-                || validationSelectedPosition == null
-                || inputReferencePosition == null) {
-            return null;
-        }
-        Vec3d actualPosition = BedrockVectorAdapter.toBedrock(actualPhysicalFeet);
-        BedrockHorizontalInputEvidence horizontalInput =
-                BedrockHorizontalInputEvidence.from(result, actualPosition, inputReferencePosition, observedMoveVector);
-        double verticalOffset = verticalOffset(validationSelectedPosition, actualPosition);
-        double validationOffset = validationOffset(verticalOffset, horizontalInput.excess());
-        return BedrockMovementObservation.create(
-                result,
-                actualPhysicalFeet,
-                validationSelectedPosition,
-                horizontalInput.requiredInput(),
-                horizontalInput.observedInput(),
-                horizontalInput.limit(),
-                horizontalInput.excess(),
-                verticalOffset,
-                validationOffset);
-    }
-
     static BedrockMovementObservation fromForwardSelection(
             BedrockMovementResult result,
             Vec3 actual,
-            ac.cult.cultac.bedrock.prediction.state.BedrockMovementState selected,
+            BedrockMovementState selected,
             Vec3 reportedVelocity,
             BedrockMoveVector controls) {
         Vec3d position = selected.physicalFeetPosition();
@@ -49,7 +22,7 @@ final class BedrockMovementObservationFactory {
         double horizontal = Math.hypot(error.x(), error.z());
         double velocity = reportedVelocity == null
                 ? 0
-                : ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(result, selected)
+                : BedrockForwardTick.finish(result, selected)
                         .velocity()
                         .subtract(BedrockVectorAdapter.toBedrock(reportedVelocity))
                         .length();
@@ -64,13 +37,5 @@ final class BedrockMovementObservationFactory {
                 Math.abs(error.y()),
                 error.length(),
                 velocity);
-    }
-
-    private static double verticalOffset(Vec3d predictedPosition, Vec3d actualPosition) {
-        return Math.abs(predictedPosition.y() - actualPosition.y());
-    }
-
-    private static double validationOffset(double verticalOffset, double horizontalInputExcess) {
-        return Math.sqrt(verticalOffset * verticalOffset + horizontalInputExcess * horizontalInputExcess);
     }
 }

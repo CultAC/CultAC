@@ -3,17 +3,14 @@ package ac.cult.cultac.cloud.history;
 import ac.cult.cultac.cloud.CloudHttp;
 import ac.cult.cultac.cloud.CloudService;
 import ac.cult.cultac.cloud.CloudSettings;
-import ac.cult.cultac.cloud.transport.CloudConnection.CappedBody;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -34,7 +31,6 @@ import org.jetbrains.annotations.Nullable;
  * header.
  */
 public final class HistoryClient {
-    static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     /** The most bytes of an answer read, whatever its status; past it the call fails. */
     static final int MAX_BODY = 4 << 20;
     /** The most sessions one call asks for. */
@@ -163,15 +159,7 @@ public final class HistoryClient {
 
     private <T> CompletableFuture<T> get(String path, Function<String, T> read) {
         if (refused()) return CompletableFuture.failedFuture(new Failure(403, "HTTP 403"));
-        HttpRequest request = HttpRequest.newBuilder(URI.create(base + path))
-                .timeout(REQUEST_TIMEOUT)
-                .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .GET()
-                .build();
-        return CompletableFuture.supplyAsync(() -> http.sendAsync(request, info -> new CappedBody(MAX_BODY)), executor)
-                .thenCompose(Function.identity())
+        return CloudHttp.send(http, executor, CloudHttp.request(base, path, apiKey).GET(), MAX_BODY)
                 .thenApply(response -> {
                     if (response.statusCode() == 403) {
                         refusal.set(new Refusal(base, apiKey, nanos.getAsLong() + REFUSAL_MEMORY.toNanos()));

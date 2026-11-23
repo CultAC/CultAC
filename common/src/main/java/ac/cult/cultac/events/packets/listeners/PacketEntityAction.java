@@ -2,7 +2,6 @@ package ac.cult.cultac.events.packets.listeners;
 
 import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsQ;
 import ac.cult.cultac.checks.impl.elytra.ElytraA;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
@@ -174,7 +173,7 @@ public class PacketEntityAction {
     }
 
     private void rejectGlideStart(PacketReceiveEvent event, CultPlayer player) {
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        if (player.isObserveOnly()) return;
         // A grounded start or ghost glider must be resynchronized.
         final SetbackTeleportUtil setbackUtil = player.getSetbackTeleportUtil();
         setbackUtil.executeForceResync("elytra");

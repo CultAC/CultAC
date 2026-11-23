@@ -1,6 +1,5 @@
 package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientPistonDeltas;
@@ -12,6 +11,7 @@ import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.util.ArrayList;
 import java.util.List;
 
 /** The tracked pushers' Level#tickBlockEntities, after their interpolation and LivingEntity#pushEntities. */
@@ -39,9 +39,9 @@ public final class JavaRemoteBlockEntityPass {
         var entities = player.compensatedEntities;
         var selfRoot = entities.rootOfSelf();
         var serverRoot = entities.serverVehicleRoot();
-        java.util.List<PacketEntity> actors = entities.pushOrCollideCandidates();
+        List<PacketEntity> actors = entities.pushOrCollideCandidates();
         if (!entities.fishingHooks().isEmpty()) {
-            actors = new java.util.ArrayList<>(actors);
+            actors = new ArrayList<>(actors);
             actors.addAll(entities.fishingHooks());
         }
         // The roots the pass reaches move together, mover by mover in client order.
@@ -69,7 +69,7 @@ public final class JavaRemoteBlockEntityPass {
                 if (!actor.passengers.isEmpty()) recordRidersOfUnmovedRoot(player, actor, box, pass, riderPass);
                 continue;
             }
-            if (moved == null) moved = new java.util.ArrayList<>(2);
+            if (moved == null) moved = new ArrayList<>(2);
             moved.add(new JavaBlockEntityPass.EntityStart(actor, start(actor)));
         }
         // PistonMovingBlockEntity#moveCollidedEntities moves each rider on its own, so a root the player neither
@@ -141,11 +141,11 @@ public final class JavaRemoteBlockEntityPass {
             }
             if (reached) {
                 // Freeze the inputs before recording output: later reads can otherwise see this pass's first result.
-                var seats = new java.util.ArrayList<SimpleCollisionBox>(count);
+                var seats = new ArrayList<SimpleCollisionBox>(count);
                 for (int candidate = 0; candidate < count; candidate++)
                     seats.add(rider.positionCollisionBoxCandidate(candidate, new SimpleCollisionBox()));
                 List<ClientPistonDeltas> held = rider.riderPistonDeltas;
-                var after = new java.util.ArrayList<ClientPistonDeltas>(count);
+                var after = new ArrayList<ClientPistonDeltas>(count);
                 for (int candidate = 0; candidate < count; candidate++) {
                     SimpleCollisionBox original = seats.get(candidate);
                     rider.movementBoxAt(scratch.set(original));

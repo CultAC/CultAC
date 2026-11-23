@@ -8,21 +8,28 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.Packets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.testing.CodecFixture;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class ProtocolRuntimeTest {
     @Test
     void delayedEntityListsOwnTheirValuesAfterTheInputIsReusedAndReleased() {
-        var ids = new java.util.ArrayList<>(List.of(7, -1, 7));
-        var removal = new ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities(ids);
-        var passengers = new ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers(99, ids);
+        var ids = new ArrayList<>(List.of(7, -1, 7));
+        var removal = new ClientboundRemoveEntities(ids);
+        var passengers = new ClientboundSetPassengers(99, ids);
         ids.clear();
         assertEquals(List.of(7, -1, 7), removal.entityIds());
         assertEquals(removal.entityIds(), passengers.passengers());
@@ -36,7 +43,7 @@ class ProtocolRuntimeTest {
             var connection = new CodecFixture(ProtocolRuntime.create(data));
             connection.phase(ConnectionPhase.PLAY);
             var bytes = Unpooled.buffer();
-            ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers decoded;
+            ClientboundSetPassengers decoded;
             try {
                 for (int value : new int[] {99, 3, 7, -1, 7}) Wire.writeVarInt(bytes, value);
                 decoded = connection.read(
@@ -60,8 +67,7 @@ class ProtocolRuntimeTest {
             CodecFixture connection = new CodecFixture(runtime);
             connection.phase(ConnectionPhase.PLAY);
             // Expectations from the exact vanilla packet reports, independent of catalog predicates.
-            var absent =
-                    new java.util.HashSet<>(Set.of("serverbound.pick_item", "serverbound.debug_sample_subscription"));
+            var absent = new HashSet<>(Set.of("serverbound.pick_item", "serverbound.debug_sample_subscription"));
             if (!version.atLeast(ProtocolVersion.V26_3)) absent.add("clientbound.swing_animation");
             if (!version.atLeast(ProtocolVersion.V26_1))
                 absent.addAll(Set.of("serverbound.spectator_action", "serverbound.set_game_rule"));
@@ -89,7 +95,7 @@ class ProtocolRuntimeTest {
                     Packets.all().stream()
                             .filter(type -> !runtime.supports(type))
                             .map(PacketType::key)
-                            .collect(java.util.stream.Collectors.toSet()));
+                            .collect(Collectors.toSet()));
             for (String variant : ServerboundPackets.MOVE_PLAYER.wireNames(data)) {
                 int id = data.packets(ConnectionPhase.PLAY, PacketDirection.SERVERBOUND)
                         .id(variant);
@@ -170,12 +176,12 @@ class ProtocolRuntimeTest {
     /** A rewritten acceptance keeps the wire format: the ID alone before 26.3, the position and rotation in 26.3. */
     @Test
     void acceptTeleportationWritesTheFormatItReads() {
-        var position = new ac.cult.cultac.protocol.value.Vec3d(-0.0, 63.5875, 0.6286785847839);
+        var position = new Vec3d(-0.0, 63.5875, 0.6286785847839);
         for (ProtocolVersion version : List.of(ProtocolVersion.V1_21_3, ProtocolVersion.V26_2, ProtocolVersion.V26_3)) {
             CodecFixture connection = new CodecFixture(ProtocolRuntime.create(ProtocolData.load(version)));
             connection.phase(ConnectionPhase.PLAY);
             boolean carriesPosition = version == ProtocolVersion.V26_3;
-            var source = new ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation(
+            var source = new ServerboundAcceptTeleportation(
                     61, carriesPosition ? position : null, carriesPosition ? -171.08188F : 0, carriesPosition ? 4 : 0);
             ByteBuf bytes = Unpooled.buffer();
             try {
@@ -254,8 +260,7 @@ class ProtocolRuntimeTest {
             assertEquals(12345, bytes.getInt(0));
             assertThrows(
                     UnsupportedOnVersionException.class,
-                    () -> connection.write(
-                            ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END.opaqueValue(), bytes));
+                    () -> connection.write(ServerboundPackets.CLIENT_TICK_END.opaqueValue(), bytes));
         } finally {
             bytes.release();
         }

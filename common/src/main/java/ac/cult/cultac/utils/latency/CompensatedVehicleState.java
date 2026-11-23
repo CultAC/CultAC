@@ -1,8 +1,11 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
+import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
+import ac.cult.cultac.checks.impl.prediction.DebugHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -20,6 +23,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.debug.Debuggable;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
@@ -27,6 +31,7 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
@@ -97,7 +102,7 @@ public final class CompensatedVehicleState implements Debuggable {
 
     @Override
     public void debug(StringReturner details) {
-        ac.cult.cultac.checks.impl.prediction.DebugHandler debugHandler =
+        DebugHandler debugHandler =
                 player.checkManager == null ? null : player.checkManager.getDebugHandler();
         if (debugHandler != null) {
             debugHandler.relayDebug(debugName(), details);
@@ -246,7 +251,7 @@ public final class CompensatedVehicleState implements Debuggable {
         if (vehicle == null || vehicle != getVelocityMovementVehicle()) return false;
         vehicle.deltaMovement = velocity;
         if (player.isBedrockMovement()
-                && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(vehicle)) {
+                && BedrockVehicleControl.isSupported(vehicle)) {
             BedrockVehiclePredictionState.applyVelocity(vehicle, velocity);
         } else {
             player.checkManager.getSimulationProcessor().seedStartingVelocities(startingVelocities);
@@ -293,7 +298,7 @@ public final class CompensatedVehicleState implements Debuggable {
 
         if (player.isBedrockMovement() && entity == entities.playerEntity.getRiding()) {
             player.checkManager
-                    .getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class)
+                    .getListener(BedrockMovement.class)
                     .onVehicleTeleport();
         }
 
@@ -320,7 +325,7 @@ public final class CompensatedVehicleState implements Debuggable {
         }
 
         if (player.isBedrockMovement()
-                && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(entity)) {
+                && BedrockVehicleControl.isSupported(entity)) {
             BedrockVehiclePredictionState.rebase(
                     entity, player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame());
         } else if (entity == getVelocityMovementVehicle()) {
@@ -817,7 +822,7 @@ public final class CompensatedVehicleState implements Debuggable {
         return vehicle != null
                 && passengerIndex(vehicle) == 0
                 && !"cushion"
-                        .equals(ac.cult.cultac.utils.nmsutil.EntityTypeUtil.getKey(vehicle.type)
+                        .equals(EntityTypeUtil.getKey(vehicle.type)
                                 .getPath());
     }
 
@@ -904,11 +909,11 @@ public final class CompensatedVehicleState implements Debuggable {
         }
         if (vehicle.type == EntityTypeIds.PIG) {
             return player.getInventory()
-                    .hasClientSelectableHandItem(ac.cult.cultac.utils.inventory.ItemTypes.CARROT_ON_A_STICK);
+                    .hasClientSelectableHandItem(ItemTypes.CARROT_ON_A_STICK);
         }
         if (vehicle.type == EntityTypeIds.STRIDER) {
             return player.getInventory()
-                    .hasClientSelectableHandItem(ac.cult.cultac.utils.inventory.ItemTypes.WARPED_FUNGUS_ON_A_STICK);
+                    .hasClientSelectableHandItem(ItemTypes.WARPED_FUNGUS_ON_A_STICK);
         }
         return false;
     }
@@ -934,7 +939,7 @@ public final class CompensatedVehicleState implements Debuggable {
                 && !ridesAnotherEntityAsSent(vehicle.getEntityId())
                 && !(player.isBedrockMovement()
                         && vehicle
-                                == ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl
+                                == BedrockVehicleControl
                                         .controlledVehicle(player));
     }
 
@@ -1085,7 +1090,7 @@ public final class CompensatedVehicleState implements Debuggable {
             if (player.isBedrockMovement() || !passenger.isBoat()) passenger.markPositionInexact();
         }
         if (!keptSeats.isEmpty()) {
-            vehicle.passengers.sort(java.util.Comparator.comparingInt(passenger -> {
+            vehicle.passengers.sort(Comparator.comparingInt(passenger -> {
                 for (int i = 0; i < passengerIds.length; i++) {
                     if (passengerIds[i] == passenger.getEntityId()) return i;
                 }
@@ -1109,7 +1114,7 @@ public final class CompensatedVehicleState implements Debuggable {
         if (player.bedrockState != null) {
             player.bedrockState.movementCorrections.clear();
             player.checkManager
-                    .getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class)
+                    .getListener(BedrockMovement.class)
                     .onVehicleMountSwitch();
         }
 
@@ -1241,18 +1246,18 @@ public final class CompensatedVehicleState implements Debuggable {
                 return hasSaddle(vehicle) && itemControlDecision;
         }
         if ("cushion"
-                .equals(ac.cult.cultac.utils.nmsutil.EntityTypeUtil.getKey(vehicle.type)
+                .equals(EntityTypeUtil.getKey(vehicle.type)
                         .getPath())) return false;
         if (vehicle.type == EntityTypeIds.PIG) {
             return hasSaddle(vehicle)
                     && player.getInventory()
-                            .hasClientSelectedHandItem(ac.cult.cultac.utils.inventory.ItemTypes.CARROT_ON_A_STICK);
+                            .hasClientSelectedHandItem(ItemTypes.CARROT_ON_A_STICK);
         }
         if (vehicle.type == EntityTypeIds.STRIDER) {
             return hasSaddle(vehicle)
                     && player.getInventory()
                             .hasClientSelectedHandItem(
-                                    ac.cult.cultac.utils.inventory.ItemTypes.WARPED_FUNGUS_ON_A_STICK);
+                                    ItemTypes.WARPED_FUNGUS_ON_A_STICK);
         }
         if (vehicle instanceof PacketEntityHorse horse) return horse.hasSaddle;
         if (vehicle instanceof PacketEntityNautilus nautilus) return nautilus.hasSaddle;

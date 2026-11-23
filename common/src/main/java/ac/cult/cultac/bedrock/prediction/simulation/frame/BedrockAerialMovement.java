@@ -30,10 +30,6 @@ public final class BedrockAerialMovement {
         return slowFalling && velocity.y() < 0.0D ? SLOW_FALLING_AIR_GRAVITY : AIR_GRAVITY;
     }
 
-    public static double airDraggedVelocity(double verticalVelocity, double gravity) {
-        return (float) (((float) verticalVelocity - (float) gravity) * (float) AIR_VERTICAL_DRAG);
-    }
-
     public static double airDraggedVelocityWithoutGravity(double verticalVelocity) {
         return (float) ((float) verticalVelocity * (float) AIR_VERTICAL_DRAG);
     }

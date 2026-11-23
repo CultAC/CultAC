@@ -4,11 +4,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.protocol.data.ModelRegistryData;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.shaded.vialib.exception.InformativeException;
 import io.netty.buffer.Unpooled;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 
 class ProtocolCodecsTest {
@@ -88,7 +91,7 @@ class ProtocolCodecsTest {
         var decoder = ProtocolCodecs.decoder();
         var executor = Executors.newFixedThreadPool(2);
         try {
-            var futures = new java.util.ArrayList<java.util.concurrent.Future<?>>();
+            var futures = new ArrayList<Future<?>>();
             for (String member : List.of("minecraft:stone", "minecraft:dirt"))
                 futures.add(executor.submit(() -> {
                     for (int attempt = 0; attempt < 100; attempt++) {
@@ -125,7 +128,7 @@ class ProtocolCodecsTest {
         String marker = System.getProperty("ViaVersion");
         try {
             var codecs = ProtocolCodecs.decoder();
-            var names = new ac.cult.cultac.protocol.WireValueDecoder.Registries() {
+            var names = new WireValueDecoder.Registries() {
                 public String name(String registry, int id) {
                     throw new AssertionError("Empty items need no registry");
                 }
@@ -175,8 +178,6 @@ class ProtocolCodecsTest {
         assertNotEquals(
                 ProtocolCodecs.class.getResource(privateResource),
                 com.viaversion.viaversion.api.Via.class.getResource(externalResource));
-        assertEquals(
-                "ac.cult.shaded.vialib.exception.InformativeException",
-                ac.cult.shaded.vialib.exception.InformativeException.class.getName());
+        assertEquals("ac.cult.shaded.vialib.exception.InformativeException", InformativeException.class.getName());
     }
 }

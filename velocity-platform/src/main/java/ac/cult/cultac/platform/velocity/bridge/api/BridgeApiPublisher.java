@@ -1,5 +1,6 @@
 package ac.cult.cultac.platform.velocity.bridge.api;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bridge.protocol.BridgeCodec;
 import ac.cult.cultac.bridge.protocol.BridgeMessage;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.AlertState;
@@ -223,7 +224,7 @@ public final class BridgeApiPublisher implements BridgeMessageListener {
     }
 
     private static void persist(UUID player, String key, boolean enabled) {
-        var lifecycle = ac.cult.cultac.CultAPI.INSTANCE.getDataStoreLifecycle();
+        var lifecycle = CultAPI.INSTANCE.getDataStoreLifecycle();
         if (lifecycle != null) lifecycle.playerToggleStore().applyUserToggle(player, key, enabled);
     }
 

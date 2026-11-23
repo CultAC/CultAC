@@ -11,6 +11,7 @@ import ac.cult.cultac.bedrock.prediction.model.*;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.*;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -173,7 +174,7 @@ public final class BedrockGeyserMovementTest {
                                 Map.of("potent_sulfur_state", "continuous"),
                                 true),
                         block(origin + 1, 1, 0, "minecraft:water", Map.of("liquid_depth", 0), false)))
-                .withCoordinateFrame(new ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame(origin, 0, 1));
+                .withCoordinateFrame(new BedrockCoordinateFrame(origin, 0, 1));
         assertEquals(
                 0.2F,
                 apply(tick(world, new Vec3d(origin + 1.1, 4, 0.5), 100, false), 0)

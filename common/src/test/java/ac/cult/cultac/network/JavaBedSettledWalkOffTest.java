@@ -2,7 +2,6 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.assertRejected;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
-import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;

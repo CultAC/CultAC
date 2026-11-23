@@ -2,6 +2,7 @@ package ac.cult.cultac.manager.config.update;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -30,7 +31,6 @@ public final class ConfigPatcher {
     // Block-style keys whose value is an alias of a mapping, by their literal keys, with the anchor each names.
     private final Map<List<String>, String> mappingAliases = new HashMap<>();
 
-    // ... (formatValue and YAML_KEYWORDS/SPECIAL_CHARS constants are unchanged) ...
     private static final Set<String> YAML_KEYWORDS_TO_QUOTE = new HashSet<>(Arrays.asList(
             "y", "Y", "yes", "Yes", "YES", "n", "N", "no", "No", "NO", "true", "True", "TRUE", "false", "False",
             "FALSE", "on", "On", "ON", "off", "Off", "OFF", "null", "Null", "NULL", "~"));
@@ -73,9 +73,9 @@ public final class ConfigPatcher {
         for (int i = path.size() - 1; i >= parentDepth; i--) {
             nested = Collections.singletonMap(path.get(i), nested);
         }
-        org.yaml.snakeyaml.DumperOptions options = new org.yaml.snakeyaml.DumperOptions();
-        options.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
-        String yaml = new org.yaml.snakeyaml.Yaml(options).dump(nested);
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+        String yaml = new Yaml(options).dump(nested);
         String indent = " ".repeat(parent == null ? 0 : childIndent(path.subList(0, parentDepth), parent));
         List<String> inserted = new ArrayList<>();
         // A merge is one level deep: a setting further down would replace the anchor's map it lies in.
@@ -221,7 +221,7 @@ public final class ConfigPatcher {
         String text = String.join("\n", lines);
         Node root;
         try {
-            root = new Yaml().compose(new java.io.StringReader(text));
+            root = new Yaml().compose(new StringReader(text));
         } catch (RuntimeException unparseable) {
             return insideFlow;
         }
@@ -328,8 +328,6 @@ public final class ConfigPatcher {
         }
     }
 
-    // ... (generateListBlock, formatValue, getIndentation, save, NodePosition are unchanged from previous correct
-    // version) ...
     private String generateListBlock(List<?> list, int indentation) {
         if (list.isEmpty()) return "";
         StringBuilder block = new StringBuilder();

@@ -98,9 +98,6 @@ cult:
     strip-pattern: ' \(Velocity\)$'
 
   diagnostics:
-    # Obecnie nieużywane: zmiana tej wartości nie włącza automatycznie szczegółowych alertów.
-    auto-enable-verbose: false
-
     # Zapisuje w konsoli diagnostykę teleportacji, korekt pozycji i ponownej synchronizacji.
     teleports: false
 

@@ -13,6 +13,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -156,7 +157,10 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
         boolean releaseOriginal = true;
         PacketType<?> originalType = null;
         ServerboundPacket originalPacket = null;
-        boolean observeOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
+        var observed = connection.player();
+        boolean observeOnly = observed != null
+                ? observed.isObserveOnly()
+                : CultAPI.INSTANCE.getConfigManager().isObserveOnly();
         try {
             var phase = connection.phase(PacketDirection.SERVERBOUND);
             connection.observePacket(PacketDirection.SERVERBOUND, phase, frame);
@@ -245,8 +249,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                         && connection.user().getBedrockBridgeConnection() != null) {
                     player.getSetbackTeleportUtil()
                             .bedrockTeleports()
-                            .setBedrockPaperVisiblePosition(
-                                    new ac.cult.cultac.utils.math.Vec3(move.x(), move.y(), move.z()));
+                            .setBedrockPaperVisiblePosition(new Vec3(move.x(), move.y(), move.z()));
                 }
                 forwardedType = type;
                 forwardedPacket = packet;

@@ -17,8 +17,4 @@ public final class ViaVersionUtil {
         }
         return cached;
     }
-
-    public static boolean isLegacyApiInstalled() {
-        return !isAvailable() && ReflectionUtils.hasClass("us.myles.ViaVersion.api.Via");
-    }
 }

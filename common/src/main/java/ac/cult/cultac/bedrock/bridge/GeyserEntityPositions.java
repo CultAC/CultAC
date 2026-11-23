@@ -2,7 +2,9 @@ package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
@@ -16,6 +18,8 @@ import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataMap;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
 import org.cloudburstmc.protocol.bedrock.packet.*;
+import org.geysermc.geyser.entity.type.Entity;
+import org.geysermc.geyser.entity.type.player.AvatarEntity;
 import org.geysermc.geyser.session.GeyserSession;
 
 /** Reads final entity transforms; the shared entity tracker remains their only consumer. */
@@ -178,9 +182,7 @@ final class GeyserEntityPositions {
             if (entity == BedrockVehicleControl.predictedVehicle(player) && !spawn && !moveLocal) return;
             boolean ridden = entity == player.compensatedEntities.getSelf().getRiding();
             if (!spawn && (teleport || moveLocal) && ridden) {
-                player.checkManager
-                        .getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class)
-                        .onVehicleTeleport();
+                player.checkManager.getListener(BedrockMovement.class).onVehicleTeleport();
             }
             entity.onGround = ground;
             entity.bedrockPositionOffset = offset;
@@ -196,7 +198,7 @@ final class GeyserEntityPositions {
                 entity.handleBedrockMove(player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport, ground);
             }
             if (moveLocal && entity.bedrockPrediction != null) {
-                ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
+                BedrockVehiclePredictionState.rebase(
                         entity,
                         player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame());
             }
@@ -253,8 +255,8 @@ final class GeyserEntityPositions {
     // How far below the packet position Cult places the actor's feet. Geyser 2.12 AvatarEntity#getOffset writes a
     // player sleeping in a bed 0.2 above its feet; a remote player's feet still lie its eye offset below the packet
     // position.
-    private static float clientOffset(org.geysermc.geyser.entity.type.Entity translated) {
-        if (translated instanceof org.geysermc.geyser.entity.type.player.AvatarEntity
+    private static float clientOffset(Entity translated) {
+        if (translated instanceof AvatarEntity
                 && translated.getFlag(EntityFlag.SLEEPING)
                 && translated.getOffset() == SLEEPING_PLAYER_OFFSET) return PLAYER_OFFSET;
         return translated.getOffset();

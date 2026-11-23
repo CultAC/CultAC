@@ -110,7 +110,6 @@ public class PacketPlayerDigging {
                 orEmpty(inventory.getHandItem(Hand.OFF_HAND)));
         List<Integer> levels = new ArrayList<>(1);
         boolean mayNotSpin = false;
-        Hand invalid = null;
         boolean certainlyInvalid = !releases.isEmpty();
         for (var release : releases) {
             int level = RiptideUtil.getRiptideLevel(release.stack());
@@ -120,11 +119,10 @@ public class PacketPlayerDigging {
                 continue;
             }
             mayNotSpin = true;
-            if (level > 0 && !valid) invalid = release.hand();
-            else certainlyInvalid = false;
+            if (level <= 0 || valid) certainlyInvalid = false;
         }
         if (!levels.isEmpty()) spin(player, levels, mayNotSpin);
-        else if (certainlyInvalid) rejectRelease(player, invalid);
+        else if (certainlyInvalid) rejectRelease(player);
     }
 
     /** The release the Bedrock bridge models: the riptide trident the tracked hand holds now. */
@@ -133,7 +131,7 @@ public class PacketPlayerDigging {
         SimItemStack item = hand == null ? null : player.getInventory().getHandItem(hand);
         int level = RiptideUtil.getRiptideLevel(item);
         if (level > 0 && RiptideUtil.isValidRiptideRelease(player, hand)) spin(player, List.of(level), false);
-        else if (level > 0) rejectRelease(player, hand);
+        else if (level > 0) rejectRelease(player);
     }
 
     /** A release that spins at one of {@code levels}, or may also not spin. */
@@ -152,9 +150,8 @@ public class PacketPlayerDigging {
         player.riptideSpinCertain = player.packetStateData.riptideReleaseCertain;
     }
 
-    private static void rejectRelease(CultPlayer player, Hand hand) {
+    private static void rejectRelease(CultPlayer player) {
         player.packetStateData.invalidRiptideRelease = true;
-        player.packetStateData.invalidRiptideReleaseReason = RiptideUtil.invalidReleaseReason(player, hand);
     }
 
     private static SimItemStack orEmpty(SimItemStack stack) {

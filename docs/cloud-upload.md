@@ -102,15 +102,15 @@ The `cloud:` block in `plugins/CultAC/config.yml` (`plugins/cultac/config.yml` o
 | Key | Default | Meaning |
 |---|---|---|
 | `cloud.url` | `""` | The intake service's address. Must be `https`, or `http` to a loopback host. |
-| `cloud.api-key` | `""` | The key your intake service issued. |
+| `cloud.api-key` | `""` | The key your intake service issued. The `CULTAC_CLOUD_API_KEY` environment variable, when set and not blank, wins over it. |
 | `cloud.server-id` | `""` | Each upload socket's server id. Empty picks the platform's default, below. |
 | `cloud.proxy-id` | `""` | On Velocity, this proxy's name. On Paper, this server's own name. |
 | `cloud.uncaptured-servers` | `[]` | Backends whose players are not captured while they are on them, below. |
-| `cloud.team-sync` | `false` | Reports staff portal roles to the intake service, below. `CULTAC_CLOUD_TEAM_SYNC` (`true`/`1`/`yes`, `false`/`0`/`no`) overrides it when set. |
+| `cloud.team-sync` | `false` | Reports staff portal roles to the intake service, below. |
 
-Empty means off: the upload stays off while `url` or `api-key` is empty. It also stays off, with one warning, while
-`proxy-id` is empty on Paper, or on Velocity while `server-id` uses `{proxy}`, and while `api-key` holds anything but
-visible ASCII characters (a space, line break or invisible character inside it); that warning does not show the key.
+Empty means off: the upload stays off while `url` is empty, or while both `api-key` and `CULTAC_CLOUD_API_KEY` are. It
+also stays off, with one warning, while `proxy-id` is empty on Paper, or on Velocity while `server-id` uses `{proxy}`,
+and while the key holds anything but visible ASCII characters (a space, line break or invisible character inside it); that warning does not show the key.
 The key is checked after surrounding whitespace is stripped, so `" key "` or a key with a pasted trailing line break
 is used as `key`. Apply changes with `/cult reload`.
 
@@ -387,8 +387,8 @@ CultAC speaks intake protocol 5 only, and offers nothing else.
 
 ## Cost
 
-- **While off:** nothing. With neither `cloud.url` nor `cloud.api-key` set, CultAC loads none of the upload's code,
-  registers no listener and keeps nothing per player. Behind Velocity, each backend's Companion still sends its server
+- **While off:** nothing. With `cloud.url`, `cloud.api-key` and `CULTAC_CLOUD_API_KEY` all empty, CultAC loads none
+  of the upload's code, registers no listener and keeps nothing per player. Behind Velocity, each backend's Companion still sends its server
   facts once when a player's bridge session becomes ready, and that player's combat settings then and whenever a
   once-a-second check on its main thread finds them changed; with the upload off the proxy keeps nothing of them.
 - **Bandwidth:** each streamed player's packets and terrain, compressed with zstd, and a burst of terrain at each

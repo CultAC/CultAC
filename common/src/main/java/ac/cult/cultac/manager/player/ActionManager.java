@@ -16,7 +16,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
@@ -33,8 +32,6 @@ import lombok.Getter;
 public class ActionManager extends CultProcessor implements CheckListener, ClientTickEndListener {
 
     public long lastAttack = 0;
-
-    public long lastFlyingPacketTime;
 
     public ActionManager(CultPlayer cultPlayer) {
         super(cultPlayer);
@@ -185,14 +182,6 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     }
 
     @CultPacketHandler
-    public void onSetCarriedItem(
-            PacketReceiveEvent<ServerboundSetCarriedItem> event, CultPlayer player, ServerboundSetCarriedItem packet) {
-        selectHotbarSlot();
-    }
-
-    public void selectHotbarSlot() {}
-
-    @CultPacketHandler
     public void onMovePlayerPos(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         clearMainHandUseAfterSlotChange();
@@ -206,7 +195,6 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     public void endClientTick() {
         clearMainHandUseAfterSlotChange();
         ++player.totalFlyingPacketsSent;
-        this.lastFlyingPacketTime = System.currentTimeMillis();
     }
 
     @CultPacketHandler

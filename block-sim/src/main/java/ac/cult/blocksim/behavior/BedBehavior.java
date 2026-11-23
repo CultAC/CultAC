@@ -1,15 +1,16 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.BlockSimClientVersion;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.SimPlayer;
+import ac.cult.blocksim.interaction.PlacementContext;
 import ac.cult.blocksim.interaction.SimInteraction;
 import ac.cult.blocksim.interaction.UseContext;
-import ac.cult.blocksim.data.BlockDefinition;
-import ac.cult.blocksim.interaction.PlacementContext;
+import java.util.Locale;
 
 public final class BedBehavior extends BlockBehavior {
     @Override
@@ -19,7 +20,7 @@ public final class BedBehavior extends BlockBehavior {
         BlockPos head = context.clickedPos().relative(facing);
         int existing = level.stateAt(head);
         return level.behavior(existing).canBeReplaced(level, existing, context) && level.isWithinBorder(head)
-            ? level.registry().with(block.defaultState(), "facing", facing.name().toLowerCase(java.util.Locale.ROOT)) : -1;
+            ? level.registry().with(block.defaultState(), "facing", facing.name().toLowerCase(Locale.ROOT)) : -1;
     }
     private static Direction neighborDirection(SimLevel level, int state) {
         return level.registry().value(state, "part").equals("foot") ? facing(level, state) : facing(level, state).opposite();

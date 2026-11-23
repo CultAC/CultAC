@@ -1,33 +1,24 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.network.CultNetworkManager;
-import ac.cult.cultac.protocol.ConnectionPhase;
-import ac.cult.cultac.protocol.PacketDirection;
-import ac.cult.cultac.protocol.netty.ChannelInitializationBarrier;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import io.netty.channel.Channel;
-import io.papermc.paper.network.ChannelInitializeListenerHolder;
-import java.lang.reflect.Field;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import net.kyori.adventure.key.Key;
 import net.minecraft.network.Connection;
-import net.minecraft.network.PacketDecoder;
-import net.minecraft.network.PacketEncoder;
-import net.minecraft.network.ProtocolInfo;
-import org.bukkit.Bukkit;
-import org.bukkit.craftbukkit.CraftServer;
 
 /** Adds and removes only Cult's two I/O handlers through Paper's initializer API. */
 final class PaperInjector {
-    private static final Key KEY = Key.key("cultac", "injector");
     private final CultNetworkManager manager;
+    private final PaperDormancy dormancy;
     private volatile boolean registered;
 
-    PaperInjector(CultNetworkManager manager) {
+    PaperInjector(CultNetworkManager manager, PaperDormancy dormancy) {
         this.manager = manager;
+        this.dormancy = dormancy;
     }
 
     void enable() {
@@ -35,10 +26,10 @@ final class PaperInjector {
     }
 
     void injectNew(Channel channel) {
-        inject(channel, false);
+        inject(channel);
     }
 
-    java.util.concurrent.CompletionStage<Void> disconnect(Channel channel) {
+    CompletionStage<Void> disconnect(Channel channel) {
         var connection = manager.connection(channel);
         if (connection == null) return CompletableFuture.completedFuture(null);
         var completion = new CompletableFuture<Void>();
@@ -68,38 +59,22 @@ final class PaperInjector {
         return completion;
     }
 
-    void register() {
-        registered = true;
-        // Paper iterates an unordered listener map. Wait for every initializer,
-        // including Via's, before attaching next to the native packet codecs.
-        ChannelInitializeListenerHolder.addListener(
-                KEY, channel -> ChannelInitializationBarrier.install(channel, () -> inject(channel, false)));
-        var listener = ((CraftServer) Bukkit.getServer()).getServer().getConnection();
-        if (listener != null)
-            for (var connection : listener.getConnections()) {
-                var channel = BukkitConnectionAdapter.channel(connection);
-                if (channel != null) channel.eventLoop().execute(() -> inject(channel, true));
-            }
-    }
-
-    private synchronized void inject(Channel channel, boolean existing) {
+    private synchronized void inject(Channel channel) {
         if (!registered || manager.connection(channel) != null) return;
         if (!(channel.pipeline().get("packet_handler") instanceof Connection nativeConnection)) return;
-        var inbound = existing ? installedPhase(channel, "decoder", PacketDecoder.class) : ConnectionPhase.HANDSHAKE;
-        var outbound = existing ? installedPhase(channel, "encoder", PacketEncoder.class) : ConnectionPhase.HANDSHAKE;
-        var connection = manager.createConnection(new BukkitConnectionAdapter(nativeConnection, channel), channel);
-        if (existing) {
-            connection.phase(PacketDirection.SERVERBOUND, inbound);
-            connection.phase(PacketDirection.CLIENTBOUND, outbound);
-            connection.resolveOwner();
+        boolean dormant = dormancy.dormant();
+        if (dormant && PaperDormancy.skips(channel)) {
+            RuntimeEnvironment.release(channel, CompletableFuture.completedFuture(null));
+            return;
         }
+        var connection = manager.createConnection(new BukkitConnectionAdapter(nativeConnection, channel), channel);
+        if (dormant) DormancyController.joinedDormant(connection);
         CultDecoder.install(connection);
         CultEncoder.install(connection);
     }
 
     synchronized CompletionStage<Void> unregister() {
         registered = false;
-        if (RuntimeEnvironment.host() == null) ChannelInitializeListenerHolder.removeListener(KEY);
         return CompletableFuture.allOf(manager.connections().stream()
                 .map(connection -> {
                     var completion = new CompletableFuture<Void>();
@@ -119,24 +94,5 @@ final class PaperInjector {
                     return completion;
                 })
                 .toArray(CompletableFuture[]::new));
-    }
-    /** Reload bootstrap reads native control metadata once, without changing either codec. */
-    private static ConnectionPhase installedPhase(Channel channel, String name, Class<?> codec) {
-        Object handler = channel.pipeline().get(name);
-        if (!codec.isInstance(handler)) throw new IllegalStateException("Reload during unconfigured " + name);
-        try {
-            Field field = codec.getDeclaredField("protocolInfo");
-            field.setAccessible(true);
-            var protocol = (ProtocolInfo<?>) field.get(handler);
-            return switch (protocol.id()) {
-                case HANDSHAKING -> ConnectionPhase.HANDSHAKE;
-                case STATUS -> ConnectionPhase.STATUS;
-                case LOGIN -> ConnectionPhase.LOGIN;
-                case CONFIGURATION -> ConnectionPhase.CONFIGURATION;
-                case PLAY -> ConnectionPhase.PLAY;
-            };
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("Cannot read installed protocol", failure);
-        }
     }
 }

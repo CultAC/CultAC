@@ -568,33 +568,16 @@ class BuildUpdatesTest {
                 UpdateSettings.read(directory, "CultAC/CultAC", name -> null).followBranch());
         assertEquals(
                 0, UpdateSettings.read(directory, "CultAC/CultAC", name -> null).pinnedBuild());
-        assertEquals(
-                "experimental",
-                UpdateSettings.read(
-                                directory,
-                                "CultAC/CultAC",
-                                name -> name.equals("CULTAC_UPDATE_BUILD") ? "latest:experimental" : null)
-                        .followBranch());
-        assertNull(UpdateSettings.read(
-                        directory, "CultAC/CultAC", name -> name.equals("CULTAC_UPDATE_BUILD") ? "130" : null)
-                .followBranch());
-        assertEquals(
-                "",
-                UpdateSettings.read(
-                                directory,
-                                "CultAC/CultAC",
-                                name -> name.equals("CULTAC_UPDATE_BUILD") ? "latest:" : null)
-                        .followBranch());
-        assertEquals(
-                "experimental",
-                UpdateSettings.read(
-                                directory,
-                                "CultAC/CultAC",
-                                name -> name.equals("CULTAC_UPDATE_BUILD") ? "Latest: experimental" : null)
-                        .followBranch());
-        assertNull(UpdateSettings.read(
-                        directory, "CultAC/CultAC", name -> name.equals("CULTAC_UPDATE_BUILD") ? "latests" : null)
-                .followBranch());
+        assertEquals("experimental", followed("latest:experimental"));
+        assertNull(followed("130"));
+        assertEquals("", followed("latest:"));
+        assertEquals("experimental", followed("Latest: experimental"));
+        assertNull(followed("latests"));
+    }
+
+    private String followed(String build) throws IOException {
+        Files.writeString(directory.resolve("config.yml"), "update:\n  build: \"" + build + "\"\n");
+        return UpdateSettings.read(directory, "CultAC/CultAC", name -> null).followBranch();
     }
 
     @Test
@@ -910,30 +893,17 @@ class BuildUpdatesTest {
     }
 
     @Test
-    void theEnvironmentWinsOverEachConfigKey() throws Exception {
+    void theTokenFromTheEnvironmentWinsOverItsKey() throws Exception {
+        Path state = directory.resolveSibling("elsewhere").resolve("state.json").toAbsolutePath();
         Files.writeString(
                 directory.resolve("config.yml"),
-                "update:\n  repository: someone/fork\n  public-key: config-key\n  state-file: config.json\n"
+                "update:\n  repository: someone/fork\n  public-key: config-key\n  state-file: '" + state + "'\n"
                         + "  build: 120\n  token: config-token\n  webhook: https://config\n");
-        var env = Map.of(
-                "CULTAC_UPDATE_REPOSITORY", "env/repo",
-                "CULTAC_UPDATE_PUBKEY", "env-key",
-                "CULTAC_UPDATE_STATE", "env.json",
-                "CULTAC_UPDATE_BUILD", "130",
-                "CULTAC_UPDATE_TOKEN", "env-token",
-                "CULTAC_UPDATE_WEBHOOK", "https://env");
         assertEquals(
-                new UpdateSettings(
-                        "env/repo", "env-token", "env-key", "https://env", directory.resolve("env.json"), 130),
-                UpdateSettings.read(directory, "CultAC/CultAC", env::get));
+                new UpdateSettings("someone/fork", "env-token", "config-key", "https://config", state, 120),
+                UpdateSettings.read(directory, "CultAC/CultAC", Map.of("CULTAC_UPDATE_TOKEN", "env-token")::get));
         assertEquals(
-                new UpdateSettings(
-                        "someone/fork",
-                        "config-token",
-                        "config-key",
-                        "https://config",
-                        directory.resolve("config.json"),
-                        120),
+                new UpdateSettings("someone/fork", "config-token", "config-key", "https://config", state, 120),
                 UpdateSettings.read(directory, "CultAC/CultAC", name -> " "));
     }
 
@@ -942,10 +912,10 @@ class BuildUpdatesTest {
         Files.writeString(
                 directory.resolve("config.yml"),
                 "update:\n  repository: someone/fork\n  build: 120\n  state-file: state/x.json\n  webhook: https://w\n");
-        var env = Map.of("CULTAC_UPDATE_REPOSITORY", "env/repo", "CULTAC_UPDATE_TOKEN", "t");
+        var env = Map.of("CULTAC_UPDATE_TOKEN", "t");
         assertEquals(
                 new UpdateSettings(
-                        "env/repo",
+                        "someone/fork",
                         "t",
                         UpdateSettings.OFFICIAL_PUBLIC_KEY,
                         "https://w",

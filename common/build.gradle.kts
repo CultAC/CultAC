@@ -244,12 +244,6 @@ tasks.register<Test>("offlineBedrockReplayTest") {
     System.getProperty("exportBedrockFixtures")?.let {
         systemProperty("exportBedrockFixtures", it)
     }
-    System.getProperty("bedrockReplayScenarios")?.let {
-        systemProperty("bedrockReplayScenarios", it)
-    }
-    System.getProperty("bedrockReplayCheats")?.let {
-        systemProperty("bedrockReplayCheats", it)
-    }
     include("**/bedrock/replay/offline/**/*Test.class")
     exclude("**/*$*")
 }

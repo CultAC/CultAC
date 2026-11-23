@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.elytra.ElytraB;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
-import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderProcessor;
@@ -47,16 +46,6 @@ class BackendPongCheckStateTest {
     void aPongThatAnswersNoCultacPingIsNotAVehicleTimerEvent() throws Exception {
         try (var f = connect()) {
             assertBackendPongIsNoTimerEvent(f, f.player.checkManager.getCheck(VehicleTimer.class));
-        }
-    }
-
-    @Test
-    void aPongThatAnswersNoCultacPingIsNotANegativeTimerEvent() throws Exception {
-        try (var f = connect()) {
-            NegativeTimerCheck timer = f.player.checkManager.getCheck(NegativeTimerCheck.class);
-            JavaTickFixture.setField(NegativeTimerCheck.class, timer, "ticksWithoutNewTransactionOrLook", 5);
-            assertBackendPongIsNoTimerEvent(f, timer);
-            assertEquals(0, get(NegativeTimerCheck.class, timer, "ticksWithoutNewTransactionOrLook"));
         }
     }
 

@@ -64,28 +64,4 @@ public class FoliaEntityScheduler implements EntityScheduler {
 
         return scheduled == null ? null : new FoliaTaskHandle(scheduled);
     }
-
-    @Override
-    public TaskHandle runAtFixedRate(
-            @NotNull CultEntity entity,
-            @NotNull GrimPlugin plugin,
-            @NotNull Runnable task,
-            @Nullable Runnable retired,
-            long initialDelayTicks,
-            long periodTicks) {
-        final Runnable guarded_task = RuntimeEnvironment.guard(task);
-        final Runnable guarded_retired = RuntimeEnvironment.guard(retired);
-
-        ScheduledTask scheduled = ((BukkitCultEntity) entity)
-                .getBukkitEntity()
-                .getScheduler()
-                .runAtFixedRate(
-                        CultACBukkitLoaderPlugin.LOADER,
-                        Callbacks.run(guarded_task),
-                        guarded_retired,
-                        initialDelayTicks,
-                        periodTicks);
-
-        return scheduled == null ? null : new FoliaTaskHandle(scheduled);
-    }
 }

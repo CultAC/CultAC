@@ -5,9 +5,14 @@ import ac.cult.blocksim.data.nbt.CanonicalSnbt;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.zip.GZIPInputStream;
 
 /** Named known-pack definitions and initial model order. Received wire IDs replace the model order. */
@@ -19,24 +24,24 @@ public final class ClientWorldDefaults {
     private final Map<String, Map<String, Entry>> registries;
     private final Map<String, Map<String, List<String>>> tags;
     private final Map<String, List<String>> initialNames;
-    private final java.util.Set<String> builtinRegistries, networkRegistries;
-    private final java.util.Set<String> syncableAttributes;
-    private final java.util.Set<String> booleanAttributes;
-    private ClientWorldDefaults(Map<String, Map<String, Entry>> registries, Map<String, Map<String, List<String>>> tags, java.util.Set<String> syncableAttributes, java.util.Set<String> booleanAttributes, Map<String, List<String>> initialNames, java.util.Set<String> builtinRegistries, java.util.Set<String> networkRegistries) {
+    private final Set<String> builtinRegistries, networkRegistries;
+    private final Set<String> syncableAttributes;
+    private final Set<String> booleanAttributes;
+    private ClientWorldDefaults(Map<String, Map<String, Entry>> registries, Map<String, Map<String, List<String>>> tags, Set<String> syncableAttributes, Set<String> booleanAttributes, Map<String, List<String>> initialNames, Set<String> builtinRegistries, Set<String> networkRegistries) {
         this.registries = Map.copyOf(registries); this.tags = Map.copyOf(tags); this.initialNames = Map.copyOf(initialNames);
-        this.syncableAttributes = java.util.Set.copyOf(syncableAttributes);
-        this.booleanAttributes = java.util.Set.copyOf(booleanAttributes);
-        this.builtinRegistries = java.util.Set.copyOf(builtinRegistries);
-        this.networkRegistries = java.util.Set.copyOf(networkRegistries);
+        this.syncableAttributes = Set.copyOf(syncableAttributes);
+        this.booleanAttributes = Set.copyOf(booleanAttributes);
+        this.builtinRegistries = Set.copyOf(builtinRegistries);
+        this.networkRegistries = Set.copyOf(networkRegistries);
     }
     public Map<String, List<String>> initialNames() { return initialNames; }
-    public java.util.Set<String> builtinRegistries() { return builtinRegistries; }
-    public java.util.Set<String> networkRegistries() { return networkRegistries; }
+    public Set<String> builtinRegistries() { return builtinRegistries; }
+    public Set<String> networkRegistries() { return networkRegistries; }
     public List<String> initialNames(String registry) {
-        return java.util.Objects.requireNonNull(initialNames.get(HolderSets.identifier(registry)), "Missing initial model registry " + registry);
+        return Objects.requireNonNull(initialNames.get(HolderSets.identifier(registry)), "Missing initial model registry " + registry);
     }
-    public java.util.Set<String> syncableAttributes() { return syncableAttributes; }
-    public java.util.Set<String> booleanAttributes() { return booleanAttributes; }
+    public Set<String> syncableAttributes() { return syncableAttributes; }
+    public Set<String> booleanAttributes() { return booleanAttributes; }
     public static ClientWorldDefaults defaults() { return Defaults.VALUE; }
     public Map<String, Entry> entries(String registry) {
         var entries = registries.get(HolderSets.identifier(registry));
@@ -73,23 +78,23 @@ public final class ClientWorldDefaults {
                     String key = input.readUTF();
                     byte[] nbt = new byte[input.readInt()]; input.readFully(nbt);
                     byte[] json = new byte[input.readInt()]; input.readFully(json);
-                    entries.put(key, new Entry((NbtValue.Compound) CanonicalSnbt.parse(new String(nbt, java.nio.charset.StandardCharsets.UTF_8)),
-                            new String(json, java.nio.charset.StandardCharsets.UTF_8)));
+                    entries.put(key, new Entry((NbtValue.Compound) CanonicalSnbt.parse(new String(nbt, StandardCharsets.UTF_8)),
+                            new String(json, StandardCharsets.UTF_8)));
                 }
                 registries.put(name, Map.copyOf(entries));
                 var tags = new HashMap<String, List<String>>();
                 int tagCount = input.readInt();
                 for (int tag = 0; tag < tagCount; tag++) {
                     String key = input.readUTF();
-                    var members = new java.util.ArrayList<String>();
+                    var members = new ArrayList<String>();
                     int memberCount = input.readInt();
                     for (int member = 0; member < memberCount; member++) members.add(input.readUTF());
                     tags.put(key, List.copyOf(members));
                 }
                 registryTags.put(name, Map.copyOf(tags));
             }
-            var syncable = new java.util.HashSet<String>();
-            var booleans = new java.util.HashSet<String>();
+            var syncable = new HashSet<String>();
+            var booleans = new HashSet<String>();
             int attributeCount = input.readInt();
             for (int index = 0; index < attributeCount; index++) {
                 String key = input.readUTF();
@@ -100,13 +105,13 @@ public final class ClientWorldDefaults {
             int initialRegistryCount = input.readInt();
             for (int registry = 0; registry < initialRegistryCount; registry++) {
                 String name = input.readUTF();
-                var names = new java.util.ArrayList<String>();
+                var names = new ArrayList<String>();
                 int count = input.readInt();
                 for (int id = 0; id < count; id++) names.add(input.readUTF());
                 initialNames.put(name, List.copyOf(names));
             }
-            var builtinRegistries = new java.util.HashSet<String>();
-            var networkRegistries = new java.util.HashSet<String>();
+            var builtinRegistries = new HashSet<String>();
+            var networkRegistries = new HashSet<String>();
             int builtinCount = input.readInt();
             for (int index = 0; index < builtinCount; index++) builtinRegistries.add(input.readUTF());
             int networkCount = input.readInt();

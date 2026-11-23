@@ -44,13 +44,11 @@ import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.misc.GhostBlockMitigation;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
-import ac.cult.cultac.checks.impl.movement.EntityControl;
 import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
-import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
@@ -102,6 +100,7 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.PacketTypeTable;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -388,9 +387,7 @@ public class CheckManager {
                 new BadPacketsP(player),
                 new BadPacketsQ(player),
                 new BadPacketsR(player),
-                new BadPacketsS(player),
                 new BadPacketsT(player),
-                new BadPacketsU(player),
                 new BadPacketsV(player),
                 new BadPacketsW(player),
                 new BadPacketsY(player),
@@ -429,8 +426,6 @@ public class CheckManager {
                 new MultiInteractA(player),
                 new MultiInteractB(player),
                 player.openWindow,
-                new VehicleA(player),
-                new VehicleB(player),
                 new VehicleGround(player),
                 new VehicleD(player),
                 new VehicleE(player),
@@ -441,7 +436,6 @@ public class CheckManager {
                 new FastBreak(player),
                 new NoSwingBreak(player),
                 new FarBreak(player, visibility),
-                new InvalidBreak(player),
                 new PositionBreakA(player, visibility),
                 new PositionBreakB(player),
                 new MultiBreak(player),
@@ -496,10 +490,8 @@ public class CheckManager {
                 player.itemUseBurst,
                 new Phase(player),
                 new PostCheck(player),
-                new NegativeTimerCheck(player),
                 new OffsetHandler(player),
                 new DebugHandler(player),
-                new EntityControl(player), // registered listener is currently a no-op
                 new SetbackTeleportUtil(player), // setback state depends on current friction
                 player.knockbackHandler,
                 player.explosionHandler,
@@ -518,7 +510,7 @@ public class CheckManager {
                 new SprintF(player),
                 new SprintG(player),
                 new SprintH(player),
-                new ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump(player),
+                new JavaAutoJump(player),
                 new ElytraA(player),
                 new ElytraB(player),
                 new ElytraC(player),
@@ -536,7 +528,6 @@ public class CheckManager {
         return listenerMap(List.<BlockPlaceCheck>of(
                 new BadPacketsH(player),
                 new InvalidPlaceA(player),
-                new InvalidPlaceB(player),
                 new AirLiquidPlace(player),
                 new MultiPlace(player),
                 new MultiActionsF(player),
@@ -683,13 +674,11 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(BadPacketsQ.class));
         registerReceive(registrations, packetChecks.get(BadPacketsR.class));
         registerReceive(registrations, packetChecks.get(BadPacketsT.class));
-        registerReceive(registrations, packetChecks.get(BadPacketsU.class));
         registerReceive(registrations, packetChecks.get(BadPacketsV.class));
         registerReceive(registrations, blockPlaceCheck.get(BadPacketsH.class));
         registerReceive(registrations, packetChecks.get(PacketOrderProcessor.class));
         registerReceive(registrations, packetChecks.get(MultiActionsC.class));
         registerReceive(registrations, packetChecks.get(MultiActionsD.class));
-        registerReceive(registrations, packetChecks.get(VehicleA.class));
         registerReceive(registrations, packetChecks.get(VehicleD.class));
         registerReceive(registrations, packetChecks.get(VehicleE.class));
         registerReceive(registrations, packetChecks.get(VehicleF.class));
@@ -729,7 +718,6 @@ public class CheckManager {
 
         registerReceive(registrations, postPredictionCheck.get(Phase.class));
         registerReceive(registrations, postPredictionCheck.get(PostCheck.class));
-        registerReceive(registrations, postPredictionCheck.get(NegativeTimerCheck.class));
         // AimDuplicateLook (rotation listener) declares no packet handlers; registering it for
         // receive dispatch would throw in registerReceive at CheckManager construction.
 
@@ -1057,7 +1045,7 @@ public class CheckManager {
 
         dispatchNonAsyncReceive(packet);
 
-        if (packet.getPacketType() == ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END) {
+        if (packet.getPacketType() == ServerboundPackets.CLIENT_TICK_END) {
             // MCP-Reborn Minecraft#tick sends ServerboundClientTickEndPacket only
             // after ClientLevel#tickEntities and Level#tickBlockEntities have
             // both finished. Tick-end handlers that simulate the completed client

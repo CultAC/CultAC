@@ -9,8 +9,6 @@ import java.util.List;
 import java.util.Objects;
 
 public final class BedrockBlockCollisionResolver {
-    public static final double PLAYER_RADIUS = 0.30000001192092896D;
-    private static final double EPSILON = BedrockCollisionSweep.EPSILON;
     private static final double CONTACT_EPSILON = BedrockCollisionSweep.CONTACT_EPSILON;
     private static final double MAX_FLOAT_CONTACT_EPSILON = 1.0E-3D;
 
@@ -65,22 +63,12 @@ public final class BedrockBlockCollisionResolver {
     }
 
     public static boolean hasHorizontalBlockContact(
-            Vec3d feet, List<BlockCollision> obstacles, PlayerDimensionsState playerDimensions) {
-        return hasHorizontalBlockContact(feet, obstacles, playerDimensions, BedrockCoordinateFrame.IDENTITY);
-    }
-
-    public static boolean hasHorizontalBlockContact(
             Vec3d feet,
             List<BlockCollision> obstacles,
             PlayerDimensionsState playerDimensions,
             BedrockCoordinateFrame frame) {
         HorizontalContactAxes axes = horizontalContactAxes(feet, obstacles, playerDimensions, frame);
         return axes.xContact() || axes.zContact();
-    }
-
-    public static HorizontalContactAxes horizontalContactAxes(
-            Vec3d feet, List<BlockCollision> obstacles, PlayerDimensionsState playerDimensions) {
-        return horizontalContactAxes(feet, obstacles, playerDimensions, BedrockCoordinateFrame.IDENTITY);
     }
 
     public static HorizontalContactAxes horizontalContactAxes(
@@ -112,49 +100,6 @@ public final class BedrockBlockCollisionResolver {
             }
         }
         return new HorizontalContactAxes(xContact, zContact);
-    }
-
-    public static HorizontalContactAxes movementSideHorizontalContactAxes(
-            Vec3d feet, Vec3d movement, List<BlockCollision> obstacles, PlayerDimensionsState playerDimensions) {
-        return movementSideHorizontalContactAxes(
-                feet, movement, obstacles, playerDimensions, BedrockCoordinateFrame.IDENTITY);
-    }
-
-    public static HorizontalContactAxes movementSideHorizontalContactAxes(
-            Vec3d feet,
-            Vec3d movement,
-            List<BlockCollision> obstacles,
-            PlayerDimensionsState playerDimensions,
-            BedrockCoordinateFrame frame) {
-        double epsilon = horizontalContactEpsilon(feet, frame);
-        WorldCollisionBox actorBox = BedrockCollisionSweep.playerBox(feet, playerDimensions, frame);
-        boolean positiveX = movement.x() > EPSILON;
-        boolean negativeX = movement.x() < -EPSILON;
-        boolean positiveZ = movement.z() > EPSILON;
-        boolean negativeZ = movement.z() < -EPSILON;
-        boolean xContact = false;
-        boolean zContact = false;
-        for (BlockCollision obstacle : obstacles) {
-            WorldCollisionBox box = obstacle.box();
-            if (!overlapsY(actorBox, box)) {
-                continue;
-            }
-            if (overlapsZ(actorBox, box)
-                    && ((positiveX && Math.abs(actorBox.maxX() - box.minX()) <= epsilon)
-                            || (negativeX && Math.abs(actorBox.minX() - box.maxX()) <= epsilon))) {
-                xContact = true;
-            }
-            if (overlapsX(actorBox, box)
-                    && ((positiveZ && Math.abs(actorBox.maxZ() - box.minZ()) <= epsilon)
-                            || (negativeZ && Math.abs(actorBox.minZ() - box.maxZ()) <= epsilon))) {
-                zContact = true;
-            }
-        }
-        return new HorizontalContactAxes(xContact, zContact);
-    }
-
-    public static double horizontalContactEpsilon(Vec3d feet) {
-        return horizontalContactEpsilon(feet, BedrockCoordinateFrame.IDENTITY);
     }
 
     public static double horizontalContactEpsilon(Vec3d feet, BedrockCoordinateFrame frame) {

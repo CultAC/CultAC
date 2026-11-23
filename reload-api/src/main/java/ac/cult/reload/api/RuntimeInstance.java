@@ -1,6 +1,9 @@
 package ac.cult.reload.api;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 public interface RuntimeInstance {
@@ -31,33 +34,33 @@ public interface RuntimeInstance {
      *
      * @return client state as JDK values and opaque native handles (no engine classes), or null to keep the connection
      */
-    default java.util.Map<String, Object> release(Object connection) throws Exception {
+    default Map<String, Object> release(Object connection) throws Exception {
         return null;
     }
 
     /** Attaches a connection another generation released, continuing its session with the released state. */
-    default void adopt(Object connection, Object nativePlayer, java.util.Map<String, Object> state) throws Exception {
+    default void adopt(Object connection, Object nativePlayer, Map<String, Object> state) throws Exception {
         attach(connection, nativePlayer);
     }
 
     Object api();
 
     default CompletionStage<Void> execute(Object sender, String command) {
-        return java.util.concurrent.CompletableFuture.completedFuture(null);
+        return CompletableFuture.completedFuture(null);
     }
 
-    default CompletionStage<java.util.List<String>> suggest(Object sender, String command) {
-        return java.util.concurrent.CompletableFuture.completedFuture(java.util.List.of());
+    default CompletionStage<List<String>> suggest(Object sender, String command) {
+        return CompletableFuture.completedFuture(List.of());
     }
 
-    java.util.List<String> DEFAULT_COMMAND_ROOTS = java.util.List.of("cult", "cultac", "grim", "grimac");
+    List<String> DEFAULT_COMMAND_ROOTS = List.of("cult", "cultac", "grim", "grimac");
 
-    default java.util.List<String> commandRoots() {
+    default List<String> commandRoots() {
         return DEFAULT_COMMAND_ROOTS;
     }
 
-    default java.util.Map<String, byte[]> configurationFiles() throws Exception {
-        return java.util.Map.of();
+    default Map<String, byte[]> configurationFiles() throws Exception {
+        return Map.of();
     }
 
     default Object prepareReload(Object configuration) throws Exception {
@@ -72,8 +75,8 @@ public interface RuntimeInstance {
         return true;
     }
 
-    default java.util.List<String> placeholders() {
-        return java.util.List.of();
+    default List<String> placeholders() {
+        return List.of();
     }
 
     default String placeholder(UUID player, String parameter) {

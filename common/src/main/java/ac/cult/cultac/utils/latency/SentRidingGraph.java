@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.latency;
 
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import java.util.Arrays;
 
 /**
  * The riding links as the server has sent them, ahead of the passenger graph the client holds once it answers them.
@@ -23,7 +24,7 @@ final class SentRidingGraph {
             vehicleOf.put(passenger, vehicle);
             kept[count++] = passenger;
         }
-        if (count > 0) passengersOf.put(vehicle, count == kept.length ? kept : java.util.Arrays.copyOf(kept, count));
+        if (count > 0) passengersOf.put(vehicle, count == kept.length ? kept : Arrays.copyOf(kept, count));
     }
 
     /** ClientLevel#removeEntity: Entity#setRemoved stops the entity riding and ejects its passengers. */
@@ -83,6 +84,6 @@ final class SentRidingGraph {
         int count = 0;
         for (int id : old) if (id != passenger) next[count++] = id;
         if (count == 0) passengersOf.remove(vehicle);
-        else passengersOf.put(vehicle, java.util.Arrays.copyOf(next, count));
+        else passengersOf.put(vehicle, Arrays.copyOf(next, count));
     }
 }

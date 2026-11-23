@@ -23,6 +23,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.Arrays;
 import org.junit.Test;
 
 /**
@@ -124,7 +125,7 @@ public final class BedrockVehicleRelinkTest {
     /** Sends the boat's passengers and returns the transaction that proves the client handled them. */
     private static int send(CultPlayer player, int... passengers) {
         var packet = new ClientboundSetPassengers(
-                BOAT, java.util.Arrays.stream(passengers).boxed().toList());
+                BOAT, Arrays.stream(passengers).boxed().toList());
         player.packetEntityReplication.onSetPassengers(
                 new PacketSendEvent<>(
                         player.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false),

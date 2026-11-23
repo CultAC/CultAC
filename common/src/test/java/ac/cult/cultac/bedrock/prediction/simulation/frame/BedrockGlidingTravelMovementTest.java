@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
@@ -21,6 +22,7 @@ import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
 import ac.cult.cultac.bedrock.prediction.world.FluidState;
+import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
 import java.util.List;
 import java.util.Set;
@@ -212,11 +214,7 @@ public final class BedrockGlidingTravelMovementTest {
                 List.of("minecraft:ladder", "minecraft:vine", "minecraft:powder_snow", "minecraft:scaffolding")) {
             for (int x : List.of(0, 1)) {
                 for (boolean boots : List.of(false, true)) {
-                    var placed = ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision.manual(
-                            new ac.cult.cultac.bedrock.prediction.geometry.BlockPosition(x, 0, 0),
-                            block,
-                            block,
-                            List.of());
+                    var placed = PlacedBlockCollision.manual(new BlockPosition(x, 0, 0), block, block, List.of());
                     var context = new BedrockMovementContext(
                             air.effectState(),
                             air.attributeState(),

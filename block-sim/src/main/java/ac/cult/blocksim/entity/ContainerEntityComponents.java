@@ -1,14 +1,17 @@
 package ac.cult.blocksim.entity;
 
-import ac.cult.blocksim.data.ItemTemplates;
-import ac.cult.blocksim.data.ItemTemplate;
 import ac.cult.blocksim.data.ComponentLayout;
+import ac.cult.blocksim.data.ItemTemplate;
+import ac.cult.blocksim.data.ItemTemplates;
 import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.engine.SimItemStack;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 final class ContainerEntityComponents {
     private final ItemTemplates templates;
@@ -31,7 +34,7 @@ final class ContainerEntityComponents {
     }
 
     private List<SimItemStack> copyInto(ComponentInput input, int size) {
-        var bySlot = new HashMap<Integer, com.google.gson.JsonElement>();
+        var bySlot = new HashMap<Integer, JsonElement>();
         var nbtBySlot = new HashMap<Integer, NbtValue>();
         var contents = input.get("minecraft:container");
         if (contents != null) {
@@ -44,7 +47,7 @@ final class ContainerEntityComponents {
         var result = new ArrayList<SimItemStack>(size);
         for (int i = 0; i < size; i++) {
             var item = bySlot.get(i);
-            result.add(item == null ? templates.decode(new com.google.gson.JsonPrimitive("minecraft:air"))
+            result.add(item == null ? templates.decode(new JsonPrimitive("minecraft:air"))
                 : templates.create(ItemTemplate.fromNbt(nbtBySlot.get(i),
                     ComponentLayout.child(input.components, "minecraft:container", Integer.toString(i)))));
         }
@@ -65,9 +68,9 @@ final class ContainerEntityComponents {
     }
 
     private static NbtValue.Compound comparatorItem(SimItemStack item) {
-        return new NbtValue.Compound(java.util.Map.of(
+        return new NbtValue.Compound(Map.of(
             "id", new NbtValue.Text(item.itemKey()), "count", new NbtValue.Numeric(NbtValue.Kind.INT, item.count()),
-            "components", new NbtValue.Compound(java.util.Map.of("minecraft:max_stack_size",
+            "components", new NbtValue.Compound(Map.of("minecraft:max_stack_size",
                 new NbtValue.Numeric(NbtValue.Kind.INT, item.maxStackSize())))));
     }
 }

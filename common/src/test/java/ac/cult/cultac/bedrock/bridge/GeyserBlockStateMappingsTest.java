@@ -3,12 +3,19 @@ package ac.cult.cultac.bedrock.bridge;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
+import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.bedrock.replay.offline.OfflineBlockStateParser;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.api.block.custom.CustomBlockData;
+import org.geysermc.geyser.level.block.Blocks;
 import org.geysermc.geyser.registry.BlockRegistries;
+import org.geysermc.geyser.registry.java.BuiltInJavaRegistries;
 import org.geysermc.geyser.registry.populator.BlockRegistryPopulator;
+import org.geysermc.geyser.registry.type.CustomSkull;
 import org.junit.Test;
 
 public class GeyserBlockStateMappingsTest {
@@ -33,16 +40,15 @@ public class GeyserBlockStateMappingsTest {
         try {
             // BuiltInJavaRegistries#bootstrap opens the block registry to the block populators before it is frozen;
             // the rest of it needs a running Geyser.
-            var blocks = org.geysermc.geyser.registry.java.BuiltInJavaRegistries.BLOCK;
+            var blocks = BuiltInJavaRegistries.BLOCK;
             var open = blocks.getClass().getDeclaredMethod("allowUnsafeAccess");
             open.setAccessible(true);
             open.invoke(blocks);
-            org.geysermc.geyser.level.block.Blocks.AIR.javaId();
-            var skull = new org.geysermc.geyser.registry.type.CustomSkull("cultac_palette_test");
-            BlockRegistries.CUSTOM_SKULLS.set(new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>());
+            Blocks.AIR.javaId();
+            var skull = new CustomSkull("cultac_palette_test");
+            BlockRegistries.CUSTOM_SKULLS.set(new Object2ObjectOpenHashMap<>());
             BlockRegistries.CUSTOM_SKULLS.register(skull.getSkinHash(), skull);
-            BlockRegistries.CUSTOM_BLOCKS.set(
-                    new org.geysermc.geyser.api.block.custom.CustomBlockData[] {skull.getCustomBlockData()});
+            BlockRegistries.CUSTOM_BLOCKS.set(new CustomBlockData[] {skull.getCustomBlockData()});
             BlockRegistryPopulator.populate(BlockRegistryPopulator.Stage.INIT_JAVA);
             BlockRegistryPopulator.populate(BlockRegistryPopulator.Stage.INIT_BEDROCK);
             assertFalse(BlockRegistries.BLOCKS.get().isEmpty());
@@ -59,9 +65,7 @@ public class GeyserBlockStateMappingsTest {
                 assertEquals(
                         registry.block("minecraft:sand").defaultState(),
                         GeyserBlockStateMappings.resolve(
-                                palette,
-                                mappings.getBedrockBlock(
-                                        org.geysermc.geyser.level.block.Blocks.SAND.defaultBlockState())));
+                                palette, mappings.getBedrockBlock(Blocks.SAND.defaultBlockState())));
                 assertEquals(
                         registry.block("minecraft:water").defaultState(),
                         GeyserBlockStateMappings.resolve(palette, mappings.getBedrockWater()));
@@ -83,27 +87,21 @@ public class GeyserBlockStateMappingsTest {
                 for (var definition : mappings.getJavaToBedrockBlocks()) {
                     var state = GeyserBlockStateMappings.resolve(palette, definition);
                     assertTrue(state >= 0
-                            && state
-                                    < ac.cult.blocksim.data.DataTables.defaults()
-                                            .registry()
-                                            .stateCount());
-                    if (ac.cult.blocksim.data.BlockProps.WATERLOGGED.has(state)) {
-                        assertFalse(ac.cult.blocksim.data.BlockProps.WATERLOGGED.booleanValue(state));
+                            && state < DataTables.defaults().registry().stateCount());
+                    if (BlockProps.WATERLOGGED.has(state)) {
+                        assertFalse(BlockProps.WATERLOGGED.booleanValue(state));
                     }
                 }
                 for (var definition : mappings.getJavaToVanillaBedrockBlocks()) {
                     int state = GeyserBlockStateMappings.resolve(palette, definition);
                     assertTrue(state >= 0
-                            && state
-                                    < ac.cult.blocksim.data.DataTables.defaults()
-                                            .registry()
-                                            .stateCount());
+                            && state < DataTables.defaults().registry().stateCount());
                 }
                 for (var frame : mappings.getItemFrames().values()) {
-                    assertTrue(ac.cult.blocksim.data.DataTables.defaults()
+                    assertTrue(DataTables.defaults()
                             .registry()
                             .facts(GeyserBlockStateMappings.resolve(palette, frame))
-                            .has(ac.cult.blocksim.data.StateFacts.AIR));
+                            .has(StateFacts.AIR));
                 }
                 assertEquals(
                         registry.with(registry.block("minecraft:player_head").defaultState(), "rotation", "7"),

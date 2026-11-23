@@ -62,11 +62,10 @@ class BoatFlowingWaterPathTest {
         }
     }
 
-    private static JavaTickFixture mount(boolean flowing) throws Exception {
-        return mount(flowing, null, null);
-    }
-
-    /** {@link #mount(boolean)} for a client of {@code brand} whose loader build is {@code withoutCurrent}, if known. */
+    /**
+     * The player riding a boat on still or flowing water, for a client of {@code brand} whose loader build is
+     * {@code withoutCurrent}, if known.
+     */
     private static JavaTickFixture mount(boolean flowing, String brand, Boolean withoutCurrent) throws Exception {
         JavaTickFixture f = new JavaTickFixture();
         if (brand != null) f.player.checkManager.getCheck(ClientBrand.class).restore(brand);

@@ -1,14 +1,15 @@
 package ac.cult.blocksim.behavior;
 
-import ac.cult.blocksim.engine.BlockPos;
-import ac.cult.blocksim.engine.Direction;
-import ac.cult.blocksim.engine.SimLevel;
-import java.util.Set;
 import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.engine.BlockPos;
+import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.interaction.PlacementContext;
+import java.util.Locale;
+import java.util.Set;
 
 public class DoublePlantBehavior extends VegetationBehavior {
     public enum Kind { PLAIN, SEAGRASS, DRIPLEAF }
@@ -29,7 +30,7 @@ public class DoublePlantBehavior extends VegetationBehavior {
         if (kind == Kind.SEAGRASS && !fullWater(level, above)) return -1;
         int state = block.defaultState();
         return kind == Kind.DRIPLEAF ? copyWaterlogged(level, context.clickedPos(),
-            level.registry().with(state, "facing", context.horizontalDirection().opposite().name().toLowerCase(java.util.Locale.ROOT))) : state;
+            level.registry().with(state, "facing", context.horizontalDirection().opposite().name().toLowerCase(Locale.ROOT))) : state;
     }
 
     protected int copyWaterlogged(SimLevel level, BlockPos pos, int state) {

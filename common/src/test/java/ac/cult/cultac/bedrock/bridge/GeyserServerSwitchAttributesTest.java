@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.bridge;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
@@ -11,15 +12,19 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.List;
@@ -123,16 +128,14 @@ public class GeyserServerSwitchAttributesTest {
 
     private static CultPlayer bedrockPlayer() {
         UUID playerId = UUID.fromString("5d0f6c1e-0b4a-4d39-9a52-6f0e8f4e2b11");
-        var platform = mock(ac.cult.cultac.network.PlatformConnection.class);
-        when(platform.initialWorldData())
-                .thenReturn(ac.cult.cultac.utils.latency.ClientWorldRegistries.modelDefaults());
-        var connection = new ac.cult.cultac.network.CultConnection(
+        var platform = mock(PlatformConnection.class);
+        when(platform.initialWorldData()).thenReturn(ClientWorldRegistries.modelDefaults());
+        var connection = new CultConnection(
                 platform,
                 new EmbeddedChannel(),
-                ac.cult.cultac.CultAPI.INSTANCE.getNetworkManager().dispatcher(),
+                CultAPI.INSTANCE.getNetworkManager().dispatcher(),
                 ignored -> null);
-        for (var direction : ac.cult.cultac.protocol.PacketDirection.values())
-            connection.phase(direction, ConnectionPhase.PLAY);
+        for (var direction : PacketDirection.values()) connection.phase(direction, ConnectionPhase.PLAY);
         User user = new User(new User.Profile(playerId, ".Switch_Test"), connection);
         return new CultPlayer(user, MovementPlatform.BEDROCK, new BedrockPlayerState(playerId));
     }

@@ -7,6 +7,8 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaForwardMove;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementMath;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVehicleReport;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
@@ -127,17 +129,6 @@ public class ValidMovements {
         this(initialStartingVel, player, result, UncertaintyPipeline.MODIFIERS);
     }
 
-    /**
-     * The zero impulse already included in EntityPush's allowance. A late concrete shove can supply the report's
-     * displacement by itself; selecting an impulse toward that final report first would count the shove twice.
-     */
-    public ValidMovements withoutEntityPush(PredictionResult prediction) {
-        List<UncertaintyHandler> kept = uncertaintyHandlers.stream()
-                .filter(handler -> !(handler instanceof EntityPush))
-                .toList();
-        return new ValidMovements(initialStartingVel, player, prediction, kept);
-    }
-
     public ValidMovements(
             PredVector initialStartingVel,
             CultPlayer player,
@@ -153,10 +144,6 @@ public class ValidMovements {
         this.startTrace = MovementTrace.start(initialStartingVel);
 
         result.setValidMovements(this);
-    }
-
-    public Vec3 transformTowards(Vec3 end, PredictionResult lastResult) {
-        return transformTraceTowards(end, lastResult).position();
     }
 
     public MovementTrace transformTraceTowards(Vec3 end, PredictionResult lastResult) {
@@ -262,8 +249,7 @@ public class ValidMovements {
         if (radius.x == 0 && radius.y == 0 && radius.z == 0) return;
         // A vehicle following its interpolation target reports that target, not this travel: no gap to allow.
         if (result.getSimulationContext().getVehicle() != null
-                && ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVehicleReport.followsTarget(
-                        player, result.getSimulationContext())) return;
+                && JavaVehicleReport.followsTarget(player, result.getSimulationContext())) return;
         beforeDebugAllowance = closestTrace;
         MovementTrace adjusted = withDebugAllowance(closestTrace, radius);
         debugAllowance = adjusted.positionOnlyDelta().subtract(closestTrace.positionOnlyDelta());
@@ -485,8 +471,7 @@ public class ValidMovements {
         if (waterInputChoice >= 0
                 || player.isBedrockMovement()
                 || context.getVehicle() != null
-                || ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs.usesReportedKeys(
-                        player, context)
+                || JavaTravelInputs.usesReportedKeys(player, context)
                 || context.usesFallFlyingMovement()
                 || !context.getWorldData().isInLiquid()
                 || collisionIgnoredMaxStartingVelExtents == null
@@ -607,10 +592,6 @@ public class ValidMovements {
         this.closestToTarget = closestTrace == null ? null : closestTrace.position();
     }
 
-    protected PredVector initialStartingVelocity() {
-        return initialStartingVel;
-    }
-
     public SimpleCollisionBox computeAABB(PredictionResult lastResult) {
         // Only handlers run between the six traces, and no skip predicate reads what a handler writes.
         UncertaintyHandler[] kept = handlers;
@@ -651,12 +632,4 @@ public class ValidMovements {
 
         return new SimpleCollisionBox(negX, negY, negZ, posX, posY, posZ).sort();
     }
-
-    public boolean isTestingMaxStartingVelExtents(Vec3 end) {
-        return Math.abs(end.x) == LARGE_MOVEMENT
-                || Math.abs(end.y) == LARGE_MOVEMENT
-                || Math.abs(end.z) == LARGE_MOVEMENT;
-    }
-
-    public void addTransformers(UncertaintyPipeline uncertaintyPipeline) {}
 }

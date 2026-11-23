@@ -1,41 +1,52 @@
 package ac.cult.blocksim;
 
+import static org.junit.jupiter.api.Assertions.*;
+
+import ac.cult.blocksim.data.ComponentPatch;
 import ac.cult.blocksim.data.Components;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.InteractionRegistries;
+import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.blocksim.data.ItemRegistry;
-import ac.cult.blocksim.data.ComponentPatch;
+import ac.cult.blocksim.data.nbt.BinaryNbt;
+import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.engine.SimInventory;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
-import com.google.gson.JsonParser;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
 
 class ComponentsTest {
     @Test void receivedRegistryGenerationsOwnTheirPayloadsAndReplaceOnlyTheirRegistry() {
-        var defaults = ac.cult.blocksim.data.InteractionRegistries.defaults();
-        byte[] bytes = ac.cult.blocksim.data.nbt.BinaryNbt.write(new NbtValue.Compound(Map.of(
+        var defaults = InteractionRegistries.defaults();
+        byte[] bytes = BinaryNbt.write(new NbtValue.Compound(Map.of(
                 "id", new NbtValue.Text("minecraft:stone"))));
-        var payloads = new java.util.HashMap<String, byte[]>();
+        var payloads = new HashMap<String, byte[]>();
         payloads.put("test:custom", bytes);
         payloads.put("minecraft:soil_beneath_tree", null);
         var first = defaults.withEncodedRegistry("block_state_provider", payloads);
         bytes[0] = 0;
         payloads.clear();
-        var holder = new com.google.gson.JsonPrimitive("test:custom");
+        var holder = new JsonPrimitive("test:custom");
         var resolved = first.resolve("block_state_provider", holder).getAsJsonObject();
         assertEquals("minecraft:stone", resolved.get("id").getAsString());
         resolved.addProperty("id", "minecraft:dirt");
         assertEquals("minecraft:stone", first.resolve("block_state_provider", holder).getAsJsonObject().get("id").getAsString());
-        var known = new com.google.gson.JsonPrimitive("minecraft:soil_beneath_tree");
+        var known = new JsonPrimitive("minecraft:soil_beneath_tree");
         assertEquals(defaults.resolve("block_state_provider", known), first.resolve("block_state_provider", known));
         var second = first.withEncodedRegistry("block_state_provider", Map.of());
         assertThrows(IllegalArgumentException.class, () -> second.resolve("block_state_provider", holder));
         assertEquals("minecraft:stone", first.resolve("block_state_provider", holder).getAsJsonObject().get("id").getAsString());
-        var axe = new com.google.gson.JsonPrimitive("minecraft:axe");
+        var axe = new JsonPrimitive("minecraft:axe");
         assertEquals(defaults.resolve("block_transformer", axe), second.resolve("block_transformer", axe));
     }
 
@@ -43,8 +54,8 @@ class ComponentsTest {
         var items = new ItemRegistry(DataTables.defaults());
         var fields = new NbtValue.Compound(Map.of("components", new NbtValue.Compound(Map.of(
                 "minecraft:damage", new NbtValue.Numeric(NbtValue.Kind.INT, 8)))));
-        var patch = new NbtValue.Compound(Map.of("minecraft:can_break", new NbtValue.Sequence(java.util.List.of(fields))));
-        var exact = new NbtValue.Sequence(java.util.List.of(
+        var patch = new NbtValue.Compound(Map.of("minecraft:can_break", new NbtValue.Sequence(List.of(fields))));
+        var exact = new NbtValue.Sequence(List.of(
                 new NbtValue.Compound(Map.of("type", new NbtValue.Text("minecraft:damage"), "value", new NbtValue.Numeric(NbtValue.Kind.INT, 7))),
                 new NbtValue.Compound(Map.of("type", new NbtValue.Text("minecraft:damage"), "value", new NbtValue.Numeric(NbtValue.Kind.INT, 8)))));
         var layout = new NbtValue.Compound(Map.of("minecraft:can_break", new NbtValue.Compound(Map.of(
@@ -66,8 +77,8 @@ class ComponentsTest {
     @Test void inventoryKeepsAdventureMatcherOrderAndMergesEquivalentCodecForms() {
         var items = new ItemRegistry(DataTables.defaults());
         var fields = new NbtValue.Compound(Map.of("state", new NbtValue.Compound(Map.of("axis", new NbtValue.Text("y")))));
-        var patch = new NbtValue.Compound(Map.of("minecraft:can_break", new NbtValue.Sequence(java.util.List.of(fields))));
-        var order = new NbtValue.Sequence(java.util.List.of(
+        var patch = new NbtValue.Compound(Map.of("minecraft:can_break", new NbtValue.Sequence(List.of(fields))));
+        var order = new NbtValue.Sequence(List.of(
                 new NbtValue.Compound(Map.of("name", new NbtValue.Text("axis"), "value", new NbtValue.Text("x"))),
                 new NbtValue.Compound(Map.of("name", new NbtValue.Text("axis"), "value", new NbtValue.Text("y")))));
         var layout = new NbtValue.Compound(Map.of("minecraft:can_break", new NbtValue.Compound(Map.of(
@@ -91,9 +102,9 @@ class ComponentsTest {
     }
     @Test void inventoryMergesEquivalentTooltipMembershipsWithoutReorderingTheValue() {
         var items = new ItemRegistry(DataTables.defaults());
-        var first = new NbtValue.Compound(Map.of("hidden_components", new NbtValue.Sequence(java.util.List.of(
+        var first = new NbtValue.Compound(Map.of("hidden_components", new NbtValue.Sequence(List.of(
                 new NbtValue.Text("minecraft:tool"), new NbtValue.Text("minecraft:food")))));
-        var reversed = new NbtValue.Compound(Map.of("hidden_components", new NbtValue.Sequence(java.util.List.of(
+        var reversed = new NbtValue.Compound(Map.of("hidden_components", new NbtValue.Sequence(List.of(
                 new NbtValue.Text("minecraft:food"), new NbtValue.Text("minecraft:tool")))));
         var existing = items.stack("minecraft:stone", 32); existing.setComponent("minecraft:tooltip_display", first);
         var incoming = items.stack("minecraft:stone", 3); incoming.setComponent("minecraft:tooltip_display", reversed);
@@ -112,7 +123,7 @@ class ComponentsTest {
                 "saturation", new NbtValue.Numeric(NbtValue.Kind.FLOAT, 0.1F),
                 "can_always_eat", new NbtValue.Numeric(NbtValue.Kind.BYTE, (byte)1)));
         var generated = base.with("minecraft:food", JsonParser.parseString("{\"nutrition\":4,\"saturation\":0.1,\"can_always_eat\":true}"), food);
-        var current = new java.util.concurrent.atomic.AtomicReference<>(generated);
+        var current = new AtomicReference<>(generated);
         var items = new ItemRegistry(data, key -> key.equals("minecraft:stone") ? current.get() : null);
         var slots = new ArrayList<>(Collections.nCopies(43, items.empty())); slots.set(0, items.stack("minecraft:stone", 32));
         var inventory = new SimInventory(slots, 0, false, items.empty());
@@ -121,9 +132,9 @@ class ComponentsTest {
         assertEquals(35, inventory.get(0).count());
         assertTrue(inventory.get(1).isEmpty());
         assertEquals(generated.hashCode(), current.get().hashCode());
-        var changed = new java.util.HashMap<>(food.values());
+        var changed = new HashMap<>(food.values());
         changed.put("saturation", new NbtValue.Numeric(NbtValue.Kind.FLOAT, Math.nextUp(0.1F)));
-        current.set(current.get().with("minecraft:food", ac.cult.blocksim.data.nbt.NbtJson.encode(new NbtValue.Compound(changed)), new NbtValue.Compound(changed)));
+        current.set(current.get().with("minecraft:food", NbtJson.encode(new NbtValue.Compound(changed)), new NbtValue.Compound(changed)));
         assertTrue(inventory.add(items.stack("minecraft:stone", 2)));
         assertEquals(35, inventory.get(0).count());
         assertEquals(2, inventory.get(1).count());
@@ -142,7 +153,7 @@ class ComponentsTest {
         assertTrue(inventory.add(incoming));
         assertEquals(32, inventory.get(0).count());
         assertEquals(3, inventory.get(1).count());
-        assertEquals(Integer.MIN_VALUE, Float.floatToRawIntBits(ac.cult.blocksim.data.ItemComponents.food(inventory.get(1).components()).saturation()));
+        assertEquals(Integer.MIN_VALUE, Float.floatToRawIntBits(ItemComponents.food(inventory.get(1).components()).saturation()));
         assertTrue(inventory.get(1).sameItemSameComponents(inventory.get(1).copy()));
         assertEquals(ordinary.components().encodedNbt(), inventory.get(1).components().encodedNbt());
         var canonical = inventory.get(1).copy(); canonical.setComponent("minecraft:food", food);
@@ -150,7 +161,7 @@ class ComponentsTest {
     }
     @Test void inventoryMergesPreserveContainerSlotLayouts() throws Exception {
         var items = new ItemRegistry(DataTables.load("26.3"));
-        var value = new NbtValue.Compound(Map.of("minecraft:container", new NbtValue.Sequence(java.util.List.of())));
+        var value = new NbtValue.Compound(Map.of("minecraft:container", new NbtValue.Sequence(List.of())));
         var layout = new NbtValue.Compound(Map.of("minecraft:container", new NbtValue.Compound(Map.of(
                 "slots", new NbtValue.Numeric(NbtValue.Kind.INT, 4)))));
         var ordinary = items.stack("minecraft:stone", 32, ComponentPatch.fromNbt(value));
@@ -203,10 +214,10 @@ class ComponentsTest {
     }
 
     @Test void sameEncodedNbtAgreesWithComparingBothEncodedCompounds() throws Exception {
-        var random = new java.util.Random(11);
+        var random = new Random(11);
         var items = new ItemRegistry(DataTables.load("26.3"));
         var pool = new ArrayList<Components>();
-        for (String key : java.util.List.of("minecraft:stone", "minecraft:diamond_sword", "minecraft:honey_bottle"))
+        for (String key : List.of("minecraft:stone", "minecraft:diamond_sword", "minecraft:honey_bottle"))
             pool.add(items.defaults(key));
         for (int i = 0; i < 400; i++) pool.add(randomComponents(random));
         for (int i = 0; i < 200; i++) {
@@ -237,13 +248,13 @@ class ComponentsTest {
         assertTrue(equal > 1000 && thrown > 1000, equal + " equal, " + thrown + " thrown");
     }
 
-    private static Components randomComponents(java.util.Random random) {
-        var values = new java.util.HashMap<String, com.google.gson.JsonElement>();
-        var encoded = new java.util.HashMap<String, NbtValue>();
+    private static Components randomComponents(Random random) {
+        var values = new HashMap<String, JsonElement>();
+        var encoded = new HashMap<String, NbtValue>();
         int keys = random.nextInt(4);
         for (int i = 0; i < keys; i++) {
             String key = "k" + random.nextInt(5);
-            values.put(key, new com.google.gson.JsonPrimitive(random.nextInt(2)));
+            values.put(key, new JsonPrimitive(random.nextInt(2)));
             if (random.nextInt(8) != 0) encoded.put(key, random.nextBoolean()
                     ? new NbtValue.Numeric(NbtValue.Kind.INT, random.nextInt(2))
                     : new NbtValue.Text("t" + random.nextInt(2)));

@@ -13,6 +13,7 @@ import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.player.ClientVersionFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -22,7 +23,6 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import io.netty.channel.embedded.EmbeddedChannel;
-import java.lang.reflect.Field;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,9 +45,7 @@ class PhaseResizeTest {
         OfflineCultTestBootstrap.installConfig();
         channel = new EmbeddedChannel();
         player = new CultPlayer(TestUsers.create(new User.Profile(UUID.randomUUID(), "Scale_Test"), channel));
-        Field version = CultPlayer.class.getDeclaredField("resolvedClientVersion");
-        version.setAccessible(true);
-        version.set(player, ClientVersion.V_1_21_11);
+        ClientVersionFixtures.setClientVersion(player, ClientVersion.V_1_21_11);
         player.gamemode = GameMode.SURVIVAL;
         SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         player.checkManager.getSimulationProcessor().handleRespawn();
@@ -130,7 +128,7 @@ class PhaseResizeTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
     void phaseUsesThePhysicalStartRatherThanThePreviousReport(String release, ClientVersion version) throws Exception {
-        setClientVersion(version);
+        ClientVersionFixtures.setClientVersion(player, version);
         player.compensatedWorld.ensureValidationChunkLoaded(332 >> 4, -45 >> 4);
         stone(333, 82, -45);
         RecordingPhase phase = new RecordingPhase(player);
@@ -152,7 +150,7 @@ class PhaseResizeTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
     void aPushDoesNotAllowEntryIntoAnotherStaticBlock(String release, ClientVersion version) throws Exception {
-        setClientVersion(version);
+        ClientVersionFixtures.setClientVersion(player, version);
         stone(1, 64, 0);
         stone(2, 64, 0);
         RecordingPhase phase = new RecordingPhase(player);
@@ -164,12 +162,6 @@ class PhaseResizeTest {
         move(phase, new Vec3(1.71, 64, 0.5));
 
         assertEquals(1, phase.flags);
-    }
-
-    private void setClientVersion(ClientVersion version) throws Exception {
-        Field field = CultPlayer.class.getDeclaredField("resolvedClientVersion");
-        field.setAccessible(true);
-        field.set(player, version);
     }
 
     private void completeFrom(RecordingPhase phase, Vec3 physicalStart) {

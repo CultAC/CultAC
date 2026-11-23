@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.DormantWatch;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import io.netty.channel.ChannelHandler;
@@ -28,6 +29,14 @@ final class VelocityPacketPipeline {
         verifyBefore(pipeline, "via-encoder", CultEncoder.NAME);
         verifyBefore(pipeline, "compression-decoder", CultDecoder.NAME);
         verifyBefore(pipeline, "compression-encoder", CultEncoder.NAME);
+    }
+
+    /** Installs a dormant connection's watch where Cult's decoder goes. */
+    static void watch(ChannelPipeline pipeline, ChannelHandler watch) {
+        verifyHost(pipeline);
+        pipeline.addBefore("minecraft-decoder", DormantWatch.NAME, watch);
+        verifyBefore(pipeline, "via-decoder", DormantWatch.NAME);
+        verifyBefore(pipeline, "compression-decoder", DormantWatch.NAME);
     }
 
     private static void verifyHost(ChannelPipeline pipeline) {

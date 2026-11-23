@@ -1,10 +1,11 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimLevel;
-import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.interaction.PlacementContext;
+import java.util.Locale;
 import java.util.Set;
 
 public final class BigDripleafBehavior extends BlockBehavior {
@@ -17,7 +18,7 @@ public final class BigDripleafBehavior extends BlockBehavior {
         int below = level.stateAt(context.clickedPos().relative(Direction.DOWN));
         String key = level.registry().block(below).key();
         String direction = key.equals("minecraft:big_dripleaf") || key.equals("minecraft:big_dripleaf_stem")
-            ? level.registry().value(below, "facing") : context.horizontalDirection().opposite().name().toLowerCase(java.util.Locale.ROOT);
+            ? level.registry().value(below, "facing") : context.horizontalDirection().opposite().name().toLowerCase(Locale.ROOT);
         int state = level.registry().with(block.defaultState(), "waterlogged", Boolean.toString(level.fluidAt(context.clickedPos()).isSourceOfType("minecraft:water")));
         return level.registry().with(state, "facing", direction);
     }

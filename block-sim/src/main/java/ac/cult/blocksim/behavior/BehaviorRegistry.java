@@ -1,11 +1,14 @@
 package ac.cult.blocksim.behavior;
 
+import static ac.cult.blocksim.behavior.GrowingPlantBehavior.Kind.*;
+import static ac.cult.blocksim.behavior.GrowingPlantBehavior.Part.*;
+
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.InteractionRegistries;
+import ac.cult.blocksim.data.ItemRegistry;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.IntFunction;
-import static ac.cult.blocksim.behavior.GrowingPlantBehavior.Kind.*;
-import static ac.cult.blocksim.behavior.GrowingPlantBehavior.Part.*;
 
 /** Dispatch is bound once to generated vanilla class ancestry, never to block names. */
 public final class BehaviorRegistry implements IntFunction<BlockBehavior> {
@@ -17,18 +20,18 @@ public final class BehaviorRegistry implements IntFunction<BlockBehavior> {
     }
 
     public BehaviorRegistry(DataTables data, Map<String, BlockBehavior> additionalFamilies) {
-        this(data, new ac.cult.blocksim.data.ItemRegistry(data), additionalFamilies);
+        this(data, new ItemRegistry(data), additionalFamilies);
     }
-    public BehaviorRegistry(DataTables data, ac.cult.blocksim.data.ItemRegistry items) {
+    public BehaviorRegistry(DataTables data, ItemRegistry items) {
         this(data, items, Map.of());
     }
-    public BehaviorRegistry(DataTables data, ac.cult.blocksim.data.ItemRegistry items, ac.cult.blocksim.data.InteractionRegistries registries) {
+    public BehaviorRegistry(DataTables data, ItemRegistry items, InteractionRegistries registries) {
         this(data, items, Map.of(), registries);
     }
-    private BehaviorRegistry(DataTables data, ac.cult.blocksim.data.ItemRegistry items, Map<String, BlockBehavior> additionalFamilies) {
-        this(data, items, additionalFamilies, ac.cult.blocksim.data.InteractionRegistries.defaults());
+    private BehaviorRegistry(DataTables data, ItemRegistry items, Map<String, BlockBehavior> additionalFamilies) {
+        this(data, items, additionalFamilies, InteractionRegistries.defaults());
     }
-    private BehaviorRegistry(DataTables data, ac.cult.blocksim.data.ItemRegistry items, Map<String, BlockBehavior> additionalFamilies, ac.cult.blocksim.data.InteractionRegistries registries) {
+    private BehaviorRegistry(DataTables data, ItemRegistry items, Map<String, BlockBehavior> additionalFamilies, InteractionRegistries registries) {
         this.data = data;
         this.byBlock = new BlockBehavior[data.registry().blocks().size()];
         var support = new SupportRules(data.tags().get("block:minecraft:unstable_bottom_center"));

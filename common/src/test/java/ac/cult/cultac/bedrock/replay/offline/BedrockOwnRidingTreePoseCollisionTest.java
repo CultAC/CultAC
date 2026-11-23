@@ -7,6 +7,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.function.Consumer;
 import org.junit.Test;
 
 /**
@@ -36,7 +37,7 @@ public class BedrockOwnRidingTreePoseCollisionTest {
         });
     }
 
-    private static void withBoat(boolean riding, java.util.function.Consumer<CultPlayer> test) {
+    private static void withBoat(boolean riding, Consumer<CultPlayer> test) {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {

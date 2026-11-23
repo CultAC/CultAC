@@ -21,9 +21,13 @@ import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.CompensatedWorldPistons;
 import ac.cult.cultac.utils.lists.StableIndexSort;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.EntityCollisionSelection;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The local player's part of one client Level#tickBlockEntities: each PistonMovingBlockEntity#tick's
@@ -177,7 +181,7 @@ public final class JavaBlockEntityPass {
             if (removedBefore == 0 && added.isEmpty()) return before;
             int kept = Math.max(0, before.size() - removedBefore);
             if (kept == before.size() && added.isEmpty()) return before;
-            var moves = new java.util.ArrayList<JavaInsideBlockEffects.RecordedMove>(kept + added.size());
+            var moves = new ArrayList<JavaInsideBlockEffects.RecordedMove>(kept + added.size());
             moves.addAll(before.subList(0, kept));
             moves.addAll(added);
             return List.copyOf(moves);
@@ -274,7 +278,7 @@ public final class JavaBlockEntityPass {
      * where the earlier moves left them. The local player stands where the selected travel's pass put it.
      */
     public static List<Result> runEntities(CultPlayer player, List<EntityStart> starts, ClientBlockEntityPass pass) {
-        List<Replay> replays = new java.util.ArrayList<>(starts.size());
+        List<Replay> replays = new ArrayList<>(starts.size());
         for (EntityStart entry : starts) {
             PacketEntity actor = entry.actor();
             JavaPassState start = entry.start();
@@ -282,7 +286,7 @@ public final class JavaBlockEntityPass {
             replays.add(new Replay(entityEnvironment(player, actor, pass, start.position(), false), start));
         }
         runMovers(player, pass, null, replays);
-        List<Result> results = new java.util.ArrayList<>(replays.size());
+        List<Result> results = new ArrayList<>(replays.size());
         for (Replay replay : replays) results.add(replay.result(null));
         return results;
     }
@@ -323,8 +327,7 @@ public final class JavaBlockEntityPass {
         // Working space for the whole pass: each mover reuses the query order and the in-pass boxes.
         int[] order = actors > 1 ? new int[actors] : null;
         int[] sortScratch = order == null ? null : new int[actors];
-        java.util.Map<PacketEntity, SimpleCollisionBox> boxes =
-                actors > 1 ? new java.util.IdentityHashMap<>(remotes.size()) : null;
+        Map<PacketEntity, SimpleCollisionBox> boxes = actors > 1 ? new IdentityHashMap<>(remotes.size()) : null;
         List<JavaBlockEntityPath.Step> localMoves = null;
         // Without a local replay, the selected travel's path puts the local player at each mover.
         JavaBlockEntityPath localPath = local == null ? localPath(player, pass) : null;
@@ -383,7 +386,7 @@ public final class JavaBlockEntityPass {
                 if (mover instanceof ClientBlockEntityPass.Piston piston)
                     pistons.advanceReplay(piston.pos(), piston.storedProgress());
                 if (local != null && !localBefore.equals(local.state.position())) {
-                    if (localMoves == null) localMoves = new java.util.ArrayList<>();
+                    if (localMoves == null) localMoves = new ArrayList<>();
                     localMoves.add(new JavaBlockEntityPath.Step(moverIndex, local.state.position()));
                 }
                 moverIndex++;
@@ -402,7 +405,7 @@ public final class JavaBlockEntityPass {
      */
     private static void stepEntity(
             CompensatedEntities entities,
-            java.util.Map<PacketEntity, SimpleCollisionBox> boxes,
+            Map<PacketEntity, SimpleCollisionBox> boxes,
             JavaBlockEntityPath localPath,
             int localMover,
             ClientBlockEntityPass.Mover mover,
@@ -474,7 +477,7 @@ public final class JavaBlockEntityPass {
         PacketEntity selfRoot = entities.rootOfSelf();
         PacketEntity ownRoot = entities.selfRidingRoot();
         PacketEntity serverRoot = entities.serverVehicleRoot();
-        var selection = new ac.cult.cultac.utils.nmsutil.EntityCollisionSelection(player, self, start.position());
+        var selection = new EntityCollisionSelection(player, self, start.position());
         List<Replay> remotes = null;
         long tickedThrough = entities.passTickedThroughOrder();
         try {
@@ -487,7 +490,7 @@ public final class JavaBlockEntityPass {
                                     ? riderColliderStart(pass, actor)
                                     : null;
                     if (seated == null) continue;
-                    if (remotes == null) remotes = new java.util.ArrayList<>(1);
+                    if (remotes == null) remotes = new ArrayList<>(1);
                     remotes.add(new Replay(entityEnvironment(player, actor, pass, seated.position(), true), seated));
                     continue;
                 }
@@ -516,7 +519,7 @@ public final class JavaBlockEntityPass {
                         previous == null ? 0 : previous.fallDistance(),
                         previous == null ? ClientPistonDeltas.NONE : previous.pistonDeltas(),
                         false);
-                if (remotes == null) remotes = new java.util.ArrayList<>(1);
+                if (remotes == null) remotes = new ArrayList<>(1);
                 remotes.add(new Replay(entityEnvironment(player, actor, pass, position, true), state));
             }
         } finally {
@@ -657,7 +660,7 @@ public final class JavaBlockEntityPass {
         /** Entity#move's addMovementThisTick, when the move recorded its movement. */
         private void addMovementThisTick(Vec3 from, JavaBlockEntityMove.Moved result) {
             if (!result.recordedMovement()) return;
-            if (recordedMoves == null) recordedMoves = new java.util.ArrayList<>();
+            if (recordedMoves == null) recordedMoves = new ArrayList<>();
             recordedMoves.add(
                     new JavaInsideBlockEffects.RecordedMove(from, result.state().position(), result.delta()));
         }

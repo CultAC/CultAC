@@ -7,6 +7,7 @@ import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
+import ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
@@ -14,6 +15,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
@@ -124,7 +126,7 @@ record BedrockPlayerContext(
         var attributes = state != null
                 ? state.attributes()
                 : player.compensatedEntities == null
-                        ? ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY
+                        ? BedrockActorAttributes.EMPTY
                         : player.compensatedEntities.getSelf().bedrockAttributes;
         return attributes.apply(AttributeState.DEFAULT);
     }
@@ -155,7 +157,7 @@ record BedrockPlayerContext(
             return false;
         }
         SimItemStack boots = player.getInventory().getBoots();
-        return boots != null && boots.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS;
+        return boots != null && boots.getItem() == ItemTypes.LEATHER_BOOTS;
     }
 
     private static boolean wearingElytra(CultPlayer player) {
@@ -164,7 +166,7 @@ record BedrockPlayerContext(
         }
         SimItemStack chestplate = player.getInventory().getChestplate();
         return chestplate != null
-                && chestplate.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.ELYTRA
+                && chestplate.getItem() == ItemTypes.ELYTRA
                 && ItemUtil.getDamageValue(chestplate) < BEDROCK_ELYTRA_MAX_DAMAGE - 1;
     }
 

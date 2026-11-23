@@ -13,7 +13,6 @@ public final class RotationUpdate {
     private AimProcessor processor;
 
     private float deltaYRot, deltaXRot;
-    private boolean isCinematic;
     // The rotation a teleport answer set, not one the player turned to.
     private final boolean teleport;
     private double sensitivityX, sensitivityY;

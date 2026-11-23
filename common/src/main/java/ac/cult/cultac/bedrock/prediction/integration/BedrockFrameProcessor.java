@@ -6,7 +6,10 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.function.Consumer;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 /** Processes an original input frame before its transport representation is changed. */
 public final class BedrockFrameProcessor {
@@ -30,7 +33,7 @@ public final class BedrockFrameProcessor {
             BedrockAuthInputFrame original,
             BedrockPredictionTrigger trigger,
             Runnable rejectedMovementControls,
-            java.util.function.Consumer<BedrockAuthInputFrame> localBlockActions) {
+            Consumer<BedrockAuthInputFrame> localBlockActions) {
         player.packetStateData.bedrockTranslatedMovement.clear();
         if (!original.hasMinimumStrictData()
                 || !finite(original.getPosition())
@@ -61,7 +64,7 @@ public final class BedrockFrameProcessor {
             CultPlayer player,
             BedrockAuthInputFrame original,
             BedrockPredictionTrigger trigger,
-            java.util.function.Consumer<BedrockAuthInputFrame> localBlockActions) {
+            Consumer<BedrockAuthInputFrame> localBlockActions) {
         BedrockAuthInputFrame frame =
                 player.getSetbackTeleportUtil().bedrockTeleports().resolveBedrockCoordinates(original);
         if (frame == null) return null;
@@ -82,10 +85,8 @@ public final class BedrockFrameProcessor {
             }
         }
         player.bedrockState.offerAuthInputFrame(frame);
-        if (frame.hasRawInputFlag(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.START_FLYING)
-                && player.canFly) player.isFlying = true;
-        if (frame.hasRawInputFlag(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.STOP_FLYING))
-            player.isFlying = false;
+        if (frame.hasRawInputFlag(PlayerAuthInputData.START_FLYING) && player.canFly) player.isFlying = true;
+        if (frame.hasRawInputFlag(PlayerAuthInputData.STOP_FLYING)) player.isFlying = false;
         if (!teleport.isTeleport()
                 && player.getSetbackTeleportUtil().bedrockTeleports().mustAcknowledgeBedrockTransportTeleport()) {
             processor.processBedrockAuthInputFrame(frame, trigger);
@@ -115,7 +116,7 @@ public final class BedrockFrameProcessor {
             // build instantly, wherever its move ends: it asks to stop flying before its next tick.
             if (player.isFlying
                     && !player.canInstabuild
-                    && player.gamemode != ac.cult.cultac.protocol.value.GameMode.SPECTATOR
+                    && player.gamemode != GameMode.SPECTATOR
                     && result != null
                     && startedOnGround) player.isFlying = false;
         }

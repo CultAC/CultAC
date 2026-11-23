@@ -10,11 +10,14 @@ import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.buffer.Unpooled;
+import java.util.EnumSet;
+import java.util.List;
 import org.cloudburstmc.math.vector.Vector2f;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodec;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockPacketSerializer;
 import org.cloudburstmc.protocol.bedrock.packet.*;
+import org.geysermc.geyser.entity.type.Entity;
 import org.geysermc.geyser.session.GeyserSession;
 import org.junit.Assume;
 import org.junit.Test;
@@ -51,7 +54,7 @@ public class BedrockEntityDeltaCodecTest {
             var session = Mockito.mock(GeyserSession.class, Mockito.RETURNS_DEEP_STUBS);
             Mockito.when(session.protocolVersion()).thenReturn(2168);
             Mockito.when(session.getPlayerEntity().geyserId()).thenReturn(1L);
-            var translated = Mockito.mock(org.geysermc.geyser.entity.type.Entity.class);
+            var translated = Mockito.mock(Entity.class);
             Mockito.when(translated.getEntityId()).thenReturn(71);
             Mockito.when(session.getEntityCache().getEntityByGeyserId(171L)).thenReturn(translated);
             var type = Class.forName("ac.cult.cultac.bedrock.bridge.GeyserEntityPositions");
@@ -83,12 +86,11 @@ public class BedrockEntityDeltaCodecTest {
                 packet.setY(70);
                 packet.setZ(16);
                 packet.getFlags()
-                        .addAll(java.util.EnumSet.of(
+                        .addAll(EnumSet.of(
                                 MoveEntityDeltaPacket.Flag.HAS_X,
                                 MoveEntityDeltaPacket.Flag.HAS_Y,
                                 MoveEntityDeltaPacket.Flag.HAS_Z));
-                for (String flag :
-                        java.util.List.of("OnGround", "ForceMove", "ForceMoveLocalEntity", "ForceCompletion")) {
+                for (String flag : List.of("OnGround", "ForceMove", "ForceMoveLocalEntity", "ForceCompletion")) {
                     packet.getClass()
                             .getMethod("set" + flag, boolean.class)
                             .invoke(packet, flag.equals("ForceMoveLocalEntity") ? local : true);
@@ -116,8 +118,8 @@ public class BedrockEntityDeltaCodecTest {
     private static void flush(Class<?> type, Object positions, CultPlayer player) throws Exception {
         var field = type.getDeclaredField("pending");
         field.setAccessible(true);
-        var pending = (java.util.List<Runnable>) field.get(positions);
-        java.util.List.copyOf(pending).forEach(Runnable::run);
+        var pending = (List<Runnable>) field.get(positions);
+        List.copyOf(pending).forEach(Runnable::run);
         pending.clear();
         player.latencyUtils.handleNettySyncTransaction(player.lastTransactionReceived.get());
     }

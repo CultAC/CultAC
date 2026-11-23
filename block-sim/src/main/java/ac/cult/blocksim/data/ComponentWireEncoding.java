@@ -1,5 +1,6 @@
 package ac.cult.blocksim.data;
 
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -45,7 +46,7 @@ public final class ComponentWireEncoding {
 
     public byte[] bytes() { return bytes.clone(); }
     /** A fresh read-only view lets packet helpers copy directly into their output. */
-    public java.nio.ByteBuffer buffer() { return java.nio.ByteBuffer.wrap(bytes).asReadOnlyBuffer(); }
+    public ByteBuffer buffer() { return ByteBuffer.wrap(bytes).asReadOnlyBuffer(); }
     public Map<String, ComponentWireEncoding> item(String slot) { return items.getOrDefault(slot, Map.of()); }
 
     /** Raw holder IDs can only be reused while every referenced registry entry still agrees. */

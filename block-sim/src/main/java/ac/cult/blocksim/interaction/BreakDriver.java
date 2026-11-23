@@ -5,6 +5,7 @@ import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.SimPlayer;
+import java.util.Objects;
 
 /** MultiPlayerGameMode.destroyBlock. Tick progress and packet acknowledgement are
  * separate from this ordered, action-local world mutation. */
@@ -13,8 +14,8 @@ public final class BreakDriver {
     private final AdventureRuleMatcher adventure;
 
     public BreakDriver(ItemBehaviorRegistry items, AdventureRuleMatcher adventure) {
-        this.items = java.util.Objects.requireNonNull(items);
-        this.adventure = java.util.Objects.requireNonNull(adventure);
+        this.items = Objects.requireNonNull(items);
+        this.adventure = Objects.requireNonNull(adventure);
     }
 
     public boolean restricted(SimLevel level, SimPlayer player, BlockPos pos) {

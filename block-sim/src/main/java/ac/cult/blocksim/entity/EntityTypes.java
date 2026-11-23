@@ -6,6 +6,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,29 +24,6 @@ public final class EntityTypes {
         public boolean has(int family) { return (families & family) != 0; }
         public boolean canSpawn(Set<String> enabledFeatures, boolean peaceful) {
             return enabledFeatures.containsAll(features) && (allowedInPeaceful || !peaceful);
-        }
-        /** EntityAttachments#getClamped(PASSENGER), after EntityDimensions#scale. */
-        public Vec3 passengerAttachment(int index, float scale, float yaw) {
-            return passengerAttachment(index, 1.0F, scale, yaw);
-        }
-        /**
-         * EntityAttachments#getClamped(PASSENGER) after the getDefaultDimensions scale ({@code dimensionScale}, e.g.
-         * Phantom's size) and then LivingEntity#getDimensions' getScale.
-         */
-        public Vec3 passengerAttachment(int index, float dimensionScale, float scale, float yaw) {
-            if (passengers.isEmpty()) throw new IllegalStateException("No passenger attachment for " + key);
-            Vec3 point = passengers.get(Math.clamp(index, 0, passengers.size() - 1));
-            if (!fixed && dimensionScale != 1.0F) point = point.scale(dimensionScale);
-            return attachment(point, scale, yaw);
-        }
-        /** EntityAttachments#get(VEHICLE, 0), after EntityDimensions#scale. */
-        public Vec3 vehicleAttachment(float scale, float yaw) {
-            if (vehicle.isEmpty()) throw new IllegalStateException("No vehicle attachment for " + key);
-            return attachment(vehicle.get(0), scale, yaw);
-        }
-        private Vec3 attachment(Vec3 point, float scale, float yaw) {
-            if (!fixed && scale != 1.0F) point = point.scale(scale);
-            return point.yRot(-yaw * (float) (Math.PI / 180.0));
         }
         public Box boxAt(Vec3 position) {
             double radius = width / 2.0F;
@@ -78,7 +57,7 @@ public final class EntityTypes {
         String path = "/block-sim/" + version + "/entity-types.tsv";
         var stream = EntityTypes.class.getResourceAsStream(path);
         if (stream == null) throw new IOException("Missing entity table " + path);
-        var types = new java.util.ArrayList<Type>();
+        var types = new ArrayList<Type>();
         try (var reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
             reader.readLine();
             for (String row; (row = reader.readLine()) != null; ) {
@@ -93,7 +72,7 @@ public final class EntityTypes {
     }
     private static List<Vec3> points(String field) {
         if (field.isEmpty()) return List.of();
-        return java.util.Arrays.stream(field.split(";")).map(point -> {
+        return Arrays.stream(field.split(";")).map(point -> {
             String[] xyz = point.split(",");
             return new Vec3(Double.parseDouble(xyz[0]), Double.parseDouble(xyz[1]), Double.parseDouble(xyz[2]));
         }).toList();

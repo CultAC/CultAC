@@ -1,7 +1,9 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
+import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockTickInput;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementInputFactory.Input;
@@ -13,6 +15,7 @@ import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
@@ -21,6 +24,7 @@ import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
 import ac.cult.cultac.bedrock.prediction.world.FluidState;
 import ac.cult.cultac.bedrock.prediction.world.HoneySlideState;
+import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
@@ -37,6 +41,7 @@ import ac.cult.cultac.utils.latency.CompensatedFireworks;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.Assert;
 import org.junit.Test;
@@ -202,12 +207,12 @@ public final class BedrockUncertaintyPipelineTest {
 
     @Test
     public void endTickOverlapChangesPacketVelocityWithoutChangingCurrentPosition() {
-        var block = new ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision(
-                new ac.cult.cultac.bedrock.prediction.geometry.BlockPosition(1, 0, 0),
+        var block = new PlacedBlockCollision(
+                new BlockPosition(1, 0, 0),
                 "minecraft:stone",
                 "minecraft:stone",
-                java.util.Map.of(),
-                List.of(new ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox(1, 0, 0, 2, 1, 1)));
+                Map.of(),
+                List.of(new WorldCollisionBox(1, 0, 0, 2, 1, 1)));
         BedrockMovementContext movementContext =
                 airContext().withBlockCollisionWorld(new BlockCollisionWorld(List.of(block)));
         BedrockMovementState previous = BedrockMovementState.fromPhysicalFeet(
@@ -237,15 +242,14 @@ public final class BedrockUncertaintyPipelineTest {
                 false);
         var selected = previous.withPhysicalFeetPosition(new Vec3d(0.9, 0, 0.5), 0.16);
         // The box overlaps the block from its west side, so the push raises the resting x velocity to 0.1 westward.
-        var pushed = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, selected);
+        var pushed = BedrockForwardTick.finish(movement, selected);
         Assert.assertEquals(selected.physicalFeetPosition(), pushed.physicalFeetPosition());
         Assert.assertEquals(-0.1F, pushed.velocity().x(), 0);
         Assert.assertEquals(0, pushed.velocity().z(), 0);
-        var outside = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, previous);
+        var outside = BedrockForwardTick.finish(movement, previous);
         Assert.assertEquals(0, outside.velocity().x(), 0);
         Assert.assertEquals(0, outside.velocity().z(), 0);
-        Assert.assertEquals(
-                outside.velocity().y(), pushed.velocity().y(), 0);
+        Assert.assertEquals(outside.velocity().y(), pushed.velocity().y(), 0);
         Vec3 reported = new Vec3(-0.1F, pushed.velocity().y(), 0);
         var observation = BedrockMovementObservationFactory.fromForwardSelection(
                 movement, new Vec3(0.9, 0, 0.5), selected, reported, null);

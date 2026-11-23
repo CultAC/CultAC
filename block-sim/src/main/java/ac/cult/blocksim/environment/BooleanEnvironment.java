@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Compiled dimension/biome booleans and ordered timelines, using compensated client clocks. */
 public final class BooleanEnvironment {
@@ -21,7 +22,7 @@ public final class BooleanEnvironment {
 
     public BooleanEnvironment(JsonObject dimensionAttributes, Map<Integer, JsonObject> biomeAttributes,
                               List<JsonElement> timelines, ClientClocks clocks) {
-        this.clocks = java.util.Objects.requireNonNull(clocks);
+        this.clocks = Objects.requireNonNull(clocks);
         boolean water = BooleanRule.apply(dimensionAttributes, WATER, false);
         boolean creaking = BooleanRule.apply(dimensionAttributes, CREAKING, false);
         var bases = new HashMap<Integer, Integer>();

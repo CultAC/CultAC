@@ -1,7 +1,5 @@
 package ac.cult.cultac.checks;
 
-import java.util.ArrayList;
-import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.Accessors;
@@ -36,7 +34,7 @@ public final class CheckInfo {
             throw new IllegalArgumentException("CheckInfo requires a non-empty name");
         }
         this.name = builder.name;
-        this.names = builder.names();
+        this.names = CheckNames.of(builder.name);
         this.altName = builder.altName;
         this.configName = builder.configName;
         this.stableKey = builder.stableKey;
@@ -62,23 +60,7 @@ public final class CheckInfo {
         private double setback = 25;
         private boolean experimental;
 
-        private final List<Former> formerNames = new ArrayList<>();
-
-        private record Former(int lastVersion, String name) {}
-
         private Builder() {}
-
-        /** The check was {@code name} up to name version {@code lastVersion}; see {@link CheckNames}. */
-        public Builder formerName(int lastVersion, String name) {
-            formerNames.add(new Former(lastVersion, name));
-            return this;
-        }
-
-        private CheckNames names() {
-            CheckNames names = CheckNames.of(name);
-            for (Former former : formerNames) names = names.formerly(former.lastVersion(), former.name());
-            return names;
-        }
 
         public CheckInfo build() {
             return new CheckInfo(this);

@@ -518,11 +518,6 @@ public record BedrockMovementState(
         return hasTeleported() ? this : new BedrockMovementState(motion, actor, memory, TickStart.TELEPORT, attributes);
     }
 
-    /** No ground contact and the air branch; velocity and position unchanged. */
-    public BedrockMovementState offGround() {
-        return withVelocityAndCollisionFlags(velocity(), BedrockCollisionFlags.AIR).withMovementBranch(Medium.AIR);
-    }
-
     public BedrockMovementState withTeleportTaken() {
         return hasTeleported() ? new BedrockMovementState(motion, actor, memory, TickStart.MOVE, attributes) : this;
     }
@@ -546,20 +541,6 @@ public record BedrockMovementState(
 
     public BedrockMovementState withWasInWaterFlag(boolean wasInWaterFlag) {
         return actor.wasInWaterFlag() == wasInWaterFlag ? this : withActor(actor.withWasInWaterFlag(wasInWaterFlag));
-    }
-
-    public BedrockMovementState(
-            Motion motion,
-            ActorState actor,
-            TickMemory memory,
-            boolean hasTeleported,
-            BedrockMovementAttributeState movementAttribute) {
-        this(
-                motion,
-                actor,
-                memory,
-                hasTeleported ? TickStart.TELEPORT : TickStart.MOVE,
-                BedrockActorAttributes.EMPTY.withMovement(movementAttribute));
     }
 
     public BedrockMovementAttributeState movementAttribute() {
@@ -732,10 +713,6 @@ public record BedrockMovementState(
         return withActor(actor.withPendingBlockMovementSlowdownState(state));
     }
 
-    public BedrockMovementState withScaffoldingDescendAllowed(boolean allowed) {
-        return withActor(actor.withScaffoldingDescendAllowed(allowed));
-    }
-
     public BedrockMovementState withClimbableContact(BedrockClimbableContact contact) {
         return withActor(actor.withClimbableContact(contact));
     }
@@ -844,16 +821,6 @@ public record BedrockMovementState(
             this(position, velocity, distance, displacement, input, flags, frame, null);
         }
 
-        public Motion(
-                Vec3d position,
-                Vec3d velocity,
-                double distance,
-                Vec3d displacement,
-                BedrockInputFrame input,
-                BedrockCollisionFlags flags) {
-            this(position, velocity, distance, displacement, input, flags, BedrockCoordinateFrame.IDENTITY);
-        }
-
         public Motion {
             Objects.requireNonNull(coordinateFrame, "coordinateFrame");
             Objects.requireNonNull(physicalFeetPosition, "physicalFeetPosition");
@@ -936,16 +903,6 @@ public record BedrockMovementState(
             this(contacts, pose, travel, mode, dimensions, acknowledged, horse, null);
         }
 
-        public ActorState(
-                ContactState contacts,
-                PoseState pose,
-                TravelMode travel,
-                BedrockBoundingBoxMode mode,
-                PlayerDimensionsState dimensions,
-                PlayerDimensionsState acknowledged) {
-            this(contacts, pose, travel, mode, dimensions, acknowledged, null);
-        }
-
         public ActorState {
             Objects.requireNonNull(contacts, "contacts");
             Objects.requireNonNull(pose, "pose");
@@ -1026,10 +983,6 @@ public record BedrockMovementState(
             return copy(contacts, pose, travel.withAutoClimb(value));
         }
 
-        ActorState withItemUseSlowdownActive(boolean value) {
-            return copy(contacts, pose.withItemUse(value), travel);
-        }
-
         ActorState withGliding(boolean value, boolean request) {
             return copy(contacts, pose, travel.withGliding(value, request));
         }
@@ -1040,10 +993,6 @@ public record BedrockMovementState(
 
         ActorState withClimbableContact(BedrockClimbableContact value) {
             return copy(contacts.withClimbableContact(value), pose, travel);
-        }
-
-        ActorState withScaffoldingDescendAllowed(boolean value) {
-            return copy(contacts.withDescendAllowed(value), pose, travel);
         }
 
         ActorState withPlayerDimensions(PlayerDimensionsState value, PlayerDimensionsState acknowledged) {
@@ -1092,24 +1041,11 @@ public record BedrockMovementState(
         ContactState withWasInWater(boolean value) {
             return new ContactState(pendingSlowdown, climbableContact, value);
         }
-
-        ContactState withDescendAllowed(boolean value) {
-            return withClimbableContact(new BedrockClimbableContact(
-                    climbableContact.ladder(),
-                    climbableContact.scaffolding(),
-                    climbableContact.overScaffolding(),
-                    value,
-                    climbableContact.ascendableBlock()));
-        }
     }
 
     public record PoseState(boolean sprinting, boolean swimming, boolean horizontal, boolean itemUseSlowdownActive) {
         PoseState withSprinting(boolean value) {
             return new PoseState(value, swimming, horizontal, itemUseSlowdownActive);
-        }
-
-        PoseState withItemUse(boolean value) {
-            return new PoseState(sprinting, swimming, horizontal, value);
         }
     }
 
@@ -1315,26 +1251,6 @@ public record BedrockMovementState(
                     riptideSpinTicks,
                     sneakingTicks,
                     itemUseSlowdownTicks,
-                    dolphinBoost,
-                    cameraWater,
-                    sneakMoveScale,
-                    penetratingMoves,
-                    geyserBoostTicks,
-                    oneWayBoxes);
-        }
-
-        TickMemory withItemUseSlowdownTicks(long value) {
-            return new TickMemory(
-                    simulationTick,
-                    powderSnowTicks,
-                    fallFlyTicks,
-                    fallDistance,
-                    swimAmount,
-                    riptideChargeTicks,
-                    riptideSpinActive,
-                    riptideSpinTicks,
-                    sneakingTicks,
-                    value,
                     dolphinBoost,
                     cameraWater,
                     sneakMoveScale,

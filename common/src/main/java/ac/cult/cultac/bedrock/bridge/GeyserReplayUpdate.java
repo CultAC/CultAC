@@ -1,9 +1,14 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayContextEvent;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayEvent;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import org.cloudburstmc.protocol.bedrock.data.AttributeData;
+import org.cloudburstmc.protocol.bedrock.packet.AddEntityPacket;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MobEffectPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket;
@@ -15,7 +20,7 @@ record GeyserReplayUpdate(long actorId, long tick, BedrockReplayEvent event) {
         if (packet instanceof UpdateAttributesPacket attributes) {
             return attributes(attributes.getRuntimeEntityId(), attributes.getTick(), attributes.getAttributes());
         }
-        if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.AddEntityPacket spawn) {
+        if (packet instanceof AddEntityPacket spawn) {
             return attributes(spawn.getRuntimeEntityId(), 0, spawn.getAttributes());
         }
         if (packet instanceof MobEffectPacket effect && effect.getEvent() != MobEffectPacket.Event.NONE) {
@@ -41,16 +46,11 @@ record GeyserReplayUpdate(long actorId, long tick, BedrockReplayEvent event) {
         return null;
     }
 
-    private static GeyserReplayUpdate attributes(
-            long actor, long tick, java.util.List<org.cloudburstmc.protocol.bedrock.data.AttributeData> attributes) {
-        var values = new LinkedHashMap<String, ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState>();
+    private static GeyserReplayUpdate attributes(long actor, long tick, List<AttributeData> attributes) {
+        var values = new LinkedHashMap<String, BedrockMovementAttributeState>();
         for (var value : attributes) values.put(value.getName(), GeyserMovementAttributeCodec.capture(value));
         return values.isEmpty()
                 ? null
-                : new GeyserReplayUpdate(
-                        actor,
-                        tick,
-                        new ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent(
-                                values, tick != 0));
+                : new GeyserReplayUpdate(actor, tick, new BedrockReplayAttributeEvent(values, tick != 0));
     }
 }

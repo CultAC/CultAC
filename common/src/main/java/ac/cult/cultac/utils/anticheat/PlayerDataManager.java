@@ -5,11 +5,15 @@ import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.dialog.Dialogs;
+import ac.cult.cultac.events.packets.PlayerLoginHooks;
+import ac.cult.cultac.manager.datastore.SessionTracker;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.netty.channel.ChannelHelper;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.player.PlatformPlayerCache;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.floodgate.FloodgateUtil;
 import ac.cult.cultac.utils.floodgate.GeyserUtil;
 import ac.grim.grimac.api.event.events.GrimJoinEvent;
@@ -117,23 +121,28 @@ public class PlayerDataManager {
             return;
         }
         var session = user.getCultConnection();
-        CultPlayer created;
+        DormancyController.wake(session);
+        CultPlayer created = null;
         synchronized (session) {
             if (session.disconnected() || session.player() != null) return;
-            created = createPlayer(user);
-            session.player(created);
-            activePlayers.add(created);
+            if (session.dormant() == null) {
+                created = createPlayer(user);
+                session.player(created);
+                activePlayers.add(created);
+            }
         }
 
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
-        if (host != null)
-            host.bindUser(
-                    user.getChannel(),
-                    user.getUUID(),
-                    user.getPlayer() == null ? null : user.getPlayer().getNative(),
-                    created);
-        Channels.JOIN.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(created));
-        CloudModule.playerRegistered(created);
+        if (created != null) {
+            var host = RuntimeEnvironment.host();
+            if (host != null)
+                host.bindUser(
+                        user.getChannel(),
+                        user.getUUID(),
+                        user.getPlayer() == null ? null : user.getPlayer().getNative(),
+                        created);
+            Channels.JOIN.fire(RuntimeEnvironment.outwardUser(created));
+            CloudModule.playerRegistered(created);
+        }
         UUID uuid = user.getUUID();
         if (uuid != null && CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
             CultAPI.INSTANCE.getDataStoreLifecycle().holdToggles(uuid, user.getConnectionId());
@@ -157,9 +166,68 @@ public class PlayerDataManager {
         }
         tracked.onRemove();
         CloudModule.playerRemoved(tracked.getUniqueId());
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) host.unbindUser(user.getChannel());
         return true;
+    }
+
+    /**
+     * Takes the player off a connection that stays open uninspected, on its packet owner: {@link #remove}, the quit
+     * event and, for a connection that completed its login, the datastore quit. Alert subscriptions and toggles stay
+     * with the native connection.
+     */
+    public void detachDormant(final User user, boolean loginNotified) {
+        CultPlayer tracked = user.getCultPlayer();
+        if (remove(user)) {
+            Channels.QUIT.fire(RuntimeEnvironment.outwardUser(tracked));
+            Dialogs.forget(user.getUUID(), tracked);
+        }
+        if (loginNotified && user.getUUID() != null && CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
+            CultAPI.INSTANCE
+                    .getDataStoreLifecycle()
+                    .liveWriteHooks()
+                    .onQuitFromUserDisconnect(user, tracked, System.currentTimeMillis());
+        }
+    }
+
+    /**
+     * Another engine handed over a connection it inspected and this one watches it uninspected: closes the session row,
+     * {@code connectionId}'s, that the handing engine kept open for it.
+     */
+    public void dormantAdopted(UUID uuid, UUID connectionId) {
+        if (CultAPI.INSTANCE.getDataStoreLifecycle() == null) return;
+        CultAPI.INSTANCE
+                .getDataStoreLifecycle()
+                .liveWriteHooks()
+                .onQuit(
+                        uuid,
+                        System.currentTimeMillis(),
+                        new SessionTracker.ClientMeta(null, null, -1, null, connectionId));
+    }
+
+    /**
+     * {@code player} joins on a connection CultAC does not inspect, {@code connectionId}'s: holds their toggle slot for
+     * it and runs the login steps that need no CultAC player. {@link #dormantQuit} with the same id releases both.
+     */
+    public void dormantJoin(PlatformPlayer player, UUID connectionId) {
+        if (CultAPI.INSTANCE.getDataStoreLifecycle() != null)
+            CultAPI.INSTANCE.getDataStoreLifecycle().holdToggles(player.getUniqueId(), connectionId);
+        PlayerLoginHooks.joinedUninspected(player);
+    }
+
+    /**
+     * A connection CultAC watched uninspected has closed: releases what the native connection held, as a
+     * disconnect does. {@code player} is the platform player it last had, null when this generation never had one.
+     */
+    public void dormantQuit(UUID uuid, @Nullable UUID connectionId, @Nullable PlatformPlayer player) {
+        if (connectionId != null && CultAPI.INSTANCE.getDataStoreLifecycle() != null)
+            CultAPI.INSTANCE.getDataStoreLifecycle().releaseToggles(uuid, connectionId);
+        CultAPI.INSTANCE.getAlertManager().handlePlayerQuit(player);
+        if (CultAPI.INSTANCE.getSpectateManager() != null
+                && CultAPI.INSTANCE.getNetworkManager().getUser(uuid) == null)
+            CultAPI.INSTANCE.getSpectateManager().onQuit(uuid);
+        if (player != null && CultAPI.INSTANCE.getPlatformPlayerFactory() != null)
+            CultAPI.INSTANCE.getPlatformPlayerFactory().invalidatePlayer(player);
     }
 
     /**
@@ -201,9 +269,8 @@ public class PlayerDataManager {
 
         tracked.onRemove();
         clearExemptions(user);
-        Channels.QUIT.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(tracked));
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() != null)
-            ac.cult.cultac.runtime.RuntimeEnvironment.host().unbindUser(user.getChannel());
+        Channels.QUIT.fire(RuntimeEnvironment.outwardUser(tracked));
+        if (RuntimeEnvironment.host() != null) RuntimeEnvironment.host().unbindUser(user.getChannel());
         releaseConnection(user, tracked, transferred);
     }
 

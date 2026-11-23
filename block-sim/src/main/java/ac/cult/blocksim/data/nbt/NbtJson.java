@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import java.util.HashMap;
 
 /** Convenience codec fields for behavior readers; typed NBT remains the predicate authority. */
 public final class NbtJson {
@@ -16,7 +17,7 @@ public final class NbtJson {
     /** Literal compound JSON accepted by the raw-NBT codec; component schemas use their own types. */
     public static NbtValue literal(JsonElement value) {
         if (value.isJsonObject()) {
-            var fields = new java.util.HashMap<String, NbtValue>();
+            var fields = new HashMap<String, NbtValue>();
             value.getAsJsonObject().entrySet().forEach(entry -> fields.put(entry.getKey(), literal(entry.getValue())));
             return new NbtValue.Compound(fields);
         }

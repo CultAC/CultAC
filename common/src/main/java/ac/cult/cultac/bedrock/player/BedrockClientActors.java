@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.player;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.Vec3;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import java.util.function.Consumer;
 
@@ -76,13 +77,7 @@ public final class BedrockClientActors {
 
     /** A collidable actor's id, box, and where it was spawned, last sent to and is shown, in world coordinates. */
     public interface Collider {
-        void accept(
-                long runtimeId,
-                SimpleCollisionBox box,
-                ac.cult.cultac.utils.math.Vec3 placed,
-                ac.cult.cultac.utils.math.Vec3 sent,
-                ac.cult.cultac.utils.math.Vec3 shown,
-                int stepsLeft);
+        void accept(long runtimeId, SimpleCollisionBox box, Vec3 placed, Vec3 sent, Vec3 shown, int stepsLeft);
     }
 
     /** Passes every collidable actor that touches {@code reach}, with the position it was sent to and is shown at. */
@@ -96,11 +91,9 @@ public final class BedrockClientActors {
             out.accept(
                     entry.getLongKey(),
                     box,
-                    new ac.cult.cultac.utils.math.Vec3(
-                            (double) actor.placedX + ox, actor.placedY, (double) actor.placedZ + oz),
-                    new ac.cult.cultac.utils.math.Vec3(
-                            (double) actor.targetX + ox, actor.targetY, (double) actor.targetZ + oz),
-                    new ac.cult.cultac.utils.math.Vec3((double) actor.x + ox, actor.y, (double) actor.z + oz),
+                    new Vec3((double) actor.placedX + ox, actor.placedY, (double) actor.placedZ + oz),
+                    new Vec3((double) actor.targetX + ox, actor.targetY, (double) actor.targetZ + oz),
+                    new Vec3((double) actor.x + ox, actor.y, (double) actor.z + oz),
                     actor.stepsLeft);
         }
     }

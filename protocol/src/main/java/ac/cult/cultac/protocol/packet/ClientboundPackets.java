@@ -5,6 +5,7 @@ import ac.cult.cultac.protocol.PacketCatalog;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.codec.connection.ClientboundCustomPayloadCodec;
 import ac.cult.cultac.protocol.codec.connection.ClientboundKeepAliveCodec;
+import ac.cult.cultac.protocol.codec.connection.ContainerCloseCodecs;
 import ac.cult.cultac.protocol.codec.connection.DisconnectCodec;
 import ac.cult.cultac.protocol.codec.connection.MountScreenOpenCodec;
 import ac.cult.cultac.protocol.codec.connection.OpenScreenCodec;
@@ -21,6 +22,7 @@ import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveMinecartCodec;
 import ac.cult.cultac.protocol.codec.entity.PlayerCombatKillCodec;
+import ac.cult.cultac.protocol.codec.entity.PlayerInfoRemoveCodec;
 import ac.cult.cultac.protocol.codec.entity.PlayerInfoUpdateCodec;
 import ac.cult.cultac.protocol.codec.entity.RemoveEntitiesCodec;
 import ac.cult.cultac.protocol.codec.entity.RemoveMobEffectCodec;
@@ -28,6 +30,7 @@ import ac.cult.cultac.protocol.codec.entity.RotateHeadCodec;
 import ac.cult.cultac.protocol.codec.entity.SetCameraCodec;
 import ac.cult.cultac.protocol.codec.entity.SetHealthCodec;
 import ac.cult.cultac.protocol.codec.entity.SetPassengersCodec;
+import ac.cult.cultac.protocol.codec.entity.SetPlayerTeamCodec;
 import ac.cult.cultac.protocol.codec.entity.SwingAnimationCodec;
 import ac.cult.cultac.protocol.codec.entity.TeleportEntityCodec;
 import ac.cult.cultac.protocol.codec.entity.UpdateAttributesCodec;
@@ -55,6 +58,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAnimate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockChangedAck;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundCooldown;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDamageEvent;
@@ -76,6 +80,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerAbilities;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerCombatKill;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerLookAt;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
@@ -88,9 +93,12 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderCenter;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderLerpSize;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderSize;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetCamera;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheCenter;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheRadius;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHeldSlot;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSwingAnimation;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundTeleportEntity;
@@ -155,18 +163,12 @@ public final class ClientboundPackets {
             PLAY.add("set_health", ClientboundSetHealth.class, new SetHealthCodec());
     public static final PacketType<ClientboundPlayerCombatKill> PLAYER_COMBAT_KILL =
             PLAY.add("player_combat_kill", ClientboundPlayerCombatKill.class, new PlayerCombatKillCodec());
-    public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam>
-            SET_PLAYER_TEAM = PLAY.add(
-                    "set_player_team",
-                    ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam.class,
-                    new ac.cult.cultac.protocol.codec.entity.SetPlayerTeamCodec());
+    public static final PacketType<ClientboundSetPlayerTeam> SET_PLAYER_TEAM =
+            PLAY.add("set_player_team", ClientboundSetPlayerTeam.class, new SetPlayerTeamCodec());
     public static final PacketType<ClientboundPlayerInfoUpdate> PLAYER_INFO_UPDATE =
             PLAY.add("player_info_update", ClientboundPlayerInfoUpdate.class, new PlayerInfoUpdateCodec());
-    public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove>
-            PLAYER_INFO_REMOVE = PLAY.add(
-                    "player_info_remove",
-                    ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove.class,
-                    new ac.cult.cultac.protocol.codec.entity.PlayerInfoRemoveCodec());
+    public static final PacketType<ClientboundPlayerInfoRemove> PLAYER_INFO_REMOVE =
+            PLAY.add("player_info_remove", ClientboundPlayerInfoRemove.class, new PlayerInfoRemoveCodec());
     public static final PacketType<ClientboundCooldown> COOLDOWN =
             PLAY.add("cooldown", ClientboundCooldown.class, new CooldownCodec());
     public static final PacketType<ClientboundGameEvent> GAME_EVENT =
@@ -211,16 +213,10 @@ public final class ClientboundPackets {
             PLAY.add("swing_animation", ClientboundSwingAnimation.class, new SwingAnimationCodec());
 
     // World.
-    public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheCenter>
-            SET_CHUNK_CACHE_CENTER = PLAY.add(
-                    "set_chunk_cache_center",
-                    ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheCenter.class,
-                    new ChunkCacheCodecs.Center());
-    public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheRadius>
-            SET_CHUNK_CACHE_RADIUS = PLAY.add(
-                    "set_chunk_cache_radius",
-                    ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheRadius.class,
-                    new ChunkCacheCodecs.Radius());
+    public static final PacketType<ClientboundSetChunkCacheCenter> SET_CHUNK_CACHE_CENTER =
+            PLAY.add("set_chunk_cache_center", ClientboundSetChunkCacheCenter.class, new ChunkCacheCodecs.Center());
+    public static final PacketType<ClientboundSetChunkCacheRadius> SET_CHUNK_CACHE_RADIUS =
+            PLAY.add("set_chunk_cache_radius", ClientboundSetChunkCacheRadius.class, new ChunkCacheCodecs.Radius());
     public static final PacketType<ClientboundForgetLevelChunk> FORGET_LEVEL_CHUNK = PLAY.add(
             "forget_chunk", "forget_level_chunk", ClientboundForgetLevelChunk.class, new ForgetLevelChunkCodec());
     public static final PacketType<ClientboundBlockEvent> BLOCK_EVENT =
@@ -241,11 +237,8 @@ public final class ClientboundPackets {
             PLAY.add("ticking_step", ClientboundTickingStep.class, new TickingStepCodec());
 
     // Inventory. Source-version layouts are audited for every supported release.
-    public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose>
-            CONTAINER_CLOSE = PLAY.add(
-                    "container_close",
-                    ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose.class,
-                    new ac.cult.cultac.protocol.codec.connection.ContainerCloseCodecs.Clientbound());
+    public static final PacketType<ClientboundContainerClose> CONTAINER_CLOSE =
+            PLAY.add("container_close", ClientboundContainerClose.class, new ContainerCloseCodecs.Clientbound());
     public static final PacketType<ClientboundSetHeldSlot> SET_HELD_SLOT =
             PLAY.add("set_held_slot", ClientboundSetHeldSlot.class, new SetHeldSlotCodec());
     public static final PacketType<ClientboundMountScreenOpen> MOUNT_SCREEN_OPEN = PLAY.renamed(

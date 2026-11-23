@@ -1,16 +1,22 @@
 package ac.cult.blocksim.engine;
 
-import ac.cult.blocksim.data.Components;
-import ac.cult.blocksim.data.ItemDefinition;
+import ac.cult.blocksim.data.BundleContents;
 import ac.cult.blocksim.data.ComponentPatch;
+import ac.cult.blocksim.data.ComponentWireEncoding;
+import ac.cult.blocksim.data.Components;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.ItemComponents;
+import ac.cult.blocksim.data.ItemDefinition;
 import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 /** An action-local stack; callers copy it before running an independent prediction. */
 public final class SimItemStack {
     private static final class Empty {
-        private static final SimItemStack VALUE = new SimItemStack(ac.cult.blocksim.data.DataTables.defaults().items().stream()
+        private static final SimItemStack VALUE = new SimItemStack(DataTables.defaults().items().stream()
                 .filter(item -> item.key().equals("minecraft:air")).findFirst().orElseThrow(), 0, Components.EMPTY);
     }
     public static SimItemStack empty() { return Empty.VALUE; }
@@ -19,9 +25,9 @@ public final class SimItemStack {
     private int count;
     private Components components;
     private final Components prototype;
-    private final java.util.function.Supplier<Components> visiblePrototype;
+    private final Supplier<Components> visiblePrototype;
     private ComponentPatch componentPatch;
-    private ac.cult.blocksim.data.ComponentWireEncoding wirePatch;
+    private ComponentWireEncoding wirePatch;
 
     public SimItemStack(ItemDefinition item, int count, Components components) {
         this(item, count, components, components);
@@ -31,13 +37,13 @@ public final class SimItemStack {
     }
     /** The patched map keeps its captured prototype; getPrototype reads the item's current holder. */
     public SimItemStack(ItemDefinition item, int count, Components capturedPrototype, ComponentPatch patch,
-                        java.util.function.Supplier<Components> visiblePrototype) {
-        this.item = java.util.Objects.requireNonNull(item);
+                        Supplier<Components> visiblePrototype) {
+        this.item = Objects.requireNonNull(item);
         this.count = count;
-        this.prototype = java.util.Objects.requireNonNull(capturedPrototype);
-        this.componentPatch = java.util.Objects.requireNonNull(patch);
+        this.prototype = Objects.requireNonNull(capturedPrototype);
+        this.componentPatch = Objects.requireNonNull(patch);
         this.components = patch.applyToCapturedPrototype(capturedPrototype);
-        this.visiblePrototype = java.util.Objects.requireNonNull(visiblePrototype);
+        this.visiblePrototype = Objects.requireNonNull(visiblePrototype);
     }
     private SimItemStack(SimItemStack source) {
         item = source.item;
@@ -52,11 +58,10 @@ public final class SimItemStack {
     /** Inventory API names preserve the existing menu algorithms during the type migration. */
     public ItemDefinition getItem() { return isEmpty() ? empty().definition() : item; }
     public int getCount() { return count(); }
-    public java.util.Map<String, Integer> getEnchantments() { return ItemComponents.enchantments(components()); }
+    public Map<String, Integer> getEnchantments() { return ItemComponents.enchantments(components()); }
     public void setCount(int count) { count(count); }
     public int getMaxStackSize() { return maxStackSize(); }
     public int getDamageValue() { return damage(); }
-    public int getMaxDamage() { return maxDamage(); }
     public boolean isDamageableItem() { return isDamageable(); }
     public static boolean isSameItemSameComponents(SimItemStack first, SimItemStack second) {
         return first.sameItemSameComponents(second);
@@ -66,24 +71,24 @@ public final class SimItemStack {
     public Components components() { return isEmpty() ? Components.EMPTY : components; }
     public void components(Components components) {
         wirePatch = null;
-        componentPatch = ComponentPatch.between(prototype, java.util.Objects.requireNonNull(components));
+        componentPatch = ComponentPatch.between(prototype, Objects.requireNonNull(components));
         this.components = componentPatch.applyToCapturedPrototype(prototype);
     }
-    public Components prototype() { return isEmpty() ? Components.EMPTY : java.util.Objects.requireNonNull(visiblePrototype.get()); }
+    public Components prototype() { return isEmpty() ? Components.EMPTY : Objects.requireNonNull(visiblePrototype.get()); }
     public Components capturedPrototype() { return isEmpty() ? Components.EMPTY : prototype; }
     public ComponentPatch patch() { return isEmpty() ? ComponentPatch.EMPTY : componentPatch; }
     /** Only count changes may reuse a received packet's opaque component patch. */
-    public ac.cult.blocksim.data.ComponentWireEncoding wirePatch() {
+    public ComponentWireEncoding wirePatch() {
         return wirePatch;
     }
-    public void wirePatch(ac.cult.blocksim.data.ComponentWireEncoding encoding) {
+    public void wirePatch(ComponentWireEncoding encoding) {
         wirePatch = encoding;
     }
     public void setComponent(String key, NbtValue value) {
         components(components.with(key, NbtJson.encode(value), value));
     }
     public void removeComponent(String key) { components(components.with(key, null)); }
-    public void bundleContents(ac.cult.blocksim.data.BundleContents value) { components(components.withBundle(value)); }
+    public void bundleContents(BundleContents value) { components(components.withBundle(value)); }
 
     public boolean isEmpty() { return item.key().equals("minecraft:air") || count <= 0; }
     public boolean is(String key) { return itemKey().equals(key); }
@@ -112,7 +117,6 @@ public final class SimItemStack {
         return isEmpty() && other.isEmpty() || prototype.equals(other.prototype) && patch().equals(other.patch());
     }
     public void grow(int amount) { count(count() + amount); }
-    public void limitSize(int maximum) { if (!isEmpty() && count() > maximum) count(maximum); }
     public SimItemStack split(int amount) {
         int taken = Math.min(count(), amount);
         var result = copyWithCount(taken);

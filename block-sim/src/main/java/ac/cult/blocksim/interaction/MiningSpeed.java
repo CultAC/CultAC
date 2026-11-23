@@ -5,6 +5,7 @@ import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockSimClientVersion;
 import ac.cult.blocksim.engine.SimItemStack;
+import java.util.Objects;
 
 /** Tool rules and Player.getDestroySpeed's float operations in vanilla order. */
 public final class MiningSpeed {
@@ -12,7 +13,7 @@ public final class MiningSpeed {
     public record State(boolean onGround, boolean eyesInWater, double efficiency, double blockBreakSpeed,
                         double submergedSpeed, int haste, int conduitPower, int fatigue) { }
     private final DataTables data;
-    public MiningSpeed(DataTables data) { this.data = java.util.Objects.requireNonNull(data); }
+    public MiningSpeed(DataTables data) { this.data = Objects.requireNonNull(data); }
 
     public float toolSpeed(SimItemStack stack, int state) {
         var tool = ItemComponents.tool(stack.components());

@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.api.AbstractCheck;
@@ -203,13 +204,12 @@ public class PunishmentManager implements ConfigReloadable {
                             String cmd = replaceAlertPlaceholders(command, vl, check, shown);
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
-                            boolean withheld =
-                                    CultAPI.INSTANCE.getConfigManager().isObserveOnly()
-                                            && !BUILTIN_ACTIONS.contains(command.action());
+                            boolean withheld = (player.isObserveOnly() || player.isPunishmentsPaused())
+                                    && !BUILTIN_ACTIONS.contains(command.action());
                             boolean canceled = withheld
                                     || COMMAND_CHANNEL.fire(
-                                            ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
-                                            ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(check),
+                                            RuntimeEnvironment.outwardUser(player),
+                                            RuntimeEnvironment.outwardCheck(check),
                                             shown,
                                             cmd);
                             if (command.interval == 0) {

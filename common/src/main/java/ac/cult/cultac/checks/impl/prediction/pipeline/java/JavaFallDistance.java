@@ -108,7 +108,7 @@ public final class JavaFallDistance {
                     landed,
                     touchingWater,
                     touchingLava,
-                    ac.cult.cultac.utils.nmsutil.ClientFluidQueries.eyeContactFromWater(playerEyeInWater));
+                    ClientFluidQueries.eyeContactFromWater(playerEyeInWater));
         }
 
         public Moved(

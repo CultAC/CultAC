@@ -236,7 +236,7 @@ Disallowed packet-thread data sources:
 
 Cult's packet-time state should live on the player's Netty/event-loop timeline.
 
-Use `CultPlayer.runSafely()` or `ChannelHelper.runInEventLoop()` when a mutation must occur on the player's Netty event loop. Use transaction-scheduled tasks when client receipt matters. Use Bukkit/Folia scheduling only to capture server-thread state, then copy it back into Cult-owned state safely.
+Use `CultPlayer.runSafely()` when a mutation must occur on the player's Netty event loop. Use transaction-scheduled tasks when client receipt matters. Use Bukkit/Folia scheduling only to capture server-thread state, then copy it back into Cult-owned state safely.
 
 Do not mix these timelines:
 

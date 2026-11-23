@@ -19,6 +19,8 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -81,7 +83,7 @@ public class BedrockShulkerLidTest {
 
     /** A shulker at {@code feet} on {@code face} whose lid has stepped to {@code peek} data. */
     private static void withOpenShulker(
-            Direction face, int peek, Vec3 feet, java.util.function.BiConsumer<CultPlayer, PacketEntityShulker> test) {
+            Direction face, int peek, Vec3 feet, BiConsumer<CultPlayer, PacketEntityShulker> test) {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
@@ -183,7 +185,7 @@ public class BedrockShulkerLidTest {
         });
     }
 
-    private static void withShulker(java.util.function.Consumer<CultPlayer> test) {
+    private static void withShulker(Consumer<CultPlayer> test) {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {

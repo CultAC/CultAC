@@ -51,11 +51,6 @@ public record BedrockTravelOptions(
     }
 
     /** The order the move meets its solid actors in (see {@code BedrockSolidActorOrders}); 0 is the collected order. */
-    public BedrockTravelOptions withSolidActorOrder(int order) {
-        return new BedrockTravelOptions(
-                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, order, actorPositionEnd);
-    }
-
     public BedrockTravelOptions withSolidActorOrder(int order, Vec3d nominalEnd) {
         return new BedrockTravelOptions(
                 stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, order, nominalEnd);

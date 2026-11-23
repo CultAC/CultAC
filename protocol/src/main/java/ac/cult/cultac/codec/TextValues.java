@@ -4,6 +4,7 @@ import ac.cult.shaded.vialib.nbt.tag.CompoundTag;
 import ac.cult.shaded.vialib.nbt.tag.ListTag;
 import ac.cult.shaded.vialib.nbt.tag.StringTag;
 import ac.cult.shaded.vialib.nbt.tag.Tag;
+import java.util.ArrayList;
 
 /** Client text codec's untyped encoding; original wire bytes remain in ComponentEncoding. */
 final class TextValues {
@@ -62,7 +63,7 @@ final class TextValues {
 
     /** With {@code copied}, as {@link #texts(ListTag)} of a copy of {@code list}. */
     private static ListTag<Tag> texts(ListTag<?> list, boolean copied) {
-        var values = new java.util.ArrayList<Tag>();
+        var values = new ArrayList<Tag>();
         for (var entry : list) {
             // Modern ListTag unwraps heterogeneous entries before the text codec reads them.
             if (entry instanceof CompoundTag wrapper && wrapper.size() == 1 && wrapper.contains(""))

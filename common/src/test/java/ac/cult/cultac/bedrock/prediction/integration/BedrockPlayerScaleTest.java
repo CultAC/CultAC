@@ -21,7 +21,9 @@ import ac.cult.cultac.bedrock.prediction.world.*;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -117,8 +119,7 @@ public final class BedrockPlayerScaleTest {
     public void theSneakingBoxStartedAtAScaleIsThatScaleTimesTheSneakingHeight() {
         var player = player();
         var standing = player.applyConfirmedBoundingBoxSize(standing(27.2273F, 120.42F, -76.5F), idle(), 0.8F);
-        var startSneaking = new BedrockInputFrame(
-                22342L, 0.0F, 0.0F, true, false, false, java.util.Set.of("START_SNEAKING"));
+        var startSneaking = new BedrockInputFrame(22342L, 0.0F, 0.0F, true, false, false, Set.of("START_SNEAKING"));
 
         var dimensions = BedrockActorDimensions.committedMovementDimensions(
                 standing, context(PlayerDimensionsState.DEFAULT, List.of()), startSneaking);
@@ -223,7 +224,7 @@ public final class BedrockPlayerScaleTest {
 
     /** Stone at y 122 over x 21 to 26 and z -78 to -72. */
     private static List<PlacedBlockCollision> ceilingBlocks() {
-        var blocks = new java.util.ArrayList<PlacedBlockCollision>();
+        var blocks = new ArrayList<PlacedBlockCollision>();
         for (int x = 21; x <= 26; x++) {
             for (int z = -78; z <= -72; z++) {
                 blocks.add(PlacedBlockCollision.manual(

@@ -652,8 +652,8 @@ public final class Diagnostics {
                 costs[3] / 1000.0);
     }
 
-    /** Tests and benches: the recent costs, as {@link Costs#summary}. */
-    long[] costs() {
+    /** The recent costs, as {@link Costs#summary}. */
+    private long[] costs() {
         return costs.summary();
     }
 

@@ -8,7 +8,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
-import java.util.List;
 
 public class EntityPush implements UncertaintyHandler {
     private static final double MAX_HORIZONTAL_IMPULSE_PER_ENTITY = Math.sqrt(2.0D) * 0.05D;
@@ -94,18 +93,6 @@ public class EntityPush implements UncertaintyHandler {
     /** Java carries late entity ticks before the next tick's packet handlers, on every protocol. */
     public static boolean carriesBoatPushAtReport(CultPlayer player, SimulationContext context) {
         return !player.isBedrockMovement() && context.getVehicle() == null;
-    }
-
-    /** Retained for callers that generate standalone starting candidates. Normal travel ticks these after riptide. */
-    public static void addVehiclePushCandidates(
-            CultPlayer player, List<PredVector> start, SimulationContext state, PredictionResult lastResult) {
-        if (player.isBedrockMovement()) return;
-        var candidates = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks.beforeTravel(
-                player, state, start);
-        if (candidates != start) {
-            start.clear();
-            start.addAll(candidates);
-        }
     }
 
     /** The impulse a boat whose box is {@code boatBox} gives the player at {@code pushedPosition}, or zero. */

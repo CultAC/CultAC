@@ -1,6 +1,5 @@
 package ac.cult.cultac.checks.impl.chat;
 
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -39,7 +38,7 @@ public class ChatB extends Check implements CheckListener {
         String command = "/" + packet.command();
         if (!command.stripTrailing().equals(command)
                 && flag(V.write(verbose()).bool(false).str(command))
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                && !player.isObserveOnly()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }
@@ -53,7 +52,7 @@ public class ChatB extends Check implements CheckListener {
         String command = "/" + packet.command();
         if (!command.trim().equals(command)
                 && flag(V.write(verbose()).bool(false).str(command))
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                && !player.isObserveOnly()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }

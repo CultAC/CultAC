@@ -8,17 +8,18 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.World;
 import ac.cult.cultac.checks.CheckPermissions;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.manager.init.start.StartableInitable;
+import ac.cult.cultac.network.ConnectionContinuation;
+import ac.cult.cultac.network.DormancyController;
+import ac.cult.cultac.network.DormantWatch;
 import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.command.CommandService;
-import ac.cult.cultac.platform.api.manager.ItemResetHandler;
 import ac.cult.cultac.platform.api.manager.MessagePlaceHolderManager;
 import ac.cult.cultac.platform.api.manager.PermissionRegistrationManager;
 import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
-import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
 import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.sender.SenderFactory;
@@ -36,17 +37,21 @@ import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.data.ProtocolData;
-import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.reload.host.SharedPlugin;
 import ac.grim.grimac.api.GrimAPIProvider;
 import ac.grim.grimac.api.plugin.GrimPlugin;
+import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import io.netty.channel.Channel;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
@@ -68,6 +73,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private final VelocityServer server;
     private final BridgeService bridge;
     private final VelocityNetwork network;
+    private final VelocityDormancy dormancy;
     private final @Nullable VelocityCompressedForward compressedForward;
     /** Set while the cloud upload is on and the bridge has started. */
     private volatile @Nullable CloudBackends cloudBackends;
@@ -87,12 +93,10 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         try {
             this.codecs = ProtocolCodecs.decoder();
             cleanup.push(ProtocolCodecs::close);
-            this.plugin = ac.cult.cultac.runtime.RuntimeEnvironment.host() == null
+            this.plugin = RuntimeEnvironment.host() == null
                     ? new VelocityPlugin(directory, logger)
-                    : ac.cult.reload.host.SharedPlugin.create(
-                            directory,
-                            logger,
-                            ac.cult.cultac.runtime.RuntimeEnvironment.host().build());
+                    : SharedPlugin.create(
+                            directory, logger, RuntimeEnvironment.host().build());
             this.senders = new VelocitySenders(proxy, permissions);
             this.players = new VelocityPlayers(proxy, senders);
             this.scheduler = new VelocityScheduler(world -> ((VelocityWorld) world).connection());
@@ -119,6 +123,8 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             transports.set(transport);
             this.bridge =
                     new BridgeService(proxy, nativePlugin, transport::channel, manager::connection, plugin.getLogger());
+            this.dormancy = new VelocityDormancy(proxy, transport, bridge, this::cloudAdopted);
+            transport.dormancy(dormancy);
             this.server = new VelocityServer(proxy, senders, bridge::tps);
             this.network = new VelocityNetwork(proxy, nativePlugin, transport::channel);
             manager.setPacketOwnerResolver(channel -> {
@@ -133,7 +139,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             var runtime = ProtocolRuntime.create(
                     ProtocolData.load(ProtocolVersion.V26_3), ClientPacketCodecs.connectionCatalog(), 32767);
             manager.configureTransport(runtime, transport::install, () -> {}, transport::remove);
-            if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
+            if (RuntimeEnvironment.host() == null)
                 CultAPI.INSTANCE
                         .getExtensionManager()
                         .registerResolver(context -> context == nativePlugin ? plugin : null);
@@ -164,6 +170,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         load();
         CloudModule.platformHooks(this::cloudTurnedOn, this::cloudTurnedOff);
         NetworkModule.platform(network);
+        DormancyController.platform(dormancy);
         network.listen();
         if (compressedForward != null) {
             compressedForward.listen();
@@ -311,65 +318,59 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
 
     @Override
     public void registerAPIService() {
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
-            GrimAPIProvider.init(CultAPI.INSTANCE.getExternalAPI());
-    }
-
-    @Override
-    public ItemResetHandler getItemResetHandler() {
-        return new ItemResetHandler() {
-            @Override
-            public void resetItemUsage(PlatformPlayer player) {
-                // A proxy clear must name the use it ends; this request names none.
-            }
-
-            @Override
-            public boolean isUsingItem(PlatformPlayer player) {
-                return false;
-            }
-
-            @Override
-            public Hand getItemUsageHand(PlatformPlayer player) {
-                return null;
-            }
-        };
+        if (RuntimeEnvironment.host() == null) GrimAPIProvider.init(CultAPI.INSTANCE.getExternalAPI());
     }
 
     VelocitySenders senders() {
         return senders;
     }
 
-    void attach(com.velocitypowered.api.proxy.Player player, Channel channel) {
+    void attach(Player player, Channel channel) {
         var owner = bedrockOwner(channel);
         if (owner == null && new VelocityClientSupport(proxy).isBedrock(player.getUniqueId())) {
             VelocityTransport.refuseUnbridged(player);
             return;
         }
-        transport.attach(player, channel, owner, null);
+        transport.join(player, channel, owner);
     }
 
-    java.util.Map<String, Object> release(Channel channel) {
-        return transport.release(channel);
+    Map<String, Object> release(Channel channel) {
+        var dormant = dormancy.release(channel);
+        return dormant != null ? dormant : transport.release(channel);
     }
 
-    /** Adopts both halves of a translated session before forwarding its reconfiguration acknowledgement. */
-    void adopt(com.velocitypowered.api.proxy.Player player, Channel channel, java.util.Map<String, Object> state) {
-        if (state.get("bedrock") instanceof java.util.Map<?, ?> continued) {
+    /**
+     * Adopts both halves of a translated session before forwarding its reconfiguration acknowledgement; a Java player
+     * switching to a dormant server gets a watch.
+     */
+    void adopt(Player player, Channel channel, Map<String, Object> state) {
+        if (Boolean.TRUE.equals(state.get(DormantWatch.DORMANT))) {
+            dormancy.adopt(player, channel, state);
+            return;
+        }
+        if (state.get("bedrock") instanceof Map<?, ?> continued) {
             var session = state.get("bedrock-session");
-            if (session == null || !ac.cult.cultac.runtime.RuntimeEnvironment.owns(session))
+            if (session == null || !RuntimeEnvironment.owns(session))
                 throw new IllegalStateException("Missing transferred Bedrock session");
             GeyserBedrockBridgeRuntime.adoptSession(session, continued);
+        } else if (dormancy.adoptDormant(player, channel, state)) {
+            return;
         }
-        transport.attach(
-                player, channel, bedrockOwner(channel), ac.cult.cultac.network.ConnectionContinuation.from(state));
+        transport.attach(player, channel, bedrockOwner(channel), ConnectionContinuation.from(state));
         bridge.adopted(player);
         CloudBackends backends = cloudBackends;
         if (backends != null) backends.adopted(player);
     }
 
-    java.util.concurrent.CompletionStage<Void> disconnect(Channel channel) {
+    /** Tells the cloud upload's backends, while it runs, that {@code player}'s connection is attached again. */
+    private void cloudAdopted(Player player) {
+        CloudBackends backends = cloudBackends;
+        if (backends != null) backends.adopted(player);
+    }
+
+    CompletionStage<Void> disconnect(Channel channel) {
         var connection = CultAPI.INSTANCE.getNetworkManager().connection(channel);
-        if (connection == null) return java.util.concurrent.CompletableFuture.completedFuture(null);
+        if (connection == null) return CompletableFuture.completedFuture(null);
         return transport
                 .detach(connection)
                 .thenCompose(ignored -> CultAPI.INSTANCE.getNetworkManager().disconnect(channel));
@@ -400,8 +401,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                         .join();
             }
         } finally {
-            if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
-                proxy.getEventManager().unregisterListeners(nativePlugin);
+            if (RuntimeEnvironment.host() == null) proxy.getEventManager().unregisterListeners(nativePlugin);
             scheduler.close();
             ProtocolCodecs.close();
         }

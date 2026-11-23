@@ -97,21 +97,6 @@ public record BedrockCollisionFlags(
                 zCollision);
     }
 
-    public BedrockCollisionFlags withVerticalCollision(boolean nextVerticalCollision) {
-        if (verticalCollision == nextVerticalCollision) {
-            return this;
-        }
-        return new BedrockCollisionFlags(
-                onGround,
-                horizontalCollision,
-                nextVerticalCollision,
-                horizontalBlockContact,
-                liquidClimbOut,
-                nextVerticalCollision && (verticalCollisionBelow || onGround),
-                xCollision,
-                zCollision);
-    }
-
     public BedrockCollisionFlags withLiquidClimbOut(boolean nextLiquidClimbOut) {
         if (liquidClimbOut == nextLiquidClimbOut) {
             return this;

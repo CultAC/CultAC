@@ -7,6 +7,8 @@ import ac.cult.blocksim.interaction.SimInteraction;
 import ac.cult.blocksim.interaction.UseContext;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import java.util.List;
+import java.util.Map;
 
 /** MCP 26.3 CompassItem.useOn: track a lodestone on the client, including creative and split stacks. */
 public final class CompassItemBehavior implements ItemBehavior {
@@ -38,11 +40,11 @@ public final class CompassItemBehavior implements ItemBehavior {
     private static void track(SimItemStack stack, JsonObject tracker) {
         var target = tracker.getAsJsonObject("target");
         var coordinates = target.getAsJsonArray("pos");
-        var encodedTarget = new NbtValue.Compound(java.util.Map.of(
+        var encodedTarget = new NbtValue.Compound(Map.of(
             "dimension", new NbtValue.Text(target.get("dimension").getAsString()),
             "pos", new NbtValue.PrimitiveArray(NbtValue.Kind.INT_ARRAY,
-                java.util.List.of(coordinates.get(0).getAsLong(), coordinates.get(1).getAsLong(), coordinates.get(2).getAsLong()))));
-        var encoding = new NbtValue.Compound(java.util.Map.of("target", encodedTarget));
+                List.of(coordinates.get(0).getAsLong(), coordinates.get(1).getAsLong(), coordinates.get(2).getAsLong()))));
+        var encoding = new NbtValue.Compound(Map.of("target", encodedTarget));
         stack.components(stack.components().with("minecraft:lodestone_tracker", tracker, encoding));
     }
     @Override public SimInteraction use(UseContext context) { return general.use(context); }

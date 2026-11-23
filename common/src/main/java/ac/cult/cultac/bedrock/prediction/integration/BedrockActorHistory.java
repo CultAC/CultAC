@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
+import java.util.function.Predicate;
 
 /** One actor generation's value-only history. All access belongs to its movement loop. */
 public final class BedrockActorHistory {
@@ -153,8 +154,7 @@ public final class BedrockActorHistory {
         }
     }
 
-    private static Boolean changed(
-            Boolean value, Frame historical, java.util.function.Predicate<BedrockMovementState> flag) {
+    private static Boolean changed(Boolean value, Frame historical, Predicate<BedrockMovementState> flag) {
         return value != null && historical.end().stream().allMatch(entry -> flag.test(entry.state()) == value)
                 ? null
                 : value;

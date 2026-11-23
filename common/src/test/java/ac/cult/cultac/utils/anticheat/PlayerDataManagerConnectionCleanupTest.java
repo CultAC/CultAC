@@ -39,7 +39,7 @@ import org.junit.jupiter.api.Test;
 
 class PlayerDataManagerConnectionCleanupTest {
     private final UUID uuid = UUID.randomUUID();
-    private final SessionTrackerImpl tracker = new SessionTrackerImpl(mock(DataStore.class), "test", 100);
+    private final SessionTrackerImpl tracker = new SessionTrackerImpl(mock(DataStore.class), 100);
     private final PlayerToggleStore toggles = mock(PlayerToggleStore.class);
     private final AlertManagerImpl alerts = CultAPI.INSTANCE.getAlertManager();
     private final PlayerDataManager manager = new PlayerDataManager();

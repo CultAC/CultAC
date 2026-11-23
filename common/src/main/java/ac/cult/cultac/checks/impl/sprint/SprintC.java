@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.sprint;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
-import ac.cult.cultac.checks.DeadCheck;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.type.PostPredictionListener;
@@ -16,7 +15,6 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
         description = "Sprinting while using an item",
         setback = 5,
         experimental = true)
-@DeadCheck(reason = DeadCheck.Reason.VERSION_GATED, detail = "Returns for every client except 1.21.4.")
 public class SprintC extends Check implements PostPredictionListener {
     private boolean flaggedLastTick = false;
     // A sprint the client started during this use, which no later tick of the use carries legitimately.

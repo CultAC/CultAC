@@ -10,6 +10,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -125,8 +126,7 @@ public final class JavaSleepingMovementGateTest {
         // The checks a player builds parse verbose templates whose tags VerboseCodecs registers.
         VerboseCodecs.ensureRegistered();
         UUID playerId = UUID.fromString("df1e6a87-e857-4d54-8178-60b139cacbf8");
-        User user = ac.cult.cultac.network.TestUsers.create(
-                new User.Profile(playerId, ".Java_Sleep_Test"), new EmbeddedChannel());
+        User user = TestUsers.create(new User.Profile(playerId, ".Java_Sleep_Test"), new EmbeddedChannel());
         return new CultPlayer(user);
     }
 }

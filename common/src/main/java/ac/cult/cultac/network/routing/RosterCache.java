@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -28,7 +30,11 @@ import org.jetbrains.annotations.Nullable;
  * large with {@code brands} goes out without them. A body whose {@code o} is not above the last one applied from its
  * instance is dropped, unless nothing from it was applied for
  * {@value #EXPIRY_MILLIS} ms. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any type
- * heard from it. Any thread.
+ * heard from it. Builds that run network commands add {@code role} ({@value #PROXY} or {@value #SERVER}),
+ * {@code build} and {@code state} ({@link State}) to every body; a full body without {@code role} comes from an older
+ * build, a delta without it keeps what the instance last said, and an instance heard only through other messages has
+ * not described itself yet. {@code settings}, the shared settings' records, is {@link NetSettings}'s to read. Any
+ * thread.
  */
 final class RosterCache {
     static final String TYPE = "roster";
@@ -36,6 +42,113 @@ final class RosterCache {
     static final String ORDER = "o";
     static final String NONCE = "nonce";
     static final String BRANDS = "brands";
+    static final String ROLE = "role";
+    static final String BUILD = "build";
+    static final String STATE = "state";
+    static final String PROXY = "proxy";
+    static final String SERVER = "server";
+
+    static final int MAX_LISTED = 512;
+
+    private static final int MAX_BUILD_LENGTH = 200;
+    private static final Pattern BACKEND_NAME = Pattern.compile("[A-Za-z0-9._-]{1,64}");
+
+    /** Whether {@code name} can stand in a roster's backend list and a network command's target. */
+    static boolean backendName(String name) {
+        return BACKEND_NAME.matcher(name).matches();
+    }
+
+    /**
+     * A live instance as its roster last described it: {@code older} when that was a full roster without {@code role},
+     * from a build without network commands; else a null {@code role} means it has not described itself yet.
+     */
+    record Instance(
+            String id,
+            @Nullable String role,
+            @Nullable String build,
+            @Nullable State state,
+            boolean older) {}
+
+    /**
+     * An instance's switchable state and player counts: whether it checks players ({@code toggle}), whether it observes
+     * only, the stable keys of the checks switched off, the players online, those inspected and those dormant, and the
+     * backend servers it answers for: every server registered with a proxy, players or not, and a server's own id. On
+     * the wire {@code {toggle, observe, off:[], players, inspected, dormant, backends:[]}}, {@code toggle} and
+     * {@code observe} being {@code on} or {@code off}; a field this build does not read is ignored.
+     */
+    record State(
+            boolean checking,
+            boolean observe,
+            List<String> off,
+            int players,
+            int inspected,
+            int dormant,
+            List<String> backends) {
+        State {
+            off = List.copyOf(off);
+            backends = List.copyOf(backends);
+        }
+
+        State(boolean checking, boolean observe, List<String> off, int players, int inspected, int dormant) {
+            this(checking, observe, off, players, inspected, dormant, List.of());
+        }
+
+        State withBackends(List<String> names) {
+            return new State(checking, observe, off, players, inspected, dormant, names);
+        }
+
+        JsonObject toJson() {
+            JsonObject json = new JsonObject();
+            json.addProperty("toggle", checking ? "on" : "off");
+            json.addProperty("observe", observe ? "on" : "off");
+            json.add("off", array(off));
+            json.addProperty("players", players);
+            json.addProperty("inspected", inspected);
+            json.addProperty("dormant", dormant);
+            json.add("backends", array(backends));
+            return json;
+        }
+
+        /** The state {@code json} describes, each missing or malformed field at its default; null for a non-object. */
+        static @Nullable State parse(@Nullable JsonElement json) {
+            if (!(json instanceof JsonObject object)) return null;
+            List<String> backends = new ArrayList<>();
+            for (String name : texts(object, "backends")) {
+                if (backendName(name)) backends.add(name);
+            }
+            return new State(
+                    !"off".equals(text(object, "toggle")),
+                    "on".equals(text(object, "observe")),
+                    texts(object, "off"),
+                    count(object, "players"),
+                    count(object, "inspected"),
+                    count(object, "dormant"),
+                    backends);
+        }
+
+        private static JsonArray array(List<String> values) {
+            JsonArray array = new JsonArray();
+            for (String value : values) array.add(value);
+            return array;
+        }
+
+        private static List<String> texts(JsonObject object, String key) {
+            if (!(object.get(key) instanceof JsonArray values)) return List.of();
+            List<String> texts = new ArrayList<>();
+            for (JsonElement value : values) {
+                if (texts.size() >= MAX_LISTED) break;
+                if (value instanceof JsonPrimitive primitive && primitive.isString())
+                    texts.add(primitive.getAsString());
+            }
+            return texts;
+        }
+
+        private static int count(JsonObject object, String key) {
+            return object.get(key) instanceof JsonPrimitive primitive && primitive.isNumber()
+                    ? Math.max(0, primitive.getAsInt())
+                    : 0;
+        }
+    }
 
     private static final class Peer {
         final Map<UUID, NetworkPlayer> players = new LinkedHashMap<>();
@@ -43,6 +156,17 @@ final class RosterCache {
         long heard;
         long applied = Long.MIN_VALUE;
         long order = Long.MIN_VALUE;
+
+        @Nullable
+        String role;
+
+        @Nullable
+        String build;
+
+        @Nullable
+        State state;
+
+        boolean older;
     }
 
     /** Guarded by itself. */
@@ -58,6 +182,11 @@ final class RosterCache {
         Long order = order(body);
         boolean full = body.has("full") && body.get("full").getAsBoolean();
         Map<UUID, String> brands = brands(body);
+        boolean described = full || body.has(ROLE);
+        String role = role(body);
+        String build = text(body, BUILD);
+        if (build != null && build.length() > MAX_BUILD_LENGTH) build = build.substring(0, MAX_BUILD_LENGTH);
+        State state = State.parse(body.get(STATE));
         List<NetworkPlayer> listed = new ArrayList<>();
         if (body.get("servers") instanceof JsonObject servers) {
             for (var server : servers.entrySet()) {
@@ -89,7 +218,38 @@ final class RosterCache {
             }
             for (NetworkPlayer player : listed) peer.players.put(player.uuid(), player);
             peer.verbose = verbose(body);
+            if (described) {
+                peer.role = role;
+                peer.build = build;
+                peer.state = state;
+                peer.older = !body.has(ROLE);
+            }
         }
+    }
+
+    /** Every live instance, by id. */
+    List<Instance> instances(long now) {
+        List<Instance> instances = new ArrayList<>();
+        synchronized (peers) {
+            for (Map.Entry<String, Peer> entry : peers.entrySet()) {
+                Peer peer = entry.getValue();
+                if (live(peer, now))
+                    instances.add(new Instance(entry.getKey(), peer.role, peer.build, peer.state, peer.older));
+            }
+        }
+        instances.sort(Comparator.comparing(Instance::id));
+        return instances;
+    }
+
+    private static @Nullable String role(JsonObject body) {
+        String role = text(body, ROLE);
+        return PROXY.equals(role) || SERVER.equals(role) ? role : null;
+    }
+
+    private static @Nullable String text(JsonObject object, String key) {
+        return object.get(key) instanceof JsonPrimitive primitive && primitive.isString()
+                ? primitive.getAsString()
+                : null;
     }
 
     List<NetworkPlayer> players(long now) {

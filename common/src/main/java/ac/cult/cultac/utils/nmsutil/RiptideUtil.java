@@ -12,6 +12,7 @@ import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.inventory.ItemTypes;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,24 +22,14 @@ public final class RiptideUtil {
     private RiptideUtil() {}
 
     public static int getRiptideLevel(SimItemStack item) {
-        if (item == null || item.getItem() != ac.cult.cultac.utils.inventory.ItemTypes.TRIDENT) {
+        if (item == null || item.getItem() != ItemTypes.TRIDENT) {
             return 0;
         }
-        return ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(item, "minecraft:riptide");
+        return ItemUtil.enchantmentLevel(item, "minecraft:riptide");
     }
 
     public static boolean isValidRiptideRelease(CultPlayer player, Hand hand) {
         return isFullyCharged(player, hand) && canUseRiptideAtCurrentState(player);
-    }
-
-    public static String invalidReleaseReason(CultPlayer player, Hand hand) {
-        if (!isFullyCharged(player, hand)) {
-            return "charge=" + getTrackedUseTicks(player, hand);
-        }
-        if (refusesPassenger(player)) {
-            return "passenger";
-        }
-        return "dry";
     }
 
     public static boolean isFullyCharged(CultPlayer player, Hand hand) {

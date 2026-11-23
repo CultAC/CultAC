@@ -8,6 +8,8 @@ import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
@@ -43,8 +45,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     }
 
     private Vec3 resetVertical(TransactionVel velocity, Vec3 original) {
-        return velocity.getOutboundSequence() < verticalResetSequence
-                ? original.with(ac.cult.cultac.protocol.value.Direction.Axis.Y, 0) : original;
+        return velocity.getOutboundSequence() < verticalResetSequence ? original.with(Direction.Axis.Y, 0) : original;
     }
 
     double offsetToFlag;
@@ -267,8 +268,8 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         return MovementProfiles.forPlayer(player).shouldUseBundledPacketProof(player);
     }
 
-    protected <R extends ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket>
-            CultPlayer.TrackedTransaction bundlePacketWithTrailingTransaction(PacketSendEvent<R> event, R packet) {
+    protected <R extends ClientboundPacket> CultPlayer.TrackedTransaction bundlePacketWithTrailingTransaction(
+            PacketSendEvent<R> event, R packet) {
         CultPlayer.TrackedTransaction transaction = player.appendTrailingProofTransaction(event);
         if (transaction == null) return null;
         // The original record must keep its bytes: legacy velocity quantization is lossy.

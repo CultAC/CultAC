@@ -15,6 +15,7 @@ import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockEntityInsideMovement;
+import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.BubbleColumnLayer;
@@ -194,7 +195,7 @@ public class BedrockFluidStateResolverTest {
                 List.of(waterBlock(new BlockPosition(297, 83, -100), "minecraft:flowing_water", 3))));
 
         assertFalse(BedrockUnderwaterSensing.update(
-                        ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState.INITIAL,
+                        BedrockCameraWaterState.INITIAL,
                         context,
                         new Vec3d(297.8619079589844D, 83.50765991210938D, -99.51327514648438D),
                         new PlayerDimensionsState(0.6D, 0.6D))
@@ -206,12 +207,11 @@ public class BedrockFluidStateResolverTest {
         BedrockMovementContext context = contextWithWorld(
                 new BlockCollisionWorld(List.of(waterBlock(new BlockPosition(0, 64, 0), "minecraft:water", 0))));
         var feet = new Vec3d(0.5D, 64.0D, 0.5D);
-        var standingCamera = ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState.INITIAL;
+        var standingCamera = BedrockCameraWaterState.INITIAL;
         assertFalse(
                 BedrockUnderwaterSensing.update(standingCamera, context, feet, new PlayerDimensionsState(0.6F, 0.6F))
                         .headInWater());
-        var recoveringCamera =
-                new ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState(0.610005F, 1.22001F, false, false);
+        var recoveringCamera = new BedrockCameraWaterState(0.610005F, 1.22001F, false, false);
         var sensed =
                 BedrockUnderwaterSensing.update(recoveringCamera, context, feet, new PlayerDimensionsState(0.6F, 1.8F));
         assertTrue(sensed.headInWater());

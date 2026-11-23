@@ -11,6 +11,7 @@ import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public final class BedrockSneakEdgeMovement {
@@ -140,7 +141,7 @@ public final class BedrockSneakEdgeMovement {
             move = approachZero(move, step);
             held[count++] = move;
         }
-        return java.util.Arrays.copyOf(held, count);
+        return Arrays.copyOf(held, count);
     }
 
     private static WorldCollisionBox box(List<BlockCollision> obstacles, PlacedBlockCollision block) {

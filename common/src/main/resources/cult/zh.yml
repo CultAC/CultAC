@@ -94,9 +94,6 @@ cult:
     strip-pattern: ' \(Velocity\)$'
 
   diagnostics:
-    # 目前未使用：修改此值不会自动启用详细警报。
-    auto-enable-verbose: false
-
     # 将传送、位置纠正和重新同步的诊断信息写入控制台。
     teleports: false
 

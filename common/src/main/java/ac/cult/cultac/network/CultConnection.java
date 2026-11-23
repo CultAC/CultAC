@@ -9,26 +9,35 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
+import ac.cult.cultac.protocol.data.ProtocolData;
+import ac.cult.cultac.protocol.data.RegistryNames;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.util.concurrent.EventExecutor;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.GenericFutureListener;
 import it.unimi.dsi.fastutil.ints.IntCollection;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.lang.reflect.Method;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntSupplier;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
 
 /** Authoritative identity, player attachment and transport state for one channel. */
 public final class CultConnection
@@ -91,7 +100,7 @@ public final class CultConnection
         return source != null && isPreparingWrites() ? source.getAsInt() : 0;
     }
 
-    public void flushPingSource(@org.jetbrains.annotations.Nullable java.util.function.IntSupplier source) {
+    public void flushPingSource(@Nullable IntSupplier source) {
         flushPingSource = source;
     }
 
@@ -123,16 +132,49 @@ public final class CultConnection
         }
     }
 
+    /** Takes every retired CultAC ping id not yet answered. */
+    public int[] drainRetiredPings() {
+        synchronized (retiredPings) {
+            int[] ids = retiredPings.toIntArray();
+            retiredPings.clear();
+            return ids;
+        }
+    }
+
+    /** Whether the connection completed a CultAC login. */
+    public boolean loginNotified() {
+        return loginNotified;
+    }
+
+    /**
+     * The state captured when the connection's player was taken out of inspection while the connection stayed open,
+     * the connection's continuation and {@link DormantWatch#LOGIN_NOTIFIED}; null while it is inspected.
+     */
+    public @Nullable Map<String, Object> dormant() {
+        return dormant;
+    }
+
+    /** Marks the connection dormant with the state its player left; on the packet owner, or before its login. */
+    public void dormant(Map<String, Object> state) {
+        dormant = Map.copyOf(state);
+    }
+
+    /** Takes the dormant mark off a connection whose player is inspected again; on the packet owner. */
+    void awake() {
+        dormant = null;
+    }
+
     private boolean ownerResolved, prepared;
     private Consumer<CultConnection> initializer = ignored -> {};
     private BiConsumer<Object, ChannelPromise> reentrantWriter;
-    private java.util.function.IntSupplier flushPingSource;
+    private IntSupplier flushPingSource;
     /** Ids of CultAC pings whose player was removed while the connection stays open; guarded by itself. */
     private final IntOpenHashSet retiredPings = new IntOpenHashSet(0);
     private volatile CompletableFuture<Void> removed;
     private volatile PacketLogObserver packetObserver = PacketLogObserver.NONE;
-    private io.netty.util.concurrent.GenericFutureListener<io.netty.util.concurrent.Future<? super Void>> closeListener;
+    private GenericFutureListener<Future<? super Void>> closeListener;
     private volatile ConnectionContinuation continuation;
+    private volatile @Nullable Map<String, Object> dormant;
     /** Codec contexts bound to this connection, by base identity; a slot holds one immutable context or none. */
     private final ProtocolContext[] contexts = new ProtocolContext[CONTEXT_SLOTS];
 
@@ -158,7 +200,7 @@ public final class CultConnection
         }
     }
 
-    public void observePacket(PacketDirection direction, ConnectionPhase phase, io.netty.buffer.ByteBuf frame) {
+    public void observePacket(PacketDirection direction, ConnectionPhase phase, ByteBuf frame) {
         try {
             packetObserver.packet(direction, phase, frame);
         } catch (Throwable failure) {
@@ -201,7 +243,7 @@ public final class CultConnection
         var model = dispatcher.runtime();
         var observed = version == null || version == model.data().version()
                 ? model
-                : model.forData(ac.cult.cultac.protocol.data.ProtocolData.load(version));
+                : model.forData(ProtocolData.load(version));
         packets = new ProjectedPackets(observed, model, () -> platform.packetValues(this));
         ownerResolver = Objects.requireNonNull(resolver);
         owner = channel.eventLoop();
@@ -217,11 +259,11 @@ public final class CultConnection
 
     @Override
     public <T> T require(Class<T> type) {
-        if (type == ac.cult.cultac.utils.latency.ClientWorldRegistries.class) {
+        if (type == ClientWorldRegistries.class) {
             var attached = player;
             return attached == null ? null : type.cast(attached.getWorldRegistries());
         }
-        if (type == ac.cult.cultac.protocol.data.RegistryNames.class && platform != null)
+        if (type == RegistryNames.class && platform != null)
             return type.cast(platform.registryNames());
         return CodecState.EMPTY.require(type);
     }
@@ -364,13 +406,13 @@ public final class CultConnection
     }
 
     /** Packet IDs and schemas at this connection's actual observation point. */
-    public ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
+    public ProtocolVersion getObservedProtocol() {
         return packets.observed().data().version();
     }
 
     /** Original client identity; unknown before authentication must not become a model-version guess. */
-    @org.jetbrains.annotations.Nullable
-    public ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+    @Nullable
+    public ProtocolVersion getClientProtocol() {
         return platform == null ? null : platform.getClientProtocol();
     }
 
@@ -480,7 +522,7 @@ public final class CultConnection
     }
 
     public void execute(Runnable task) {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host == null) {
             if (owner.inEventLoop()) runInModel(task);
             else owner.execute(() -> runInModel(task));
@@ -599,6 +641,11 @@ public final class CultConnection
         afterClientTick.add(Objects.requireNonNull(task));
     }
 
+    /** Whether a task waits for the next forwarded tick end. On the owner. */
+    public boolean hasClientTickTasks() {
+        return !afterClientTick.isEmpty();
+    }
+
     /** Releases tick-bound tasks after a forwarded tick end, leaving play, or the synthetic tick-end timeout. */
     public void clientTickEnded() {
         midClientTick = false;
@@ -644,17 +691,23 @@ public final class CultConnection
             levelLost();
     }
 
-    /** Run before forwarding the ack to the host, which may immediately connect the next backend. */
+    /**
+     * Run before forwarding the ack to the host, which may immediately connect the next backend. A connection no newer
+     * generation adopts goes to {@link DormancyController#reconfiguring}.
+     */
     public boolean handoffAtReconfiguration() {
         if (!owner.inEventLoop()) throw new IllegalStateException("Hand-off requires the packet owner");
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
-        if (host == null || !host.platform().equals("velocity")) return true;
+        var host = RuntimeEnvironment.host();
+        if (host != null && !host.platform().equals("velocity")) return true;
         var player = this.player;
+        var user = this.user;
+        // A dormant connection's player is gone; its user still names the native player.
+        var platformPlayer =
+                player != null ? player.platformPlayer : dormant != null && user != null ? user.getPlayer() : null;
         try {
-            host.handoff(
-                    channel,
-                    player == null || player.platformPlayer == null ? null : player.platformPlayer.getNative());
-            return true;
+            if (host != null && host.handoff(channel, platformPlayer == null ? null : platformPlayer.getNative()))
+                return true;
+            return DormancyController.reconfiguring(this);
         } catch (Throwable failure) {
             // The releasing generation's config decides: the adopting one failed and may not have loaded.
             if (CultAPI.INSTANCE.getConfigManager().failsOpen()) {
@@ -670,7 +723,7 @@ public final class CultConnection
         }
     }
 
-    public java.util.concurrent.CompletionStage<Void> removeHandlers(Runnable remove) {
+    public CompletionStage<Void> removeHandlers(Runnable remove) {
         if (!channel.eventLoop().inEventLoop() && !owner.inEventLoop())
             throw new IllegalStateException("Handler removal requires I/O or the packet owner");
         if (removed != null) return removed;
@@ -686,8 +739,7 @@ public final class CultConnection
         return removed;
     }
 
-    void closeListener(
-            io.netty.util.concurrent.GenericFutureListener<io.netty.util.concurrent.Future<? super Void>> listener) {
+    void closeListener(GenericFutureListener<Future<? super Void>> listener) {
         closeListener = listener;
         channel.closeFuture().addListener(listener);
     }

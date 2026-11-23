@@ -11,9 +11,12 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
@@ -27,8 +30,19 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class NetworkModule {
     private static final List<Consumer<NetworkService>> startHooks = new CopyOnWriteArrayList<>();
+    private static final List<NetSettings.Listener> settingsListeners = new CopyOnWriteArrayList<>();
+    private static final List<Consumer<UUID>> playerListeners = new CopyOnWriteArrayList<>();
+    private static final List<Consumer<UUID>> connectListeners = new CopyOnWriteArrayList<>();
+    /**
+     * Per player on this instance, the backend server their proxy last connected them to, until they leave or join
+     * again.
+     */
+    private static final Map<UUID, String> connected = new ConcurrentHashMap<>();
+
     private static volatile @Nullable NetworkPlatform platform;
     private static volatile @Nullable NetworkService service;
+    /** The shared settings of the last service started, read while a reconnect replaces it. */
+    private static volatile @Nullable NetSettings lastSettings;
 
     private NetworkModule() {}
 
@@ -80,11 +94,17 @@ public final class NetworkModule {
     /** Starts {@code created} as the running service, unless one runs. */
     static synchronized void start(NetworkService created) {
         if (service != null) return;
+        created.netSettings().listen(NetworkModule::settingsChanged);
         created.start();
         service = created;
+        lastSettings = created.netSettings();
+        created.netSettings().configLoaded();
     }
 
-    /** Reconnects when the reloaded {@code network} block differs from the running one. */
+    /**
+     * Reconnects when the reloaded {@code network} block differs from the running one; else the shared settings take
+     * the reloaded config.yml.
+     */
     public static void configReloaded() {
         if (service != null)
             configReloaded(
@@ -93,13 +113,91 @@ public final class NetworkModule {
 
     static synchronized void configReloaded(NetworkSettings settings) {
         NetworkService running = service;
-        if (running == null || settings.equals(running.settings())) return;
+        if (running == null) return;
+        if (settings.equals(running.settings())) {
+            running.netSettings().configLoaded();
+            running.netCommands().configLoaded();
+            return;
+        }
         end(NetworkModule::closeInBackground);
         start(settings);
     }
 
+    /**
+     * {@code key}'s value on this instance, one of {@link NetSettings}' keys: what the network's shared settings and
+     * config.yml make it. Any thread.
+     */
+    public static NetSettings.Value setting(String key) {
+        return setting(key, null);
+    }
+
+    /**
+     * {@code key}'s value for a player on {@code backend}, the backend server their proxy sent them to; null, for a
+     * player whose backend is not known, gives the instance's value. Any thread.
+     */
+    public static NetSettings.Value setting(String key, @Nullable String backend) {
+        NetSettings settings = settings();
+        return settings != null ? settings.value(key, backend) : NetSettings.value(baseline(), key, null);
+    }
+
+    /**
+     * {@code key}'s value for a player on {@code backend}, the backend server their proxy sent them to; for a player
+     * whose backend is not known, the instance's value while it is every player's, else null. Any thread.
+     */
+    public static @Nullable NetSettings.Value playerSetting(String key, @Nullable String backend) {
+        NetSettings settings = settings();
+        return settings != null ? settings.playerValue(key, backend) : NetSettings.value(baseline(), key, null);
+    }
+
+    /**
+     * The stable keys of the checks switched off for a player on {@code backend}, the backend server their proxy sent
+     * them to; null, for a player whose backend is not known, gives the instance's. Any thread.
+     */
+    public static Set<String> checksOff(@Nullable String backend) {
+        NetSettings settings = settings();
+        return settings != null
+                ? settings.checksOff(backend)
+                : NetSettings.checksOff(baseline(), List.of(), key -> null);
+    }
+
+    private static @Nullable NetSettings settings() {
+        NetworkService running = service;
+        return running != null ? running.netSettings() : lastSettings;
+    }
+
+    private static NetSettings.Baseline baseline() {
+        try {
+            return NetCommands.CULT.baseline();
+        } catch (RuntimeException unloaded) {
+            return NetSettings.Baseline.DEFAULT;
+        }
+    }
+
+    /**
+     * Calls {@code listener} after each change to the shared settings, of any service this runtime runs, until closed:
+     * on the async scheduler, one change at a time, and once with every setting when a service starts or config.yml is
+     * reloaded. It re-reads {@link #setting} for what it applies and must not block. {@link #setting} can show a change
+     * before its listeners hear of it, so applying a value it already applies must change nothing.
+     */
+    public static NetworkService.Registration onSettingsChanged(NetSettings.Listener listener) {
+        settingsListeners.add(listener);
+        return () -> settingsListeners.remove(listener);
+    }
+
+    private static void settingsChanged(NetSettings.Change change) {
+        for (NetSettings.Listener listener : settingsListeners) {
+            try {
+                listener.changed(change);
+            } catch (RuntimeException failure) {
+                LogUtil.warn("A listener of the network's shared settings failed", failure);
+            }
+        }
+    }
+
     public static synchronized void stop() {
         end(Runnable::run);
+        lastSettings = null;
+        connected.clear();
     }
 
     private static void closeInBackground(Runnable close) {
@@ -108,10 +206,62 @@ public final class NetworkModule {
         thread.start();
     }
 
-    /** A join or backend switch on this instance; {@code brand} is the client brand, null while it is not known. */
+    /**
+     * Calls {@code listener} with each player who joins on this instance or whose connection to a backend server
+     * completed, until closed.
+     */
+    public static NetworkService.Registration onPlayerChanged(Consumer<UUID> listener) {
+        playerListeners.add(listener);
+        return () -> playerListeners.remove(listener);
+    }
+
+    /**
+     * Calls {@code listener} with each player on this instance the proxy connects to a backend server, ahead of that
+     * connection completing, until closed. The server can still change before it completes.
+     */
+    public static NetworkService.Registration onPlayerConnected(Consumer<UUID> listener) {
+        connectListeners.add(listener);
+        return () -> connectListeners.remove(listener);
+    }
+
+    /**
+     * A join or backend switch on this instance; {@code server} is null at a join that has no backend server yet, and
+     * {@code brand} is the client brand, null while it is not known.
+     */
     public static void playerChanged(UUID uuid, String name, @Nullable String server, @Nullable String brand) {
+        if (server != null) connected.put(uuid, server);
+        else connected.remove(uuid);
         NetworkService running = service;
         if (running != null) running.playerChanged(new OnlinePlayer(uuid, name, server, brand));
+        tell(playerListeners, uuid);
+    }
+
+    /**
+     * The proxy connected a player on this instance to backend {@code server}, ahead of the platform naming it their
+     * current server. Any thread.
+     */
+    public static void playerConnected(UUID uuid, String server) {
+        connected.put(uuid, server);
+        tell(connectListeners, uuid);
+    }
+
+    /**
+     * The backend server a player's network settings follow: the one their proxy last connected them to, else
+     * {@code current}, the one the platform names. Any thread.
+     */
+    public static @Nullable String backend(UUID uuid, @Nullable String current) {
+        String target = connected.get(uuid);
+        return target != null ? target : current;
+    }
+
+    private static void tell(List<Consumer<UUID>> listeners, UUID uuid) {
+        for (Consumer<UUID> listener : listeners) {
+            try {
+                listener.accept(uuid);
+            } catch (RuntimeException failure) {
+                LogUtil.warn("A listener of player joins and server switches failed", failure);
+            }
+        }
     }
 
     /** The client brand of a player on this instance arrived after their join. Any thread. */
@@ -122,8 +272,45 @@ public final class NetworkModule {
 
     /** A quit on this instance. Any thread. */
     public static void playerLeft(UUID uuid) {
+        connected.remove(uuid);
         NetworkService running = service;
         if (running != null) running.playerLeft(uuid);
+    }
+
+    /**
+     * {@code /cult net <target> <command> [args]}: runs {@code command} on the instances {@code target} names, showing
+     * {@code sender} each answer and a summary; completes once the summary was shown.
+     */
+    public static CompletableFuture<Void> runNetworkCommand(
+            Sender sender, String target, String command, List<String> args) {
+        NetworkService running = service;
+        if (running == null) {
+            NetCommands.off(sender);
+            return CompletableFuture.completedFuture(null);
+        }
+        return running.netCommands().issue(sender, target, command, args);
+    }
+
+    /** Tells {@code sender} how {@code /cult net} is used. */
+    public static void networkCommandUsage(Sender sender) {
+        NetCommands.usage(sender);
+    }
+
+    /**
+     * What {@code /cult net} completes for the target typed so far: the keywords, this instance, the instances heard
+     * from lately, their backend servers and patterns for groups of them, after the last comma.
+     */
+    public static List<String> networkCommandTargets(String typed) {
+        NetworkService running = service;
+        return running == null
+                ? NetCommands.complete(typed, List.of(NetworkSettings.ALL, NetCommands.PROXIES))
+                : running.netCommands().targets(typed);
+    }
+
+    /** Whether {@code /cult net} offers {@code command} for the target typed: it can run on what the target names. */
+    public static boolean networkCommandOffered(String target, String command) {
+        NetworkService running = service;
+        return running == null || running.netCommands().offered(target, command);
     }
 
     private static void end(Executor closing) {

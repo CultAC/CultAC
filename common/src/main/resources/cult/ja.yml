@@ -98,9 +98,6 @@ cult:
     strip-pattern: ' \(Velocity\)$'
 
   diagnostics:
-    # 現在は未使用です。この値を変更しても詳細アラートは自動的に有効になりません。
-    auto-enable-verbose: false
-
     # テレポート、位置補正、再同期の診断情報をコンソールに出力します。
     teleports: false
 

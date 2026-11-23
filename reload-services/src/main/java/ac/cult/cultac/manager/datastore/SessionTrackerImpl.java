@@ -22,12 +22,11 @@ public final class SessionTrackerImpl implements SessionTracker {
 
     private final Map<UUID, ConnectionKey> latestConnections = new ConcurrentHashMap<>();
 
-    public SessionTrackerImpl(@NotNull DataStore store, @NotNull String serverName, long heartbeatIntervalMs) {
-        this(store, serverName, heartbeatIntervalMs, null);
+    public SessionTrackerImpl(@NotNull DataStore store, long heartbeatIntervalMs) {
+        this(store, heartbeatIntervalMs, null);
     }
 
-    public SessionTrackerImpl(
-            @NotNull DataStore store, @NotNull String serverName, long heartbeatIntervalMs, @Nullable UUID startupId) {
+    public SessionTrackerImpl(@NotNull DataStore store, long heartbeatIntervalMs, @Nullable UUID startupId) {
         this.store = store;
         this.heartbeatIntervalMs = heartbeatIntervalMs;
         this.startupId = startupId;

@@ -13,6 +13,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponen
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -209,7 +210,7 @@ public final class BedrockEffectSpeedTest {
     }
 
     private static BedrockActorHistory.Frame tick(Entry previous, long tick, boolean jumping, boolean sprinting) {
-        var flags = new java.util.HashSet<>(Set.of("UP"));
+        var flags = new HashSet<>(Set.of("UP"));
         if (jumping) flags.addAll(Set.of("JUMPING", "JUMP_DOWN", "START_JUMPING", "WANT_UP"));
         if (sprinting) flags.addAll(Set.of("SPRINTING", "SPRINT_DOWN"));
         var input = new BedrockInputFrame(tick, 0, 0, jumping, false, sprinting, Set.copyOf(flags));

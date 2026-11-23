@@ -4,9 +4,12 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
+import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
+import java.util.Objects;
 
 /** Value-only, ordered changes to a historical movement frame. */
 public sealed interface BedrockReplayEvent
@@ -66,12 +69,7 @@ public sealed interface BedrockReplayEvent
         }
     }
 
-    record Reposition(
-            Vec3d position,
-            float yaw,
-            float pitch,
-            boolean onGround,
-            ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame coordinates)
+    record Reposition(Vec3d position, float yaw, float pitch, boolean onGround, BedrockCoordinateFrame coordinates)
             implements BedrockReplayEvent {
         @Override
         public BedrockMovementState state(BedrockMovementState state) {
@@ -139,8 +137,7 @@ public sealed interface BedrockReplayEvent
 
         Metadata changedValues(Metadata before) {
             var flags = changedFlags(before);
-            boolean resized =
-                    !java.util.Objects.equals(width, before.width) || !java.util.Objects.equals(height, before.height);
+            boolean resized = !Objects.equals(width, before.width) || !Objects.equals(height, before.height);
             return new Metadata(
                     resized ? width : null,
                     resized ? height : null,
@@ -149,7 +146,7 @@ public sealed interface BedrockReplayEvent
                     flags.swimming,
                     flags.spinning,
                     flags.sprinting,
-                    java.util.Objects.equals(scaledDefinition, before.scaledDefinition) ? null : scaledDefinition);
+                    Objects.equals(scaledDefinition, before.scaledDefinition) ? null : scaledDefinition);
         }
 
         boolean hasValues() {
@@ -160,11 +157,11 @@ public sealed interface BedrockReplayEvent
             return new Metadata(
                     null,
                     null,
-                    java.util.Objects.equals(gliding, before.gliding) ? null : gliding,
-                    java.util.Objects.equals(crawling, before.crawling) ? null : crawling,
-                    java.util.Objects.equals(swimming, before.swimming) ? null : swimming,
-                    java.util.Objects.equals(spinning, before.spinning) ? null : spinning,
-                    java.util.Objects.equals(sprinting, before.sprinting) ? null : sprinting);
+                    Objects.equals(gliding, before.gliding) ? null : gliding,
+                    Objects.equals(crawling, before.crawling) ? null : crawling,
+                    Objects.equals(swimming, before.swimming) ? null : swimming,
+                    Objects.equals(spinning, before.spinning) ? null : spinning,
+                    Objects.equals(sprinting, before.sprinting) ? null : sprinting);
         }
 
         boolean hasFlags() {
@@ -204,7 +201,7 @@ public sealed interface BedrockReplayEvent
             if (!state.isHorse()) return state;
             var h = state.horse();
             if (standing != null)
-                state = state.withHorse(new ac.cult.cultac.bedrock.prediction.state.BedrockHorseState(
+                state = state.withHorse(new BedrockHorseState(
                         h.actor(),
                         h.jumping(),
                         h.pendingJump(),

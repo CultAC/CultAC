@@ -1,7 +1,11 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.reload.integrations.GeyserTranslatorRouter;
 import java.util.ArrayList;
 import java.util.function.BiConsumer;
+import org.geysermc.geyser.entity.type.Entity;
+import org.geysermc.geyser.entity.vehicle.ClientVehicle;
 import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
@@ -16,7 +20,7 @@ final class GeyserSprintAttributeTranslator extends PacketTranslator<Clientbound
     private final VehicleMovement vehicleMovement;
 
     interface VehicleMovement {
-        void accept(GeyserSession session, org.geysermc.geyser.entity.type.Entity entity, Attribute attribute);
+        void accept(GeyserSession session, Entity entity, Attribute attribute);
     }
 
     static boolean available() {
@@ -27,10 +31,9 @@ final class GeyserSprintAttributeTranslator extends PacketTranslator<Clientbound
     GeyserSprintAttributeTranslator(BiConsumer<GeyserSession, Attribute> movement, VehicleMovement vehicleMovement) {
         this.movement = movement;
         this.vehicleMovement = vehicleMovement;
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            delegate = ac.cult.reload.integrations.GeyserTranslatorRouter.install(
-                    ClientboundUpdateAttributesPacket.class, host, this);
+            delegate = GeyserTranslatorRouter.install(ClientboundUpdateAttributesPacket.class, host, this);
             return;
         }
         delegate = (PacketTranslator<ClientboundUpdateAttributesPacket>)
@@ -44,7 +47,7 @@ final class GeyserSprintAttributeTranslator extends PacketTranslator<Clientbound
         boolean self = packet.getEntityId() == session.getPlayerEntity().getEntityId();
         var entity =
                 self ? session.getPlayerEntity() : session.getEntityCache().getEntityByJavaId(packet.getEntityId());
-        if (!self && (!(entity instanceof org.geysermc.geyser.entity.vehicle.ClientVehicle) || !entity.isValid())) {
+        if (!self && (!(entity instanceof ClientVehicle) || !entity.isValid())) {
             delegate.translate(session, packet);
             return;
         }
@@ -60,10 +63,9 @@ final class GeyserSprintAttributeTranslator extends PacketTranslator<Clientbound
     }
 
     void close() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            ac.cult.reload.integrations.GeyserTranslatorRouter.remove(
-                    ClientboundUpdateAttributesPacket.class, host, this);
+            GeyserTranslatorRouter.remove(ClientboundUpdateAttributesPacket.class, host, this);
             return;
         }
         if (isInstalled())
@@ -71,10 +73,8 @@ final class GeyserSprintAttributeTranslator extends PacketTranslator<Clientbound
     }
 
     boolean isInstalled() {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
-        if (host != null)
-            return ac.cult.reload.integrations.GeyserTranslatorRouter.installed(
-                    ClientboundUpdateAttributesPacket.class, host, this);
+        var host = RuntimeEnvironment.host();
+        if (host != null) return GeyserTranslatorRouter.installed(ClientboundUpdateAttributesPacket.class, host, this);
         return Registries.JAVA_PACKET_TRANSLATORS.get(ClientboundUpdateAttributesPacket.class) == this;
     }
 }

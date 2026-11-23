@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockFluidMovementSource;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
 import ac.cult.cultac.bedrock.prediction.state.BedrockDolphinBoost;
+import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.JumpPreventionState;
 
 public final class BedrockFrameSystems {
@@ -31,7 +32,7 @@ public final class BedrockFrameSystems {
         var attributes = state.attributes().apply(context.attributeState());
         if (!state.isVehicle())
             attributes = attributes.withMovementSpeed(state.movementAttribute().current());
-        context = new ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext(
+        context = new BedrockMovementContext(
                 context.effectState(),
                 attributes,
                 context.worldState(),

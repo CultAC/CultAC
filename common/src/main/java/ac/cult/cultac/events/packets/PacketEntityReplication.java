@@ -2,11 +2,13 @@ package ac.cult.cultac.events.packets;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
-import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenBoatPass;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenBoatTick;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
@@ -28,6 +30,7 @@ import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
+import ac.cult.cultac.protocol.data.ModelIdMappings;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDamageEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
@@ -51,6 +54,7 @@ import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.blockplace.ClientBlockActions;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ReachInterpolationData;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
@@ -70,11 +74,16 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.Consumer;
 import org.jetbrains.annotations.Nullable;
 
 public class PacketEntityReplication extends CultProcessor implements CheckListener, ClientTickEndListener {
@@ -96,11 +105,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private long transformTick;
     private int packetHandlerDeltaMovementSequence = 0;
     /**
-     * Always on. Only the live smoketests turn it off, with {@code CULT_VALIDATION_REACH_BUNDLE_DELIMITER=false},
+     * Always on. Only the live smoketests turn it off, with {@code -Dcult.validation.reachBundleDelimiter=false},
      * to exercise the transaction-only proof path.
      */
     private static final boolean REACH_BUNDLE_DELIMITER =
-            !"false".equalsIgnoreCase(System.getenv("CULT_VALIDATION_REACH_BUNDLE_DELIMITER"));
+            !"false".equalsIgnoreCase(System.getProperty("cult.validation.reachBundleDelimiter"));
 
     private boolean useReachBundleDelimiter = REACH_BUNDLE_DELIMITER;
     private boolean hasSentPreWavePacket = true;
@@ -516,8 +525,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 || !player.checkManager.getSimulationProcessor().hasRideTick())
             player.compensatedEntities.recordRideTickSeat();
         PacketEntity boat = player.compensatedEntities.getSelf().getRiding();
-        if (player.compensatedEntities.vehicles.isRiddenDrivenBoat(boat))
-            ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenBoatPass.afterTick(player, boat);
+        if (player.compensatedEntities.vehicles.isRiddenDrivenBoat(boat)) JavaRiddenBoatPass.afterTick(player, boat);
         player.compensatedEntities.vehicles.updateServerControlledSafeSetbackPositionOnTickEnd();
         transformTick++;
     }
@@ -532,7 +540,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         player.compensatedEntities.onClientTick();
         if (player.isBedrockMovement() && player.bedrockState != null) player.bedrockState.clientActors.tick();
         PacketEntity velocityVehicle = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
-        java.util.function.Consumer<PacketEntity> tick = entity -> {
+        Consumer<PacketEntity> tick = entity -> {
             if (entity instanceof PacketEntityHorse horse && !player.isBedrockMovement()) {
                 tickHorseAtClientTickEnd(horse, velocityVehicle);
             } else {
@@ -548,15 +556,14 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     /** Whether the entity took its interpolation step here. */
     private boolean tickEntityAtClientTickEnd(PacketEntity entity, PacketEntity velocityVehicle) {
-        if (player.isBedrockMovement()
-                && entity
-                        == ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(
-                                player)) return false;
+        if (player.isBedrockMovement() && entity == BedrockVehicleControl.controlledVehicle(player)) return false;
         if (player.compensatedEntities.vehicles.isRiddenDrivenBoat(entity)) {
-            ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenBoatTick.tick(player, entity);
+            JavaRiddenBoatTick.tick(player, entity);
             return false;
         }
         if (entity == velocityVehicle && player.compensatedEntities.vehicles.isLocallyTickedVelocityRoot(entity)) {
+            // LivingEntity#aiStep ends the root's tick with its walk animation, after the local travel.
+            if (entity instanceof PacketEntityStrider strider) strider.calculateLocalWalkAnimation(player);
             return false;
         }
         if (player.isBedrockMovement() && player.compensatedEntities.isInBedrockLimbo(entity)) return false;
@@ -676,9 +683,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
         // Geyser spawns no Bedrock entity for a type it does not define: the client never holds it, rides it or
         // collides with it, so it never enters a Bedrock player's world.
-        if (player.isBedrockMovement()
-                && !ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime.translatesEntity(packet.entityType()))
-            return;
+        if (player.isBedrockMovement() && !GeyserBedrockBridgeRuntime.translatesEntity(packet.entityType())) return;
         if (removedPlayerVehicleId == packet.entityId()) {
             removedPlayerVehicleId = Integer.MIN_VALUE;
         }
@@ -691,12 +696,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         // Older clients simulate Via's fallback type, e.g. a non-solid ghast for a happy ghast.
         String type = client == null
                 ? packet.entityType()
-                : ac.cult.cultac.protocol.data.ModelIdMappings.clientVisibleEntity(packet.entityType(), model, client);
+                : ModelIdMappings.clientVisibleEntity(packet.entityType(), model, client);
         addEntity(
                 packet.entityId(),
-                java.util.Objects.requireNonNull(
-                                ac.cult.blocksim.entity.EntityTypes.defaults().byKey(type),
-                                "Unknown model entity " + type)
+                Objects.requireNonNull(EntityTypes.defaults().byKey(type), "Unknown model entity " + type)
                         .id(),
                 new Vec3(
                         packet.position().x(),
@@ -1489,7 +1492,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             Runnable apply = () -> {
                 if (player.usesModernJavaItemUse()) {
                     player.clientItemUse.completionHandled();
-                    ac.cult.cultac.utils.blockplace.ClientBlockActions.completeUse(player);
+                    ClientBlockActions.completeUse(player);
                     player.clientItemUse.release();
                 }
                 var storage = player.getInventory().inventory.getInventoryStorage();
@@ -1615,13 +1618,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             // Entity#stopRiding moves nothing on the client, so the resync keeps the player at its last ride-tick
             // seat, whether or not it controlled the vehicle.
             Vec3 seat = vehicle == null ? null : player.compensatedEntities.dismountSeat(vehicle);
-            SelfDismountResyncState dismountResyncState =
-                    CultAPI.INSTANCE.getConfigManager().isObserveOnly()
-                            ? null
-                            : new SelfDismountResyncState(
-                                    seat != null ? seat : new Vec3(player.x, player.y, player.z),
-                                    Vec3.ZERO,
-                                    player.getSetbackTeleportUtil().sender().nextTeleportId());
+            SelfDismountResyncState dismountResyncState = player.isObserveOnly()
+                    ? null
+                    : new SelfDismountResyncState(
+                            seat != null ? seat : new Vec3(player.x, player.y, player.z),
+                            Vec3.ZERO,
+                            player.getSetbackTeleportUtil().sender().nextTeleportId());
             CultPlayer.TrackedTransaction proof = proofForSetPassengers(event, null, dismountResyncState);
             int transaction = proof == null ? player.lastTransactionSent.get() + 1 : proof.transaction();
             if (changesSelfPassengers) player.compensatedEntities.markSelfPassengersChange(transaction);
@@ -1649,7 +1651,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         VehicleMountResyncState mountResyncState = null;
         if (mountsLocalPlayer) {
-            if (!CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+            if (!player.isObserveOnly()
                     && player.compensatedEntities.vehicles.shouldProtocolResyncOnMount(vehicle, passengers)) {
                 mountResyncState = vehicleMountResyncState(packet.vehicleId());
             }
@@ -1725,9 +1727,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             PacketSendEvent<?> event,
             @Nullable VehicleMountResyncState mountResyncState,
             @Nullable SelfDismountResyncState dismountResyncState) {
-        List<CultWrite> resyncPackets = CultAPI.INSTANCE.getConfigManager().isObserveOnly()
-                ? List.of()
-                : resyncPackets(mountResyncState, dismountResyncState);
+        List<CultWrite> resyncPackets =
+                player.isObserveOnly() ? List.of() : resyncPackets(mountResyncState, dismountResyncState);
         if (mountResyncState != null && !resyncPackets.isEmpty()) {
             // ClientPacketListener#handleMoveVehicle answers each resync MoveVehicle. A ping earlier in the flush
             // bundle is answered before those answers, so only a ping of its own after them proves them.
@@ -1908,7 +1909,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         List<Integer> destroyEntityIds = packet.entityIds();
         // Removing the player's vehicle ejects it client-side with the velocity its last Entity#rideTick left.
         // A zero motion before the proof replaces that velocity, as the set_passengers dismount resync does.
-        boolean resetsVelocity = !CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+        boolean resetsVelocity = !player.isObserveOnly()
                 && !player.isBedrockMovement()
                 && destroyEntityIds.stream().anyMatch(player.compensatedEntities.vehicles::isServerPlayerPassengerOf);
         int transaction = resetsVelocity
@@ -2082,12 +2083,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private static int transactionOf(@Nullable CultPlayer.TrackedTransaction proof) {
         return proof == null ? -1 : proof.transaction();
-    }
-
-    /** A {@link Proof#BEFORE_NEXT_TICK} ping after a vehicle packet another listener handles; null when none is sent. */
-    @Nullable
-    public CultPlayer.TrackedTransaction appendVehicleProtocolProofTransaction(PacketSendEvent<?> event) {
-        return trailingProof(event, List.of());
     }
 
     private void handleMoveEntity(PacketSendEvent<?> event, EntityMovement movement) {
@@ -2333,12 +2328,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     /** Entity#positionRider on the local player from the position the handler set; its next ride tick starts there. */
     private void seatLocalRider(PacketEntity entity, EntityMovement movement) {
         if (!ridesIndirectly(entity)) return;
-        Vec3 seat = ac.cult.cultac.utils.nmsutil.BoundingBoxSize.getRidingOffsetFromVehicle(
+        Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(
                 entity,
                 player.compensatedEntities.getSelf(),
                 player,
-                ac.cult.cultac.utils.nmsutil.GetBoundingBox.getPacketEntityBoundingBox(
-                        player, movement.x, movement.y, movement.z, entity));
+                GetBoundingBox.getPacketEntityBoundingBox(player, movement.x, movement.y, movement.z, entity));
         player.checkManager.getSimulationProcessor().moveRider(seat);
     }
 
@@ -2435,8 +2429,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             Vec3 target = movement.path().endPosition();
             entity.snapTo(
                     player,
-                    ac.cult.cultac.utils.nmsutil.GetBoundingBox.getPacketEntityBoundingBox(
-                            player, target.x, target.y, target.z, entity),
+                    GetBoundingBox.getPacketEntityBoundingBox(player, target.x, target.y, target.z, entity),
                     movement.yaw(),
                     movement.pitch());
             entity.onSecondTransaction();
@@ -2596,7 +2589,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             float headYaw,
             int extraData,
             int transaction,
-            java.util.UUID uuid,
+            UUID uuid,
             Vec3 velocity) {
         int spawnTransaction = transaction >= 0 ? transaction : player.lastTransactionSent.get();
         TrackerData tracked = new TrackerData(position.x, position.y, position.z, xRot, yRot, type, spawnTransaction);
@@ -2619,9 +2612,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     horse.head.spawn(headYaw, yRot);
             }
             clearPacketHandlerDeltaMovement(entityID, spawnDeltaSequence);
-            if (uuid != null
-                    && player.compensatedEntities.getEntity(entityID)
-                            instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer remote) {
+            if (uuid != null && player.compensatedEntities.getEntity(entityID) instanceof PacketEntityPlayer remote) {
                 remote.profile = uuid;
                 var info = player.compensatedEntities.clientPlayerModes.get(uuid);
                 if (info != null) remote.scoreboardName = info.name();

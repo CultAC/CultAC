@@ -5,6 +5,7 @@ import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import java.util.List;
 
 /** The JSON bridge required by the remaining action runtime, without a vanilla codec. */
@@ -28,7 +29,7 @@ public final class WorldRegistryJson {
             JsonElement value = entry.getValue().deepCopy();
             if (defaults.booleanAttributes().contains(key)) {
                 if (value.isJsonObject()) bool(value.getAsJsonObject(), "argument");
-                else value = new com.google.gson.JsonPrimitive(NbtJson.booleanValue(value));
+                else value = new JsonPrimitive(NbtJson.booleanValue(value));
             } else if (key.equals("minecraft:audio/background_music")) {
                 var music = value.getAsJsonObject();
                 if (music.has("modifier")) music = music.getAsJsonObject("argument");

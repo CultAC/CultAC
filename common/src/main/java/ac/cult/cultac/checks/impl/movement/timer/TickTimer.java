@@ -50,7 +50,7 @@ public final class TickTimer extends Check implements CheckListener {
 
         if (!receivedTickEnd
                 && flagWithTimerSetback(V.write(verbose()).bool(false).uint(flyingPackets))
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                && !player.isObserveOnly()) {
             player.onPacketCancel();
             event.cancelFinally();
         }
@@ -68,7 +68,7 @@ public final class TickTimer extends Check implements CheckListener {
         // VehicleTimer counts only the first move in a tick, so reject another before it can run prediction.
         if (++vehiclePackets > 1
                 && flagWithTimerSetback(V.write(verbose()).bool(false).uint(vehiclePackets))
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                && !player.isObserveOnly()) {
             event.cancelFinally();
             player.onPacketCancel();
         }
@@ -81,7 +81,7 @@ public final class TickTimer extends Check implements CheckListener {
         receivedTickEnd = true;
         if (flyingPackets > 1
                 && flagWithTimerSetback(V.write(verbose()).bool(true).uint(flyingPackets))
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                && !player.isObserveOnly()) {
             player.onPacketCancel();
         }
         flyingPackets = 0;

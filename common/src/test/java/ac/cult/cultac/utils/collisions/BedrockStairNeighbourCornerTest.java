@@ -14,9 +14,11 @@ import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -109,7 +111,7 @@ class BedrockStairNeighbourCornerTest {
                 stair("minecraft:oak_stairs", facing, "bottom", "straight"),
                 offset(STAIR, -step[0], -step[1]),
                 stair("minecraft:oak_stairs", frontFacing, "bottom", "straight"));
-        Set<String> expected = new java.util.HashSet<>(raised(Map.of(STAIR, world.get(STAIR)), STAIR, "bottom"));
+        Set<String> expected = new HashSet<>(raised(Map.of(STAIR, world.get(STAIR)), STAIR, "bottom"));
         expected.add(quarter);
         assertEquals(expected, raised(world, STAIR, "bottom"), facing + " front " + frontFacing);
     }
@@ -126,7 +128,7 @@ class BedrockStairNeighbourCornerTest {
     private static Set<String> raised(Map<BlockPosition, Integer> world, BlockPosition position, String half) {
         List<WorldCollisionBox> boxes = boxes(world, position);
         double stepY = half.equals("bottom") ? 0.75 : 0.25;
-        Set<String> raised = new java.util.TreeSet<>();
+        Set<String> raised = new TreeSet<>();
         for (String quarter : List.of("NW", "NE", "SW", "SE")) {
             double x = position.x() + (quarter.endsWith("W") ? 0.25 : 0.75);
             double z = position.z() + (quarter.startsWith("N") ? 0.25 : 0.75);

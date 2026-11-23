@@ -5,10 +5,11 @@ work whichever server that player is on, tab completion offers players from ever
 `global` scope arrive from everywhere. Without it, each server only knows about its own players.
 
 Your servers talk to each other through a Redis or NATS server you already run, or through RedisBungee's connection.
-Everything is set in the `network` block of `config.yml`. Every setting can also be set with an environment variable,
-which takes priority when it is set and not blank: `CULTAC_NETWORK_TYPE`, `CULTAC_NETWORK_INSTANCE_ID`,
-`CULTAC_NETWORK_REDIS_ADDRESS`, `_USERNAME`, `_PASSWORD` and `_SSL`, and `CULTAC_NETWORK_NATS_ADDRESS`, `_USERNAME`,
-`_PASSWORD`, `_TOKEN`, `_CREDENTIALS_FILE` and `_SSL`. `/cult reload` applies changes.
+Everything is set in the `network` block of `config.yml`. The connection settings and credentials can also be set
+with an environment variable, which takes priority when it is set and not blank: `CULTAC_NETWORK_TYPE`,
+`CULTAC_NETWORK_SECRET`, `CULTAC_NETWORK_REDIS_ADDRESS`, `_USERNAME`, `_PASSWORD` and `_SSL`, and
+`CULTAC_NETWORK_NATS_ADDRESS`, `_USERNAME`, `_PASSWORD`, `_TOKEN`, `_CREDENTIALS_FILE` and `_SSL`. `/cult reload`
+applies changes.
 
 ## Choosing how your servers talk
 
@@ -114,3 +115,115 @@ server. Staff who never chose a scope get `alerts.default-scope` from `config.ym
 `global`); their own choice wins, and `global` acts as `server` while network-wide alerts are off. `/cult findplayer` counts the client brands of everyone online on the network, and
 `/cult findplayer brand=<text>` lists the players whose brand contains that text. While the network runs, a server
 does not also send its alerts through the proxy (`alerts.proxy.send`), as the network already brings them.
+
+## Running commands on several servers
+
+`/cult net <target> <command>` runs one command on every CultAC proxy and server the target names. Each one's answer
+shows as it arrives, then a summary: how many answered, which did not answer in time (5 seconds for `status`), and
+which run an older CultAC build that cannot take network commands.
+
+The target is one or more of these, joined by commas without spaces (`BRG_*,lobby`):
+
+- `all`: every proxy and server running CultAC.
+- `proxies`: every proxy.
+- a server name (see [Server names](#server-names)): that proxy or server.
+- a backend server as your proxies name it (`BRG_1`): every proxy that lists it runs the command for the players on
+  it, and the backend itself does too when it runs CultAC under that name.
+- a pattern with `*` (`BRG_*`): every server and backend name it matches.
+
+Names ignore case. A server named `proxies` is reached as `id:proxies`. Tab completion offers the keywords, the
+servers heard from, every backend registered with a proxy (with players or not) and a pattern for each group of names
+that share a prefix, such as `BRG_*`. A complete name is also offered with a comma after it, and after a comma it
+completes the next name, leaving out the names a pattern already given covers. A name that no proxy or server knows is
+refused, and nothing is sent.
+
+Commands:
+
+- `status`: for each server, its CultAC build, whether it is a proxy or a server, the players online, inspected and
+  dormant (not checked after a `toggle off`), whether it checks players, observe-only mode, whether punishment
+  commands run, the checks switched off, the average time per prediction, and how long the server and its running
+  CultAC engine have been up. For a backend name, each proxy reports the players and settings on the backends named.
+- `reload`: reloads CultAC's configuration, as `/cult reload` does. It runs on proxies and servers only; a backend name
+  is refused.
+- `observe on|off`: turns observe-only mode on or off for the players the target names. Without `on` or `off` it shows
+  the current mode and where it comes from.
+- `punish on|off`: runs or withholds the commands of `punishments.yml` for the players the target names; checks,
+  alerts and setbacks are unaffected. Without `on` or `off` it shows the current state.
+- `toggle on|off`: with `off`, CultAC checks no one on the matched instances or servers and frees its memory. With
+  `on`, players who join are checked, and for players already online checking starts again at their next server
+  switch or reconnect. Without `on` or `off` it shows the current state and where it comes from. Each proxy and server
+  answers with how many of the players the target names it does not check. Bedrock players, and players on a server
+  that is not a proxy, are checked again when they reconnect; an engine update reaches a Bedrock player who is not
+  checked when they reconnect.
+- `check <check> <on|off>`: switches one check on or off for the players the target names. Tab completion offers each
+  check's current name; any name a check has or had works.
+- `update <build>` or `update latest [channel]`, optionally followed by `--canary`: installs a signed numbered build
+  on every proxy the target names, as `/cult update` does on each one (see
+  [Numbered builds on Velocity](../README.md#numbered-builds-on-velocity)). `latest` is the newest build of a channel,
+  by default the channel of the build running where the command is typed. That server looks it up once, and every
+  proxy installs that build only if it is signed for that channel; when it cannot look it up, each proxy looks it up
+  itself, one GitHub API request each (60 an hour per address without `update.token`). Each proxy answers when it
+  starts and again with its install line, which it also logs and posts to `update.webhook` with the sender's name.
+  Servers that are not proxies answer that they skip it, and a backend name is refused. The proxy the command is typed
+  on updates itself last, once the others have answered or the wait for them has ended. With `--canary`, one proxy
+  installs the build first: the first by name other than the one the command is typed on. The others, the one the
+  command is typed on included, update only once it runs the new build. The wait ends for a
+  proxy that has not answered within 10 seconds, and for an install line after 11 minutes. To roll back, install an
+  older build number; a proxy with `update.build: latest` still starts the newest build of its channel when it
+  restarts. A proxy whose CultAC plugin jar is older than this command answers that it needs a restart: restart it
+  once (its running build replaces the plugin jar as it stops) and it takes network updates from then on.
+
+Each command needs `cult.net` and its own node, `cult.net.<command>` (`cult.net.status`, `cult.net.reload`,
+`cult.net.observe`, `cult.net.punish`, `cult.net.toggle`, `cult.net.check`, `cult.net.update`), on the server it is
+typed on; the console holds them all. A receiving server runs it only when the sender held that node, and a command
+forwarded from another server can never start one.
+
+`observe`, `punish` and `check` apply per player: on a proxy, each player follows the setting issued last for the
+backend server they are on or for the proxy itself, and a player who moves to another backend takes its settings at
+once. `toggle` applies per player the same way; for a player who moves to another backend it takes effect as they
+switch. `/cult observe` and the `observe-only` key set the mode of their own server.
+
+`network.commands` in `config.yml` sets what a server takes:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Whether this server runs network commands. |
+| `accept` | `[status, reload, observe, toggle, check, punish, update]` | The commands it runs; it refuses the others. |
+| `webhook` | `summary` | What goes to `update.webhook`: `summary`, `every` or `none`. |
+
+An `accept` list already in `config.yml` keeps the commands it lists; add `punish` to it for the server to take
+`punish`.
+
+Every server that runs a network command, and the server it was typed on, logs one line for it:
+`net <id> <sender> (<uuid>|console) from <server> → <target>: <command> = <result>`. With `webhook: summary` the server
+it was typed on posts the command and its summary to `update.webhook`; with `every` each server that runs it posts its
+own line; `none` posts nothing. While network routing is off, a network command runs only on the server it is typed
+on, when the target names that server.
+
+### Settings that stay set
+
+A network command that changes a setting (whether a server checks players, observe-only mode, the checks switched
+off, whether punishment commands run) leaves a record: the setting, its value, the target, when it was issued and by
+whom. Every server keeps the same records. They travel with each server's announcements, and a server that starts, or
+comes back after losing the network, asks the others for theirs and catches up. When two records for one setting and
+target disagree, every server takes the one issued last; a record for `all` replaces the older records of its setting.
+
+A record for a backend name applies to the players on that backend, on every proxy that lists it, and to the backend
+itself when it runs CultAC under that name. A setting command may name a backend that no proxy lists yet: it notes
+that, and the setting applies once the backend appears.
+
+Each server stores the records in `network-state.json` in its data folder and writes the values that apply to it into
+`config.yml`, so they survive a restart without the network. Editing one of these keys in `config.yml` yourself changes
+it on that server only, when it starts or on `/cult reload`; a later network command still wins. A server with
+`network.commands.enabled: false`, or whose `accept` list lacks the command that changes a setting, keeps its own
+`config.yml` value for it, while still keeping and passing on the records.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `dormant` | `false` | CultAC checks no one and frees the memory checking uses. |
+| `observe-only` | `false` | Flag and alert without acting. |
+| `checks-off` | `[]` | Checks that neither flag nor set back, by check name. |
+| `pause-punishments` | `false` | Withhold the punishment commands of `punishments.yml`. |
+
+`checks-off` takes any name a check has or had, in any case; a name that is not a check is
+logged once and ignored. When CultAC writes `checks-off`, it writes each check's current name.

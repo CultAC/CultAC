@@ -1,5 +1,7 @@
 package ac.cult.blocksim;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ac.cult.blocksim.data.ComponentPatch;
 import ac.cult.blocksim.data.ComponentWireEncoding;
 import ac.cult.blocksim.data.Components;
@@ -7,11 +9,11 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.ItemRegistry;
 import ac.cult.blocksim.engine.SimItemStack;
 import com.google.gson.JsonParser;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
 
 class ComponentSharingTest {
     @Test void ownedAssemblyKeepsPublicJsonBoundariesIndependent() {
@@ -24,7 +26,7 @@ class ComponentSharingTest {
         input.getAsJsonObject().getAsJsonObject("nested").addProperty("value", 99);
         external.getAsJsonObject().addProperty("changed", 99);
         subset.get("test:value").getAsJsonObject().getAsJsonObject("nested").addProperty("value", 99);
-        for (var value : java.util.List.of(original, changed, subset, overlay))
+        for (var value : List.of(original, changed, subset, overlay))
             assertEquals(1, value.get("test:value").getAsJsonObject().getAsJsonObject("nested").get("value").getAsInt());
         assertEquals(2, changed.get("test:other").getAsJsonObject().get("changed").getAsInt());
         assertSame(original, ComponentPatch.EMPTY.apply(original));

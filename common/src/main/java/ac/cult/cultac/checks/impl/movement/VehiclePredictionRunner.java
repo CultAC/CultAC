@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.movement;
 
+import ac.cult.blocksim.data.ItemDefinition;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
@@ -25,6 +26,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -123,8 +125,6 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
     public void process(final VehiclePositionUpdate vehicleUpdate) {
         correctedOnGround = null;
         correctedYaw = Float.NaN;
-        // We previously didn't do vehicle setbacks because vehicle netcode sucks
-        // But the only solution is to fix mojang's bugs, as otherwise bypasses and falses will occur
         PredictionResult result = player.checkManager.getSimulationProcessor().onVehiclePositionUpdate(vehicleUpdate);
 
         if (result == null) {
@@ -140,7 +140,10 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             var moved = result.getJavaCommittedMove();
             if (moved != null) strider.commitFluidHeights(moved.fluidHeights());
             var pass = JavaMovementEngine.passAfterTravel(result);
-            if (pass != null) strider.commitFluidHeights(pass.result().fluidHeights());
+            if (pass != null) {
+                strider.commitFluidHeights(pass.result().fluidHeights());
+                strider.shovedBeforeReport(player, vehicleUpdate.getTo(), pass.movement());
+            }
         }
         evaluateItemControlledVehicle(riding);
 
@@ -318,11 +321,11 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             return;
         }
 
-        ac.cult.blocksim.data.ItemDefinition requiredItem;
+        ItemDefinition requiredItem;
         if (riding != null && riding.type == EntityTypeIds.PIG) {
-            requiredItem = ac.cult.cultac.utils.inventory.ItemTypes.CARROT_ON_A_STICK;
+            requiredItem = ItemTypes.CARROT_ON_A_STICK;
         } else if (riding != null && riding.type == EntityTypeIds.STRIDER) {
-            requiredItem = ac.cult.cultac.utils.inventory.ItemTypes.WARPED_FUNGUS_ON_A_STICK;
+            requiredItem = ItemTypes.WARPED_FUNGUS_ON_A_STICK;
         } else {
             return;
         }

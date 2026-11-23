@@ -1,6 +1,5 @@
 package ac.cult.cultac.manager.player.setback;
 
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsN;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
@@ -9,6 +8,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.data.SetBackData;
@@ -164,14 +164,12 @@ public final class JavaTeleportTracker {
                     : null;
             if (pistonTeleport != null && pistonTeleport.matched()) clamped = pistonTeleport.position();
 
-            // There was some previous claims that rounding was performed here, I see no evidence of this.
             // TODO: Investigate vehicle teleports working for players too on 26.1?
 
             double xDiff = Math.abs(clamped.x - physicalFeetPosition.x);
             double yDiff = Math.abs(clamped.y - physicalFeetPosition.y);
             double zDiff = Math.abs(clamped.z - physicalFeetPosition.z);
 
-            // idk why mojang just doesn't set the movement threshold to 0, but I'm not fighting over 0.0002
             boolean xPass =
                     xDiff <= (exactPosition ? 0 : teleportPos.isRelativeX() ? player.getMovementThreshold() : 0);
             boolean yPass =
@@ -218,7 +216,7 @@ public final class JavaTeleportTracker {
                 }
                 pendingTeleports.poll();
                 if (currentRequiredSetback) {
-                    if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                    if (player.isObserveOnly()) {
                         reissue.release(physicalFeetPosition);
                     } else {
                         corrections.required().setPlugin(false);
@@ -594,7 +592,7 @@ public final class JavaTeleportTracker {
             float sourcePitch,
             float finalYaw,
             float finalPitch,
-            ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation rotation) {
+            ClientboundPlayerRotation rotation) {
         int transaction = proofTransaction < 0 ? Integer.MAX_VALUE : proofTransaction;
         TeleportData data = new TeleportData(
                 Vec3.ZERO, flags, Vec3.ZERO, transaction, 0, sourceYaw, sourcePitch, finalYaw, finalPitch);

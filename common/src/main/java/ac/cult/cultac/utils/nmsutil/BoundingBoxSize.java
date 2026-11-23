@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.engine.VanillaMath;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties;
@@ -14,10 +15,12 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityInteraction;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPufferfish;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySizeable;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 
@@ -74,8 +77,7 @@ public class BoundingBoxSize {
             return 0.7F;
         }
         float exactWidth = baseDimensions(packetEntity).width();
-        if (packetEntity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPufferfish fish)
-            exactWidth *= fish.puffScale();
+        if (packetEntity instanceof PacketEntityPufferfish fish) exactWidth *= fish.puffScale();
         return Float.isNaN(exactWidth) ? 0.6f : exactWidth;
     }
 
@@ -203,8 +205,7 @@ public class BoundingBoxSize {
             rotateAttachment(out, px, py, pz, getAttachmentYaw(entity, player));
             if (entity.isAvatar() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
                 out.minY = entity == player.compensatedEntities.getSelf()
-                        ? (player.pose == ac.cult.cultac.utils.enums.Pose.SLEEPING
-                                        || player.pose == ac.cult.cultac.utils.enums.Pose.DYING
+                        ? (player.pose == Pose.SLEEPING || player.pose == Pose.DYING
                                 ? .2F
                                 : player.pose.height * entity.scale)
                         : PacketEntity.avatarHeight(entity.actionPose, entity.scale);
@@ -222,8 +223,10 @@ public class BoundingBoxSize {
                 out.minX += sx;
                 out.minY += sy;
                 out.minZ += sz;
-            } else if (entity instanceof PacketEntityStrider strider) {
-                out.minY += (float) strider.getPassengerAttachmentYOffset() * entity.scale;
+            } else if (entity instanceof PacketEntityStrider strider && !player.isBedrockMovement()) {
+                // LivingEntity#getPassengerRidingPosition passes getScale() * getAgeScale(), 0.5 for a baby strider.
+                out.minY += strider.passengerWalkBob(player.getClientVersion())
+                        * (entity.scale * (strider.isBaby ? 0.5F : 1.0F));
             }
         }
         x += out.minX;
@@ -253,8 +256,8 @@ public class BoundingBoxSize {
     }
 
     private static void rotateRadians(SimpleCollisionBox out, double x, double y, double z, float radians) {
-        float cos = ac.cult.blocksim.engine.VanillaMath.cos(radians);
-        float sin = ac.cult.blocksim.engine.VanillaMath.sin(radians);
+        float cos = VanillaMath.cos(radians);
+        float sin = VanillaMath.sin(radians);
         out.minX = x * cos + z * sin;
         out.minY = y;
         out.minZ = z * cos - x * sin;
@@ -407,8 +410,7 @@ public class BoundingBoxSize {
         }
         if (javaBeeBefore26Dot2(packetEntity, version, bedrock)) return 0.6F;
         float exactHeight = baseDimensions(packetEntity).height();
-        if (packetEntity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPufferfish fish)
-            exactHeight *= fish.puffScale();
+        if (packetEntity instanceof PacketEntityPufferfish fish) exactHeight *= fish.puffScale();
         if (!bedrock && packetEntity instanceof PacketEntityPolarBear && standAnimation > 0)
             return exactHeight * (1.0F + standAnimation / 6.0F);
         return Float.isNaN(exactHeight) ? 1.95f : exactHeight;

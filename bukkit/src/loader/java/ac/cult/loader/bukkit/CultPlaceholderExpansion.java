@@ -1,6 +1,7 @@
 package ac.cult.loader.bukkit;
 
 import ac.cult.reload.host.GenerationManager;
+import ac.grim.grimac.api.GrimAbstractAPI;
 import java.util.List;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
@@ -25,7 +26,7 @@ final class CultPlaceholderExpansion extends PlaceholderExpansion {
     }
 
     public @NotNull String getVersion() {
-        return ((ac.grim.grimac.api.GrimAbstractAPI) runtimes.publicApi()).getGrimVersion();
+        return ((GrimAbstractAPI) runtimes.publicApi()).getGrimVersion();
     }
 
     public boolean persist() {

@@ -42,7 +42,7 @@ class LegacyLikeMemoEquivalenceTest {
             Vec3 closest = result.getAcceptedClosestToTarget();
             Vec3 expected = result.getProfilePredictionVector() != null
                     ? result.getProfilePredictionVector()
-                    : UncertaintyHelper.handleCircularInput(new PredVector(closest), target, radius[0]);
+                    : UncertaintyHelper.handleCircular(new PredVector(closest), target, radius[0]);
             Vec3 actual = result.getLegacyLikePredictionVector();
             assertEquals(expected.getClass(), actual.getClass());
             assertEquals(Double.doubleToRawLongBits(expected.x), Double.doubleToRawLongBits(actual.x));

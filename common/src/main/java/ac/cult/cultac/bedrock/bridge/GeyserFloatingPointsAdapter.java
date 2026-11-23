@@ -4,6 +4,8 @@ import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.floodgate.GeyserUtil;
+import java.util.Map;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.geysermc.geyser.api.GeyserApi;
@@ -30,7 +32,7 @@ final class GeyserFloatingPointsAdapter {
     private BedrockTeleportOperation cacheOperation;
 
     static boolean present() {
-        return ac.cult.cultac.utils.floodgate.GeyserUtil.isGeyserAvailable()
+        return GeyserUtil.isGeyserAvailable()
                 && GeyserApi.api().extensionManager().extension("geyserfloatingpoints") != null;
     }
 
@@ -38,8 +40,7 @@ final class GeyserFloatingPointsAdapter {
         this(session, enabledReflection());
     }
 
-    GeyserFloatingPointsAdapter(GeyserSession session, java.util.Map<?, ?> continuation)
-            throws ReflectiveOperationException {
+    GeyserFloatingPointsAdapter(GeyserSession session, Map<?, ?> continuation) throws ReflectiveOperationException {
         this(session, enabledReflection(), continuation);
     }
 
@@ -53,13 +54,12 @@ final class GeyserFloatingPointsAdapter {
         this(session, reflection, null);
     }
 
-    private GeyserFloatingPointsAdapter(
-            GeyserSession session, GfpReflection reflection, java.util.Map<?, ?> continuation)
+    private GeyserFloatingPointsAdapter(GeyserSession session, GfpReflection reflection, Map<?, ?> continuation)
             throws ReflectiveOperationException {
         this.session = session;
         hooks = new GfpSessionHooks(this, session, reflection, continuation != null);
         if (continuation != null) {
-            dispatch.restore((java.util.Map<?, ?>) continuation.get("dispatch"));
+            dispatch.restore((Map<?, ?>) continuation.get("dispatch"));
             operationSequence = (Long) continuation.get("operation-sequence");
             var offset = hooks.offset();
             if (offset.getX() != dispatch.frame().originX()
@@ -203,8 +203,8 @@ final class GeyserFloatingPointsAdapter {
         return dispatch.frame();
     }
 
-    synchronized java.util.Map<String, Object> continuation() {
-        return java.util.Map.of("dispatch", dispatch.continuation(), "operation-sequence", operationSequence);
+    synchronized Map<String, Object> continuation() {
+        return Map.of("dispatch", dispatch.continuation(), "operation-sequence", operationSequence);
     }
 
     synchronized void close() {

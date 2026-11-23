@@ -16,12 +16,12 @@ layout and the build/test commands are adapted to this tree.
   with `asComponent()`, never `build()`, which throws `NoSuchMethodError` there.
 - `bukkit/` — the Bukkit/Paper platform module. Bukkit/Paper-only; the Fabric
   modules were removed in the port. The distributable jar is built here.
-- `placement-api/` — JDK-only inputs and results shared with the isolated runtime.
-- `placement-runtime/` — the isolated original vanilla Java 26.3 action and geometry runtime.
 - Full build: `./gradlew build` (output at `bukkit/build/libs/`)
 - Unit tests: `./gradlew :common:test`
 - Offline Bedrock replay tests: `./gradlew :common:offlineBedrockReplayTest`
 - Live smoketests (real Paper server + real client): `scripts/run-local-all-smoketests.sh`
+- Benchmarks and profiling harnesses are not committed to this repository; measure in a scratch copy outside it, and
+  keep benchmark results out of commits, PRs and comments.
 
 ## Rules applicable to both the Java and Bedrock simulation engine
 
@@ -38,7 +38,7 @@ When validating anticheat fixes, continue running the relevant smoke tests after
 
 The Bedrock engine is a machine-written port of the Java simulation engine for Bedrock clients. It is required to be architected at the same high level as the Java engine:
 - All Bedrock small-scenario fixes must validate to <= 0.001 block offset unless a tighter source-proven bound is required.
-- Java engine architecture must be followed. The Bedrock engine should follow the Java engine's high-level runner architecture. The shared runner uncertainty handlers `PistonShulkerPush`, `CollisionModifier`, `StepTransform`, `Fireworks`, and `InsideBlock` are explicitly allowed for Bedrock, provided they operate on compensated state and exact Bedrock simulation/collision candidates. Other Java uncertainty classes must not be applied to Bedrock unless explicitly requested. The Java simulation engine is your source of truth for how to structure a simulation engine because it is carefully architected, while the Bedrock engine was machine-written.
+- Java engine architecture must be followed. The Bedrock engine should follow the Java engine's high-level runner architecture. The shared runner uncertainty handlers `PistonShulkerPush`, `CollisionModifier`, `StepTransform`, and `InsideBlock` are explicitly allowed for Bedrock, provided they operate on compensated state and exact Bedrock simulation/collision candidates. Other Java uncertainty classes must not be applied to Bedrock unless explicitly requested. The Java simulation engine is your source of truth for how to structure a simulation engine because it is carefully architected, while the Bedrock engine was machine-written.
 - Stepping must be architecturally integrated with the Java runner, but the Bedrock engine must supply its own semantics.
 - Collisions must create the same CollideAxisData and run NO FURTHER COLLISIONS within the engine other than for stepping, or Java-equivalent collision checking such as with sneaking. For example, running a collision downwards as the post position the player is at is not allowed.
 - Do not use authored/provided client inputs as truth. The engine should derive possible movement first, then evaluate whether required input is legal at the post-prediction stage, similar to Java Grim.

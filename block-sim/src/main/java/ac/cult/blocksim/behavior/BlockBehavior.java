@@ -1,22 +1,26 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.BlockDefinition;
+import ac.cult.blocksim.data.BlockRegistry;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
-import ac.cult.blocksim.engine.SimLevel;
-import ac.cult.blocksim.engine.SimFluidState;
-import ac.cult.blocksim.data.StateFacts;
-import ac.cult.blocksim.engine.shapes.VoxelShape;
-import ac.cult.blocksim.data.BlockDefinition;
-import ac.cult.blocksim.interaction.PlacementContext;
-import ac.cult.blocksim.interaction.UseContext;
-import ac.cult.blocksim.interaction.SimInteraction;
-import ac.cult.blocksim.engine.SimPlayer;
-import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.engine.EntityCollisionContext;
 import ac.cult.blocksim.engine.Offsets;
+import ac.cult.blocksim.engine.SimFluidState;
+import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.engine.SimLevel;
+import ac.cult.blocksim.engine.SimPlayer;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
+import ac.cult.blocksim.interaction.Hand;
+import ac.cult.blocksim.interaction.PlacementContext;
+import ac.cult.blocksim.interaction.SimInteraction;
+import ac.cult.blocksim.interaction.UseContext;
+import java.util.Locale;
 
 /** Client-reachable defaults from BlockBehaviour. Families override only their own methods. */
 public class BlockBehavior {
-    public boolean shouldKeepBlockEntity(ac.cult.blocksim.data.BlockRegistry registry, int state, int oldState) { return false; }
+    public boolean shouldKeepBlockEntity(BlockRegistry registry, int state, int oldState) { return false; }
     protected static boolean isFamily(SimLevel level, int state, String family) {
         for (String type : level.registry().block(state).bindings().get("classHierarchy").split(",")) {
             if (type.equals("net.minecraft.world.level.block." + family)) return true;
@@ -56,7 +60,7 @@ public class BlockBehavior {
     }
 
     protected static Direction facing(SimLevel level, int state) {
-        return Direction.valueOf(level.registry().value(state, "facing").toUpperCase(java.util.Locale.ROOT));
+        return Direction.valueOf(level.registry().value(state, "facing").toUpperCase(Locale.ROOT));
     }
 
     public VoxelShape supportShape(SimLevel level, int state, BlockPos pos) {
@@ -66,18 +70,18 @@ public class BlockBehavior {
     public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos) {
         return level.registry().shapes().collision(state);
     }
-    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos, ac.cult.blocksim.engine.EntityCollisionContext context) {
+    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos, EntityCollisionContext context) {
         return collisionShape(level, state, pos);
     }
 
     public VoxelShape outlineShape(SimLevel level, int state, BlockPos pos, SimPlayer player) {
-        var context = player == null ? ac.cult.blocksim.engine.EntityCollisionContext.emptyContext()
-                : new ac.cult.blocksim.engine.EntityCollisionContext(player.state().position().y(), player.state().secondaryUseActive(),
-                        0, false, false, player.hand(ac.cult.blocksim.interaction.Hand.MAIN_HAND).itemKey(), false, false, false);
+        var context = player == null ? EntityCollisionContext.emptyContext()
+                : new EntityCollisionContext(player.state().position().y(), player.state().secondaryUseActive(),
+                        0, false, false, player.hand(Hand.MAIN_HAND).itemKey(), false, false, false);
         return outlineShape(level, state, pos, context);
     }
 
-    public VoxelShape outlineShape(SimLevel level, int state, BlockPos pos, ac.cult.blocksim.engine.EntityCollisionContext context) {
+    public VoxelShape outlineShape(SimLevel level, int state, BlockPos pos, EntityCollisionContext context) {
         var shape = level.registry().shapes().outline(state);
         var block = level.registry().block(state);
         if (!Boolean.parseBoolean(block.bindings().get("outlineUsesOffset"))) return shape;

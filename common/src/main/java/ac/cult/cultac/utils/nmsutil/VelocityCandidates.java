@@ -9,6 +9,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaHiddenTravelInput;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Ladder;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
@@ -16,6 +17,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.math.CultMath;
@@ -212,11 +214,9 @@ public final class VelocityCandidates {
         Vec3 collided = new Vec3(x ? clippedX : velocity.x, y ? clippedY : velocity.y, z ? clippedZ : velocity.z);
         if (cleared) return List.of(new Moved(collided, x || z));
         // A clipped axis may also have been free; a free one may also have been clipped.
-        boolean otherX =
-                !hiddenX && (x ? scale.x != 0.0D && !certainlyClipped(result, true) : mayHaveClipped(result, true));
+        boolean otherX = !hiddenX && (x ? scale.x != 0.0D && !endsAtLimit(result, true) : endsAtLimit(result, true));
         boolean otherY = y ? scale.y != 0.0D && !certainlyClippedVertically(result) : mayHaveClippedVertically(result);
-        boolean otherZ =
-                !hiddenZ && (z ? scale.z != 0.0D && !certainlyClipped(result, false) : mayHaveClipped(result, false));
+        boolean otherZ = !hiddenZ && (z ? scale.z != 0.0D && !endsAtLimit(result, false) : endsAtLimit(result, false));
         if (!otherX && !otherY && !otherZ) return List.of(new Moved(collided, x || z));
         // Unclipped, Entity#move leaves deltaMovement as the move over the stuck scale; checkFallDamage's current
         // follows it.
@@ -290,14 +290,11 @@ public final class VelocityCandidates {
      */
     private static boolean mayHaveClippedVertically(PredictionResult result) {
         var collisions = result.getCollideAxisData();
-        if (collisions == null) return false;
-        var limit = requestedMovementY(result) < 0 ? collisions.getYNeg() : collisions.getYPos();
-        if (limit == null || !limit.isLikelyCollide()) return false;
-        return reachesVerticalLimit(result, collisions);
+        return collisions != null && reachesVerticalLimit(result, collisions);
     }
 
     private static boolean reachesVerticalLimit(
-            PredictionResult result, ac.cult.cultac.utils.data.CollideAxisData collisions) {
+            PredictionResult result, CollideAxisData collisions) {
         boolean down = requestedMovementY(result) < 0;
         var limit = down ? collisions.getYNeg() : collisions.getYPos();
         if (limit == null || !limit.isLikelyCollide()) return false;
@@ -311,7 +308,7 @@ public final class VelocityCandidates {
     }
 
     private static boolean endsAtVerticalLimit(
-            PredictionResult result, ac.cult.cultac.utils.data.CollideAxisData collisions) {
+            PredictionResult result, CollideAxisData collisions) {
         var limit = requestedMovementY(result) < 0 ? collisions.getYNeg() : collisions.getYPos();
         if (limit == null || !limit.isLikelyCollide()) return false;
         Vec3 stuck = result.getValidMovements()
@@ -322,22 +319,11 @@ public final class VelocityCandidates {
     }
 
     /**
-     * Whether Entity#collide certainly clipped the closest movement on X or Z: the axis stops at a known collider's
-     * limit. A stop short of a known limit is reachable without one, so it does not prove the clip.
+     * Whether the closest movement on X or Z ends at a known collider's limit. On a clipped axis this proves
+     * Entity#collide clipped it, since a stop short of a known limit is reachable without one; on an axis the
+     * movement completed, it may have been a longer move Entity#collide stopped.
      */
-    private static boolean certainlyClipped(PredictionResult result, boolean xAxis) {
-        var collisions = result.getCollideAxisData();
-        if (collisions == null) return false;
-        var axis = xAxis ? collisions.getX() : collisions.getZ();
-        if (axis == null || !axis.isLikelyCollide()) return false;
-        return CultMath.equal(clippedAxis(result, xAxis), axis.getResult());
-    }
-
-    /**
-     * Whether Entity#collide may have clipped an axis the closest movement completed unclipped: a move that ends at a
-     * known collider's limit may have been a longer one it stopped.
-     */
-    private static boolean mayHaveClipped(PredictionResult result, boolean xAxis) {
+    private static boolean endsAtLimit(PredictionResult result, boolean xAxis) {
         var collisions = result.getCollideAxisData();
         if (collisions == null) return false;
         var axis = xAxis ? collisions.getX() : collisions.getZ();
@@ -381,7 +367,7 @@ public final class VelocityCandidates {
         SimulationContext context = result.getSimulationContext();
         PacketEntity vehicle = context == null ? null : context.getVehicle();
         if (context == null
-                || ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(context)
+                || JavaRiddenTravel.clearsWithoutTravel(context)
                 || vehicle != null && (EntityTypeUtil.isBoat(vehicle.type) || vehicle instanceof PacketEntityHappyGhast)
                 || player.getClientVersion() == ClientVersion.V_1_21_4
                 || context.getWorldData().isInWater()) {

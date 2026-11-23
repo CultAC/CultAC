@@ -123,10 +123,6 @@ final class OfflineBedrockAuthInputCapture {
         return new OfflineBedrockAuthInputCapture.RawInputFlags(low, high);
     }
 
-    private static long inputFlagMask(PlayerAuthInputData input) {
-        return input.ordinal() < 64 ? 1L << input.ordinal() : 0L;
-    }
-
     private static boolean hasFlag(OfflineBedrockAuthInputCapture.RawInputFlags flags, PlayerAuthInputData input) {
         int ordinal = input.ordinal();
         return ordinal < 64
@@ -187,11 +183,6 @@ final class OfflineBedrockAuthInputCapture {
     private static String string(JsonObject object, String name, String fallback) {
         JsonElement value = object == null ? null : object.get(name);
         return value != null && value.isJsonPrimitive() ? value.getAsString() : fallback;
-    }
-
-    private static boolean booleanValue(JsonObject object, String name, boolean fallback) {
-        JsonElement value = object == null ? null : object.get(name);
-        return value != null && value.isJsonPrimitive() ? value.getAsBoolean() : fallback;
     }
 
     private static int intValue(JsonObject object, String name, int fallback) {

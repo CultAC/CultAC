@@ -6,19 +6,6 @@ import java.util.stream.Collectors;
 public final class ChannelHelper {
     private ChannelHelper() {}
 
-    public static void runInEventLoop(Object channel, Runnable runnable) {
-        if (!(channel instanceof Channel nettyChannel)) {
-            runnable.run();
-            return;
-        }
-
-        if (nettyChannel.eventLoop().inEventLoop()) {
-            runnable.run();
-        } else {
-            nettyChannel.eventLoop().execute(runnable);
-        }
-    }
-
     public static boolean isOpen(Object channel) {
         return channel instanceof Channel nettyChannel && nettyChannel.isOpen();
     }

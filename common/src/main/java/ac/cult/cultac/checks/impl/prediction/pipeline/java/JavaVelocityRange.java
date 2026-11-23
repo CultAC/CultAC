@@ -6,6 +6,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -224,8 +225,7 @@ public final class JavaVelocityRange {
             if (min == max) continue;
             for (double far : new double[] {value + min, value + max}) {
                 if (far == 0) continue;
-                double edge = ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff.supportedTo(
-                        player, box, axis, far * stuck, player.getMaxUpStep());
+                double edge = SneakEdgeBackoff.supportedTo(player, box, axis, far * stuck, player.getMaxUpStep());
                 if (Double.isNaN(edge)) continue;
                 for (int kind = 0; kind < 4; kind++) {
                     double at = edgeSwitch(edge, far, stuck, kind);
@@ -399,7 +399,7 @@ public final class JavaVelocityRange {
             double far = sample.high ? high : low;
             double stuck = axis == 0 ? context.getLastStuckSpeed().x : context.getLastStuckSpeed().z;
             if (far == 0) return null;
-            double edge = ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff.supportedTo(
+            double edge = SneakEdgeBackoff.supportedTo(
                     player, context.getFromActualPose(), axis, far * stuck, player.getMaxUpStep());
             if (Double.isNaN(edge)) return null;
             at = edgeSwitch(edge, far, stuck, sample.kind);

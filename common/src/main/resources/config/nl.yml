@@ -54,29 +54,23 @@ launch-safety:
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
-# Moet de standaard block resynchronization handler worden uitgeschakeld?
-# Standaard leest Cult blokken van de serverwereld en stuurt ze naar de client om desync op te lossen.
-# Als je plugins gebruikt die neppe packet-based blokken maken (die niet in de serverwereld bestaan),
-# moet je dit op true zetten om te voorkomen dat Cult ze overschrijft met lucht/echte blokken.
-# Dit forceert het gebruik van een "NoOp" (No Operation) handler tenzij er een aangepaste via de API wordt geleverd.
-disable-default-resync-handler: false
-
-# Moet het dubbele bewegingspakket worden geannuleerd?
-# Mojang heeft dit probleem opgelost in 1.21. Dit was hun poging om de "bucket desync" op te lossen. https://bugs.mojang.com/browse/MC-12363
-# Deze instelling geldt alleen voor 1.17-1.20.5 clients op 1.8 servers
-cancel-duplicate-packet: true
-
-# Whether or not to ignore the rotation in duplicate packets
-ignore-duplicate-packet-rotation: false
-
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
 max-clicks-per-tick: 3
 
 # Flag and alert without acting: no punishment commands, setbacks, packet cancels or kicks. Client packets reach the server as sent.
-# CULTAC_OBSERVE_ONLY wins over this key when it is true, 1 or yes, or false, 0 or no. /cult reload applies a change.
+# /cult reload applies a change.
 observe-only: false
+
+# CultAC checks no one and frees the memory checking uses.
+dormant: false
+
+# Checks that neither flag nor set back, by name.
+checks-off: []
+
+# Withhold the punishment commands of punishments.yml; flags, alerts and setbacks keep running.
+pause-punishments: false
 
 Simulation:
     # Met hoeveel moeten we het totale voordeel vermenigvuldigen als de speler legitiem is?
@@ -97,9 +91,6 @@ Simulation:
     # Dit is om te voorkomen dat de speler te veel schendingen verzamelt en ze nooit allemaal kan opruimen
     # Standaard voordelenplatform (x-as = seconden, y-as = 1/1000 blok): https://www.desmos.com/calculator/4lovswdarj
     max-ceiling: 4
-    # Drempelwaarde voor het schendingenniveau voor de terugslag
-    # 1 voor het oude gedrag
-    setback-violation-threshold: 1
 
 # Controleert of een speler een blok is binnengegaan tijdens een beweging
 Phase:
@@ -163,10 +154,6 @@ TimerLimit:
     # -1 om uit te schakelen
     ping-abuse-limit-threshold: 1000
 
-NegativeTimer:
-    # Aantal milliseconden dat verloren gaat tijdens het bewegen voordat we moeten beginnen met flaggen
-    drift: 1200
-
 # Dezelfde controlemethode als TimerA, maar dan voor voertuigen
 VehicleTimer:
     # Doel 1.005 timer
@@ -185,14 +172,6 @@ Reach:
     # Moeten we hits annuleren waarvan we weten dat ze onmogelijk zijn?
     # 3.00-3.03 hits kunnen doorkomen, maar toch gemarkeerd worden, vanwege pakketvolgorderbeperkingen
     block-impossible-hits: true
-    # Dit stuurt een extra pakket aan het eind van elke tick om de kans op het vangen van valsspelers te vergroten
-    # Dit injecteert in de verbindingslijst van de server om een laatste pakket te sturen net voordat de server doorspoelt
-    # Door dit in te schakelen zal het bandbreedtegebruik voor alle spelers toenemen
-    # Dit zal de algehele serverprestaties niet verlagen
-    # Door dit in te schakelen worden meer valsspelers gepakt
-    # Als je dit uitgeschakeld laat, worden nog steeds valsspelers gepakt en zullen er geen valse positieven ontstaan
-    # Tenzij je een 1.8 PvP server bent, wordt dit extra pakket niet aangeraden
-    enable-post-packet: false
 
 exploit:
     # Je kunt hoge snelheden krijgen als je sprint met een elytra, dit voorkomt de exploit als het op false staat
@@ -211,11 +190,6 @@ debug-pipeline-on-join: false
 # Experimentele controles inschakelen
 experimental-checks: false
 
-reset-item-usage-on-item-update: true
-reset-item-usage-on-attack: true
-reset-item-usage-on-slot-change: true
-reset-item-usage-on-item-use: true
-
 # Cult annuleert soms illegale pakketten zoals met timer, na X pakketten in een seconde geannuleerd, wanneer moeten
 # we de speler gewoon schoppen? Dit is nodig omdat sommige pakket-begrenzers pakketten die door cult worden geannuleerd niet tellen
 packet-spam-threshold: 100
@@ -226,10 +200,6 @@ debug-packet-cancel: false
 # Dit komt doordat Cult momenteel vliegende spelers niet controleert
 # Om uit te schakelen, gebruik -1
 max-ping-out-of-flying: 1000
-
-# Maximale ping wanneer een vuurwerkboost van de speler wordt verwijderd.
-# Dit voorkomt dat spelers met hoge latency oneindig één vuurwerkboost met een elytra kunnen gebruiken.
-max-ping-firework-boost: 1000
 
 # Schemamarkers — alleen aanpassen als je weet wat je doet.
 #   config-flavor:  V2 = Cult 2.x-build, V3 = Cult 3.x. De plugin weigert een
@@ -259,11 +229,10 @@ bridge:
   secret: ""
 
 # Upload of captured play to an intake service, which analyses it. Off while url or api-key is empty;
-# your intake service provides both. CULTAC_CLOUD_URL and CULTAC_CLOUD_API_KEY win over url and api-key when
-# set and not blank, and an empty proxy-id takes CULTAC_PROXY_ID. docs/cloud-upload.md in CultAC's source says
-# what is uploaded.
+# your intake service provides both. CULTAC_CLOUD_API_KEY wins over api-key when set and not blank.
+# docs/cloud-upload.md in CultAC's source says what is uploaded.
 cloud:
-  # false stops the upload, whatever CULTAC_CLOUD_* says; /cult reload applies it.
+  # false stops the upload, whatever CULTAC_CLOUD_API_KEY says; /cult reload applies it.
   enabled: true
   url: ""
   api-key: ""
@@ -282,7 +251,7 @@ cloud:
   # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
   # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
   # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
-  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  # sync on. Off by default.
   team-sync: false
   # Panel bans: staff ban a player from the cloud panel, and the one server that claims the ban runs it once, as
   # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %reason_label% (the reason as staff
@@ -306,7 +275,10 @@ cloud:
 
 # Zorgt dat staffcommando's, tab-aanvulling en waarschuwingen werken op al je proxy's en servers.
 # Installatiegids: docs/network.md in de broncode van CultAC. /cult reload past wijzigingen toe.
-# Elke instelling hier kun je ook zetten met een CULTAC_NETWORK_*-omgevingsvariabele, die dan voorrang heeft.
+# Deze omgevingsvariabelen hebben voorrang op hun sleutels als ze gezet en niet leeg zijn:
+#   CULTAC_NETWORK_TYPE, CULTAC_NETWORK_SECRET
+#   CULTAC_NETWORK_REDIS_ADDRESS, _USERNAME, _PASSWORD, _SSL
+#   CULTAC_NETWORK_NATS_ADDRESS, _USERNAME, _PASSWORD, _TOKEN, _CREDENTIALS_FILE, _SSL
 network:
   # Hoe je servers met elkaar praten:
   #   none         Uit. Commando's en waarschuwingen bereiken alleen spelers op deze server.
@@ -331,24 +303,31 @@ network:
   # De naam van deze server op het netwerk. Elke server heeft een eigen naam nodig.
   # Laat leeg voor het proxy-id van RedisBungee, anders cloud.proxy-id, anders het IP en de poort van deze server.
   instance-id: ""
+  # /cult net <target> <command> runs a command on several servers at once.
+  commands:
+    # Whether this server runs network commands sent from other servers.
+    enabled: true
+    # The network commands this server runs; it refuses the others.
+    accept: [status, reload, observe, toggle, check, punish, update]
+    # What goes to update.webhook: summary (the sending server posts each command and its summary), every (each
+    # server posts the command it ran) or none.
+    webhook: summary
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
-# /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
+# /cult update builds [branch]. CULTAC_UPDATE_TOKEN wins over token when set and not blank.
 update:
   # owner/repo whose GitHub releases hold the builds. Empty is the repository this jar was built from.
-  # CULTAC_UPDATE_REPOSITORY.
   repository: ""
   # X.509 base64 Ed25519 key that build manifests must be signed with. Empty is CultAC's own build key.
-  # CULTAC_UPDATE_PUBKEY.
   public-key: ""
   # File remembering the installed build, which the next start fetches again. Relative to this folder; empty is
-  # update-state.json. CULTAC_UPDATE_STATE.
+  # update-state.json.
   state-file: ""
-  # Build to start on while no build is remembered. Empty starts the bundled jar. CULTAC_UPDATE_BUILD.
+  # Build to start on while no build is remembered. Empty starts the bundled jar.
   build: ""
-  # Sent to api.github.com only, raising the hourly limit for latest and builds. CULTAC_UPDATE_TOKEN.
+  # Sent to api.github.com only, raising the hourly limit for latest and builds.
   token: ""
-  # URL that receives each update result line. CULTAC_UPDATE_WEBHOOK.
+  # URL that receives each update result line.
   webhook: ""
 
 # The version of the check names this server uses outside punishments.yml: the names each check's

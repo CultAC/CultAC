@@ -11,6 +11,7 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketBundlePolicy;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.ProjectedPackets;
 import ac.cult.cultac.protocol.UnsupportedOnVersionException;
 import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
@@ -31,6 +32,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.IntSupplier;
 import java.util.function.Predicate;
@@ -256,7 +258,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     public void executeAfterWrites(ChannelHandlerContext ctx, Runnable task) {
         if (ctx.handler() != this || !ctx.executor().inEventLoop())
             throw new IllegalStateException("Outbound callbacks require this channel's event loop");
-        write(ctx, new CultConnection.WriteTask(java.util.Objects.requireNonNull(task)), ctx.newPromise());
+        write(ctx, new CultConnection.WriteTask(Objects.requireNonNull(task)), ctx.newPromise());
     }
 
     private Output process(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
@@ -428,7 +430,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             return expandFrame(ctx, (ByteBuf) message, promise, false, false, activeFamilies, batch, 0);
         }
         var phase = connection.phase(PacketDirection.CLIENTBOUND);
-        ac.cult.cultac.protocol.ProjectedPackets.Encoded encoded;
+        ProjectedPackets.Encoded encoded;
         try {
             var type = connection.packets().writableType(write.packet());
             if (type.direction() != PacketDirection.CLIENTBOUND) {
@@ -652,7 +654,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
 
     private void appendReplacement(
             ChannelHandlerContext ctx,
-            ac.cult.cultac.protocol.ProjectedPackets.Encoded replacement,
+            ProjectedPackets.Encoded replacement,
             ChannelPromise promise,
             PacketType<?> type,
             Batch batch,
@@ -950,7 +952,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
      * Inside an open flush bundle a host bundle's delimiters are dropped and its packets join the flush bundle,
      * which ClientPacketListener#handleBundlePacket still handles in one task. A client bundle cannot nest.
      */
-    private boolean joinsFlushBundle(ChannelHandlerContext ctx, Frame frame) {
+    private boolean joinsFlushBundle(Frame frame) {
         if (frame.type != ClientboundPackets.BUNDLE_DELIMITER
                 || !connection.flushBundleOpen()
                 || !delimitsFlushBundle()) return false;
@@ -987,7 +989,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                         recycle(frame);
                         continue;
                     }
-                    if (joinsFlushBundle(ctx, frame)) {
+                    if (joinsFlushBundle(frame)) {
                         recycle(frame);
                         continue;
                     }
@@ -1203,7 +1205,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             return result;
         }
 
-        void collectPromises(java.util.Set<ChannelPromise> parts) {
+        void collectPromises(Set<ChannelPromise> parts) {
             for (Frame frame = first; frame != null; frame = frame.next) parts.add(frame.promise);
         }
 

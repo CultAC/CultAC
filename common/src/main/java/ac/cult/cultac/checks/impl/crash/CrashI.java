@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.crash;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
-import ac.cult.cultac.checks.DeadCheck;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -14,10 +13,6 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
         name = "CrashI",
         stableKey = "cult.crash.invalid_bundle_slot",
         description = "Sent a bundle item selection with an invalid negative slot index")
-@DeadCheck(
-        reason = DeadCheck.Reason.WIRE_UNTRIGGERABLE,
-        detail =
-                "The 26.3 release decoder bounds-checks selectedItemIndex; invalid values never reach this check from the wire.")
 public class CrashI extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("selectedItemIndex={sint}");
 

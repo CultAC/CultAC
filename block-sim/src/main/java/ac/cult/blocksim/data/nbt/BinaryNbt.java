@@ -6,14 +6,16 @@
  */
 package ac.cult.blocksim.data.nbt;
 
+import static ac.cult.blocksim.data.nbt.NbtValue.Kind.*;
+
 import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import static ac.cult.blocksim.data.nbt.NbtValue.Kind.*;
+import java.util.Map;
 
 /** Reads and writes unnamed model-version network NBT. */
 public final class BinaryNbt {
@@ -89,7 +91,7 @@ public final class BinaryNbt {
             output.writeByte(wrap ? 10 : elementType);
             output.writeInt(list.values().size());
             for (var entry : list.values()) payload(output,
-                    wrap ? new NbtValue.Compound(java.util.Map.of("", entry)) : entry, depth + 1);
+                    wrap ? new NbtValue.Compound(Map.of("", entry)) : entry, depth + 1);
         } else if (value instanceof NbtValue.Compound compound) {
             enter(depth);
             for (var entry : compound.values().entrySet()) {

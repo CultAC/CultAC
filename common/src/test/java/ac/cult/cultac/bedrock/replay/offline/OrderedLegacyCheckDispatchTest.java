@@ -7,9 +7,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.checks.DeadCheck;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsO;
@@ -17,7 +18,6 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsV;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
-import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
@@ -25,7 +25,6 @@ import ac.cult.cultac.checks.impl.multiactions.MultiActionsE;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderB;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderH;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderO;
-import ac.cult.cultac.checks.impl.packetorder.PacketOrderP;
 import ac.cult.cultac.checks.impl.post.PostCheck;
 import ac.cult.cultac.checks.impl.sprint.SprintB;
 import ac.cult.cultac.checks.impl.sprint.SprintE;
@@ -34,12 +33,14 @@ import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.checks.type.LegacyPacketEventSemantics;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundKeepAlive;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundKeepAlive;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -62,25 +63,23 @@ import com.google.common.collect.ClassToInstanceMap;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.Test;
 
 public final class OrderedLegacyCheckDispatchTest {
     @Test
-    public void streamChecksUseTickBoundaryHandlersAndDeadCheckStaysUnregistered() {
+    public void streamChecksUseTickBoundaryHandlers() {
         CultPlayer player = offlineJavaPlayer();
         try {
-            var records = ac.cult.cultac.CultAPI.INSTANCE
-                    .getNetworkManager()
-                    .dispatcher()
-                    .scanner();
+            var records = CultAPI.INSTANCE.getNetworkManager().dispatcher().scanner();
             assertTrue(records.hasReceiveHandlerDeclaration(MultiActionsE.class));
             assertTrue(records.hasReceiveHandlerDeclaration(PacketOrderB.class));
             // PacketOrderO flags any packet between movement and tick end, so it observes the whole stream.
             assertFalse(records.hasReceiveHandlerDeclaration(PacketOrderO.class));
-            assertFalse(player.checkManager.getAllChecks().stream().anyMatch(check -> check instanceof PacketOrderP));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -92,11 +91,8 @@ public final class OrderedLegacyCheckDispatchTest {
         player.setDisabled(true);
         try {
             MultiActionsE check = player.checkManager.getListener(MultiActionsE.class);
-            ServerboundPlayerAction drop = new ServerboundPlayerAction(
-                    PlayerAction.DROP_ITEM,
-                    new ac.cult.cultac.protocol.value.BlockPos(0, 0, 0),
-                    ac.cult.cultac.protocol.value.Direction.DOWN,
-                    0);
+            ServerboundPlayerAction drop =
+                    new ServerboundPlayerAction(PlayerAction.DROP_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
             player.checkManager.dispatchEarlyReceive(receiveEvent(player, drop));
             assertTrue(booleanField(check, "dropping"));
 
@@ -171,11 +167,8 @@ public final class OrderedLegacyCheckDispatchTest {
             ServerboundMovePlayer movement = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, false, false);
             player.checkManager.dispatchReceiveHandlers(receiveEvent(player, movement));
 
-            ServerboundPlayerAction action = new ServerboundPlayerAction(
-                    PlayerAction.DROP_ITEM,
-                    new ac.cult.cultac.protocol.value.BlockPos(0, 0, 0),
-                    ac.cult.cultac.protocol.value.Direction.DOWN,
-                    0);
+            ServerboundPlayerAction action =
+                    new ServerboundPlayerAction(PlayerAction.DROP_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
             player.checkManager.dispatchReceiveHandlers(receiveEvent(player, action));
             assertTrue(objectField(check, "post") != null);
 
@@ -206,24 +199,17 @@ public final class OrderedLegacyCheckDispatchTest {
     }
 
     @Test
-    public void legacyTimerCallbacksRemainRegisteredWithoutRevivingNegativeTimer() throws Exception {
+    public void legacyTimerCallbacksRemainRegistered() throws Exception {
         CultPlayer player = offlineJavaPlayer();
         player.setDisabled(true);
         try {
             TickTimer tickTimer = player.checkManager.getListener(TickTimer.class);
             assertTrue(player.checkManager.getListener(DumbTimer.class) != null);
-            assertTrue(player.checkManager.getListener(NegativeTimerCheck.class) != null);
-            assertTrue(NegativeTimerCheck.class.isAnnotationPresent(DeadCheck.class));
-            assertTrue(ac.cult.cultac.CultAPI.INSTANCE
+            assertTrue(CultAPI.INSTANCE
                     .getNetworkManager()
                     .dispatcher()
                     .scanner()
                     .hasReceiveHandlerDeclaration(DumbTimer.class));
-            assertTrue(ac.cult.cultac.CultAPI.INSTANCE
-                    .getNetworkManager()
-                    .dispatcher()
-                    .scanner()
-                    .hasReceiveHandlerDeclaration(NegativeTimerCheck.class));
 
             ServerboundMovePlayer movement = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, false, false);
             player.checkManager.dispatchPrePredictionReceive(receiveEvent(player, movement));
@@ -253,10 +239,10 @@ public final class OrderedLegacyCheckDispatchTest {
                     player,
                     BlockPos.ZERO,
                     Direction.DOWN,
-                    ac.cult.cultac.protocol.value.Direction.DOWN.get3DDataValue(),
+                    Direction.DOWN.get3DDataValue(),
                     PlayerAction.START_DESTROY_BLOCK,
                     7,
-                    ac.cult.blocksim.data.BlockIds.STONE.defaultState());
+                    BlockIds.STONE.defaultState());
             check.onBlockBreak(blockBreak);
             assertTrue(intField(check, "lastSequence") == 7);
         } finally {
@@ -281,7 +267,7 @@ public final class OrderedLegacyCheckDispatchTest {
                 new DataStoreLifecycle(CultAPI.INSTANCE.getGrimPlugin(), CultAPI.INSTANCE.getBackendRegistry()));
         try {
             BadPacketsV check = spy(new BadPacketsV(player));
-            doReturn(true).when(check).alert(any(java.util.function.Supplier.class));
+            doReturn(true).when(check).alert(any(Supplier.class));
             ServerboundMovePlayer movement = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, true, false);
             var sent = player.packetStateData.sentPositionCache;
             sent.onTickMovement(true, new Vec3(0, 0, 0));
@@ -397,9 +383,7 @@ public final class OrderedLegacyCheckDispatchTest {
             setLongField(vehicleTimer, "lastMovementPlayerClock", now - 2_000_000_000L);
             initial = longField(vehicleTimer, "timerBalanceRealTime");
             vehicleTimer.onClientTickEnd(
-                    RecordReceiveTestEvents.tickEnd(player),
-                    player,
-                    ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END.opaqueValue());
+                    RecordReceiveTestEvents.tickEnd(player), player, ServerboundPackets.CLIENT_TICK_END.opaqueValue());
             player.compensatedEntities.getSelf().mount(new PacketEntity(EntityTypeIds.OAK_BOAT, 99));
             ServerboundPlayerInput input = new ServerboundPlayerInput(true, false, false, false, false, false, false);
             player.checkManager.dispatchPrePredictionReceive(RecordReceiveTestEvents.input(player, input));
@@ -430,7 +414,6 @@ public final class OrderedLegacyCheckDispatchTest {
         try {
             PacketOrderH check = player.checkManager.getListener(PacketOrderH.class);
             assertTrue(check != null);
-            assertFalse(PacketOrderH.class.isAnnotationPresent(DeadCheck.class));
 
             var shifted = new ServerboundPlayerInput(false, false, false, false, false, true, false);
             player.checkManager.dispatchReceiveHandlers(RecordReceiveTestEvents.input(player, shifted));
@@ -442,17 +425,13 @@ public final class OrderedLegacyCheckDispatchTest {
     }
 
     @Test
-    public void callbackOnlyChecksAreConstructedAndNotMarkedDead() {
+    public void callbackOnlyChecksAreConstructed() {
         CultPlayer player = offlineJavaPlayer();
         try {
             assertTrue(player.checkManager.getListener(BadPacketsB.class) != null);
             assertTrue(player.checkManager.getListener(PlayerHitboxes.class) != null);
             assertTrue(player.checkManager.getListener(EntityHitboxes.class) != null);
             assertTrue(player.checkManager.getListener(VehicleC.class) != null);
-            assertFalse(BadPacketsB.class.isAnnotationPresent(DeadCheck.class));
-            assertFalse(PlayerHitboxes.class.isAnnotationPresent(DeadCheck.class));
-            assertFalse(EntityHitboxes.class.isAnnotationPresent(DeadCheck.class));
-            assertFalse(VehicleC.class.isAnnotationPresent(DeadCheck.class));
             assertFalse(player.checkManager.getListener(VehicleC.class) instanceof PostPredictionListener);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -472,8 +451,7 @@ public final class OrderedLegacyCheckDispatchTest {
             // Same-item slot changes stop the SERVER main-hand obligation, but
             // LivingEntity.updatingUsingItem preserves the client's local use.
             player.clientItemUse.claimedSlotChanged();
-            player.clientItemUse.prepare(
-                    0, 0, player.getClientVersion(), food, food, java.util.Collections.nCopies(9, food));
+            player.clientItemUse.prepare(0, 0, player.getClientVersion(), food, food, Collections.nCopies(9, food));
             assertTrue(invokeBoolean(check, "isActivelyUsingItem"));
             assertFalse(player.clientItemUse.hasObligation());
 
@@ -485,20 +463,12 @@ public final class OrderedLegacyCheckDispatchTest {
             assertTrue(invokeBoolean(check, "isActivelyUsingItem"));
             assertTrue(player.clientItemUse.hasObligation());
             player.clientItemUse.prepare(
-                    1,
-                    0,
-                    player.getClientVersion(),
-                    food,
-                    ac.cult.blocksim.engine.SimItemStack.EMPTY,
-                    java.util.Collections.nCopies(9, food));
+                    1, 0, player.getClientVersion(), food, SimItemStack.EMPTY, Collections.nCopies(9, food));
             assertFalse(invokeBoolean(check, "isActivelyUsingItem"));
             assertTrue(player.clientItemUse.hasObligation());
 
             ServerboundPlayerAction release = new ServerboundPlayerAction(
-                    PlayerAction.RELEASE_USE_ITEM,
-                    new ac.cult.cultac.protocol.value.BlockPos(0, 0, 0),
-                    ac.cult.cultac.protocol.value.Direction.DOWN,
-                    0);
+                    PlayerAction.RELEASE_USE_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
             player.actionManager.onPlayerAction(receiveEvent(player, release), player, release);
             assertFalse(player.isClientUsingItem());
             assertFalse(player.clientItemUse.hasObligation());
@@ -547,8 +517,7 @@ public final class OrderedLegacyCheckDispatchTest {
         return RecordReceiveTestEvents.keepAlive(player, packet);
     }
 
-    private static PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundPong> receiveEvent(
-            CultPlayer player, ServerboundPong packet) {
+    private static PacketReceiveEvent<ServerboundPong> receiveEvent(CultPlayer player, ServerboundPong packet) {
         return RecordReceiveTestEvents.pong(player, packet.id());
     }
 
@@ -608,8 +577,7 @@ public final class OrderedLegacyCheckDispatchTest {
     private static CultPlayer offlineJavaPlayer() {
         OfflineCultTestBootstrap.installConfig();
         UUID playerId = UUID.randomUUID();
-        User user = ac.cult.cultac.network.TestUsers.create(
-                new User.Profile(playerId, ".Ordered_Check_Test"), new EmbeddedChannel());
+        User user = TestUsers.create(new User.Profile(playerId, ".Ordered_Check_Test"), new EmbeddedChannel());
         return new CultPlayer(user);
     }
 }

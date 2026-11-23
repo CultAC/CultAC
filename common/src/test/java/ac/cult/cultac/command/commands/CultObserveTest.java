@@ -12,7 +12,6 @@ import static org.mockito.Mockito.when;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.command.commands.CultObserve.Outcome;
 import ac.cult.cultac.manager.config.BaseConfigManager;
-import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.io.File;
 import java.io.IOException;
@@ -24,12 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.logging.Handler;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -58,22 +52,6 @@ class CultObserveTest {
     }
 
     @Test
-    void aBooleanEnvironmentRefusesAndLeavesTheFileAndModeAlone() throws Exception {
-        File config = config(CONFIG);
-        AtomicInteger reloads = new AtomicInteger();
-        for (String pinned : List.of("true", "false", " YES ", "0")) {
-            Outcome outcome = CultObserve.switchTo(true, config, env(pinned), () -> {
-                        reloads.incrementAndGet();
-                        return CompletableFuture.completedFuture(true);
-                    })
-                    .join();
-            assertEquals(Outcome.PINNED, outcome, pinned);
-        }
-        assertEquals(0, reloads.get());
-        assertEquals(CONFIG, Files.readString(config.toPath()));
-    }
-
-    @Test
     void eachFlipWritesTheKeyAndSwitchesTheLiveModeThroughTheReload() throws Exception {
         File config = config(CONFIG);
         BaseConfigManager manager = new BaseConfigManager();
@@ -84,19 +62,10 @@ class CultObserveTest {
             return CompletableFuture.completedFuture(true);
         };
 
-        List<String> logged = capture(() -> {
-            assertEquals(
-                    Outcome.APPLIED,
-                    CultObserve.switchTo(true, config, env("config"), reload).join());
-            assertTrue(manager.isObserveOnly());
-            assertEquals(
-                    Outcome.APPLIED,
-                    CultObserve.switchTo(false, config, env(null), reload).join());
-            assertFalse(manager.isObserveOnly());
-        });
-
-        assertTrue(logged.contains("Switched to observe-only; pending setbacks are released"), logged.toString());
-        assertTrue(logged.contains("Switched to enforcing; check violations start from zero"), logged.toString());
+        assertEquals(Outcome.APPLIED, CultObserve.switchTo(true, config, reload).join());
+        assertTrue(manager.isObserveOnly());
+        assertEquals(Outcome.APPLIED, CultObserve.switchTo(false, config, reload).join());
+        assertFalse(manager.isObserveOnly());
         assertEquals(CONFIG, Files.readString(config.toPath()).replace("\r\n", "\n"));
     }
 
@@ -136,9 +105,7 @@ class CultObserveTest {
                 written.add((Boolean) yaml(config).get("observe-only"));
                 return failure.get();
             };
-            assertEquals(
-                    Outcome.FAILED,
-                    CultObserve.switchTo(true, config, env(null), reload).join());
+            assertEquals(Outcome.FAILED, CultObserve.switchTo(true, config, reload).join());
             assertEquals(List.of(true), written, "the reload sees the new key");
             assertArrayEquals(original, Files.readAllBytes(config.toPath()));
         }
@@ -167,33 +134,5 @@ class CultObserveTest {
         when(manager.getBooleanElse(eq("observe-only"), anyBoolean()))
                 .thenAnswer(invocation -> values.getOrDefault("observe-only", invocation.getArgument(1)));
         return manager;
-    }
-
-    private static Function<String, String> env(String value) {
-        return name -> name.equals(BaseConfigManager.OBSERVE_ONLY_ENV) ? value : null;
-    }
-
-    private static List<String> capture(Runnable action) {
-        Logger logger = LogUtil.getLogger();
-        List<String> messages = new ArrayList<>();
-        Handler handler = new Handler() {
-            @Override
-            public void publish(LogRecord record) {
-                messages.add(record.getMessage());
-            }
-
-            @Override
-            public void flush() {}
-
-            @Override
-            public void close() {}
-        };
-        logger.addHandler(handler);
-        try {
-            action.run();
-        } finally {
-            logger.removeHandler(handler);
-        }
-        return messages;
     }
 }

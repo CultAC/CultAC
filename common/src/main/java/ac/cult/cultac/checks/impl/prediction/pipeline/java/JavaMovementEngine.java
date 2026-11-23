@@ -17,8 +17,10 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
+import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder;
@@ -30,6 +32,7 @@ import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -368,7 +371,7 @@ public final class JavaMovementEngine implements MovementEngine {
         if (exact)
             result.getSimulationContext()
                     .getWorldData()
-                    .setStuckSpeed(new ac.cult.cultac.utils.data.StuckSpeedData(sharedStuckSpeed(stateList), null));
+                    .setStuckSpeed(new StuckSpeedData(sharedStuckSpeed(stateList), null));
         return new PredictionCommit(
                 new JavaPredictionCarry(
                         carry.actor(),
@@ -430,7 +433,7 @@ public final class JavaMovementEngine implements MovementEngine {
      * The velocity range the shove-boxed travel moved with: the starting range after every handler that maps it
      * (LivingEntity#updateFallFlyingMovement turns a vertical range horizontal), else the starting range.
      */
-    private static ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox movedRange(PredictionResult result) {
+    private static SimpleCollisionBox movedRange(PredictionResult result) {
         var moved = result.getValidMovements().getClosestTrace().position().getVelocityRange();
         return moved != null ? moved : result.getInitialStartingVel().getVelocityRange();
     }
@@ -440,8 +443,7 @@ public final class JavaMovementEngine implements MovementEngine {
      * the report shows nothing of them, and a transform before the move (LivingEntity#updateFallFlyingMovement) can
      * have mixed another axis's range into them. Null when no pass pinned a ranged axis.
      */
-    private static ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox pinnedMovedRange(
-            PredictionResult result) {
+    private static SimpleCollisionBox pinnedMovedRange(PredictionResult result) {
         JavaPassAfterTravel pass = passAfterTravel(result);
         var moved = result.getValidMovements().getClosestTrace().position().getVelocityRange();
         if (pass == null || moved == null) return null;
@@ -450,7 +452,7 @@ public final class JavaMovementEngine implements MovementEngine {
                 z = pass.result().fixedZ();
         if (!(x && moved.minX != moved.maxX || y && moved.minY != moved.maxY || z && moved.minZ != moved.maxZ))
             return null;
-        return new ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox(
+        return new SimpleCollisionBox(
                 x ? moved.minX : 0,
                 y ? moved.minY : 0,
                 z ? moved.minZ : 0,
@@ -565,7 +567,7 @@ public final class JavaMovementEngine implements MovementEngine {
             into.add(velocity.add(range.minX, range.minY, range.minZ));
             into.add(velocity.add(range.maxX, range.maxY, range.maxZ));
         }
-        var merged = new java.util.LinkedHashMap<JavaPredictionCarry.State, JavaPredictionCarry.State>();
+        var merged = new LinkedHashMap<JavaPredictionCarry.State, JavaPredictionCarry.State>();
         for (var state : states) {
             var key = state.withVelocity(Vec3.ZERO).withFallDistance(0, 0);
             merged.merge(
@@ -588,9 +590,7 @@ public final class JavaMovementEngine implements MovementEngine {
      * hull only each other.
      */
     private static LinkedHashSet<JavaPredictionCarry.State> withCarriedRange(
-            LinkedHashSet<JavaPredictionCarry.State> states,
-            ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox kept,
-            boolean reboundApart) {
+            LinkedHashSet<JavaPredictionCarry.State> states, SimpleCollisionBox kept, boolean reboundApart) {
         var velocities = new ArrayList<Vec3>(states.size());
         var rebounded = new ArrayList<Vec3>();
         for (var state : states) (reboundApart && state.spinRebound() ? rebounded : velocities).add(state.velocity());
@@ -684,7 +684,7 @@ public final class JavaMovementEngine implements MovementEngine {
     private static Vec3 sharedStuckSpeed(List<JavaPredictionCarry.State> states) {
         Vec3 required = states.isEmpty() ? null : states.getFirst().stuckSpeed();
         for (var state : states) {
-            if (!java.util.Objects.equals(required, state.stuckSpeed())) return null;
+            if (!Objects.equals(required, state.stuckSpeed())) return null;
         }
         return required;
     }
@@ -754,7 +754,7 @@ public final class JavaMovementEngine implements MovementEngine {
             var stateList = List.copyOf(states);
             // Contexts for subsequent ticks consume the complete per-candidate state below.
             WorldData world = result.getSimulationContext().getWorldData();
-            world.setStuckSpeed(new ac.cult.cultac.utils.data.StuckSpeedData(sharedStuckSpeed(stateList), null));
+            world.setStuckSpeed(new StuckSpeedData(sharedStuckSpeed(stateList), null));
             JavaPassAfterTravel pass = passAfterTravel(result);
             if (tick.floated() && (pass == null || !pass.result().moved())) {
                 // The next tick starts on floatStrider's support, unless a 26.3 pass's own move replaced it.
@@ -1077,7 +1077,7 @@ public final class JavaMovementEngine implements MovementEngine {
      * The distinct velocities of a list of states in first-seen order, as a {@link LinkedHashSet} adding each state's
      * velocity in turn holds them. The states list must not change while the set is read.
      */
-    static final class StateVelocities extends AbstractSet<Vec3> {
+    private static final class StateVelocities extends AbstractSet<Vec3> {
         private final List<JavaPredictionCarry.State> states;
         private final int size;
 

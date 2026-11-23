@@ -4,8 +4,10 @@ import ac.cult.reload.api.RuntimeInstance;
 import ac.cult.reload.host.BuildUpdates;
 import ac.cult.reload.host.CommandRouting;
 import ac.cult.reload.host.GenerationManager;
+import ac.cult.reload.host.LoaderVersions;
 import ac.cult.reload.host.UpdateSettings;
 import ac.cult.reload.host.UpdateWebhook;
+import ac.cult.reload.integrations.GeyserConnections;
 import ac.grim.grimac.api.GrimAPIProvider;
 import ac.grim.grimac.api.GrimAbstractAPI;
 import com.google.inject.Inject;
@@ -25,10 +27,12 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.channel.Channel;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -67,7 +71,7 @@ public final class CultVelocityPlugin {
     private final Path directory;
     private GenerationManager engine;
     private volatile boolean stopping;
-    private java.lang.reflect.Method connectionMethod, channelMethod;
+    private Method connectionMethod, channelMethod;
     private BridgeChannelGuard bridgeGuard;
     private final UpdateWebhook webhook = new UpdateWebhook();
     private volatile String bundledVersion = "";
@@ -110,9 +114,9 @@ public final class CultVelocityPlugin {
                     getClass().getClassLoader(),
                     logger::info,
                     null,
-                    ac.cult.reload.host.LoaderVersions.read(
+                    LoaderVersions.read(
                             getClass().getResourceAsStream("/velocity-plugin.json"), "velocity"));
-            engine.connectionResolver(ac.cult.reload.integrations.GeyserConnections::upstream);
+            engine.connectionResolver(GeyserConnections::upstream);
             Path bootBuild = null;
             try {
                 bundledVersion = BuildUpdates.descriptorVersion(
@@ -128,11 +132,20 @@ public final class CultVelocityPlugin {
             } catch (IOException | RuntimeException failure) {
                 logger.warn("Starting the bundled CultAC runtime; the update settings are unusable: " + failure);
             }
+            engine.buildInstaller(new GenerationManager.BuildInstaller() {
+                public CompletionStage<String> install(long number, String branch, String requestedBy) {
+                    return networkUpdate(number, branch, requestedBy);
+                }
+
+                public CompletionStage<Long> latest(String branch) {
+                    return new BuildUpdates(updateSettings(), bundledVersion).newest(branch, UPDATE_WORKER);
+                }
+            });
             engine.loadInitial(getClass().getResourceAsStream("/cult-runtime/default.jar"), bootBuild);
             engine.startInitial();
             proxy.getScheduler()
                     .buildTask(this, engine::tick)
-                    .repeat(java.time.Duration.ofMillis(50))
+                    .repeat(Duration.ofMillis(50))
                     .schedule();
             GrimAPIProvider.init((GrimAbstractAPI) engine.publicApi());
             command = new SimpleCommand() {
@@ -143,23 +156,22 @@ public final class CultVelocityPlugin {
                             && (args[0].equalsIgnoreCase("update") || args[0].equalsIgnoreCase("devswap"))) {
                         boolean devSwap = args[0].equalsIgnoreCase("devswap");
                         if (!source.hasPermission(devSwap ? "cult.devswap" : "cult.update")) {
-                            source.sendMessage(net.kyori.adventure.text.Component.text("You do not have permission."));
+                            source.sendMessage(Component.text("You do not have permission."));
                             return;
                         }
                         if (!devSwap) {
                             update(source, args);
                             return;
                         }
-                        if (args.length != (devSwap ? 1 : 2)) {
-                            source.sendMessage(net.kyori.adventure.text.Component.text(
-                                    "Usage: /" + primaryRoot() + (devSwap ? " devswap" : " update <filename.jar>")));
+                        if (args.length != 1) {
+                            source.sendMessage(Component.text("Usage: /" + primaryRoot() + " devswap"));
                             return;
                         }
                         BuildUpdates.installFile(engine, "CultAC-velocity.jar", null, UPDATE_WORKER)
                                 .thenAccept(line -> tell(source, line, updateColor(line)));
                     } else if (args.length > 0 && args[0].equalsIgnoreCase("runtimes")) {
                         if (!source.hasPermission("cult.runtimes")) {
-                            source.sendMessage(net.kyori.adventure.text.Component.text("You do not have permission."));
+                            source.sendMessage(Component.text("You do not have permission."));
                             return;
                         }
                         runtimes(source, args);
@@ -329,6 +341,31 @@ public final class CultVelocityPlugin {
         });
     }
 
+    /**
+     * A {@code /cult net ... update} of this proxy to build {@code number}: installed, logged and posted to the update
+     * webhook as {@code /cult update <number>} is, the log and webhook lines naming who asked for it. Completes with the
+     * install line.
+     */
+    private CompletionStage<String> networkUpdate(long number, String branch, String requestedBy) {
+        UpdateSettings settings;
+        try {
+            settings = updateSettings();
+        } catch (RuntimeException unusable) {
+            String line = "update refused: " + unusable;
+            logger.warn(line + " (network update by " + requestedBy + ")");
+            return CompletableFuture.completedFuture(line);
+        }
+        return new BuildUpdates(settings, bundledVersion)
+                .install(engine, number, branch, UPDATE_WORKER)
+                .exceptionally(failure -> "update refused: " + failure)
+                .thenApply(line -> {
+                    String recorded = line + " (network update by " + requestedBy + ")";
+                    logger.info(recorded);
+                    webhook.post(settings.webhook(), recorded, logger::warn);
+                    return line;
+                });
+    }
+
     private static NamedTextColor updateColor(String line) {
         if (line.startsWith("Activated")) return NamedTextColor.GREEN;
         return line.startsWith("Already running") ? NamedTextColor.YELLOW : NamedTextColor.RED;
@@ -339,28 +376,28 @@ public final class CultVelocityPlugin {
     }
 
     /** {@code /cult runtimes [id [command]]}; commands run as the sender, once per player of that runtime. */
-    private void runtimes(com.velocitypowered.api.command.CommandSource source, String[] args) {
+    private void runtimes(CommandSource source, String[] args) {
         if (args.length == 1) {
-            engine.status().forEach(line -> source.sendMessage(net.kyori.adventure.text.Component.text(line)));
+            engine.status().forEach(line -> source.sendMessage(Component.text(line)));
             return;
         }
         try {
             var names = engine.players(args[1]).stream()
                     .map(proxy::getPlayer)
-                    .flatMap(java.util.Optional::stream)
-                    .map(com.velocitypowered.api.proxy.Player::getUsername)
+                    .flatMap(Optional::stream)
+                    .map(Player::getUsername)
                     .toList();
             if (args.length == 2) {
-                source.sendMessage(net.kyori.adventure.text.Component.text(engine.status(args[1])));
-                source.sendMessage(net.kyori.adventure.text.Component.text("Players: " + String.join(", ", names)));
+                source.sendMessage(Component.text(engine.status(args[1])));
+                source.sendMessage(Component.text("Players: " + String.join(", ", names)));
                 return;
             }
             for (String command : CommandRouting.perPlayer(args, names))
                 proxy.getCommandManager().executeAsync(source, command);
-            source.sendMessage(net.kyori.adventure.text.Component.text(
+            source.sendMessage(Component.text(
                     "Ran the command for " + names.size() + " player(s) on runtime " + args[1]));
         } catch (IllegalArgumentException unknown) {
-            source.sendMessage(net.kyori.adventure.text.Component.text(unknown.getMessage()));
+            source.sendMessage(Component.text(unknown.getMessage()));
         }
     }
 

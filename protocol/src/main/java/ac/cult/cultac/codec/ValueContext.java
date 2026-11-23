@@ -8,6 +8,7 @@ import ac.cult.shaded.vialib.api.connection.UserConnection;
 import ac.cult.shaded.vialib.api.data.MappingData;
 import ac.cult.shaded.vialib.api.minecraft.codec.CodecContext;
 import ac.cult.shaded.vialib.api.minecraft.data.StructuredDataKey;
+import ac.cult.shaded.vialib.api.protocol.Protocol;
 import ac.cult.shaded.vialib.util.Key;
 import java.util.HashMap;
 import java.util.Map;
@@ -26,7 +27,7 @@ final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
     private final WireValueDecoder.Registries names;
     private final ProtocolVersion version;
     private final ModelIdMappings mappings;
-    private final java.util.Map<String, java.util.Map<Integer, String>> references = new java.util.HashMap<>();
+    private final Map<String, Map<Integer, String>> references = new HashMap<>();
 
     ValueContext(WireValueDecoder.Registries names, ProtocolVersion version, ModelIdMappings mappings) {
         this.names = names;
@@ -59,7 +60,7 @@ final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
     }
 
     @Override
-    public ac.cult.shaded.vialib.api.protocol.Protocol<?, ?, ?, ?> protocol() {
+    public Protocol<?, ?, ?, ?> protocol() {
         throw new UnsupportedOperationException("Stateless value codec");
     }
 
@@ -120,7 +121,7 @@ final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
             if (QUALIFIED.size() < MAX_SHARED) QUALIFIED.put(registry, qualified);
         }
         String name = names.name(qualified, id);
-        references.computeIfAbsent(qualified, key -> new java.util.HashMap<>()).put(boxed(id), name);
+        references.computeIfAbsent(qualified, key -> new HashMap<>()).put(boxed(id), name);
         return key(modelName(qualified, name));
     }
 
@@ -149,7 +150,7 @@ final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
     }
 
     /** The live references; a {@link WireValueDecoder.ComponentEncoding} built from them copies them. */
-    java.util.Map<String, java.util.Map<Integer, String>> references() {
+    Map<String, Map<Integer, String>> references() {
         return references;
     }
 

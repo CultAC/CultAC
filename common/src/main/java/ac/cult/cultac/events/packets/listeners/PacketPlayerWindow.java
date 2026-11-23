@@ -157,11 +157,6 @@ public class PacketPlayerWindow {
     }
 
     public static void handleInventory(CultPlayer cultPlayer, boolean nowOpen) {
-
-        if (!cultPlayer.hasInventoryOpen && nowOpen) {
-            cultPlayer.lastOpenedInventory = System.currentTimeMillis();
-        }
-
         cultPlayer.hasInventoryOpen = nowOpen;
     }
 }

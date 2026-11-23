@@ -4,6 +4,8 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionOutput;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockEntityMove;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMovement;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBoatMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockMoveRequest;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockTravelPlan;
 
@@ -25,22 +27,22 @@ public final class BedrockPostMoveSystems {
                                     plan.frame().frameFacts().movementDimensions(),
                                     blockMove.position())
                             .size());
-            velocity = ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBoatMovement.afterMove(
+            velocity = BedrockBoatMovement.afterMove(
                     plan.frame().input().previousState(),
-                            plan.frame().frameFacts().blockCollisionWorld(),
-                    blockMove.position(), velocity);
+                    plan.frame().frameFacts().blockCollisionWorld(),
+                    blockMove.position(),
+                    velocity);
             velocity = new Vec3d(
                     velocity.x(),
                     BedrockBubbleColumnMovement.boatVelocityY(
                             frame.postMoveContext().worldState().fluidState().bubbleColumnState(),
                             (float) velocity.y()),
                     velocity.z());
-            velocity = ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMovement
-                    .applyInsideBlockAfterPostMoveEffects(
-                            velocity,
-                            plan.frame().frameFacts().honeySlideState(),
-                            blockMove.position(),
-                            plan.frame().frameFacts().movementDimensions());
+            velocity = BedrockBlockSurfaceMovement.applyInsideBlockAfterPostMoveEffects(
+                    velocity,
+                    plan.frame().frameFacts().honeySlideState(),
+                    blockMove.position(),
+                    plan.frame().frameFacts().movementDimensions());
             var result = BedrockPostMoveResult.afterLiquidClimbOut(frame, velocity, frame.flags(), 1.0D);
             return new BedrockPostMoveResult(
                     new BedrockPostMoveResult.VelocityEffects(velocity, velocity, velocity, false, true, true, 1.0D),

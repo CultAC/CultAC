@@ -16,9 +16,9 @@ import javax.crypto.spec.SecretKeySpec;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The config's {@code network} block, each key overridden by its non-blank {@code CULTAC_NETWORK_*} environment
- * variable, and {@code cloud.proxy-id}. {@code type} picks the broker; only its block is read, the other one holds
- * its defaults. Records compare equal when a reload needs no reconnect.
+ * The config's {@code network} block, each key but {@code instance-id} overridden by its non-blank
+ * {@code CULTAC_NETWORK_*} environment variable, and {@code cloud.proxy-id}. {@code type} picks the broker; only its
+ * block is read, the other one holds its defaults. Records compare equal when a reload needs no reconnect.
  */
 public record NetworkSettings(
         String type, Redis redis, Nats nats, String secret, String instanceId, String cloudProxyId) {
@@ -188,7 +188,6 @@ public record NetworkSettings(
 
     static NetworkSettings read(ConfigManager config, Function<String, String> env) {
         String cloudProxyId = config.getStringElse("cloud.proxy-id", "");
-        if (cloudProxyId == null || cloudProxyId.isBlank()) cloudProxyId = env.apply("CULTAC_PROXY_ID");
         String type = setting(config, env, "network.type", "CULTAC_NETWORK_TYPE");
         String chosen = type.toLowerCase(Locale.ROOT);
         Redis redis = chosen.equals(REDIS)
@@ -212,7 +211,7 @@ public record NetworkSettings(
                 redis,
                 nats,
                 setting(config, env, "network.secret", "CULTAC_NETWORK_SECRET"),
-                setting(config, env, "network.instance-id", "CULTAC_NETWORK_INSTANCE_ID"),
+                config.getStringElse("network.instance-id", ""),
                 cloudProxyId);
     }
 

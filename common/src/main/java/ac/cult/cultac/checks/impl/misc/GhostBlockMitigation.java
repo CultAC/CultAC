@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.misc;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -22,7 +21,7 @@ public class GhostBlockMitigation extends BlockPlaceCheck {
 
     @Override
     public void onBlockPlace(final BlockPlace place) {
-        if (allow || CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        if (allow || player.isObserveOnly()) return;
 
         CompensatedWorld world = player.compensatedWorld;
         BlockPos pos = place.getPlacedBlockPos();
@@ -57,7 +56,7 @@ public class GhostBlockMitigation extends BlockPlaceCheck {
     @Override
     public void onReload(@NotNull ConfigManager config) {
         allow = config.getBooleanElse("exploit.allow-building-on-ghostblocks", true);
-        distance = config.getIntElse("exploit.distance-to-check-for-ghostblocks", 2);
+        distance = config.getIntElse("exploit.distance-to-check-if-ghostblocks", 2);
 
         if (distance < 2 || distance > 4) distance = 2;
     }

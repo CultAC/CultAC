@@ -98,9 +98,6 @@ cult:
     strip-pattern: ' \(Velocity\)$'
 
   diagnostics:
-    # Currently unused: changing this does not automatically enable verbose alerts.
-    auto-enable-verbose: false
-
     # Write teleport, setback, and resynchronization diagnostics to the console.
     teleports: false
 

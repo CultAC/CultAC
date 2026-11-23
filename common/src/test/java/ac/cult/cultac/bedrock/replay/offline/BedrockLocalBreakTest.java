@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.replay.offline;
 import static org.junit.Assert.*;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
@@ -70,7 +71,7 @@ public class BedrockLocalBreakTest {
                         DataTables.defaults()
                                 .registry()
                                 .facts(player.compensatedWorld.getBlockStateIdAt(WALL))
-                                .has(ac.cult.blocksim.data.StateFacts.AIR));
+                                .has(StateFacts.AIR));
                 if (breakWall) {
                     assertNotNull(state);
                     assertEquals(
@@ -137,7 +138,7 @@ public class BedrockLocalBreakTest {
             assertFalse(DataTables.defaults()
                     .registry()
                     .facts(p.compensatedWorld.getBlockStateIdAt(WALL))
-                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+                    .has(StateFacts.AIR));
             handler.apply(
                     p,
                     BedrockCoordinateFrame.IDENTITY,
@@ -150,7 +151,7 @@ public class BedrockLocalBreakTest {
             assertFalse(DataTables.defaults()
                     .registry()
                     .facts(p.compensatedWorld.getBlockStateIdAt(WALL))
-                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+                    .has(StateFacts.AIR));
             p.compensatedWorld.updateBlock(
                     2,
                     64,
@@ -199,8 +200,8 @@ public class BedrockLocalBreakTest {
                             action(PlayerActionType.START_BREAK, WALL),
                             action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL)),
                     local -> {});
-            assertTrue(registry.facts(p.compensatedWorld.getBlockStateIdAt(WALL))
-                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+            assertTrue(
+                    registry.facts(p.compensatedWorld.getBlockStateIdAt(WALL)).has(StateFacts.AIR));
             // Capture 1794673089650, tick 21267: a creative start alone left the block in the boat's way that tick.
             p.gamemode = GameMode.CREATIVE;
             p.compensatedWorld.updateBlock(2, 64, 0, stone);
@@ -217,8 +218,8 @@ public class BedrockLocalBreakTest {
                             action(PlayerActionType.BLOCK_CONTINUE_DESTROY, WALL),
                             action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL)),
                     local -> {});
-            assertTrue(registry.facts(p.compensatedWorld.getBlockStateIdAt(WALL))
-                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+            assertTrue(
+                    registry.facts(p.compensatedWorld.getBlockStateIdAt(WALL)).has(StateFacts.AIR));
             p.compensatedWorld.updateBlock(
                     2,
                     64,

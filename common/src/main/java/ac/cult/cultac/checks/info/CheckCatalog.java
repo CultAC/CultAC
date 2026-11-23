@@ -36,9 +36,7 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsO;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsP;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsQ;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsR;
-import ac.cult.cultac.checks.impl.badpackets.BadPacketsS;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsT;
-import ac.cult.cultac.checks.impl.badpackets.BadPacketsU;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsV;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsW;
@@ -50,7 +48,6 @@ import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.breaking.AirLiquidBreak;
 import ac.cult.cultac.checks.impl.breaking.FarBreak;
 import ac.cult.cultac.checks.impl.breaking.FastBreak;
-import ac.cult.cultac.checks.impl.breaking.InvalidBreak;
 import ac.cult.cultac.checks.impl.breaking.MultiBreak;
 import ac.cult.cultac.checks.impl.breaking.NoSwingBreak;
 import ac.cult.cultac.checks.impl.breaking.PositionBreakA;
@@ -111,10 +108,8 @@ import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
 import ac.cult.cultac.checks.impl.misc.BrandSpoofA;
 import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
-import ac.cult.cultac.checks.impl.movement.EntityControl;
 import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
-import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
@@ -179,7 +174,6 @@ import ac.cult.cultac.checks.impl.scaffolding.DuplicateRotPlace;
 import ac.cult.cultac.checks.impl.scaffolding.FabricatedPlace;
 import ac.cult.cultac.checks.impl.scaffolding.FarPlace;
 import ac.cult.cultac.checks.impl.scaffolding.InvalidPlaceA;
-import ac.cult.cultac.checks.impl.scaffolding.InvalidPlaceB;
 import ac.cult.cultac.checks.impl.scaffolding.MultiPlace;
 import ac.cult.cultac.checks.impl.scaffolding.RotationPlace;
 import ac.cult.cultac.checks.impl.sprint.SprintA;
@@ -190,8 +184,6 @@ import ac.cult.cultac.checks.impl.sprint.SprintE;
 import ac.cult.cultac.checks.impl.sprint.SprintF;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.checks.impl.sprint.SprintH;
-import ac.cult.cultac.checks.impl.vehicle.VehicleA;
-import ac.cult.cultac.checks.impl.vehicle.VehicleB;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.impl.vehicle.VehicleD;
 import ac.cult.cultac.checks.impl.vehicle.VehicleE;
@@ -208,9 +200,13 @@ import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
 
@@ -227,13 +223,15 @@ public final class CheckCatalog {
      *     {@code null} or {@code "DEFAULT"}
      * @param altName the second name punishments match; {@link CheckData#NO_ALTERNATIVE_NAME} for a {@code @CheckData}
      *     check without one, {@code null} for a {@code CheckInfo} check without one
+     * @param stableKey the check's identity, the same under every name and in every build
      */
     public record Entry(
             CheckNames names,
             @Nullable String declaredConfigName,
             @Nullable String altName,
             boolean experimental,
-            CheckCategory category) {
+            CheckCategory category,
+            String stableKey) {
         /** The check's name in the newest name version; {@code check-info/en.yml} explains the check under it. */
         public String name() {
             return names.latest();
@@ -287,7 +285,6 @@ public final class CheckCatalog {
             check(NoFallPseudo.INFO, MOVEMENT),
             check(InputKeys.INFO, MOVEMENT),
             check(ItemUseBurst.INFO, MOVEMENT),
-            check(NegativeTimerCheck.INFO, MOVEMENT),
             check(NoFallExecutor.INFO, MOVEMENT),
             check(NoSlow.INFO, MOVEMENT),
             check(NoSneakSlow.INFO, MOVEMENT),
@@ -320,12 +317,9 @@ public final class CheckCatalog {
             check(ElytraI.class, ELYTRA),
             check(ElytraJ.class, ELYTRA),
             check(BoatPseudo.INFO, VEHICLES),
-            check(EntityControl.INFO, VEHICLES),
             check(HappyGhastPseudo.INFO, VEHICLES),
             check(MultiActionsG.class, VEHICLES),
             check(VehicleTimer.INFO, VEHICLES),
-            check(VehicleA.class, VEHICLES),
-            check(VehicleB.class, VEHICLES),
             check(VehicleC.class, VEHICLES),
             check(VehicleD.class, VEHICLES),
             check(VehicleE.class, VEHICLES),
@@ -342,9 +336,7 @@ public final class CheckCatalog {
             check(FarBreak.class, BUILDING),
             check(FarPlace.class, BUILDING),
             check(FastBreak.class, BUILDING),
-            check(InvalidBreak.class, BUILDING),
             check(InvalidPlaceA.class, BUILDING),
-            check(InvalidPlaceB.class, BUILDING),
             check(MultiActionsB.class, BUILDING),
             check(MultiBreak.class, BUILDING),
             check(MultiPlace.class, BUILDING),
@@ -393,9 +385,7 @@ public final class CheckCatalog {
             check(BadPacketsP.class, PACKETS),
             check(BadPacketsQ.class, PACKETS),
             check(BadPacketsR.class, PACKETS),
-            check(BadPacketsS.class, PACKETS),
             check(BadPacketsT.class, PACKETS),
-            check(BadPacketsU.class, PACKETS),
             check(BadPacketsV.class, PACKETS),
             check(BadPacketsVehicle.class, PACKETS),
             check(BadPacketsW.class, PACKETS),
@@ -458,11 +448,22 @@ public final class CheckCatalog {
         CheckData data = type.getAnnotation(CheckData.class);
         if (data == null) throw new IllegalArgumentException(type.getName() + " has no @CheckData");
         return new Entry(
-                CheckNames.of(data), data.configName(), data.alternativeName(), data.experimental(), category);
+                CheckNames.of(data),
+                data.configName(),
+                data.alternativeName(),
+                data.experimental(),
+                category,
+                data.stableKey());
     }
 
     private static Entry check(CheckInfo info, CheckCategory category) {
-        return new Entry(info.getNames(), info.getConfigName(), info.getAltName(), info.isExperimental(), category);
+        return new Entry(
+                info.getNames(),
+                info.getConfigName(),
+                info.getAltName(),
+                info.isExperimental(),
+                category,
+                info.getStableKey());
     }
 
     /**
@@ -471,15 +472,65 @@ public final class CheckCatalog {
      */
     public static @Nullable Entry find(String query) {
         for (Entry entry : ENTRIES) {
-            if (entry.name().equalsIgnoreCase(query)
-                    || entry.configName().equalsIgnoreCase(query)
-                    || (hasAltName(entry) && entry.altName().equalsIgnoreCase(query))) return entry;
+            if (hasName(entry, query, CheckNames.LATEST)) return entry;
         }
         for (Entry entry : ENTRIES) {
             for (int version = CheckNames.FIRST; version < CheckNames.LATEST; version++) {
-                if (entry.name(version).equalsIgnoreCase(query)
-                        || entry.configName(version).equalsIgnoreCase(query)) return entry;
+                if (hasName(entry, query, version)) return entry;
             }
+        }
+        return null;
+    }
+
+    /**
+     * Every check {@code typed} names, whatever its case, as name version {@code nameVersion} names checks: the checks
+     * {@link #find(String, int)} chooses among, else the checks named alike in the name version {@link #find(String)}
+     * finds one in, else the check whose stable key it is. Empty when it names none.
+     */
+    public static List<Entry> named(String typed, int nameVersion) {
+        List<Entry> named = withName(typed, nameVersion);
+        if (!named.isEmpty()) return named;
+        Entry found = find(typed);
+        if (found != null) {
+            int version = CheckNames.LATEST;
+            if (!hasName(found, typed, version)) {
+                version = CheckNames.FIRST;
+                while (!hasName(found, typed, version)) version++;
+            }
+            return withName(typed, version);
+        }
+        for (Entry entry : ENTRIES) {
+            if (entry.stableKey().equalsIgnoreCase(typed)) return List.of(entry);
+        }
+        return List.of();
+    }
+
+    /**
+     * Names in name version {@code nameVersion} that {@link #named(String, int)} reads as exactly the checks of
+     * {@code stableKeys}, in their order and each once: a check's name there when every check the name names is among
+     * them, else its stable key. A key of no check of this build stays as it is.
+     */
+    public static List<String> names(Collection<String> stableKeys, int nameVersion) {
+        Set<String> keys = new HashSet<>(stableKeys);
+        Set<String> names = new LinkedHashSet<>();
+        for (String key : stableKeys) {
+            Entry entry = byStableKey(key);
+            if (entry == null) {
+                names.add(key);
+                continue;
+            }
+            String name = entry.name(nameVersion);
+            boolean whole = true;
+            for (Entry named : named(name, nameVersion)) whole &= keys.contains(named.stableKey());
+            names.add(whole ? name : key);
+        }
+        return List.copyOf(names);
+    }
+
+    /** The check whose stable key is {@code stableKey}; null when this build has none. */
+    public static @Nullable Entry byStableKey(String stableKey) {
+        for (Entry entry : ENTRIES) {
+            if (entry.stableKey().equals(stableKey)) return entry;
         }
         return null;
     }
@@ -489,15 +540,11 @@ public final class CheckCatalog {
      * that version names alike, the one whose newest name it is. Else the check {@link #find(String)} gives.
      */
     public static @Nullable Entry find(String query, int nameVersion) {
-        Entry named = null;
-        for (Entry entry : ENTRIES) {
-            if (!entry.name(nameVersion).equalsIgnoreCase(query)
-                    && !entry.configName(nameVersion).equalsIgnoreCase(query)
-                    && !(hasAltName(entry) && entry.altName().equalsIgnoreCase(query))) continue;
+        List<Entry> named = withName(query, nameVersion);
+        for (Entry entry : named) {
             if (entry.name().equalsIgnoreCase(query)) return entry;
-            if (named == null) named = entry;
         }
-        return named != null ? named : find(query);
+        return named.isEmpty() ? find(query) : named.getFirst();
     }
 
     /**
@@ -511,6 +558,21 @@ public final class CheckCatalog {
     private static String query(Query query) {
         Entry found = find(query.name(), query.nameVersion());
         return found != null && found.name().equals(query.latestName()) ? query.name() : query.latestName();
+    }
+
+    /** The checks whose name, config name or alternative name in {@code nameVersion} is {@code query}, in order. */
+    private static List<Entry> withName(String query, int nameVersion) {
+        List<Entry> named = new ArrayList<>();
+        for (Entry entry : ENTRIES) {
+            if (hasName(entry, query, nameVersion)) named.add(entry);
+        }
+        return named;
+    }
+
+    private static boolean hasName(Entry entry, String query, int nameVersion) {
+        return entry.name(nameVersion).equalsIgnoreCase(query)
+                || entry.configName(nameVersion).equalsIgnoreCase(query)
+                || (hasAltName(entry) && entry.altName().equalsIgnoreCase(query));
     }
 
     private static boolean hasAltName(Entry entry) {

@@ -3,7 +3,10 @@ package ac.cult.cultac.bedrock.prediction.integration;
 import ac.cult.cultac.utils.math.Vec3;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Where a client before 1.26.60 may show a remote actor. Such a client shows an actor through a history of the
@@ -52,10 +55,10 @@ public final class BedrockLegacyActorEnvelope {
      * The offsets from {@code shown} of the positions actor {@code entityId} was sent within its delay and of the ends
      * of the interval it may be shown in, as the last {@link #buffer} call for it left them.
      */
-    public java.util.List<Vec3> alternatives(int entityId, Vec3 shown) {
+    public List<Vec3> alternatives(int entityId, Vec3 shown) {
         Track track = tracks.get(entityId);
-        if (track == null || shown == null) return java.util.List.of();
-        java.util.List<Vec3> offsets = new java.util.ArrayList<>();
+        if (track == null || shown == null) return List.of();
+        List<Vec3> offsets = new ArrayList<>();
         for (Sample sample : track.samples) {
             Vec3 offset = new Vec3(sample.x() - shown.x, sample.y() - shown.y, sample.z() - shown.z);
             if (offset.x != 0.0D || offset.y != 0.0D || offset.z != 0.0D) offsets.add(offset);
@@ -72,7 +75,7 @@ public final class BedrockLegacyActorEnvelope {
      * where it was sent that long before client tick {@code tick} is {@code near}: bit d is a delay of d ticks. Every
      * bit for an actor with no history.
      */
-    public int delaysNear(int entityId, long tick, java.util.function.Predicate<Vec3> near) {
+    public int delaysNear(int entityId, long tick, Predicate<Vec3> near) {
         Track track = tracks.get(entityId);
         if (track == null || track.samples.isEmpty()) return -1;
         int delays = 0;

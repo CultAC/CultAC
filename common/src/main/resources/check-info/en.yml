@@ -120,9 +120,6 @@ checks:
   ItemUseBurst:
     summary: "Skipped the slowdown from using an item"
     details: "Eating, drinking, blocking or drawing a bow slows you down while you do it. NoSlow and Timer cheats let the player dodge that slowdown."
-  NegativeTimer:
-    summary: "Their game ran slower than normal"
-    details: "Their game sent movement as if it was running in slow motion. Blink and similar cheats hold movement back and send it all later, which looks like this."
   NoFall:
     summary: "Avoided fall damage they should have taken"
     details: "Their game sent false ground or movement information to cancel fall damage. That's what NoFall cheats do."
@@ -224,9 +221,6 @@ checks:
   BoatOffset:
     summary: "Moved a boat in an impossible way"
     details: "A cheat client controlling the boat does this."
-  EntityControl:
-    summary: "Steered a ridden mob in an impossible way"
-    details: "This covers horses, pigs and other mobs you can ride. It comes from a cheat client controlling the mob in ways Minecraft doesn't allow."
   HappyGhastOffset:
     summary: "Flew a happy ghast in an impossible way"
     details: "A cheat client steering the happy ghast does this."
@@ -236,12 +230,6 @@ checks:
   TimerVehicle:
     summary: "Their game ran faster than normal while riding"
     details: "Like Timer, but while riding a boat, horse or other vehicle. Timer cheats make the player's game run faster than everyone else's."
-  VehicleA:
-    summary: "Sent movement keys no keyboard or controller can press"
-    details: "Their game tells the server which movement keys are held, and these values don't match any real keyboard or controller. A modified client sends values like this."
-  VehicleB:
-    summary: "Sent vehicle steering while not riding anything"
-    details: "Your game only sends vehicle steering while you're riding something. A modified client can send it on foot."
   VehicleC:
     summary: "Steered a pig or strider without holding its steering item"
     details: "You need a carrot on a stick to steer a pig, or a warped fungus on a stick for a strider. A cheat client can steer them without it."
@@ -291,15 +279,9 @@ checks:
   FastBreak:
     summary: "Broke blocks faster than Minecraft allows"
     details: "How long a block takes to mine depends on the block and the tool in your hand. FastBreak cheats finish it sooner."
-  InvalidBreak:
-    summary: "Reported mining a block side that doesn't exist"
-    details: "When you mine, your game reports which side of the block you hit. A side that doesn't exist comes from a modified client."
   InvalidPlaceA:
     summary: "Reported an impossible click spot while placing a block"
     details: "When you place a block, your game reports where on the block you clicked. A spot that isn't a real position at all comes from a modified client."
-  InvalidPlaceB:
-    summary: "Reported placing on a block side that doesn't exist"
-    details: "When you place a block, your game reports which side of the block you clicked. A side that doesn't exist comes from a modified client."
   MultiActionsB:
     summary: "Mined while using an item"
     details: "You can't mine while eating, drinking, blocking or drawing a bow. A cheat client that mines or acts for the player can do both at once."
@@ -451,15 +433,9 @@ checks:
   BadPacketsR:
     summary: "Held back their movement from the server"
     details: "Blink and some Freecam cheats hold back the player's movement, so the server doesn't see where they really are."
-  BadPacketsS:
-    summary: "Sent a connection reply that Minecraft can't send"
-    details: "Their game gave an invalid answer to one of the server's connection checks, which comes from a modified client."
   BadPacketsT:
     summary: "Right-clicked a player at a spot outside their body"
     details: "When you right-click a player, your game reports the spot on their body you clicked. A spot outside their body, or one that makes no sense, comes from a cheat client making its own right-clicks."
-  BadPacketsU:
-    summary: "Used an item with details that Minecraft never sends"
-    details: "When your game uses an item without aiming at a block, it fills in the request the same way every time. Their game filled it in differently, which comes from a modified client building its own actions."
   BadPacketsV:
     summary: "Sent position updates that Minecraft never sends"
     details: "This usually means a modified client is faking its movement."

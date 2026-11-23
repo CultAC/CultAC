@@ -65,6 +65,13 @@ help:
     - "/%command% perf &f- &7Depura a performance."
     - "/%command% reload &f- &7Recarrega as configurações."
     - "/%command% observe [on|off] &f- &7Mostra ou alterna o modo observe-only"
+    - "/%command% net <target> status &f- &7Status of every CultAC server the target names"
+    - "/%command% net <target> reload &f- &7Reload the config on every CultAC server the target names"
+    - "/%command% net <target> observe [on|off] &f- &7Show or switch observe-only for the players the target names"
+    - "/%command% net <target> punish [on|off] &f- &7Show or switch punishment commands for the players the target names"
+    - "/%command% net <target> toggle [on|off] &f- &7Show or switch checking for the players the target names"
+    - "/%command% net <target> check <check> <on|off> &f- &7Switch a check for the players the target names"
+    - "/%command% net <target> update <build>|latest [channel] [--canary] &f- &7Install a build on every proxy the target names; this proxy updates last"
     - "/%command% spectate <player> &f- &7Especta um jogador."
     - "/%command% verbose &f- &7Esconde as informações extra."
     - "/%command% log [0-255] &f- &7Envia o registro da simulação."
@@ -153,6 +160,61 @@ network-command-target-left: "&c%player% is no longer on %instance%."
 network-command-failed: "&c%instance% could not run the command: %reason%"
 network-command-no-answer: "&c%instance% did not answer."
 network-command-output-cut: "&cThe rest of the output from %instance% was cut: it is over %lines% lines or %kb% KB."
+# /cult net <target> <command>: one command on several CultAC instances. %cmd% is the command, %target% the target as
+# typed, %term% one of its names, %count% a number of instances, %instance% and %instances% instance ids, %line% one
+# instance's answer, %sender% a staff name, %node% a permission node, %reason% why the command failed.
+net-usage: "%prefix% &cUse /%command% net <target> <command>. A target is all, proxies, an instance id, a backend server or a pattern such as BRG_*, or several of them joined by commas. Commands: %commands%. Name an instance called proxies as id:proxies."
+net-off: "%prefix% &eNetwork routing is off on this server, so network commands reach this server only."
+net-busy: "%prefix% &cA network command is still running; try again in a few seconds."
+net-invalid-term: "%prefix% &c%term% is not a valid target. Names take letters, digits and . _ - *; join several with commas, no spaces."
+net-unknown: "%prefix% &cNo proxy or server is named %term%; nothing was sent."
+net-no-match: "%prefix% &cNothing matches %term%; nothing was sent."
+net-not-listed: "%prefix% &eNo proxy lists %term%; the setting applies when it appears."
+net-syncing: "%prefix% &cThis server is still loading the network's shared settings; try again in a few seconds."
+net-backend-term: "%prefix% &c%cmd% runs on CultAC instances only; %term% is a backend server."
+net-sent: "%prefix% &7%cmd% sent to %count% instances (%target%)"
+net-reply: "&b%instance% &8» &f%line%"
+net-summary: "%prefix% &7%answered% of %expected% answered"
+net-no-answer: "%prefix% &cDid not answer: &f%instances%"
+net-older: "%prefix% &eOlder builds (cannot run network commands): &f%instances%"
+# One instance's status. %toggle% is checking or dormant, %observe% observe-only or enforcing, %punish% punishing or
+# punishments paused, %checks% the checks switched off. net-status-backends-line is a proxy's status for the players on
+# %backends%, the backend servers named.
+net-status-line: "&f%build% &8· &7%role% &8· &f%players% &7players, &f%inspected% &7inspected, &f%dormant% &7dormant &8· &7%toggle% &8· &7%observe% &8· &7%punish% &8· &7checks off: &f%checks% &8· &f%prediction% &7ms/prediction &8· &7up &f%uptime% &7(engine &f%engine_uptime%&7, %generations% generations)"
+net-status-backends-line: "&f%build% &8· &7%role% &8· &7on &f%backends%&7: &f%players% &7players, &f%inspected% &7inspected, &f%dormant% &7dormant &8· &7%toggle% &8· &7%observe% &8· &7%punish% &8· &7checks off: &f%checks%"
+net-refused-permission: "&crefused: %sender% lacks %node% here"
+net-refused-disabled: "&crefused: this server does not take network commands"
+net-refused-not-accepted: "&crefused: this server does not take %cmd% over the network"
+net-refused-unsupported: "&crefused: this server's build cannot run %cmd%"
+net-refused-invalid: "&crefused: %cmd% does not take these arguments"
+net-refused-busy: "&crefused: too many network commands are running here"
+net-refused-rate: "&crefused: too many network commands from %instance% lately"
+net-failed: "&cfailed: %reason%"
+# Answers to reload, observe, punish and check; reload answers with reloaded or reload-failed. %players% is whom a
+# command ran for, %state% a setting's value (with where it comes from for a bare observe or punish) and %check% a
+# check's name.
+net-observe-state: "&f%players%: %state%"
+net-observe-applied: "&f%players%: now %state%"
+net-observe-failed: "&c%players%: set to %state%, but reloading failed; see the console"
+net-punish-state: "&f%players%: %state%"
+net-punish-applied: "&f%players%: now %state%"
+# Answers to toggle. %state% is checking or dormant (with where it comes from for a bare toggle), %count% how many
+# players on this instance, or on the servers named, CultAC does not check.
+net-toggle-state: "&f%players%: %state%"
+net-toggle-off-applied: "&f%players%: now %state% &7(%count% players not checked)"
+net-toggle-on-applied: "&f%players%: now %state% &7(%count% players not checked yet; checking starts again at their next server switch or reconnect)"
+net-check-applied: "&f%check% %state% &7(%players%)"
+net-check-unknown: "&cno check %check% here"
+# /cult net <target> update. %build% is a build number (b150) or latest with its channel, %line% the loader's install
+# line, %from% and %to% the builds of the loader and of the running engine.
+net-update-accepted: "&7updating to %build%: downloading and verifying..."
+net-update-done: "&a%line%"
+net-update-failed: "&c%line%"
+net-update-not-proxy: "&7skipped: only proxies install builds"
+net-update-old-loader: "&cneeds a proxy restart (loader %from% → %to%)"
+net-update-canary: "%prefix% &7canary %instance% first..."
+net-update-self: "%prefix% &7%instance% updates itself last"
+net-update-canary-failed: "%prefix% &ccanary %instance% did not activate %build%; the rest were not updated"
 # /cult findplayer [brand=<text>]: the client brands online, or the players whose brand contains the text.
 # Brands, %query%, %player% and %server% show as plain text. %count% is a number of players; findplayer-unknown
 # names the players whose brand is not known yet.

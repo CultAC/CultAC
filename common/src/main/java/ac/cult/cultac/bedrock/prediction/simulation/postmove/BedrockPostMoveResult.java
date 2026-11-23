@@ -36,14 +36,6 @@ public record BedrockPostMoveResult(
         return velocityEffects.velocity();
     }
 
-    public Vec3d preDownwardBubbleColumnVelocity() {
-        return velocityEffects.preDownwardBubbleColumnVelocity();
-    }
-
-    public Vec3d preInsideBlockVelocity() {
-        return velocityEffects.preInsideBlockVelocity();
-    }
-
     public boolean standingSurfaceHorizontalSlowdownApplied() {
         return velocityEffects.standingSurfaceHorizontalSlowdownApplied();
     }

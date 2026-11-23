@@ -13,6 +13,7 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.player.ClientVersionFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -25,7 +26,6 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
-import java.lang.reflect.Field;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
@@ -122,9 +122,7 @@ class LegacyClientPositionSyncSnapTest {
     void farSyncInterpolatesBefore1_21_2() throws Exception {
         CultPlayer player = player();
         try {
-            Field version = CultPlayer.class.getDeclaredField("resolvedClientVersion");
-            version.setAccessible(true);
-            version.set(player, ClientVersion.V_1_21);
+            ClientVersionFixtures.setClientVersion(player, ClientVersion.V_1_21);
             PacketEntity entity = syncedFrom(player, new Vec3d(20, 100, 6));
             entity.onMovement(player);
             assertTrue(entity.clientPhysicalPosition.y < 99.0D, entity.clientPhysicalPosition.toString());

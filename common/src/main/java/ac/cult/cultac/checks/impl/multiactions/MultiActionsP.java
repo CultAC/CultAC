@@ -8,7 +8,6 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.*;
-import ac.cult.cultac.protocol.value.*;
 
 @CheckData(
         name = "InventoryH",

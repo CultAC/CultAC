@@ -2,18 +2,27 @@ package ac.cult.blocksim.engine;
 
 import ac.cult.blocksim.behavior.BlockBehavior;
 import ac.cult.blocksim.data.BlockRegistry;
+import ac.cult.blocksim.data.Box;
 import ac.cult.blocksim.data.StateFacts;
-import ac.cult.blocksim.interaction.BlockWrite;
-import ac.cult.blocksim.interaction.WriteCondition;
-import ac.cult.blocksim.engine.shapes.SupportType;
 import ac.cult.blocksim.engine.shapes.BooleanOp;
 import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.SupportType;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
+import ac.cult.blocksim.entity.EntityTypes;
+import ac.cult.blocksim.entity.PaintingSize;
+import ac.cult.blocksim.interaction.BlockWrite;
+import ac.cult.blocksim.interaction.WriteCondition;
+import com.google.gson.JsonElement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.IntFunction;
 import java.util.function.IntSupplier;
 
@@ -31,7 +40,7 @@ public final class SimLevel {
     private final ShapeUpdater updater;
     private final Map<BlockPos, StatePossibilities> overlay = new HashMap<>();
     private final Map<BlockPos, BlockEntityData> blockEntities = new HashMap<>();
-    private final java.util.Set<BlockPos> changedBlockEntities = new java.util.HashSet<>();
+    private final Set<BlockPos> changedBlockEntities = new HashSet<>();
     private final List<BlockWrite> writes = new ArrayList<>();
     private final LinkedHashMap<BlockPos, StatePossibilities> retainedStates = new LinkedHashMap<>();
     private final Map<BlockPos, StatePossibilities> pendingRandomStates = new HashMap<>();
@@ -59,7 +68,7 @@ public final class SimLevel {
         this.behaviors = behaviors;
         this.updater = new ShapeUpdater(this, chainLimit);
         this.knownRandomPlantAges = knownRandomPlantAges;
-        this.clientVersion = java.util.Objects.requireNonNull(clientVersion);
+        this.clientVersion = Objects.requireNonNull(clientVersion);
     }
     public BlockSimClientVersion clientVersion() { return clientVersion; }
     public BlockRegistry registry() { return registry; }
@@ -76,22 +85,22 @@ public final class SimLevel {
     public int itemFrameOutputAt(BlockPos pos, Direction direction) { return world.itemFrameOutputAt(pos, direction); }
     public int detectorRailOutputAt(BlockPos pos) { return world.detectorRailOutputAt(pos); }
     public boolean hasSittingCatAt(BlockPos pos) { return world.hasSittingCatAt(pos); }
-    public boolean canSpawn(ac.cult.blocksim.entity.EntityTypes.Type type) { return world.canSpawn(type); }
+    public boolean canSpawn(EntityTypes.Type type) { return world.canSpawn(type); }
     public boolean hasFeature(String key) { return world.hasFeature(key); }
-    public boolean hasMinecartIn(ac.cult.blocksim.data.Box box) { return world.hasMinecartIn(box); }
-    public boolean hasEntityIn(ac.cult.blocksim.data.Box box) { return world.hasEntityIn(box); }
+    public boolean hasMinecartIn(Box box) { return world.hasMinecartIn(box); }
+    public boolean hasEntityIn(Box box) { return world.hasEntityIn(box); }
     public boolean isUnobstructed(VoxelShape shape) { return shape.isEmpty() || world.isUnobstructed(shape); }
-    public boolean hasBorderCollision(ac.cult.blocksim.data.Box box, Vec3 source) { return world.hasBorderCollision(box, source); }
-    public List<ac.cult.blocksim.entity.PaintingSize> placeablePaintings() { return world.placeablePaintings(); }
-    public ac.cult.blocksim.entity.PaintingSize paintingSize(com.google.gson.JsonElement holder) { return world.paintingSize(holder); }
-    public boolean hasHangingEntityOverlap(ac.cult.blocksim.data.Box box, Direction direction, String type, boolean allowSameType) {
+    public boolean hasBorderCollision(Box box, Vec3 source) { return world.hasBorderCollision(box, source); }
+    public List<PaintingSize> placeablePaintings() { return world.placeablePaintings(); }
+    public PaintingSize paintingSize(JsonElement holder) { return world.paintingSize(holder); }
+    public boolean hasHangingEntityOverlap(Box box, Direction direction, String type, boolean allowSameType) {
         return world.hasHangingEntityOverlap(box, direction, type, allowSameType);
     }
-    public boolean noCollision(ac.cult.blocksim.data.Box box) {
+    public boolean noCollision(Box box) {
         return !BlockCollisions.hasCollision(this, box) && !world.hasEntityCollision(box, false);
     }
     public boolean hasPickableEntityAtEye(SimPlayer player) { return world.hasPickableEntityAtEye(player); }
-    public boolean noBoatCollision(ac.cult.blocksim.data.Box box, Vec3 source) {
+    public boolean noBoatCollision(Box box, Vec3 source) {
         var context = new EntityCollisionContext(box.minY(), false, 0, false, false);
         return !BlockCollisions.hasCollision(this, box, context) && !world.hasEntityCollision(box, true)
             && !world.hasBorderCollision(box, source);
@@ -112,7 +121,7 @@ public final class SimLevel {
     public Map<BlockPos, BlockEntityData> blockEntityChanges() {
         var result = new HashMap<BlockPos, BlockEntityData>();
         changedBlockEntities.forEach(pos -> result.put(pos, blockEntities.get(pos)));
-        return java.util.Collections.unmodifiableMap(result);
+        return Collections.unmodifiableMap(result);
     }
     public boolean collisionShapeFullBlock(int state, BlockPos pos) {
         return !Shapes.joinIsNotEmpty(Shapes.block(), behavior(state).collisionShape(this, state, pos), BooleanOp.NOT_SAME);
@@ -156,16 +165,16 @@ public final class SimLevel {
         int age = knownRandomPlantAges == null ? 0 : knownRandomPlantAges.getAsInt();
         if (age < 0 || age >= 25) throw new IllegalArgumentException("Growing plant initial age outside 0..24");
         int result = registry.with(state, "age", Integer.toString(age));
-        if (knownRandomPlantAges == null) pendingRandomStates.put(pos, new StatePossibilities(result, java.util.UUID.randomUUID()));
+        if (knownRandomPlantAges == null) pendingRandomStates.put(pos, new StatePossibilities(result, UUID.randomUUID()));
         return result;
     }
     public List<BlockWrite> writes() { return List.copyOf(writes); }
     public Map<BlockPos, Integer> retainedStates() {
         var result = new LinkedHashMap<BlockPos, Integer>();
         retainedStates.forEach((pos, state) -> result.put(pos, state.state()));
-        return java.util.Collections.unmodifiableMap(result);
+        return Collections.unmodifiableMap(result);
     }
-    public Map<BlockPos, StatePossibilities> retainedPossibilities() { return java.util.Collections.unmodifiableMap(new LinkedHashMap<>(retainedStates)); }
+    public Map<BlockPos, StatePossibilities> retainedPossibilities() { return Collections.unmodifiableMap(new LinkedHashMap<>(retainedStates)); }
 
     public boolean setBlock(BlockPos pos, int state, int flags) { return setBlock(pos, state, flags, 512); }
 
