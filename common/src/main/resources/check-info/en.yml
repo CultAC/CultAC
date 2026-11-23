@@ -542,6 +542,9 @@ checks:
   CrashH:
     summary: "Sent a command suggestion request that was too long"
     details: "Pressing Tab in chat asks the server for suggestions. Crash tools send oversized or broken requests to lag or crash the server."
+  CrashI:
+    summary: "Picked an item slot inside a bundle that can't exist"
+    details: "When you scroll through a bundle, your game reports which item inside it you picked. Crash tools send a pick that can't exist to cause server errors."
   ExploitA:
     summary: "Renamed an item in an anvil with a name that's too long"
     details: "The anvil only lets you type a name up to a certain length. A modified client sends a longer name to get around that."

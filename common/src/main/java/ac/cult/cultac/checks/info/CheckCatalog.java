@@ -89,6 +89,7 @@ import ac.cult.cultac.checks.impl.crash.CrashE;
 import ac.cult.cultac.checks.impl.crash.CrashF;
 import ac.cult.cultac.checks.impl.crash.CrashG;
 import ac.cult.cultac.checks.impl.crash.CrashH;
+import ac.cult.cultac.checks.impl.crash.CrashI;
 import ac.cult.cultac.checks.impl.elytra.ElytraA;
 import ac.cult.cultac.checks.impl.elytra.ElytraB;
 import ac.cult.cultac.checks.impl.elytra.ElytraC;
@@ -418,6 +419,7 @@ public final class CheckCatalog {
             check(CrashF.class, CRASH),
             check(CrashG.class, CRASH),
             check(CrashH.class, CRASH),
+            check(CrashI.class, CRASH),
             check(ExploitA.class, CRASH),
             check(ExploitB.class, CRASH),
             check(ExploitC.class, CRASH),

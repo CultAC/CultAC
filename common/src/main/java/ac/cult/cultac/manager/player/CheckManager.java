@@ -554,6 +554,7 @@ public class CheckManager {
                 new CrashE(player),
                 new CrashF(player),
                 new CrashH(player),
+                new CrashI(player),
                 new ExploitA(player),
                 new ExploitB(player),
                 new ExploitC(player),
@@ -635,6 +636,7 @@ public class CheckManager {
         registerPreReceive(registrations, postPredictionCheck.get(ItemUseBurst.class));
         registerPreReceive(registrations, prePredictionChecks.get(DumbTimer.class));
         registerPreReceive(registrations, prePredictionChecks.get(CrashA.class));
+        registerPreReceive(registrations, prePredictionChecks.get(CrashI.class));
         registerPreReceive(registrations, prePredictionChecks.get(VehicleTimer.class));
         registerPreReceive(registrations, packetChecks.get(SetbackBlocker.class));
         registerEarlyReceive(registrations, packetChecks.get(ClientVisibilityProcessor.class));

@@ -83,6 +83,7 @@ public final class CheckPermissions {
             "crashf",
             "crashg",
             "crashh",
+            "crashi",
             "duplicaterotplace",
             "elytra",
             "elytraa",
