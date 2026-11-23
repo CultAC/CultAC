@@ -374,7 +374,7 @@ class BuildUpdatesTest {
                 Duration.ofSeconds(2),
                 Duration.ofSeconds(2),
                 Duration.ofSeconds(2));
-        assertEquals("update refused: update.repository ../x is not owner/repo", install(badRepository, 142));
+        assertEquals("update refused: the update repository ../x is not owner/repo", install(badRepository, 142));
         assertTrue(requests.isEmpty());
     }
 
@@ -905,7 +905,12 @@ class BuildUpdatesTest {
                 UpdateSettings.read(directory, "CultAC/CultAC", Map.of("CULTAC_UPDATE_TOKEN", "env-token")::get));
         assertEquals(
                 new UpdateSettings(
-                        "CultAC/CultAC", "config-token", UpdateSettings.OFFICIAL_PUBLIC_KEY, "https://config", state, 120),
+                        "CultAC/CultAC",
+                        "config-token",
+                        UpdateSettings.OFFICIAL_PUBLIC_KEY,
+                        "https://config",
+                        state,
+                        120),
                 UpdateSettings.read(directory, "CultAC/CultAC", name -> " "));
     }
 
