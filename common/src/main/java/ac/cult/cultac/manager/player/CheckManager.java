@@ -426,7 +426,6 @@ public class CheckManager {
                 new MultiInteractA(player),
                 new MultiInteractB(player),
                 player.openWindow,
-                new VehicleB(player),
                 new VehicleGround(player),
                 new VehicleD(player),
                 new VehicleE(player),

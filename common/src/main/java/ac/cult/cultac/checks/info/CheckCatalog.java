@@ -183,7 +183,6 @@ import ac.cult.cultac.checks.impl.sprint.SprintE;
 import ac.cult.cultac.checks.impl.sprint.SprintF;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.checks.impl.sprint.SprintH;
-import ac.cult.cultac.checks.impl.vehicle.VehicleB;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.impl.vehicle.VehicleD;
 import ac.cult.cultac.checks.impl.vehicle.VehicleE;
@@ -314,7 +313,6 @@ public final class CheckCatalog {
             check(HappyGhastPseudo.INFO, VEHICLES),
             check(MultiActionsG.class, VEHICLES),
             check(VehicleTimer.INFO, VEHICLES),
-            check(VehicleB.class, VEHICLES),
             check(VehicleC.class, VEHICLES),
             check(VehicleD.class, VEHICLES),
             check(VehicleE.class, VEHICLES),

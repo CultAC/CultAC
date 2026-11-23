@@ -189,7 +189,6 @@ public final class CheckPermissions {
             "timera",
             "timervehicle",
             "transactionorder",
-            "vehicleb",
             "vehiclec",
             "vehicled",
             "vehiclee",

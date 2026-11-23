@@ -230,9 +230,6 @@ checks:
   TimerVehicle:
     summary: "Their game ran faster than normal while riding"
     details: "Like Timer, but while riding a boat, horse or other vehicle. Timer cheats make the player's game run faster than everyone else's."
-  VehicleB:
-    summary: "Sent vehicle steering while not riding anything"
-    details: "Your game only sends vehicle steering while you're riding something. A modified client can send it on foot."
   VehicleC:
     summary: "Steered a pig or strider without holding its steering item"
     details: "You need a carrot on a stick to steer a pig, or a warped fungus on a stick for a strider. A cheat client can steer them without it."
