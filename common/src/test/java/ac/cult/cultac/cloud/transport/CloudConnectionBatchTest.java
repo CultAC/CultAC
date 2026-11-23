@@ -424,7 +424,7 @@ class CloudConnectionBatchTest {
 
     /** Reloads the plugin config with a setting that changes the agent's config hash. */
     private static void reload(Receiver receiver, Path folder) throws Exception {
-        Files.writeString(folder.resolve("cult.yml"), "Reach:\n  threshold: 0.0006\n");
+        Files.writeString(folder.resolve("config.yml"), "Reach:\n  threshold: 0.0006\n");
         Mockito.when(CultAPI.INSTANCE.getGrimPlugin().getDataFolder()).thenReturn(folder.toFile());
         receiver.connections.configure(settings(receiver.url(), "test-key", List.of(5)));
     }

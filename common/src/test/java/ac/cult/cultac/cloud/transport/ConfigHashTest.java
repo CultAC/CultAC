@@ -21,8 +21,8 @@ class ConfigHashTest {
                 folder.resolve("config.yml"),
                 "bridge:\n  secret: " + bridgeSecret + "\n"
                         + "cloud:\n  url: \"https://intake.example\"\n  api-key: " + apiKey + "\n"
-                        + "  proxy-id: \"edge-1\"\n");
-        Files.writeString(folder.resolve("cult.yml"), "Reach:\n  threshold: " + threshold + "\n");
+                        + "  proxy-id: \"edge-1\"\n"
+                        + "Reach:\n  threshold: " + threshold + "\n");
         Files.writeString(
                 folder.resolve("punishments.yml"), "Punishments:\n  Reach:\n    remove-violations-after: 300\n");
         return CloudConnection.configHash(folder.toFile(), "en");
@@ -54,7 +54,6 @@ class ConfigHashTest {
                         + redisPassword + "\n  nats:\n    username: user\n    password: " + redisPassword
                         + "\n    token: " + natsToken + "\n  secret: " + secret + "\n  instance-id: " + instanceId
                         + "\n");
-        Files.writeString(folder.resolve("cult.yml"), "Reach:\n  threshold: 0.0005\n");
         Files.writeString(
                 folder.resolve("punishments.yml"), "Punishments:\n  Reach:\n    remove-violations-after: 300\n");
         return CloudConnection.configHash(folder.toFile(), "en");
