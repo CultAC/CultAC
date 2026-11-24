@@ -19,6 +19,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.inventory.ClientGlider;
+import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 import org.jetbrains.annotations.Nullable;
@@ -67,8 +68,11 @@ public class PacketEntityAction {
                         player.checkManager.getSimulationProcessor().commitAirborneGlideStart();
                     // The pose follows in Player#updatePlayerPose, after this tick's aiStep.
                     player.isGliding = true;
-                } else {
-                    rejectGlideStart(event, player);
+                } else if (rejectGlideStart(event, player) && hotbarHoldsMainHandGlider(player)) {
+                    // The client can select a glider after sending its slot and glides until handling the resent flags.
+                    if (player.packetStateData.glidingBeforeClientAction == null)
+                        player.packetStateData.glidingBeforeClientAction = player.isGliding;
+                    player.isGliding = true;
                 }
                 break;
             case START_JUMPING_WITH_HORSE:
@@ -172,14 +176,18 @@ public class PacketEntityAction {
                 || player.inVehicle();
     }
 
-    private void rejectGlideStart(PacketReceiveEvent event, CultPlayer player) {
-        if (player.isObserveOnly()) return;
+    /** Whether this call left a correction pending that the resent flags precede. */
+    private boolean rejectGlideStart(PacketReceiveEvent event, CultPlayer player) {
+        if (player.isObserveOnly()) return false;
         // A grounded start or ghost glider must be resynchronized.
         final SetbackTeleportUtil setbackUtil = player.getSetbackTeleportUtil();
-        setbackUtil.executeForceResync("elytra");
+        boolean pending = setbackUtil.isPendingSetback();
+        // The flags precede the correction, so its acceptance proves the client handled them.
         player.resyncPose();
+        setbackUtil.executeForceResync("elytra");
         event.setCancelled(true);
         player.onPacketCancel();
+        return !pending && setbackUtil.isPendingSetback();
     }
 
     private boolean canGlideUsingEquippedItem(CultPlayer player) {
@@ -190,6 +198,16 @@ public class PacketEntityAction {
             }
         }
 
+        return false;
+    }
+
+    /** Whether a hotbar slot holds a main-hand glider, which Minecraft#handleKeybinds can select before aiStep. */
+    private static boolean hotbarHoldsMainHandGlider(CultPlayer player) {
+        Inventory inventory = player.getInventory().inventory;
+        for (int slot = 0; slot < 9; slot++) {
+            SimItemStack stack = inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + slot);
+            if (stack != null && canGlideUsing(stack, EquipmentSlot.MAINHAND)) return true;
+        }
         return false;
     }
 
