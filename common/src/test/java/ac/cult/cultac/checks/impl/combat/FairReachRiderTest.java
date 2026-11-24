@@ -6,11 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -19,17 +21,20 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import net.kyori.adventure.text.Component;
@@ -164,6 +169,26 @@ class FairReachRiderTest {
         }
     }
 
+    @Test
+    void aPassengerTheServerDismountedIsJudgedFromWhereItWasTeleported() {
+        try (Fixture f = new Fixture()) {
+            f.addVehicle(OWN_CART, EntityTypes.defaults().byKey("minecraft:minecart").id(), 0);
+            f.send(new ClientboundSetPassengers(OWN_CART, List.of(f.player.entityID)));
+            f.acknowledge();
+            f.tick(1);
+            f.addTarget(2.5);
+            assertFalse(f.attackCancelled(), "a target beside the cart's passenger is in reach");
+
+            f.fairReach.max_ping_compensation = 300;
+            f.send(new ClientboundSetPassengers(OWN_CART, List.of()));
+            f.teleport(-3);
+            assertFalse(f.attackCancelled(), "the client may not have its dismount yet");
+
+            f.tick(7);
+            assertTrue(f.attackCancelled(), "the dismount teleport is due, so the attacker is out of reach");
+        }
+    }
+
     private static ClientboundMoveEntity move(int entityId, int blocks) {
         return new ClientboundMoveEntity(
                 entityId,
@@ -192,6 +217,11 @@ class FairReachRiderTest {
             player.z = 0;
             fairReach = player.checkManager.getListener(FairReach.class);
             fairReach.max_ping_compensation = 0;
+            // The join teleport, sent before any other.
+            player.getSetbackTeleportUtil()
+                    .javaTeleports()
+                    .addSentTeleport(
+                            new Vec3(0, 64, 0), new Vec3(0, 0, 0), 0, new RelativeFlag(0), false, 0, 0, 0, 0, 0);
         }
 
         void addTarget(double x) {
@@ -243,6 +273,16 @@ class FairReachRiderTest {
                             player.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false),
                     player,
                     packet);
+        }
+
+        /** LivingEntity#dismountVehicle: the server teleports the player to {@code x} with an absolute position. */
+        void teleport(double x) {
+            var teleport = new ClientboundPlayerPosition(
+                    1, new Vec3d(x, 64, 0), new Vec3d(0, 0, 0), 0, 0, Set.of(Relative.Y_ROT, Relative.X_ROT));
+            var event = new PacketSendEvent<>(
+                    player.user, ConnectionPhase.PLAY, ClientboundPackets.PLAYER_POSITION, teleport, false);
+            new PacketServerTeleport().onPlayerPosition(event, player, teleport);
+            event.getTasksAfterSend().forEach(Runnable::run);
         }
 
         /** The client answers every ping sent so far. */

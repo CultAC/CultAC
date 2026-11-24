@@ -242,6 +242,7 @@ public class PacketServerTeleport {
         }
         int lastTransactionSent = proof == null ? player.lastTransactionSent.get() : proof.transaction();
         event.getTasksAfterSend().add(player::sendTrailingTransaction);
+        player.checkManager.getFairReach().handleSelfTeleport(pos.x, pos.y, pos.z, flags);
 
         player.getSetbackTeleportUtil()
                 .javaTeleports()

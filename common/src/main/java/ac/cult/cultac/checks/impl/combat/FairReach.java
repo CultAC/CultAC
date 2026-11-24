@@ -7,6 +7,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
@@ -49,7 +50,7 @@ public class FairReach extends Check implements CheckListener {
     final Int2ObjectOpenHashMap<FairReachEntity> targetPlayers = new Int2ObjectOpenHashMap<>();
     // Vehicles carrying a tracked player or the attacker; Entity#positionRider seats their riders from them.
     final Int2ObjectOpenHashMap<FairReachEntity> vehicles = new Int2ObjectOpenHashMap<>();
-    // Where the attacker's own seat put it; read while a vehicle the server moves carries it.
+    // Where the attacker's seat or the server's teleport of it put it; read while its client does not move it itself.
     private FairReachEntity attacker;
     // The riding links each applied at the same time as the moves around it.
     private final SentRidingGraph riding = new SentRidingGraph();
@@ -155,7 +156,16 @@ public class FairReach extends Check implements CheckListener {
                 if (vehicle == root) break;
             }
         }
+        if (attacker == null && contains(passengers, player.entityID)) {
+            attacker = new FairReachEntity(player.entityID, player.x, player.y, player.z, 0);
+        }
         schedule(new PendingPassengers(vehicleId, passengers));
+    }
+
+    /** A player_position for the attacker itself, once a riding change has carried it. */
+    public void handleSelfTeleport(double x, double y, double z, RelativeFlag relatives) {
+        if (attacker == null) return;
+        schedule(new PendingTeleport(x, y, z, relatives));
     }
 
     private void trackVehicle(int vehicleId) {
@@ -348,6 +358,30 @@ public class FairReach extends Check implements CheckListener {
             // An entity added again under this ID since stays.
             if (target != null) targetPlayers.remove(entityId, target);
             if (vehicle != null) vehicles.remove(entityId, vehicle);
+        }
+    }
+
+    /** ClientPacketListener#handleMovePlayer places the player only while it rides nothing. */
+    private final class PendingTeleport extends PendingChange {
+        private final double x;
+        private final double y;
+        private final double z;
+        private final RelativeFlag relatives;
+
+        private PendingTeleport(double x, double y, double z, RelativeFlag relatives) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.relatives = relatives;
+        }
+
+        @Override
+        void apply() {
+            if (attacker == null || riding.rides(player.entityID)) return;
+            attacker.snapTo(
+                    relatives.isSet(RelativeFlag.X.getMask()) ? attacker.currentX + x : x,
+                    relatives.isSet(RelativeFlag.Y.getMask()) ? attacker.currentY + y : y,
+                    relatives.isSet(RelativeFlag.Z.getMask()) ? attacker.currentZ + z : z);
         }
     }
 
