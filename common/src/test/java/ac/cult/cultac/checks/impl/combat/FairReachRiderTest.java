@@ -50,6 +50,7 @@ class FairReachRiderTest {
     private static final int TARGET_HORSE = 3001;
     private static final int OWN_HORSE = 3002;
     private static final int OWN_CART = 3003;
+    private static final int OWN_BOAT = 3004;
     private static final int BLOCK = 4096;
 
     @Test
@@ -185,6 +186,28 @@ class FairReachRiderTest {
             assertFalse(f.attackCancelled(), "the client may not have its dismount yet");
 
             f.tick(7);
+            assertTrue(f.attackCancelled(), "the dismount teleport is due, so the attacker is out of reach");
+        }
+    }
+
+    @Test
+    void aDriverTheServerDismountedIsJudgedFromWhereItWasTeleported() {
+        try (Fixture f = new Fixture()) {
+            f.addVehicle(OWN_BOAT, EntityTypeIds.OAK_BOAT, 0);
+            f.send(new ClientboundSetPassengers(OWN_BOAT, List.of(f.player.entityID)));
+            f.acknowledge();
+            f.tick(1);
+            f.addTarget(2.5);
+            assertFalse(f.attackCancelled(), "a target beside the boat's driver is in reach");
+
+            f.fairReach.max_ping_compensation = 300;
+            f.send(new ClientboundSetPassengers(OWN_BOAT, List.of()));
+            f.teleport(-3);
+            assertFalse(f.attackCancelled(), "the client may not have its dismount yet");
+
+            f.tick(7);
+            assertTrue(
+                    f.player.compensatedEntities.getSelf().inVehicle(), "the client has not answered the dismount");
             assertTrue(f.attackCancelled(), "the dismount teleport is due, so the attacker is out of reach");
         }
     }

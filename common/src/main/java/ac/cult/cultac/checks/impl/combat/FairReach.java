@@ -262,19 +262,28 @@ public class FairReach extends Check implements CheckListener {
     }
 
     /**
-     * Where the attacker's client attacks from. A root it moves itself is where its own vehicle moves put it
-     * (LocalPlayer#sendChanges); a vehicle the server moves carries it as the sent moves of that vehicle do.
+     * Where the attacker's client attacks from, riding as the applied links have it. A root it moves itself is where
+     * its own vehicle moves put it (LocalPlayer#sendChanges); a vehicle the server moves carries it as the sent moves
+     * of that vehicle do; off its vehicle it is where the server's own teleport of it put it.
      */
     private List<Vec3> attackOrigins() {
         PacketEntity vehicle = player.compensatedEntities.getSelf().getRiding();
-        if (vehicle == null
-                || attacker == null
-                || (vehicle.getRiding() == null
-                        && player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(vehicle))) {
+        boolean rides = riding.rides(player.entityID);
+        if (attacker == null || (vehicle == null && !rides) || (rides && drivesItself(vehicle))) {
             return ReachCheck.attackOrigins(player);
         }
         locate(player.entityID);
         return List.of(new Vec3(seat.minX, seat.minY, seat.minZ));
+    }
+
+    /** Whether the attacker controls the root it rides, both as the applied links and as its client has it. */
+    private boolean drivesItself(PacketEntity vehicle) {
+        if (vehicle == null || vehicle.getRiding() != null) return false;
+        int vehicleId = vehicle.getEntityId();
+        return riding.vehicleOf(player.entityID) == vehicleId
+                && !riding.rides(vehicleId)
+                && riding.passengersOf(vehicleId)[0] == player.entityID
+                && player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(vehicle);
     }
 
     private void schedule(PendingChange move) {
