@@ -1,6 +1,7 @@
 package ac.cult.cultac.checks.impl.prediction.runner;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.FluidTags;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
@@ -75,6 +76,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.MovementEffect;
@@ -87,6 +89,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientFrost;
 import ac.cult.cultac.utils.data.ClientPistonDeltas;
 import ac.cult.cultac.utils.data.ClientSprintState;
+import ac.cult.cultac.utils.data.ClientSwimState;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.HeadRotation;
 import ac.cult.cultac.utils.data.ItemUseInventory;
@@ -1751,6 +1754,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.lastYRot = yRot;
             this.commitSprintOutcomes(result);
             if (!this.player.isBedrockMovement()) this.commitClientFrost(result, to);
+            boolean possibleAttackReset = this.player.maxPlayerAttackSlow > this.player.minPlayerAttackSlow;
             this.player.minPlayerAttackSlow = 0;
             this.player.maxPlayerAttackSlow = 0;
             this.player.attackSlowsAfterTravel = 0;
@@ -1772,11 +1776,67 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.player.swimState.onClientTick(result.getSimulationContext().getWorldData().isSwimming());
             }
             JavaPassAfterTravel posePass = JavaMovementEngine.passAfterTravel(result);
+            this.commitSwimExit(result, posePass, possibleAttackReset);
             if (posePass == null) this.player.refreshPlayerPose();
             else this.player.refreshPlayerPose(posePass.pose());
         } else {
             this.applyProfileCommit(preparedCommit);
         }
+    }
+
+    /**
+     * Player#causeExtraKnockback's setSprinting(false) may have run before Entity#baseTick's updateSwimming, which then
+     * left the swim, and LocalPlayer#aiStep re-sprinted without a STOP_SPRINTING. That client stays out of the swim
+     * until an updateSwimming finds it sprinting, LocalPlayer#isUnderWater and in water at Entity#blockPosition.
+     */
+    private void commitSwimExit(
+            PredictionResult result, @Nullable JavaPassAfterTravel posePass, boolean possibleAttackReset) {
+        ClientSwimState swim = this.player.swimState;
+        SimulationContext context = result.getSimulationContext();
+        if (context.getVehicle() != null
+                || !this.player.knowsActingPose()
+                || !context.getWorldData().isSwimming()) {
+            swim.endExit();
+            return;
+        }
+        Pose exit = swim.exitPose();
+        if (exit == null) {
+            if (possibleAttackReset) {
+                swim.onPossibleExit(this.exitPose(context, posePass, this.player.pose), this.isLastWorldEyeInWater());
+            }
+            return;
+        }
+        Vec3 from = context.getStart();
+        boolean resumes = !possibleAttackReset
+                && this.player.sprintState.flagBeforeAiStep()
+                && swim.exitUnderwater()
+                && ClientFluidQueries.is(
+                        this.player,
+                        ClientFluidQueries.fluidAt(
+                                this.player.compensatedWorld, BlockPos.containing(from.x, from.y, from.z)),
+                        FluidTags.WATER);
+        if (resumes) {
+            swim.endExit();
+            return;
+        }
+        float scale = this.player.dimensionScale;
+        SimpleCollisionBox body = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                new SimpleCollisionBox(), from.x, from.y, from.z, exit.width * scale, exit.height * scale);
+        swim.onPossibleExit(
+                this.exitPose(context, posePass, exit),
+                ClientFluidQueries.eyesInWater(this.player, body, from, from.y + exit.eyeHeight * scale));
+    }
+
+    // Player#updatePlayerPose out of the swim; without room to swim it keeps the pose the tick started in.
+    private Pose exitPose(SimulationContext context, @Nullable JavaPassAfterTravel posePass, Pose current) {
+        Vec3 end = posePass == null
+                ? new Vec3(this.player.x, this.player.y, this.player.z)
+                : posePass.travel().position();
+        boolean gliding = posePass == null
+                ? this.player.isGliding
+                : context.isGliding() && !context.stopsFallFlyingAfterTravel();
+        if (!this.player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.SWIMMING, end.x, end.y, end.z)) return current;
+        return this.player.updatedPose(false, gliding, end.x, end.y, end.z);
     }
 
     /**

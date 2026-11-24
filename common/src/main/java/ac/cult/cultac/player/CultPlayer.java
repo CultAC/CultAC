@@ -1752,12 +1752,17 @@ public class CultPlayer implements GrimUser {
     /**
      * The eye heights Entity#getEyePosition gives a pick, use or dig sent now. Minecraft#tick picks and runs
      * handleKeybinds before Player#tick's updatePlayerPose, so a Java client whose ticks end with CLIENT_TICK_END acts
-     * from the pose its last tick left: the engine's pose, or that of any ride state it keeps.
+     * from the pose its last tick left: the engine's pose, that of a client out of the swim it keeps, or that of any
+     * ride state it keeps.
      */
     public List<Double> getPossibleEyeHeights() {
         if (!knowsActingPose()) return getPoseEyeHeights();
         double eyeHeight = getEyeHeight();
-        if (!inVehicle()) return List.of(eyeHeight);
+        if (!inVehicle()) {
+            Pose exit = swimState.exitPose();
+            double exitHeight = exit == null ? eyeHeight : exit.eyeHeight * dimensionScale;
+            return exitHeight == eyeHeight ? List.of(eyeHeight) : List.of(eyeHeight, exitHeight);
+        }
         List<Double> heights = new ArrayList<>(2);
         heights.add(eyeHeight);
         for (Pose ridden : checkManager.getSimulationProcessor().ridePoses()) {
