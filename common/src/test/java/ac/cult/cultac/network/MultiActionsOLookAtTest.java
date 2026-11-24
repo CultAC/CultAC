@@ -14,6 +14,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerLookAt;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -39,6 +40,12 @@ class MultiActionsOLookAtTest {
     private static final double SOUTH_Z = 1052.429891659464;
     private static final ClientboundPlayerLookAt FACING_SOUTH =
             new ClientboundPlayerLookAt(false, SOUTH_X, SOUTH_Y, 1057.429891659464, false, 0, false);
+    // A 26.3 capture of `rotate @s facing entity` at an armor stand over an open chest.
+    private static final int STAND = 1871;
+    private static final double STAND_PLAYER_X = 896.8343777076345;
+    private static final double STAND_PLAYER_Z = 1052.5739445332404;
+    private static final Vec3 STAND_AT = new Vec3(897.5, 72.0, 1054.5);
+    private static final float STAND_LOOK_YAW = -19.064644f;
 
     private final PacketPlayerWindow window = new PacketPlayerWindow();
     private final PacketServerTeleport teleport = new PacketServerTeleport();
@@ -71,6 +78,29 @@ class MultiActionsOLookAtTest {
             f.tickEnd();
             look(f, -7.6293945E-6f, -0.0f);
             assertEquals(0, violations(f));
+        }
+    }
+
+    /** ClientboundPlayerLookAtPacket#getPosition aims at the client's copy of the entity, here an armor stand. */
+    @Test
+    void theLookAtAnEntityOverAChestDoesNotFlag() throws Exception {
+        try (var f = chestOpen(STAND_PLAYER_X, SOUTH_Y, STAND_PLAYER_Z, -86.37381f, 35.055176f)) {
+            standAt(f, STAND_AT);
+            lookAt(f, new ClientboundPlayerLookAt(false, STAND_AT.x, STAND_AT.y, STAND_AT.z, true, STAND, false));
+            f.tickEnd();
+            look(f, STAND_LOOK_YAW, -0.0f);
+            assertEquals(0, violations(f));
+        }
+    }
+
+    @Test
+    void theLookAtTheSentPointOfAnEntityTheClientHoldsElsewhereFlags() throws Exception {
+        try (var f = chestOpen(STAND_PLAYER_X, SOUTH_Y, STAND_PLAYER_Z, -86.37381f, 35.055176f)) {
+            standAt(f, STAND_AT.add(1.0, 0.0, 0.0));
+            lookAt(f, new ClientboundPlayerLookAt(false, STAND_AT.x, STAND_AT.y, STAND_AT.z, true, STAND, false));
+            f.tickEnd();
+            look(f, STAND_LOOK_YAW, -0.0f);
+            assertEquals(1, violations(f));
         }
     }
 
@@ -112,6 +142,12 @@ class MultiActionsOLookAtTest {
         teleport.onPlayerLookAt(event, f.player, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());
+    }
+
+    private static void standAt(JavaTickFixture f, Vec3 at) {
+        f.addEntity(STAND, "minecraft:armor_stand", at);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        f.tickEnd();
     }
 
     private static void look(JavaTickFixture f, float yaw, float pitch) {

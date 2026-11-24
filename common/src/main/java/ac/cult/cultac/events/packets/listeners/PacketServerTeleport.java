@@ -1,8 +1,10 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
@@ -15,6 +17,7 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.VanillaMath;
@@ -105,8 +108,23 @@ public class PacketServerTeleport {
                 targetX = player.x;
                 targetY = player.y + (packet.toEyes() ? player.getEyeHeight() : 0.0);
                 targetZ = player.z;
-            } else if (player.compensatedEntities.getEntity(packet.entityId()) != null) {
-                return;
+            } else {
+                PacketEntity entity = player.compensatedEntities.getEntity(packet.entityId());
+                if (entity != null) {
+                    // EntityAnchorArgument.Anchor#apply takes the copy's Entity#position().
+                    Vec3 feet = entity.clientPhysicalPosition;
+                    // A rider's Entity#lookAt measures from its seat, not the vehicle position player.x/y/z holds.
+                    if (player.compensatedEntities.getSelf().getRiding() != null
+                            || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
+                            || packet.toEyes()
+                            || !placedOnlyByServer(entity)
+                            || entity.getRiding() != null
+                            || feet == null
+                            || !entity.clientPhysicalPositionExact) return;
+                    targetX = feet.x;
+                    targetY = feet.y;
+                    targetZ = feet.z;
+                }
             }
         }
         double xd = targetX - player.x;
@@ -128,6 +146,16 @@ public class PacketServerTeleport {
             player.yRot = clamp(pitch % 360.0F, -90.0F, 90.0F);
             player.lastTickYRot = player.yRot;
         }
+    }
+
+    /** Kinds whose client copy moves only on the server's packets. */
+    private static boolean placedOnlyByServer(PacketEntity entity) {
+        if (entity instanceof PacketEntityPlayer remote && !remote.actionPresent) return false;
+        return entity.isLivingEntity()
+                || entity.isBoat()
+                || entity.isDisplay()
+                || entity.type == EntityTypeIds.INTERACTION
+                || entity.type == EntityTypeIds.END_CRYSTAL;
     }
 
     @CultPacketHandler
