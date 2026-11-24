@@ -168,7 +168,8 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             ForwardHold hold = connection.forwardHold();
             if (!forwards) {
                 hold.notForwarded();
-                if (endsHold(readType)) hold.settle(true);
+                // A use whose rejected tick end no check judged does not reach the server
+                if (endsHold(readType)) hold.settle(readType != ServerboundPackets.CLIENT_TICK_END);
                 hold.drain(this);
                 return;
             }

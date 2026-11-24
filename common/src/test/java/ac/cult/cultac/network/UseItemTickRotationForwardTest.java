@@ -5,11 +5,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsJ;
+import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
+import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.InventoryPackets;
+import ac.cult.cultac.network.packet.WorldPackets;
+import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
@@ -26,6 +31,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import io.netty.buffer.ByteBuf;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -39,6 +45,7 @@ class UseItemTickRotationForwardTest {
     private static final float YAW = 98.4052734375f;
     private static final float PITCH = 52.35009765625f;
     private static final float TURNED_YAW = 131.25f;
+    private static final int MINECART = 100;
 
     @Test
     void aUseAtARotationTheTickDoesNotSendNeverReachesTheServerAndItsStackIsRestored() throws Exception {
@@ -106,6 +113,72 @@ class UseItemTickRotationForwardTest {
             t.carry(2);
             t.tickEnd();
             assertEquals(List.of("set_carried_item", "set_carried_item", "client_tick_end"), t.forwarded());
+            assertEquals(1, t.check.getViolations());
+        }
+    }
+
+    @Test
+    void aTickEndTheTimerRejectsStillJudgesTheUsesOfItsTick() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+
+            t.use(1, YAW, PITCH);
+            t.rejectedTickEnd();
+            assertEquals(List.of("use_item 1"), t.forwarded());
+            assertEquals(0, t.check.getViolations());
+
+            t.use(2, YAW, 90);
+            t.rejectedTickEnd();
+            assertEquals(List.of(), t.forwarded());
+            assertEquals(1, t.check.getViolations());
+        }
+    }
+
+    @Test
+    void aUseBeforeTheClientLoadedCarriesTheLookItsLastTeleportAnswerReported() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+            f.teleport(f.player.sendTrailingTransaction(), START, new RelativeFlag(0), YAW, PITCH, TURNED_YAW, PITCH);
+            f.player.packetStateData.playerLoadedIntoLevel = false;
+            t.forwarded();
+
+            t.use(1, TURNED_YAW, PITCH);
+            t.tickEnd();
+            assertEquals(List.of("use_item 1", "client_tick_end"), t.forwarded());
+            assertEquals(0, t.check.getViolations());
+
+            t.use(2, YAW, PITCH);
+            t.tickEnd();
+            assertEquals(List.of("client_tick_end"), t.forwarded());
+            assertEquals(1, t.check.getViolations());
+        }
+    }
+
+    @Test
+    void aMinecartRidersUseIsJudgedByThePitchItsTickSends() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+            f.player.compensatedWorld.applyClientFeatures(
+                    new WorldPackets.EnabledFeatures(Set.of("minecraft:vanilla", "minecraft:minecart_improvements")));
+            f.player.packetEntityReplication.addEntity(
+                    MINECART, EntityTypes.defaults().byKey("minecraft:minecart").id(), START, 0, 0, 0, -1);
+            f.setPassengers(MINECART, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            t.forwarded();
+
+            t.use(1, YAW, PITCH);
+            t.rot(TURNED_YAW);
+            t.tickEnd();
+            assertEquals(List.of("use_item 1", "move_player", "client_tick_end"), t.forwarded());
+            assertEquals(0, t.check.getViolations());
+
+            t.use(2, TURNED_YAW, 90);
+            t.rot(TURNED_YAW);
+            t.tickEnd();
+            assertEquals(List.of("move_player", "client_tick_end"), t.forwarded());
             assertEquals(1, t.check.getViolations());
         }
     }
@@ -217,6 +290,15 @@ class UseItemTickRotationForwardTest {
 
         void tickEnd() {
             f.fixture.channel.writeInbound(f.fixture.id(ServerboundPackets.CLIENT_TICK_END, "client_tick_end"));
+        }
+
+        /** A tick end that TimerCheck rejects: the client's ticks run ahead of the wall clock. */
+        void rejectedTickEnd() throws Exception {
+            TimerCheck timer = f.player.checkManager.getCheck(TimerCheck.class);
+            timer.setEnabled(true);
+            JavaTickFixture.setField(
+                    AbstractTimerCheck.class, timer, "timerBalanceRealTime", System.nanoTime() + 10_000_000_000L);
+            tickEnd();
         }
 
         ByteBuf use(int sequence, float yaw, float pitch) {

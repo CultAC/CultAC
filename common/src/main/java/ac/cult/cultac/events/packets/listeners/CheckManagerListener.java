@@ -3,6 +3,7 @@ package ac.cult.cultac.events.packets.listeners;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsJ;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.crash.CrashC;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
@@ -1267,6 +1268,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         if (event.isCancelled() && !event.isSynthetic()) {
             // The client ran the tick whose end the timer rejects.
             state.sentPositionCache.onClientTickEnd();
+            BadPacketsJ useRotation = player.checkManager.getListener(BadPacketsJ.class);
+            if (useRotation != null) useRotation.onRejectedTickEnd();
             return false;
         }
         // Where a loaded client's LocalPlayer#sendChanges would have sent this tick's MoveVehicle.
@@ -1335,6 +1338,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     private static void applyTeleportResponse(
             CultPlayer player, TeleportAcceptData accepted, float yaw, float pitch, boolean hasLook) {
         player.packetStateData.teleportedThisClientTick = true;
+        if (hasLook) player.packetStateData.teleportLookOf = player.compensatedEntities.getSelf();
         if (accepted.isMatchedTeleportPosition()) {
             if (player.compensatedEntities.vehicles.hasClientVisiblePendingDismount()) {
                 player.compensatedEntities.vehicles.applyClientVisibleDismount();

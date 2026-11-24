@@ -13,6 +13,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.nmsutil.BoatRiderYaw;
 
 @CheckData(
@@ -20,6 +21,7 @@ import ac.cult.cultac.utils.nmsutil.BoatRiderYaw;
         stableKey = "cult.badpackets.use_item_rotation_mismatch",
         description = "Rotation in use item packet did not match tick rotation")
 public class BadPacketsJ extends Check implements CameraDetachListener, ClientTickEndListener {
+    private static final String MINECART_IMPROVEMENTS = "minecraft:minecart_improvements";
     private float yaw;
     private float pitch;
     private int rotations;
@@ -82,6 +84,22 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
     public void onPlayerTickEnd(PacketReceiveEvent event) {
         // The timeout's tick end ends no client tick: the held use waits for its own tick's rotation
         if (event.isSynthetic() && hold().gating()) return;
+        judgeTickEnd();
+    }
+
+    /** A tick end another check rejects still ends the client tick its uses were made in. */
+    public void onRejectedTickEnd() {
+        if (this.rotations == 0) return;
+        PacketEntity boat = riddenBoat();
+        // The comparison reads the riding step that only an accepted tick end runs
+        if (boat != null && turnsRider(boat)) {
+            ended(shouldModifyPackets());
+            return;
+        }
+        judgeTickEnd();
+    }
+
+    private void judgeTickEnd() {
         if (!player.cameraEntity.isSelf()) {
             judged(false);
             return;
@@ -100,9 +118,22 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
                     flagged = onTickPacket(
                             player.packetStateData.lastSendPositionYaw, player.packetStateData.lastSendPositionPitch);
                 }
+            } else if (holdsAnsweredLook()) {
+                flagged = (this.yaw != player.xRot || this.pitch != player.yRot) && flagRotations();
             }
             judged(flagged);
         }
+    }
+
+    // Until ClientPacketListener#hasClientLoaded the loading screen keeps the mouse from turning the player and
+    // LocalPlayer#tick sends nothing: the player keeps the look its last teleport answer reported
+    private boolean holdsAnsweredLook() {
+        PacketEntitySelf self = player.compensatedEntities.getSelf();
+        return !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)
+                && player.packetStateData.teleportLookOf == self
+                && !self.isRemovedFromLevel()
+                && self.getRiding() == null;
     }
 
     private PacketEntity riddenBoat() {
@@ -126,7 +157,18 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
     private boolean onTickPacket(float tickYaw, float tickPitch) {
         PacketEntity boat = riddenBoat();
         float expectedYaw = boat != null && turnsRider(boat) ? player.yawWithoutLook(this.yaw) : this.yaw;
-        return !Float.isNaN(tickYaw) && (expectedYaw != tickYaw || this.pitch != tickPitch) && flagRotations();
+        boolean yawDiffers = expectedYaw != tickYaw && !minecartMayTurnRider();
+        return !Float.isNaN(tickYaw) && (yawDiffers || this.pitch != tickPitch) && flagRotations();
+    }
+
+    // From 26.3 Minecart#positionRider turns the rider's yaw, never its pitch, before LocalPlayer#sendChanges when the
+    // minecart improvements are enabled and the client's rotateWithMinecart option, which it never sends, is on
+    private boolean minecartMayTurnRider() {
+        PacketEntity vehicle = player.compensatedEntities.getSelf().getRiding();
+        return vehicle != null
+                && vehicle.isMinecart()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
+                && player.compensatedWorld.clientHasFeature(MINECART_IMPROVEMENTS);
     }
 
     private boolean flagRotations() {
@@ -137,9 +179,12 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
 
     /** Ends the use_items since the last tick rotation; the held ones reach the server unless they were flagged. */
     private void judged(boolean flagged) {
+        ended(flagged && shouldModifyPackets());
+    }
+
+    private void ended(boolean drop) {
         this.rotations = 0;
         if (!hold().gating()) return;
-        boolean drop = flagged && shouldModifyPackets();
         hold().settle(!drop);
         if (drop) player.onPacketCancel();
     }

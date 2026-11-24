@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 
@@ -85,6 +86,8 @@ public class PacketStateData {
     // that carried one outside passenger Rot, NaN while unknown.
     public float lastSendPositionYaw = Float.NaN;
     public float lastSendPositionPitch = Float.NaN;
+    // The LocalPlayer whose look an accepted teleport set last: ClientPacketListener#handleMovePlayer reports it.
+    public PacketEntitySelf teleportLookOf;
     // LocalPlayer#lastOnGround, written only by sendPosition: false for a new LocalPlayer.
     public boolean lastSendPositionOnGround = false;
     // LocalPlayer#tick emits passenger Rot immediately before MoveVehicle; packet-handler echoes send MoveVehicle
