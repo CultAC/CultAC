@@ -54,6 +54,8 @@ public class FairReach extends Check implements CheckListener {
     private FairReachEntity attacker;
     // The riding links each applied at the same time as the moves around it.
     private final SentRidingGraph riding = new SentRidingGraph();
+    // Counts the client levels replaced so far.
+    private int level;
     private final SimpleCollisionBox seatBox = new SimpleCollisionBox();
     private final SimpleCollisionBox seat = new SimpleCollisionBox();
 
@@ -304,12 +306,15 @@ public class FairReach extends Check implements CheckListener {
      * leaving a no-op model task behind; a deadline already dequeued still observes the same exact-once guard.
      */
     private abstract class PendingChange extends AtomicReference<Object> implements Runnable, Callable<Void> {
+        private final int level = FairReach.this.level;
+
         @Override
         public void run() {
             Object previous = getAndSet(MOVE_APPLIED);
             if (previous == MOVE_APPLIED) return;
             if (previous instanceof ScheduledFuture<?> deadline) deadline.cancel(false);
-            apply();
+            // A change sent before the level was replaced belongs to the old level.
+            if (level == FairReach.this.level) apply();
         }
 
         @Override
@@ -524,6 +529,7 @@ public class FairReach extends Check implements CheckListener {
 
     /** A replacement client level holds none of the old level's entities. */
     public void clearLevel() {
+        level++;
         targetPlayers.clear();
         vehicles.clear();
         riding.clear();

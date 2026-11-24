@@ -212,6 +212,19 @@ class FairReachRiderTest {
         }
     }
 
+    @Test
+    void aRidingChangeForAReplacedLevelLeavesTheNewLevelAlone() {
+        try (Fixture f = new Fixture()) {
+            f.fairReach.handlePassengers(OWN_CART, new int[] {f.player.entityID});
+            f.fairReach.clearLevel();
+            f.acknowledge();
+            f.tick(1);
+            f.addTarget(5);
+            f.player.x = 3;
+            assertFalse(f.attackCancelled(), "the attacker attacks from where it stands in the new level");
+        }
+    }
+
     private static ClientboundMoveEntity move(int entityId, int blocks) {
         return new ClientboundMoveEntity(
                 entityId,
