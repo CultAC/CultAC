@@ -169,6 +169,8 @@ public class CultPlayer implements GrimUser {
     public final @NotNull User user;
     public final @NotNull UUID playerUUID;
     public final long timeJoined;
+    /** The name the server last listed this player under on their own client; null until it does. */
+    public volatile @Nullable String shownName;
     public @NotNull MovementPlatform movementPlatform = MovementPlatform.JAVA;
     public @Nullable BedrockPlayerState bedrockState;
 

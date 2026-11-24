@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
+import org.jetbrains.annotations.Nullable;
 
 /** Received PlayerInfo identities and immutable modes, including references cached by remote players. */
 public final class ClientPlayerModes {
@@ -21,6 +22,14 @@ public final class ClientPlayerModes {
 
     public Entry get(UUID id) {
         return profiles.get(id);
+    }
+
+    /** The profile listed under {@code name}, ignoring case; null without one. */
+    public @Nullable UUID named(String name) {
+        for (Map.Entry<UUID, Entry> profile : profiles.entrySet()) {
+            if (name.equalsIgnoreCase(profile.getValue().name())) return profile.getKey();
+        }
+        return null;
     }
 
     public void remove(List<UUID> ids) {
@@ -57,7 +66,8 @@ public final class ClientPlayerModes {
         }
     }
 
-    private static String name(ClientboundPlayerInfoUpdate.Entry entry) {
+    /** The profile name an {@code ADD_PLAYER} entry lists; null for an entry without that action. */
+    public static @Nullable String name(ClientboundPlayerInfoUpdate.Entry entry) {
         var encoded = entry.encodedActions().get(ClientboundPlayerInfoUpdate.Action.ADD_PLAYER);
         if (encoded == null) return null;
         var buffer = Unpooled.wrappedBuffer(encoded.bytes());

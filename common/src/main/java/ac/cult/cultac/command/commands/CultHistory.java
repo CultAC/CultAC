@@ -7,6 +7,7 @@ import ac.cult.cultac.cloud.history.HistoryClient;
 import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.command.render.HistoryComponentRenderer;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.network.NetworkPlayer;
@@ -141,7 +142,7 @@ public class CultHistory implements BuildableCommand {
                     .literal("history", "hist")
                     .permission("cult.history");
             if (withPlayerLiteral) b = b.literal("player");
-            return b.required("target", StringParser.stringParser(), targetSuggestions);
+            return b.required("target", NetworkPlayerArguments.shownAs(StringParser.stringParser()), targetSuggestions);
         };
 
         // List, page 1
