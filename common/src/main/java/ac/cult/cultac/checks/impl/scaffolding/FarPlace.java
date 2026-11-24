@@ -7,6 +7,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
@@ -26,7 +27,7 @@ public class FarPlace extends BlockPlaceCheck {
 
     @Override
     public void onBlockPlace(final BlockPlace place) {
-        if (!player.cameraEntity.isSelf() || player.inVehicle()) return;
+        if (!player.cameraEntity.isSelf()) return;
 
         BlockPos blockPos = place.getPlacedAgainstBlockLocation();
 
@@ -34,10 +35,12 @@ public class FarPlace extends BlockPlaceCheck {
 
         double min = Double.MAX_VALUE;
         List<SimpleCollisionBox> outline = visibility.outlineBoxes(blockPos);
-        for (double d : place.eyeHeights) {
-            for (SimpleCollisionBox box : outline) {
-                Vector3dm best = VectorUtils.cutBoxToVector(player.x, player.y + d, player.z, box);
-                min = Math.min(min, best.distanceSquared(player.x, player.y + d, player.z));
+        for (Vec3 origin : player.compensatedEntities.pickPositions()) {
+            for (double d : place.eyeHeights) {
+                for (SimpleCollisionBox box : outline) {
+                    Vector3dm best = VectorUtils.cutBoxToVector(origin.x, origin.y + d, origin.z, box);
+                    min = Math.min(min, best.distanceSquared(origin.x, origin.y + d, origin.z));
+                }
             }
         }
 

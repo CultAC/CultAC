@@ -538,6 +538,29 @@ public class CultPlayer implements GrimUser {
     }
 
     /**
+     * Whether this client tick's rotation carries a turn made after Minecraft#pick: from 26.3 LocalPlayer#sendChanges
+     * sends a boat rider's Rot after ClientLevel#tickEntities ran AbstractBoat#positionRider.
+     */
+    public boolean rotationTurnedAfterPick() {
+        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        return riding != null && riding.isBoat() && !getClientVersion().isOlderThan(ClientVersion.V_26_3);
+    }
+
+    /**
+     * The yaw Minecraft#pick saw in a 26.3 boat whose positionRider turned it to the {@code sent} one: the sent yaw
+     * less the deltaRotation of a boat the player drives. NaN when that turn is unknown, or when clampRotation may
+     * have pulled the yaw back to 105 degrees off the boat from any yaw beyond. Valid where {@link #yawWithoutLook} is.
+     */
+    public float yawBeforeRideTurn(float sent) {
+        PacketEntity boat = compensatedEntities.getSelf().getRiding();
+        if (boat == null || !boat.isBoat()) return sent;
+        if (drivesBoat(boat) ? !boatYawFollowsTurn() : !boat.clientPhysicalYawCurrent) return Float.NaN;
+        double rounding = 2.0 * Math.ulp(Math.abs(sent) + 512.0F);
+        if (Math.abs(CultMath.wrapDegrees(sent - boat.clientPhysicalYaw)) >= 105.0 - rounding) return Float.NaN;
+        return sent - boatTurn(boat);
+    }
+
+    /**
      * The yaw a client before 26.3 holds once Entity#rideTick ends, read at its tick end: AbstractBoat#positionRider
      * turns the rider from the yaw its Rot sent by the boat's deltaRotation, and clampRotation holds it within 105
      * degrees of the boat. A boat the player does not drive keeps the deltaRotation the player's last controlled tick

@@ -1290,6 +1290,15 @@ public class CompensatedEntities {
         return rideTickSeat != null ? rideTickSeat : new Vec3(player.x, player.y, player.z);
     }
 
+    /**
+     * Where Minecraft#pick sees the local player at the start of a client tick, before ClientLevel#tickEntities: on
+     * the seats the last Entity#rideTick ended on, or, when the last client tick ended off a vehicle, at its position.
+     */
+    public List<Vec3> pickPositions() {
+        if (rideTickSeat == null) return List.of(new Vec3(player.x, player.y, player.z));
+        return player.isBedrockMovement() ? List.of(rideTickSeat) : rideTickSeats;
+    }
+
     /** Whether the local player was a passenger at the end of the last client tick. */
     public boolean rodeLastClientTick() {
         return rideTickSeat != null;

@@ -1148,8 +1148,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             if (!ghostBlockMitigator.isDesyncPos(placedAgainst)
                     && (blockPlace.isBlock()
                             || placedWith.getItem() == ItemTypes.FIRE_CHARGE
-                            || placedWith.getItem() == ItemTypes.END_CRYSTAL)
-                    && !player.compensatedEntities.getSelf().inVehicle()) {
+                            || placedWith.getItem() == ItemTypes.END_CRYSTAL)) {
                 player.checkManager.onBlockPlace(blockPlace);
                 player.checkManager.queuePostFlyingBlockPlace(blockPlace);
             }

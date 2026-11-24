@@ -39,13 +39,13 @@ public class PositionBreakA extends Check implements BlockBreakListener {
     }
 
     public void onBlockBreak(BlockBreak blockBreak) {
-        if (player.inVehicle()
-                || blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK
+        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK
                 || BlockIds.is(blockBreak.block, BlockIds.REDSTONE_WIRE)) return;
 
         SimpleCollisionBox combined = blockBreak.getCombinedBox();
 
-        SimpleCollisionBox eyePositions = EyePositions.box(player, blockBreak.eyeHeights);
+        SimpleCollisionBox eyePositions =
+                EyePositions.box(player.compensatedEntities.pickPositions(), blockBreak.eyeHeights);
         if (!didLastMovementIncludePosition) {
             eyePositions.expand(player.getMovementThreshold());
         }

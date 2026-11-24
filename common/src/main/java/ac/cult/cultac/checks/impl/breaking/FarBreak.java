@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
@@ -40,15 +41,16 @@ public class FarBreak extends Check implements BlockBreakListener {
 
     public void onBlockBreak(BlockBreak blockBreak) {
         if (!player.cameraEntity.isSelf()
-                || player.inVehicle()
                 || blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) return; // falses
 
         double min = Double.MAX_VALUE;
         List<SimpleCollisionBox> outline = visibility.outlineBoxes(blockBreak.position);
-        for (double d : blockBreak.eyeHeights) {
-            for (SimpleCollisionBox box : outline) {
-                Vector3dm best = VectorUtils.cutBoxToVector(player.x, player.y + d, player.z, box);
-                min = Math.min(min, best.distanceSquared(player.x, player.y + d, player.z));
+        for (Vec3 origin : player.compensatedEntities.pickPositions()) {
+            for (double d : blockBreak.eyeHeights) {
+                for (SimpleCollisionBox box : outline) {
+                    Vector3dm best = VectorUtils.cutBoxToVector(origin.x, origin.y + d, origin.z, box);
+                    min = Math.min(min, best.distanceSquared(origin.x, origin.y + d, origin.z));
+                }
             }
         }
 

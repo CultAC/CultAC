@@ -4,6 +4,8 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.EyePositions;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
+import ac.cult.cultac.checks.type.ClientTickEndListener;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -21,13 +23,15 @@ import org.joml.Vector3f;
         name = "RotationPlace",
         stableKey = "cult.scaffolding.rotation_place",
         description = "Placed a block while not looking at it")
-public class RotationPlace extends BlockPlaceCheck {
+public class RotationPlace extends BlockPlaceCheck implements ClientTickEndListener {
     private static final Verbose V = Verbose.of("[pre-flying|post-flying]");
 
     private double flagBuffer =
             0; // If the player flags once, force them to play legit, or we will cancel the tick before.
     private boolean ignorePost = false;
     private final ClientVisibilityProcessor visibility;
+    // From 26.3, a boat rider's places of this client tick and where its pick saw it from.
+    private final List<TurnedPlace> turnedPlaces = new ArrayList<>();
 
     public RotationPlace(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player);
@@ -38,8 +42,9 @@ public class RotationPlace extends BlockPlaceCheck {
     public void onBlockPlace(final BlockPlace place) {
         if (place.getMaterial() == BlockIds.SCAFFOLDING) return;
         if (!player.cameraEntity.isSelf()) return; // you don't send flying packets when spectating entities
-        if (player.inVehicle()) return;
-        if (flagBuffer > 0 && !didRayTraceHit(place, player.getPoseEyeHeights())) {
+        if (flagBuffer > 0
+                && !didRayTraceHit(
+                        place, player.compensatedEntities.pickPositions(), player.getPoseEyeHeights(), player.xRot)) {
             ignorePost = true;
             // If the player hit and has flagged this check recently
             if (flag(V.write(verbose()).bool(true)) && shouldModifyPackets() && shouldCancel()) {
@@ -53,7 +58,6 @@ public class RotationPlace extends BlockPlaceCheck {
     public void onPostFlyingBlockPlace(BlockPlace place) {
         if (place.getMaterial() == BlockIds.SCAFFOLDING) return;
         if (!player.cameraEntity.isSelf()) return; // you don't send flying packets when spectating entities
-        if (player.inVehicle()) return;
 
         // Don't flag twice
         if (ignorePost) {
@@ -61,8 +65,28 @@ public class RotationPlace extends BlockPlaceCheck {
             return;
         }
 
+        List<Vec3> origins = player.compensatedEntities.pickPositions();
+        if (player.rotationTurnedAfterPick()) {
+            turnedPlaces.add(new TurnedPlace(place, origins));
+            return;
+        }
+        judge(place, origins, player.xRot);
+    }
+
+    // After the tick's vehicle move and the riding tree's interpolation, which give the boat's turn and yaw.
+    @Override
+    public void onPlayerTickEnd(PacketReceiveEvent event) {
+        if (turnedPlaces.isEmpty()) return;
+        float yaw = player.yawBeforeRideTurn(player.xRot);
+        if (!Float.isNaN(yaw)) {
+            for (TurnedPlace turned : turnedPlaces) judge(turned.place(), turned.origins(), yaw);
+        }
+        turnedPlaces.clear();
+    }
+
+    private void judge(BlockPlace place, List<Vec3> origins, float yaw) {
         // Ray trace to try and hit the target block.
-        boolean hit = didRayTraceHit(place, place.eyeHeights);
+        boolean hit = didRayTraceHit(place, origins, place.eyeHeights, yaw);
         // This can false with rapidly moving yaw in 1.8+ clients
         if (!hit) {
             flagBuffer = 1;
@@ -72,14 +96,15 @@ public class RotationPlace extends BlockPlaceCheck {
         }
     }
 
-    private boolean didRayTraceHit(BlockPlace place, List<Double> possibleEyeHeights) {
+    private boolean didRayTraceHit(
+            BlockPlace place, List<Vec3> origins, List<Double> possibleEyeHeights, float yaw) {
         SimpleCollisionBox box = new SimpleCollisionBox(place.getPlacedAgainstBlockLocation());
 
         List<Vector3f> possibleLookDirs = new ArrayList<>(Arrays.asList(
-                new Vector3f(player.xRot, player.yRot, 0), new Vector3f(player.lastTickXRot, player.yRot, 0)));
+                new Vector3f(yaw, player.yRot, 0), new Vector3f(player.lastTickXRot, player.yRot, 0)));
 
         // Start checking if player is in the block
-        SimpleCollisionBox eyePositions = EyePositions.box(player, possibleEyeHeights);
+        SimpleCollisionBox eyePositions = EyePositions.box(origins, possibleEyeHeights);
         eyePositions.expand(player.getMovementThreshold());
 
         // If the player is inside a block, then they can ray trace through the block and hit the other side of the
@@ -93,16 +118,18 @@ public class RotationPlace extends BlockPlaceCheck {
         possibleLookDirs.add(new Vector3f(player.lastTickXRot, player.lastTickYRot, 0));
 
         List<SimpleCollisionBox> outline = visibility.outlineBoxes(place.getPlacedAgainstBlockLocation());
-        for (double d : possibleEyeHeights) {
-            for (Vector3f lookDir : possibleLookDirs) {
-                // x, y, z are correct for the block placement even after post tick because of code elsewhere
-                Vec3 starting = new Vec3(player.x, player.y + d, player.z);
-                // xRot and yRot are a tick behind
-                Ray trace = new Ray(player, starting.x, starting.y, starting.z, lookDir.x, lookDir.y);
-                if (ReachUtils.pickHits(player, place.getPlacedAgainstBlockLocation(), outline, trace)) return true;
+        for (Vec3 origin : origins) {
+            for (double d : possibleEyeHeights) {
+                for (Vector3f lookDir : possibleLookDirs) {
+                    Ray trace = new Ray(player, origin.x, origin.y + d, origin.z, lookDir.x, lookDir.y);
+                    if (ReachUtils.pickHits(player, place.getPlacedAgainstBlockLocation(), outline, trace))
+                        return true;
+                }
             }
         }
 
         return false;
     }
+
+    private record TurnedPlace(BlockPlace place, List<Vec3> origins) {}
 }

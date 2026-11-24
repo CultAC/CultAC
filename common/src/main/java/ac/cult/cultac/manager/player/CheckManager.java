@@ -115,7 +115,6 @@ import ac.cult.cultac.utils.latency.CompensatedInventory;
 import ac.cult.cultac.utils.latency.KeepAliveProcessor;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import com.google.common.collect.ClassToInstanceMap;
@@ -714,6 +713,8 @@ public class CheckManager {
         registerTickEnd(postPredictionCheck.get(SprintH.class));
         registerTickEnd(rotationCheck.get(MultiActionsO.class));
         registerTickEnd(packetChecks.get(BadPacketsJ.class));
+        registerTickEnd(blockPlaceCheck.get(RotationPlace.class));
+        registerTickEnd(packetChecks.get(RotationBreak.class));
         registerTickEnd(player.openWindow);
 
         registerReceive(registrations, postPredictionCheck.get(Phase.class));
@@ -1134,14 +1135,6 @@ public class CheckManager {
                 player.x = claimed.x;
                 player.y = claimed.y;
                 player.z = claimed.z;
-
-                if (player.inVehicle()) {
-                    Vec3 posFromVehicle = BoundingBoxSize.getRidingOffsetFromVehicle(
-                            player.compensatedEntities.getSelf().getRiding(), player);
-                    player.x = posFromVehicle.x;
-                    player.y = posFromVehicle.y;
-                    player.z = posFromVehicle.z;
-                }
 
                 for (CheckListener check : postFlyingBlockBreakListeners) {
                     if (!shouldDispatch(check)) {
