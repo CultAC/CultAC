@@ -391,6 +391,11 @@ public class CultPlayer implements GrimUser {
      * cannot shift the count.
      */
     public final @NotNull AtomicLong clientTickEnds = new AtomicLong();
+    /**
+     * Client tick ends that reached the tick-end listener, counted before the timers judge them, so a tick end a timer
+     * rejects still counts. The watchdog's synthetic tick end is not one. Owned by the packet executor.
+     */
+    public long receivedClientTickEnds;
 
     public final @NotNull ClientTickEndTimeout clientTickEndTimeout = new ClientTickEndTimeout(this);
     /** Follows this player's engine events; null while nothing does. */

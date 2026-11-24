@@ -17,10 +17,15 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
  * <ul>
  *   <li>A client tick is its ServerboundClientTickEnd, which Minecraft#tick sends whether or not the tick sent a
  *       movement. Where that packet cannot arrive, a tick without movement is invisible and the check never flags.
- *   <li>Minecraft#runTick answers a frame's pings, then runs at most ten ticks and drops the rest it owed. Ticks are
- *       lost only there, so a run of tick ends that long with no pong among them forgives the time lost.
- *   <li>Minecraft#getTickTargetMillis lengthens the client tick while the server ticks below 20 TPS; the balance
- *       restarts until it is back.
+ *   <li>A frame of Minecraft#runTick advances its game time first, answers the pings it has received, then runs at most
+ *       ten ticks and drops the whole ticks beyond them. A frame's pongs come before its ticks, so a pong after a tick
+ *       end is a later frame, and a client loses ticks only in a frame of ten tick ends with no pong among them. Every
+ *       tick end counts toward that run, including one a timer rejected, and a run of ten forgives the
+ *       time lost.
+ *   <li>Minecraft#getTickTargetMillis lengthens the client tick while the server ticks below 20 TPS, and a frame takes
+ *       its tick length from the rate it knew before its own pings. The full rate is proven for a frame by a pong at
+ *       that rate, a tick end, then another pong at that rate; until then every tick end and prediction restarts the
+ *       balance, a passenger's included.
  * </ul>
  */
 public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredictionListener {
@@ -34,10 +39,24 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
 
     private static final Verbose V = Verbose.of("behind={ulong}ms");
 
-    /** One short of the ten ticks a frame can run: a tick end another check rejected never reaches this one. */
-    private static final int TICKS_OF_A_CAPPED_FRAME = 9;
+    /** The most ticks Minecraft#runTick runs in one frame. */
+    private static final int TICKS_OF_A_CAPPED_FRAME = 10;
 
-    private int ticksSincePong;
+    /** How far the full tick rate is proven for the client's frames. */
+    private enum RateProof {
+        /** The rate is below 20 TPS, or not yet proven. */
+        NONE,
+        /** A pong at the full rate: its frame may still have taken the old tick length. */
+        PONG,
+        /** A tick end after that pong; a pong after it starts a frame at the full rate. */
+        TICKED,
+        /** Every tick end from here ran at the full rate. */
+        PROVEN
+    }
+
+    private RateProof rateProof = RateProof.NONE;
+    /** Tick ends received, rejected ones included, when the last pong arrived. */
+    private long tickEndsAtPong;
 
     public NegativeTimerCheck(CultPlayer cultPlayer) {
         super(cultPlayer, INFO);
@@ -46,7 +65,7 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
 
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
-        if (!usesClientTickEndBoundary() || !clientTicksAtFullRate() || predictionComplete.isExempt()) {
+        if (!usesClientTickEndBoundary() || !fullRateProven() || predictionComplete.isExempt()) {
             restart();
             return;
         }
@@ -68,16 +87,24 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        // The watchdog's tick end closes no client tick.
+        if (event.isSynthetic()) return;
         recordTimerEvent(event, false, shouldCountClientTickEndForTimer());
-        if (++ticksSincePong >= TICKS_OF_A_CAPPED_FRAME) restart();
+        if (rateProof == RateProof.PONG) rateProof = RateProof.TICKED;
+        if (!fullRateProven() || cappedFrameSincePong()) restart();
         else capBalance();
     }
 
     @CultPacketHandler
     public void onPong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
         if (!event.isAcceptedTransactionResponse()) return;
+        // Ticks after the last pong that this handler did not see may have closed a capped frame.
+        if (cappedFrameSincePong()) restart();
         recordTimerEvent(event, true, false);
-        ticksSincePong = 0;
+        tickEndsAtPong = player.receivedClientTickEnds;
+        if (!clientTicksAtFullRate()) rateProof = RateProof.NONE;
+        else if (rateProof == RateProof.NONE) rateProof = RateProof.PONG;
+        else if (rateProof == RateProof.TICKED) rateProof = RateProof.PROVEN;
         capBalance();
     }
 
@@ -95,6 +122,16 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
     /** Ticks sent early bank nothing against a later slowdown. */
     private void capBalance() {
         timerBalanceRealTime = Math.min(timerBalanceRealTime, System.nanoTime() + clockDrift);
+    }
+
+    private boolean cappedFrameSincePong() {
+        return player.receivedClientTickEnds - tickEndsAtPong >= TICKS_OF_A_CAPPED_FRAME;
+    }
+
+    /** Whether the tick being judged ran at the full rate; a rate below it ends the proof at once. */
+    private boolean fullRateProven() {
+        if (!clientTicksAtFullRate()) rateProof = RateProof.NONE;
+        return rateProof == RateProof.PROVEN;
     }
 
     private boolean clientTicksAtFullRate() {

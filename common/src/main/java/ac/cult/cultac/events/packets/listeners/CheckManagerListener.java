@@ -1229,6 +1229,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         if (!event.isSynthetic()) {
             player.clientTickEndTimeout.onTickEnd(System.nanoTime());
             player.lastClientTickArrivedAt = System.nanoTime();
+            player.receivedClientTickEnds++;
         }
         breakPassengerRotationPair(event, player);
         PacketStateData state = player.packetStateData;

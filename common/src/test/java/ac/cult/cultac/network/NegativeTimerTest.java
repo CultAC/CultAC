@@ -68,10 +68,36 @@ class NegativeTimerTest {
             NegativeTimerCheck check = experimental(f);
             answerOwnPing(f);
             behind(check, 5 * SECOND);
-            for (int tick = 0; tick < 8; tick++) f.tickEnd();
-            assertTrue(balance(check) < System.nanoTime(), "eight ticks forgave the lost time");
+            for (int tick = 0; tick < 9; tick++) f.tickEnd();
+            assertTrue(balance(check) < System.nanoTime(), "nine ticks forgave the lost time");
             f.tickEnd();
-            assertTrue(balance(check) > System.nanoTime(), "the ninth tick kept the lost time");
+            assertTrue(balance(check) > System.nanoTime(), "the tenth tick kept the lost time");
+        }
+    }
+
+    /**
+     * A tick end a timer rejects reaches no other check, yet the client ran that tick: it still counts toward the
+     * frame. When the frame's last tick end is the rejected one, the next frame's pong ends the run.
+     */
+    @Test
+    void aFrameCountsTheTickEndsATimerRejected() throws Exception {
+        for (int[] rejected : new int[][] {{3, 7}, {7, 9}}) {
+            try (var f = connect()) {
+                NegativeTimerCheck check = experimental(f);
+                answerOwnPing(f);
+                behind(check, 5 * SECOND);
+                for (int tick = 0; tick < 10; tick++) {
+                    var end = f.event(
+                            ServerboundPackets.CLIENT_TICK_END, ServerboundPackets.CLIENT_TICK_END.opaqueValue());
+                    if (tick == rejected[0] || tick == rejected[1]) end.setCancelled(true);
+                    f.listener.processClientTickEndReceive(end, f.player);
+                }
+                if (rejected[1] == 9) {
+                    assertTrue(balance(check) < System.nanoTime(), "the run ended before the next pong");
+                    answerOwnPing(f);
+                }
+                assertTrue(balance(check) > System.nanoTime(), "a frame with rejected tick ends kept the lost time");
+            }
         }
     }
 
@@ -80,7 +106,8 @@ class NegativeTimerTest {
         try (var f = connect()) {
             NegativeTimerCheck check = experimental(f);
             behind(check, 5 * SECOND);
-            for (int tick = 0; tick < 20; tick++) {
+            // A longer run of tick ends with no position makes the fixture's predictions exempt.
+            for (int tick = 0; tick < 16; tick++) {
                 if (tick % 8 == 0) answerOwnPing(f);
                 f.tickEnd();
             }
@@ -251,10 +278,14 @@ class NegativeTimerTest {
         }
     }
 
-    /** Another check rejecting two of a stalled frame's ten tick ends. */
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("fourReleases")
-    void aStalledFrameWithTwoRejectedTickEndsNeverFlags(String release, ClientVersion version) throws Exception {
+    /**
+     * A timer rejecting two of a stalled frame's ten tick ends: they still count toward the frame. When the last ones
+     * are rejected, the next frame's pong ends the run.
+     */
+    @ParameterizedTest(name = "{0} rejected {2},{3}")
+    @MethodSource("releasesAndRejectedTicks")
+    void aStalledFrameWithTwoRejectedTickEndsNeverFlags(String release, ClientVersion version, int first, int second)
+            throws Exception {
         try (var f = connect(version)) {
             NegativeTimerCheck check = afterJoin(f);
             f.tick(GROUND, true);
@@ -263,9 +294,12 @@ class NegativeTimerTest {
             for (int tick = 0; tick < 10; tick++) {
                 f.move(GROUND, true);
                 var end = f.event(ServerboundPackets.CLIENT_TICK_END, ServerboundPackets.CLIENT_TICK_END.opaqueValue());
-                if (tick == 3 || tick == 7) end.setCancelled(true);
+                if (tick == first || tick == second) end.setCancelled(true);
                 f.listener.processClientTickEndReceive(end, f.player);
             }
+            // The next frame's pong; its first accepted tick end closes the tick the rejected one left open.
+            answerOwnPing(f);
+            f.tickEnd();
             for (int tick = 0; tick < 100; tick++) fullSpeedTick(f, check);
             assertEquals(0, check.getViolations(), release);
         }
@@ -292,7 +326,7 @@ class NegativeTimerTest {
         }
     }
 
-    /** Pings answered but no ticks for three seconds, then eight ticks per 500 ms ping batch: never a capped frame. */
+    /** Pings answered but no ticks for three seconds, then nine ticks per 500 ms ping batch: never a capped frame. */
     @ParameterizedTest(name = "{0}")
     @MethodSource("fourReleases")
     void aClientThatStopsTickingButAnswersPingsFlags(String release, ClientVersion version) throws Exception {
@@ -305,14 +339,14 @@ class NegativeTimerTest {
             for (int batch = 0; batch < 50; batch++) {
                 answerOwnPing(f);
                 elapse(f, check, 500 * MILLI);
-                for (int tick = 0; tick < 8; tick++) f.tick(GROUND, true);
+                for (int tick = 0; tick < 9; tick++) f.tick(GROUND, true);
             }
             assertTrue(check.getViolations() > 0, release);
         }
     }
 
     /**
-     * The documented blind spots, asserted so a change to them is noticed: nine tick ends between ping batches,
+     * The documented blind spots, asserted so a change to them is noticed: ten tick ends between ping batches,
      * creative flight, a passive passenger and any accepted teleport each restart the balance of a half-speed client.
      */
     @ParameterizedTest(name = "{0}")
@@ -322,10 +356,10 @@ class NegativeTimerTest {
             NegativeTimerCheck check = afterJoin(f);
             for (int batch = 0; batch < 100; batch++) {
                 answerOwnPing(f);
-                elapse(f, check, 18 * ONE_CLIENT_TICK);
-                for (int tick = 0; tick < 9; tick++) f.tick(GROUND, true);
+                elapse(f, check, 20 * ONE_CLIENT_TICK);
+                for (int tick = 0; tick < 10; tick++) f.tick(GROUND, true);
             }
-            assertEquals(0, check.getViolations(), release + ": nine ticks per ping batch");
+            assertEquals(0, check.getViolations(), release + ": ten ticks per ping batch");
         }
         try (var f = connect(version)) {
             NegativeTimerCheck check = afterJoin(f);
@@ -385,6 +419,93 @@ class NegativeTimerTest {
             for (int tick = 0; tick < 5; tick++) fullSpeedTick(f, check);
             assertEquals(0, check.getViolations(), release);
         }
+    }
+
+    /**
+     * A passive minecart passenger while the server ticks at 5 TPS sends a tick end every 200 ms and is never predicted.
+     * Its tick ends restart the balance, so the first walking tick after a dismount with no teleport does not flag.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("fourReleases")
+    void aSlowRideEndedWithoutATeleportDoesNotFlag(String release, ClientVersion version) throws Exception {
+        try (var f = connect(version)) {
+            NegativeTimerCheck check = afterJoin(f);
+            ride(f);
+            f.player.packetStateData.serverTickRate = 5.0F;
+            for (int tick = 0; tick < 150; tick++) {
+                answerOwnPing(f);
+                elapse(f, check, 4 * ONE_CLIENT_TICK);
+                f.rideTick();
+            }
+            f.player.packetStateData.serverTickRate = 20.0F;
+            answerOwnPing(f);
+            f.setPassengers(VEHICLE, List.of());
+            f.pongThrough(f.player.lastTransactionSent.get());
+            for (int tick = 0; tick < 40; tick++) fullSpeedTick(f, check);
+            assertEquals(0, check.getViolations(), release);
+        }
+    }
+
+    /**
+     * /tick rate {@code rate}, a frame stalled {@code pauseMs}, and rate 20 handled in that frame's packets: the frame
+     * advanced its game time at the old tick length first, so it runs min(10, pause x rate) ticks.
+     */
+    @ParameterizedTest(name = "{0} rate {2} pause {3} ms")
+    @MethodSource("releasesRatesAndPauses")
+    void aRateRestoredDuringALongFrameNeverFlags(String release, ClientVersion version, int rate, long pauseMs)
+            throws Exception {
+        try (var f = connect(version)) {
+            NegativeTimerCheck check = afterJoin(f);
+            f.player.packetStateData.serverTickRate = rate;
+            for (int tick = 0; tick < 10; tick++) {
+                answerOwnPing(f);
+                elapse(f, check, SECOND / rate);
+                f.tick(GROUND, true);
+            }
+            elapse(f, check, pauseMs * MILLI);
+            f.player.packetStateData.serverTickRate = 20.0F;
+            answerOwnPing(f);
+            long owed = pauseMs * rate / 1000;
+            for (int tick = 0; tick < Math.min(10, owed); tick++) f.tick(GROUND, true);
+            for (int tick = 0; tick < 60; tick++) fullSpeedTick(f, check);
+            assertEquals(0, check.getViolations(), release);
+        }
+    }
+
+    /** A client at half speed once the full rate is proven again after a slow server. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("fourReleases")
+    void aHalfSpeedClientAfterTheRateIsRestoredFlags(String release, ClientVersion version) throws Exception {
+        try (var f = connect(version)) {
+            NegativeTimerCheck check = afterJoin(f);
+            f.player.packetStateData.serverTickRate = 5.0F;
+            for (int tick = 0; tick < 20; tick++) {
+                answerOwnPing(f);
+                elapse(f, check, 4 * ONE_CLIENT_TICK);
+                f.tick(GROUND, true);
+            }
+            f.player.packetStateData.serverTickRate = 20.0F;
+            for (int tick = 0; tick < 200; tick++) {
+                answerOwnPing(f);
+                elapse(f, check, 2 * ONE_CLIENT_TICK);
+                f.tick(GROUND, true);
+            }
+            assertTrue(check.getViolations() > 0, release);
+        }
+    }
+
+    static Stream<Arguments> releasesAndRejectedTicks() {
+        return fourReleases()
+                .flatMap(release -> Stream.of(
+                        Arguments.of(release.get()[0], release.get()[1], 3, 7),
+                        Arguments.of(release.get()[0], release.get()[1], 7, 9)));
+    }
+
+    static Stream<Arguments> releasesRatesAndPauses() {
+        return fourReleases()
+                .flatMap(release -> Stream.of(1, 2, 3)
+                        .flatMap(rate -> LongStream.of(2500, 2700, 2900, 3500, 4200, 5000, 8000, 9500)
+                                .mapToObj(pause -> Arguments.of(release.get()[0], release.get()[1], rate, pause))));
     }
 
     static Stream<Arguments> fourReleases() {
@@ -484,6 +605,10 @@ class NegativeTimerTest {
         f.place(GROUND, Vec3.ZERO);
         NegativeTimerCheck check = f.player.checkManager.getCheck(NegativeTimerCheck.class);
         assertFalse(check.isSwitchedOff(), "NegativeTimer is switched off");
+        // A pong, a tick end and a pong prove the client's frames tick at the full rate.
+        answerOwnPing(f);
+        f.tickEnd();
+        answerOwnPing(f);
         return check;
     }
 
