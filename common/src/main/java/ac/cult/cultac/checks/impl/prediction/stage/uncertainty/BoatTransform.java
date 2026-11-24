@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.KnownInput;
@@ -136,7 +137,7 @@ public class BoatTransform implements UncertaintyHandler {
         }
 
         SimpleCollisionBox boatBox = context.getFromMaximumExtent();
-        double boatHeight = boatBox.maxY - boatBox.minY;
+        float boatHeight = context.getMaxHeight();
         double targetY = getWaterLevelAbove(player, boatBox, state.lastYd()) - boatHeight + 0.101D;
         SimpleCollisionBox movedBox = boatBox.copy().offset(0.0D, targetY - context.getStart().y, 0.0D);
 
@@ -169,8 +170,10 @@ public class BoatTransform implements UncertaintyHandler {
             CultPlayer player, SimulationContext context, Vec3 vector, BoatTickState state) {
         SimpleCollisionBox boatBox = context.getFromMaximumExtent();
         double boatY = context.getStart().y;
-        double boatHeight = boatBox.maxY - boatBox.minY;
-        double d1 = player.compensatedEntities.getEntityInControl().hasGravity ? -0.04f : 0;
+        float boatHeight = context.getMaxHeight();
+        boolean doubleGravity = context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
+        double gravity = doubleGravity ? 0.04D : (double) 0.04F;
+        double d1 = player.compensatedEntities.getEntityInControl().hasGravity ? -gravity : 0;
         double d2 = 0.0D;
         float invFriction = 0.05F;
 
@@ -211,7 +214,7 @@ public class BoatTransform implements UncertaintyHandler {
             vector = new Vec3(vector.x * invFriction, vector.y + d1, vector.z * invFriction);
 
             if (d2 > 0.0D) {
-                vector = new Vec3(vector.x, (vector.y + d2 * 0.06153846016296973D) * 0.75D, vector.z);
+                vector = new Vec3(vector.x, (vector.y + d2 * (gravity / 0.65D)) * 0.75D, vector.z);
             }
         }
 
@@ -290,7 +293,7 @@ public class BoatTransform implements UncertaintyHandler {
         }
 
         SimpleCollisionBox boatBox = context.getFromMaximumExtent();
-        double boatHeight = boatBox.maxY - boatBox.minY;
+        float boatHeight = context.getMaxHeight();
         double targetY = getWaterLevelAbove(player, boatBox, state.lastYd()) - boatHeight + 0.101D;
         SimpleCollisionBox movedBox = boatBox.copy().offset(0.0D, targetY - context.getStart().y, 0.0D);
         SimpleCollisionBox blocker = findFirstWaterEntryIntersection(player, context, movedBox);
