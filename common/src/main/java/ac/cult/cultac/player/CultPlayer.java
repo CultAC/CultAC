@@ -17,6 +17,7 @@ import ac.cult.cultac.checks.impl.ping.TransactionOrder;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
@@ -47,6 +48,7 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
@@ -1962,22 +1964,44 @@ public class CultPlayer implements GrimUser {
     }
 
     /**
-     * Whether the client's sprint flag is set. LocalPlayer#aiStep clears it for a passenger whose vehicle cannot
-     * sprint or that it does not control, and LocalPlayer#sendChanges sends no STOP_SPRINTING for a vehicle it does
-     * not control, so {@link #isSprinting} keeps the last START_SPRINTING. A tick on foot or on a camel the player
-     * controls ends in LocalPlayer#sendIsSprintingIfNeeded, after which the flag is the last command sent.
+     * Whether the client's sprint flag is set. LocalPlayer#aiStep can clear it for a passenger whose vehicle cannot
+     * sprint or that it does not control ({@link #onMountedClientTick}), and LocalPlayer#sendChanges sends no
+     * STOP_SPRINTING for a vehicle it does not control, so {@link #isSprinting} keeps the last START_SPRINTING. A tick
+     * on foot or on a camel the player controls ends in LocalPlayer#sendIsSprintingIfNeeded, after which the flag is the
+     * last command sent.
      */
     public boolean isClientSprinting() {
         return isSprinting && !sprintClearedAsPassenger;
     }
 
     /**
-     * A client tick mounted on {@code vehicle}. Every other vehicle ends the tick with the flag cleared (only
-     * Camel#canSprint); a camel the player controls ends it in LocalPlayer#sendIsSprintingIfNeeded. Control follows
-     * the passenger list the client has applied.
+     * A client tick mounted on {@code vehicle}. A camel the player controls ends it in
+     * LocalPlayer#sendIsSprintingIfNeeded (only Camel#canSprint); on any other vehicle aiStep may clear the flag, which
+     * then stays clear: canStartSprinting needs vehicleCanSprint. Control follows the passenger list the client has
+     * applied.
      */
     public void onMountedClientTick(PacketEntity vehicle) {
-        sprintClearedAsPassenger = !compensatedEntities.vehicles.vehicleCanSprint(vehicle);
+        if (compensatedEntities.vehicles.vehicleCanSprint(vehicle)) {
+            sprintClearedAsPassenger = false;
+        } else if (!sprintClearedAsPassenger) {
+            sprintClearedAsPassenger = passengerStopsSprinting(vehicle);
+        }
+    }
+
+    /**
+     * Whether a passenger's LocalPlayer#aiStep cleared its flag on a vehicle it cannot sprint. From 1.21.5
+     * shouldStopRunSprinting does for every such vehicle, and 1.21.4's shouldStopSprinting for every vehicle but a
+     * camel, or when blind. Otherwise only the on-foot stop runs, which clears a flag without forward impulse; the
+     * rider's water and collision it also reads are not modelled at the seat, so forward keeps the flag. Without
+     * reported keys the flag counts as cleared.
+     */
+    private boolean passengerStopsSprinting(PacketEntity vehicle) {
+        ClientVersion version = getClientVersion();
+        if (version.isNewerThanOrEquals(ClientVersion.V_1_21_5) || !JavaTravelInputs.reportsKeys(this)) return true;
+        if (version == ClientVersion.V_1_21_4
+                && (!EntityTypeUtil.isCamelFamily(vehicle.type)
+                        || compensatedEntities.hasPotionEffect(MovementEffect.BLINDNESS))) return true;
+        return packetStateData.knownInput.forwardImpulse() <= 0;
     }
 
     /** A client tick on foot: LocalPlayer#sendPosition ends it in LocalPlayer#sendIsSprintingIfNeeded. */
