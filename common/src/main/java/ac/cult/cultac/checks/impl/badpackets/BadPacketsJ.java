@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.badpackets;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CameraDetachListener;
@@ -164,7 +165,7 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
     private boolean minecartMayTurnRider() {
         PacketEntity vehicle = player.compensatedEntities.getSelf().getRiding();
         return vehicle != null
-                && vehicle.isMinecart()
+                && vehicle.type == EntityTypeIds.MINECART
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
                 && player.compensatedWorld.clientHasFeature(MINECART_IMPROVEMENTS);
     }

@@ -249,6 +249,34 @@ class UseItemTickRotationForwardTest {
         }
     }
 
+    /** Only the rideable Minecart overrides positionRider with the turn; the other minecarts leave the yaw alone. */
+    @Test
+    void aChestMinecartRidersUseIsJudgedByTheYawItsTickSends() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+            f.player.compensatedWorld.applyClientFeatures(
+                    new WorldPackets.EnabledFeatures(Set.of("minecraft:vanilla", "minecraft:minecart_improvements")));
+            f.player.packetEntityReplication.addEntity(
+                    MINECART, EntityTypes.defaults().byKey("minecraft:chest_minecart").id(), START, 0, 0, 0, -1);
+            f.setPassengers(MINECART, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            t.forwarded();
+
+            t.use(1, TURNED_YAW, PITCH);
+            t.rot(TURNED_YAW);
+            t.tickEnd();
+            assertEquals(List.of("use_item 1", "move_player", "client_tick_end"), t.forwarded());
+            assertEquals(0, t.check.getViolations());
+
+            t.use(2, YAW, PITCH);
+            t.rot(TURNED_YAW);
+            t.tickEnd();
+            assertEquals(List.of("move_player", "client_tick_end"), t.forwarded());
+            assertEquals(1, t.check.getViolations());
+        }
+    }
+
     @Test
     void theHeldPacketsReachTheServerBeforeTheConfigurationAcknowledgement() throws Exception {
         try (var f = new JavaTickFixture()) {
