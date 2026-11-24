@@ -547,9 +547,8 @@ public class CultPlayer implements GrimUser {
     }
 
     /**
-     * The yaw Minecraft#pick saw in a 26.3 boat whose positionRider turned it to the {@code sent} one: the sent yaw
-     * less the deltaRotation of a boat the player drives. NaN when that turn is unknown, or when clampRotation may
-     * have pulled the yaw back to 105 degrees off the boat from any yaw beyond. Valid where {@link #yawWithoutLook} is.
+     * The yaw Minecraft#pick saw before AbstractBoat#positionRider turned this 26.3 rider to the {@code sent} one; NaN
+     * when that is not one yaw. Valid where {@link #yawWithoutLook} is.
      */
     public float yawBeforeRideTurn(float sent) {
         PacketEntity boat = compensatedEntities.getSelf().getRiding();

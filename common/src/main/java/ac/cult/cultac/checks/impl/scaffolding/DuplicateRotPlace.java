@@ -50,7 +50,6 @@ public class DuplicateRotPlace extends BlockPlaceCheck implements RotationListen
         }
     }
 
-    // AbstractBoat#positionRider adds the boat's turn to its rider's, which is not a whole number of mouse counts.
     private boolean ridesBoat() {
         PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
         return riding != null && riding.isBoat();
