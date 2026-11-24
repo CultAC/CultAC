@@ -362,6 +362,9 @@ checks:
   InventoryK:
     summary: "Switched hotbar slot with an inventory open"
     details: "You can't change your held hotbar slot while an inventory or chest is open. Switching anyway usually comes from a cheat handling items on its own, like AutoArmor or AutoPot."
+  InventoryL:
+    summary: "Picked a block or left a bed with an inventory open"
+    details: "The pick block key does nothing while an inventory or chest is open, and the Leave Bed button isn't on screen. Doing either anyway comes from a modified client or a cheat that sends actions on its own. The alert says which one it was."
   # Chat
   ChatA:
     summary: "Asked for command suggestions with nothing typed"

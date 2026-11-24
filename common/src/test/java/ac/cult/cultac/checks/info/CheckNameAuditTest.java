@@ -59,14 +59,15 @@ class CheckNameAuditTest {
                         .endsWith("where those checks are MultiActionsC, MultiActionsD, MultiActionsH, MultiActionsI,"
                                 + " MultiActionsJ, MultiActionsK, MultiActionsL, MultiActionsM, MultiActionsN,"
                                 + " MultiActionsO, MultiActionsP, MultiActionsQ, MultiActionsR, MultiActionsS,"
-                                + " MultiActionsT"),
+                                + " MultiActionsT, MultiActionsU"),
                 newer.get(0));
 
         // Version 3 moves these out of MultiActions, so a file of it selects them with "Inventory".
         assertEquals(
                 List.of("punishments.yml: \"multiactions\" selects InventoryA, InventoryB, InventoryC, InventoryD,"
-                        + " InventoryE, InventoryF, InventoryG, InventoryH, InventoryI, InventoryJ, InventoryK as name"
-                        + " version 2 names them, and punishment-check-name-version is 3, where no group selects them"),
+                        + " InventoryE, InventoryF, InventoryG, InventoryH, InventoryI, InventoryJ, InventoryK,"
+                        + " InventoryL as name version 2 names them, and punishment-check-name-version is 3, where no"
+                        + " group selects them"),
                 CheckNameAudit.warnings(config(3, 3, List.of("MultiActions"), null)));
         assertEquals(List.of(), CheckNameAudit.warnings(config(3, 3, List.of("MultiActions", "Inventory"), null)));
         assertEquals(List.of(), CheckNameAudit.warnings(config(3, 3, List.of("MultiActions", "!Inventory"), null)));

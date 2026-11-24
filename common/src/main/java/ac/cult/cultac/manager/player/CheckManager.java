@@ -424,6 +424,7 @@ public class CheckManager {
                 new MultiActionsR(player),
                 new MultiActionsS(player),
                 new MultiActionsT(player),
+                new MultiActionsU(player),
                 new MultiInteractA(player),
                 new MultiInteractB(player),
                 player.openWindow,
@@ -598,7 +599,8 @@ public class CheckManager {
                 MultiActionsP.class,
                 MultiActionsQ.class,
                 MultiActionsR.class,
-                MultiActionsT.class)) {
+                MultiActionsT.class,
+                MultiActionsU.class)) {
             registerEarlyReceive(registrations, packetChecks.get(type));
         }
         registerEarlyReceive(registrations, postPredictionCheck.get(SprintH.class));
