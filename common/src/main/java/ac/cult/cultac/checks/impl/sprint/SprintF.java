@@ -32,8 +32,9 @@ public class SprintF extends Check implements PostPredictionListener {
         if (!isApplicable()) return;
         PredictionResult lastPrediction =
                 player.checkManager.getSimulationProcessor().getLastPrediction();
-        boolean wasGliding =
-                lastPrediction != null && lastPrediction.getSimulationContext().isGliding();
+        boolean wasGliding = lastPrediction != null
+                && lastPrediction.getSimulationContext().getVehicle() == null
+                && lastPrediction.getSimulationContext().isGliding();
         if (wasGliding && player.isGliding) {
             if (player.isSprinting) {
                 flagWithSetback();

@@ -11,6 +11,7 @@ import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.anticheat.StringReturner;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
@@ -424,6 +425,14 @@ public final class CompensatedVehicleState implements Debuggable {
      */
     public float saddleHandOverTravelYaw(@Nullable PacketEntity vehicle, float reportedYaw) {
         return isSaddleHandOverActiveFor(vehicle) && hasActiveSteppedInterpolation(vehicle) ? player.xRot : reportedYaw;
+    }
+
+    /** The pitch a living root's tickRidden turns it to before travel: getRiddenRotation's half of the rider's. */
+    public float riddenPitch(PacketEntity vehicle) {
+        return vehicle instanceof PacketEntityCamel camel
+                        && camel.refuseToMove(player.compensatedWorld.clientGameTime())
+                ? vehicle.clientPhysicalPitch
+                : player.yRot * 0.5F;
     }
 
     private boolean isSaddleHandOverActiveFor(@Nullable PacketEntity vehicle) {

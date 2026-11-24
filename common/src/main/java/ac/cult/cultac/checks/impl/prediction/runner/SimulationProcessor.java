@@ -1178,7 +1178,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.applyProfileCommit(commit);
             if (!this.player.isBedrockMovement()
                     && result.getSimulationContext().stopsFallFlyingAfterTravel()) {
-                this.player.isGliding = false;
+                PacketEntity vehicle = result.getSimulationContext().getVehicle();
+                if (vehicle == null) this.player.isGliding = false;
+                // The root's LivingEntity#stopFallFlying holds until a set_entity_data carries its flags again.
+                else vehicle.actionSharedFlags &= ~0x80;
             }
             this.lastPrediction = result;
             this.supportAfterCorrection = null;
@@ -2545,12 +2548,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 riding,
                 xRot,
                 this.lastXRot,
-                yRot,
+                riding == null || player.isBedrockMovement() || !riding.isLivingEntity()
+                        ? yRot
+                        : player.compensatedEntities.vehicles.riddenPitch(riding),
                 this.lastYRot,
                 player.onGround,
                 player.isSneaking,
                 this.lastSneaking,
-                riding == null && player.isGliding,
+                riding == null ? player.isGliding : !player.isBedrockMovement() && fallFlying(riding),
                 player.compensatedEntities.getPotionLevelForPlayer(MovementEffect.JUMP_BOOST),
                 this.getDepthStriderLevel(),
                 this.getSwiftSneakLevel(),
@@ -2612,6 +2617,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         return context;
+    }
+
+    /** LivingEntity#travel's isFallFlying branch for a ridden root: its shared flag 7. HappyGhast#travel never glides. */
+    private static boolean fallFlying(PacketEntity vehicle) {
+        return vehicle.isLivingEntity()
+                && !(vehicle instanceof PacketEntityHappyGhast)
+                && (vehicle.actionSharedFlags & 0x80) != 0;
     }
 
     @Nullable

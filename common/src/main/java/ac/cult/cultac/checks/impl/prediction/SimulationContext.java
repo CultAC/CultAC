@@ -297,8 +297,7 @@ public class SimulationContext implements DebugText.Recordable {
     public boolean stopsFallFlyingAfterTravel() {
         // LivingEntity#travel prioritizes fluids. In dry travelFallFlying,
         // stopFallFlying runs AFTER travelInAir, even if the move leaves the climbable.
-        return vehicle == null
-                && gliding
+        return gliding
                 && version.isNewerThanOrEquals(ClientVersion.V_1_21_5)
                 && worldData.getClimbingAtStart().determinePessimistically()
                 && !worldData.maybeInLiquid();
@@ -416,9 +415,9 @@ public class SimulationContext implements DebugText.Recordable {
 
     /** Radius of the circular horizontal input allowance around the input-free movement of {@code candidate}. */
     public double getHorizontalInputRadius(CultPlayer player, PredVector candidate) {
-        return getVehicle() == null
-                ? getHorizontalInputAllowance(player, getSprintOutcome(player, candidate))
-                : getMaxSpeed(player);
+        if (getVehicle() == null) return getHorizontalInputAllowance(player, getSprintOutcome(player, candidate));
+        // LivingEntity#travelFallFlying moves without moveRelative, so a dry glide takes no input.
+        return usesFallFlyingMovement() && !worldData.maybeInLiquid() ? 0.0D : getMaxSpeed(player);
     }
 
     /**

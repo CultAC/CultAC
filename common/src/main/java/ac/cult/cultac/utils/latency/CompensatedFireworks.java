@@ -111,7 +111,10 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
         if (!rockets.isEmpty()) rockets.values().removeIf(rocket -> received >= rocket.removedAt);
 
         SimulationContext context = predictionComplete.getPredictionResult().getSimulationContext();
-        boolean fallFlying = context != null && context.isGliding() && !context.stopsFallFlyingAfterTravel();
+        boolean fallFlying = context != null
+                && context.getVehicle() == null
+                && context.isGliding()
+                && !context.stopsFallFlyingAfterTravel();
         // TickRateManager#isEntityFrozen keeps the rockets from ticking while the server's ticks are frozen.
         boolean ticks = !(player.packetStateData.serverTicksFrozen
                 && player.packetStateData.serverFrozenTickStepsRemaining == 0);
