@@ -94,21 +94,20 @@ public class FairReach extends Check implements CheckListener {
     @CultPacketHandler
     public void onRemoveEntities(
             PacketSendEvent<ClientboundRemoveEntities> event, CultPlayer player, ClientboundRemoveEntities packet) {
-        // Server won't process destroyed entity hits anyway... might as well remove them immediately
         for (int entityId : packet.entityIds()) {
             removeEntity(entityId);
         }
     }
 
-    /** Entity#setRemoved stops the entity riding and leaves each of its passengers on the seat it last held. */
+    /** ClientLevel#removeEntity, applied when the client handles it, in order with the moves sent before it. */
     private void removeEntity(int entityId) {
-        int[] passengers = riding.passengersOf(entityId);
-        if (passengers != null) {
-            for (int passenger : passengers) dismount(passenger);
-        }
-        riding.remove(entityId);
-        targetPlayers.remove(entityId);
-        vehicles.remove(entityId);
+        CompensatedVehicleState sentRiding = player.compensatedEntities.vehicles;
+        if (tracked(entityId) == null
+                && !riding.rides(entityId)
+                && riding.passengersOf(entityId) == null
+                && !sentRiding.ridesAnotherEntityAsSent(entityId)
+                && sentRiding.passengersAsSent(entityId) == null) return;
+        schedule(new PendingRemoval(entityId, targetPlayers.get(entityId), vehicles.get(entityId)));
     }
 
     /** The packet that moved an entity; a teleport and a position sync snap past 64 blocks instead of lerping. */
@@ -289,6 +288,31 @@ public class FairReach extends Check implements CheckListener {
         @Override
         void apply() {
             applyChanges(entityId, x, y, z, update, holdsShownPosition);
+        }
+    }
+
+    /** Entity#setRemoved stops the entity riding and leaves each of its passengers on the seat it last held. */
+    private final class PendingRemoval extends PendingChange {
+        private final int entityId;
+        private final FairReachEntity target;
+        private final FairReachEntity vehicle;
+
+        private PendingRemoval(int entityId, FairReachEntity target, FairReachEntity vehicle) {
+            this.entityId = entityId;
+            this.target = target;
+            this.vehicle = vehicle;
+        }
+
+        @Override
+        void apply() {
+            int[] passengers = riding.passengersOf(entityId);
+            if (passengers != null) {
+                for (int passenger : passengers) dismount(passenger);
+            }
+            riding.remove(entityId);
+            // An entity added again under this ID since stays.
+            if (target != null) targetPlayers.remove(entityId, target);
+            if (vehicle != null) vehicles.remove(entityId, vehicle);
         }
     }
 

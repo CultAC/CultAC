@@ -18,6 +18,7 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.EntityDelta;
@@ -78,6 +79,30 @@ class FairReachRiderTest {
             f.passDeadlines();
             f.tick(3);
             assertTrue(f.attackCancelled(), "the target's move is due, so it is out of reach");
+        }
+    }
+
+    @Test
+    void aRiderMovesWithItsVehicleUntilTheClientRemovesIt() {
+        try (Fixture f = new Fixture()) {
+            f.addTarget(6);
+            f.addHorse(TARGET_HORSE, 6);
+            f.send(new ClientboundSetPassengers(TARGET_HORSE, List.of(TARGET)));
+            f.acknowledge();
+            f.tick(3);
+            assertTrue(f.attackCancelled(), "the rider is out of reach");
+
+            f.fairReach.max_ping_compensation = 300;
+            f.send(move(TARGET_HORSE, -4));
+            int moved = f.ping();
+            f.remove(TARGET_HORSE);
+            f.acknowledge(moved);
+            f.tick(3);
+            assertFalse(f.attackCancelled(), "the client shows the rider where its vehicle carried it");
+
+            f.acknowledge();
+            f.tick(3);
+            assertFalse(f.attackCancelled(), "Entity#setRemoved leaves the rider on its last seat");
         }
     }
 
@@ -158,6 +183,25 @@ class FairReachRiderTest {
         void addHorse(int entityId, double x) {
             player.packetEntityReplication.addEntity(entityId, EntityTypeIds.HORSE, new Vec3(x, 64, 0), 0, 0, 0, -1);
             acknowledge();
+        }
+
+        void remove(int entityId) {
+            var packet = new ClientboundRemoveEntities(List.of(entityId));
+            var event = new PacketSendEvent<>(
+                    player.user, ConnectionPhase.PLAY, ClientboundPackets.REMOVE_ENTITIES, packet, false);
+            fairReach.onRemoveEntities(event, player, packet);
+            player.packetEntityReplication.onRemoveEntities(event, player, packet);
+            event.tasksAfter().forEach(Runnable::run);
+        }
+
+        /** A ping the client has not answered yet; later packets reach it after this one. */
+        int ping() {
+            return player.lastTransactionSent.incrementAndGet();
+        }
+
+        void acknowledge(int transaction) {
+            player.lastTransactionReceived.set(transaction);
+            player.latencyUtils.handleNettySyncTransaction(transaction);
         }
 
         void send(ClientboundMoveEntity packet) {
