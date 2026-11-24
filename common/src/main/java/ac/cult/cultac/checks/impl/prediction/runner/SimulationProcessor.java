@@ -2774,7 +2774,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     /**
      * The prediction on the claimed mod loader's build the player last followed, and on its other build when that one
-     * fails over a fluid current the two disagree on. An accepted movement keeps its build for the next ticks.
+     * fails or the movement is the player's own, over a fluid current the two disagree on. An accepted movement keeps
+     * its build for the next ticks; one only its build explains shows the client's build.
      */
     private PredictionResult predict(
             CultPlayer player,
@@ -2806,7 +2807,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     authoredMovementFrame,
                     movementProfile);
             if (!fluids.decided() || !fluids.buildsApart() || selected.isExempt()) return selected;
-            if (!selected.getFlags().isEmpty()) {
+            boolean clean = selected.getFlags().isEmpty();
+            if (!clean || !testing) {
                 fluids.select(!preferred);
                 PredictionResult other = predictTables(
                         player,
@@ -2820,7 +2822,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         yRot,
                         authoredMovementFrame,
                         movementProfile);
-                if (JavaMovementEngine.INSTANCE.isBetterCandidate(other, selected)) selected = other;
+                boolean otherClean = other.getFlags().isEmpty();
+                if (!clean && JavaMovementEngine.INSTANCE.isBetterCandidate(other, selected)) selected = other;
+                if (!testing && clean != otherClean && selected.getFlags().isEmpty())
+                    selected.getSimulationContext().setLoaderBuildShown(true);
             }
             if (!testing && selected.getFlags().isEmpty())
                 fluids.prefer(selected.getSimulationContext().isLoaderWithoutCurrent());

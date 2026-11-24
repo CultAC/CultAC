@@ -10,7 +10,8 @@ import ac.cult.cultac.player.CultPlayer;
  * or its registered channels, and no packet it sends unasked tells its build. So a claimed loader is simulated as one
  * of two builds, the vanilla one and the one without the current, the way {@link ac.cult.cultac.utils.math.TrigHandler}
  * holds one of two trig tables: the build the player's last telling movement followed runs first, and the other only
- * when that one fails. A build the client reported ends the choice.
+ * when that one fails. A client runs one build for its whole session, so the first accepted movement only one build
+ * explains ends the choice, as a build the client reported would.
  */
 public final class JavaLoaderFluids {
     private final CultPlayer player;
@@ -20,7 +21,7 @@ public final class JavaLoaderFluids {
     private boolean preferredWithoutCurrent;
     /** Whether a current the two builds disagree on was computed since {@link #watch}. */
     private boolean decided;
-    /** Whether the client's reported loader version is a build without the current; null while none is reported. */
+    /** Whether the client's build is the one without the current; null while neither a report nor a move named it. */
     private Boolean known;
 
     public JavaLoaderFluids(CultPlayer player) {
@@ -62,10 +63,18 @@ public final class JavaLoaderFluids {
         return known == null && mayRefreshWithoutCurrent();
     }
 
-    /** Takes the client's reported loader version as its build, or null to tell the builds apart by movement again. */
+    /**
+     * Takes {@code withoutCurrent} as the client's build for the rest of its session, or null to tell the builds apart
+     * by movement again.
+     */
     public void know(Boolean withoutCurrent) {
         known = withoutCurrent;
         if (withoutCurrent != null) this.withoutCurrent = preferredWithoutCurrent = withoutCurrent;
+    }
+
+    /** The client's build once known, else null. */
+    public Boolean known() {
+        return known;
     }
 
     /** Whether the simulated build leaves out a current Entity#updateFluidInteraction would add to any entity. */

@@ -268,6 +268,8 @@ public final class JavaMovementEngine implements MovementEngine {
         // Every candidate committed with this result simulated its mod loader build.
         boolean simulatedBuild = player.loaderFluids.select(result.getSimulationContext().isLoaderWithoutCurrent());
         try {
+            if (!failedChecks(result) && !result.isExempt() && result.getSimulationContext().isLoaderBuildShown())
+                player.loaderFluids.know(result.getSimulationContext().isLoaderWithoutCurrent());
             var commit = commitNextTick(player, result, lastPrediction, acceptedDiff, scratch);
             if (!failedChecks(result)) proveMovementPatch(player, result);
             if (!failedChecks(result)

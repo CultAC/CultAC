@@ -3,6 +3,7 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -137,25 +138,23 @@ class JavaLoaderFluidCurrentTest {
         }
     }
 
-    @Test
-    void forgeSimulatesTheBuildItsLastMovementFollowedFirst() throws Exception {
+    /** A client runs one build for its session: the first move only one build explains names it for every later one. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void forgeKeepsTheBuildItsMovementShowed(boolean pushed) throws Exception {
         try (var f = channel()) {
             brand(f, "forge");
-            f.place(WADING, WADING_VELOCITY);
-            double dx = WADING_VELOCITY.x;
-            Vec3 position = WADING.add(dx, 0.0, 0.0);
-            assertExact(f.tick(position, true));
-            assertTrue(f.player.loaderFluids.prefersWithoutCurrent());
-
-            dx *= 0.8F;
-            position = position.add(dx, 0.0, 0.0);
-            assertExact(f.tick(position, true));
-            assertTrue(f.player.loaderFluids.prefersWithoutCurrent());
-
-            // The same client cannot gain the current later, but the engine follows whichever build explains a move.
-            dx = dx * 0.8F + CURRENT;
-            assertExact(f.tick(position.add(dx, 0.0, 0.0), true));
-            assertFalse(f.player.loaderFluids.prefersWithoutCurrent());
+            f.place(WADING, Vec3.ZERO);
+            double dx = 0.0;
+            Vec3 position = WADING;
+            for (int tick = 0; tick < 20; tick++) {
+                dx = dx * 0.8F + (pushed ? CURRENT : 0.0);
+                position = position.add(dx, 0.0, 0.0);
+                assertExact(f.tick(position, true));
+                assertEquals(!pushed, f.player.loaderFluids.known());
+            }
+            dx = dx * 0.8F + (pushed ? 0.0 : CURRENT);
+            assertFlagged(f.tick(position.add(dx, 0.0, 0.0), true));
         }
     }
 

@@ -136,6 +136,10 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     @Setter
     boolean loaderWithoutCurrent;
 
+    /** Whether the claimed mod loader's other build flagged the movement this candidate explains. */
+    @Setter
+    boolean loaderBuildShown;
+
     @Setter
     JavaPredictionCarry.PistonStart pistonStartState;
 
@@ -991,6 +995,7 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         sb.append(", movementPatch=").append(movementPatch);
         sb.append(", fluidTagOrder=").append(fluidTagOrder);
         sb.append(", loaderWithoutCurrent=").append(loaderWithoutCurrent);
+        sb.append(", loaderBuildShown=").append(loaderBuildShown);
         sb.append(", pistonStartState=").append(pistonStartState);
         sb.append(", riptideLevel=").append(riptideLevel);
         sb.append(", riptideReleaseCertain=").append(riptideReleaseCertain);
