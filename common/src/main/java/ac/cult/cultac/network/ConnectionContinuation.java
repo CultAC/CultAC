@@ -13,11 +13,15 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Client state an engine received on a connection that the client does not resend when another engine adopts it at
- * reconfiguration. Crosses engine class loaders as a map of JDK values.
+ * Client state an engine received or proved on a connection that the client does not resend when another engine adopts
+ * it at reconfiguration. Crosses engine class loaders as a map of JDK values.
  */
 public record ConnectionContinuation(
-        UUID connectionId, String brand, ClientInformation information, List<String> channels) {
+        UUID connectionId,
+        String brand,
+        ClientInformation information,
+        List<String> channels,
+        Boolean loaderWithoutCurrent) {
     public static Map<String, Object> capture(CultConnection connection) {
         var state = new HashMap<String, Object>();
         var user = connection.user();
@@ -27,6 +31,8 @@ public record ConnectionContinuation(
         var brand = player.checkManager.getCheck(ClientBrand.class);
         if (brand != null && brand.isHasBrand()) state.put("brand", brand.getBrand());
         state.put("registered-channels", List.copyOf(player.pluginChannelManager.getRegisteredChannels()));
+        Boolean build = player.loaderFluids.known();
+        if (build != null) state.put("loader-without-current", build);
         var chat = player.checkManager.getCheck(ChatD.class);
         var information = chat == null ? null : chat.information();
         if (information != null) {
@@ -57,7 +63,8 @@ public record ConnectionContinuation(
                                 .filter(String.class::isInstance)
                                 .map(String.class::cast)
                                 .toList()
-                        : List.of());
+                        : List.of(),
+                (Boolean) state.get("loader-without-current"));
     }
 
     private static ClientInformation information(Map<?, ?> fields) {
@@ -80,5 +87,6 @@ public record ConnectionContinuation(
         if (brand != null && brandCheck != null) brandCheck.restore(brand);
         var chat = player.checkManager.getCheck(ChatD.class);
         if (information != null && chat != null) chat.observe(information);
+        if (loaderWithoutCurrent != null) player.loaderFluids.know(loaderWithoutCurrent);
     }
 }

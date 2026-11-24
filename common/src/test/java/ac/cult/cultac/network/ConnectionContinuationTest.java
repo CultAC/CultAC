@@ -29,6 +29,7 @@ class ConnectionContinuationTest {
         previous.checkManager.getCheck(ClientBrand.class).restore("fabric");
         previous.checkManager.getCheck(ChatD.class).observe(information);
         previous.pluginChannelManager.handleChannelRegistered("fabric:registry/sync/direct");
+        previous.loaderFluids.know(true);
 
         // The host copies the released state between engine class loaders.
         var state = Map.copyOf(ConnectionContinuation.capture(previous.user.getCultConnection()));
@@ -46,6 +47,7 @@ class ConnectionContinuationTest {
         assertEquals(previous.getClientClassification(), adopted.getClientClassification());
         assertTrue(adopted.checkManager.getCheck(ClientBrand.class).isHasBrand());
         assertEquals(information, adopted.checkManager.getCheck(ChatD.class).information());
+        assertEquals(true, adopted.loaderFluids.known());
     }
 
     @Test
@@ -56,6 +58,7 @@ class ConnectionContinuationTest {
                 Map.copyOf(ConnectionContinuation.capture(previous.user.getCultConnection())));
         assertNull(continued.brand());
         assertNull(continued.information());
+        assertNull(continued.loaderWithoutCurrent());
         assertEquals(previous.user.getConnectionId(), continued.connectionId());
     }
 
