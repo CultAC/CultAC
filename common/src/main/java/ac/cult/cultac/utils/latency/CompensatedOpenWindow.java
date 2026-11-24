@@ -1,11 +1,13 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import java.util.HashSet;
 import java.util.Set;
@@ -106,6 +108,28 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         if (!signEditorOpen) return;
         signEditorOpen = false;
         onClientOpenOrCloseWindow(false);
+    }
+
+    /**
+     * ClientPacketListener#handleOpenBook sets a BookViewScreen in place of the screen on top when
+     * BookViewScreen.BookAccess#fromItem finds book content on the item in that hand. AbstractContainerScreen#removed
+     * sends no container_close, and closing the book leaves no screen.
+     */
+    public void onServerBook(PacketSendEvent<?> event, Hand hand) {
+        CultPlayer.TrackedTransaction proof = player.appendTrailingProofTransaction(event);
+        if (proof == null) return;
+        player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {
+            if (!hasBookContent(player.getInventory().getHandItem(hand))) return;
+            if (signEditorTransaction < proof.transaction()) signEditorOpen = false;
+            possibleOpenWindows.add(null);
+            closeBefore(proof.transaction(), false);
+            closeDialogBefore(proof.transaction());
+        });
+    }
+
+    private static boolean hasBookContent(SimItemStack item) {
+        return item.components().has("minecraft:written_book_content")
+                || item.components().has("minecraft:writable_book_content");
     }
 
     /**

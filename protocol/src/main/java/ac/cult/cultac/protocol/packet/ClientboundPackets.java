@@ -8,6 +8,7 @@ import ac.cult.cultac.protocol.codec.connection.ClientboundKeepAliveCodec;
 import ac.cult.cultac.protocol.codec.connection.ContainerCloseCodecs;
 import ac.cult.cultac.protocol.codec.connection.DisconnectCodec;
 import ac.cult.cultac.protocol.codec.connection.MountScreenOpenCodec;
+import ac.cult.cultac.protocol.codec.connection.OpenBookCodec;
 import ac.cult.cultac.protocol.codec.connection.OpenScreenCodec;
 import ac.cult.cultac.protocol.codec.connection.PingCodec;
 import ac.cult.cultac.protocol.codec.connection.SetHeldSlotCodec;
@@ -76,6 +77,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveMinecart;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenBook;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerAbilities;
@@ -247,6 +249,8 @@ public final class ClientboundPackets {
             new MountScreenOpenCodec(),
             "mount_screen_open",
             "horse_screen_open");
+    public static final PacketType<ClientboundOpenBook> OPEN_BOOK =
+            PLAY.add("open_book", ClientboundOpenBook.class, new OpenBookCodec());
     public static final PacketType<ClientboundOpenScreen> OPEN_SCREEN =
             PLAY.add("open_screen", ClientboundOpenScreen.class, new OpenScreenCodec());
     public static final PacketType<Opaque> OPEN_SIGN_EDITOR = PLAY.ignored("open_sign_editor");

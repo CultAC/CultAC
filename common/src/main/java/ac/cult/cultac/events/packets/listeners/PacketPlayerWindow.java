@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenBook;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
@@ -58,6 +59,11 @@ public class PacketPlayerWindow {
             PacketReceiveEvent<ServerboundContainerClose> event, CultPlayer player, ServerboundContainerClose packet) {
         if (player.isBedrockMovement()) handleInventory(player, false);
         else player.openWindow.onClientOpenOrCloseWindow(false);
+    }
+
+    @CultPacketHandler
+    public void onOpenBook(PacketSendEvent<ClientboundOpenBook> event, CultPlayer player, ClientboundOpenBook packet) {
+        if (!player.isBedrockMovement()) player.openWindow.onServerBook(event, packet.hand());
     }
 
     @CultPacketHandler("clientbound.open_sign_editor")
