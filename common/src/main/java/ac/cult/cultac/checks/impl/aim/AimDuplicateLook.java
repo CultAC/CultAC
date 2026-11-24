@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.RotationListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.RotationUpdate;
+import ac.cult.cultac.utils.data.HeadRotation;
 
 @CheckData(
         name = "AimDuplicateLook",
@@ -12,6 +13,8 @@ import ac.cult.cultac.utils.anticheat.update.RotationUpdate;
         description = "Sent a duplicate rotation update without changing look direction")
 public class AimDuplicateLook extends Check implements RotationListener {
     private boolean exempt;
+    // The last update's rotation: LocalPlayer#yRotLast and xRotLast, which a server look leaves as they were.
+    private HeadRotation lastReported;
 
     public AimDuplicateLook(CultPlayer player) {
         super(player);
@@ -19,6 +22,8 @@ public class AimDuplicateLook extends Check implements RotationListener {
 
     @Override
     public void process(final RotationUpdate rotationUpdate) {
+        HeadRotation reported = lastReported;
+        lastReported = rotationUpdate.getTo();
         if (rotationUpdate.isTeleport() || player.compensatedEntities.getSelf().getRiding() != null) {
             exempt = true;
             return;
@@ -29,8 +34,13 @@ public class AimDuplicateLook extends Check implements RotationListener {
             return;
         }
 
-        if (rotationUpdate.getFrom().equals(rotationUpdate.getTo())) {
+        // LocalPlayer#sendPosition sends only a rotation that differs from the last one it sent.
+        if (rotationUpdate.getFrom().equals(rotationUpdate.getTo()) && repeats(reported, rotationUpdate.getTo())) {
             flag();
         }
+    }
+
+    private static boolean repeats(HeadRotation sent, HeadRotation to) {
+        return sent == null || (sent.yaw() == to.yaw() && sent.pitch() == to.pitch());
     }
 }
