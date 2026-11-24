@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerCombatKill;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
@@ -75,14 +76,26 @@ public class PacketPlayerWindow {
     @CultPacketHandler
     public void onGameEvent(
             PacketSendEvent<ClientboundGameEvent> event, CultPlayer player, ClientboundGameEvent packet) {
-        if (packet.event() == GameEventType.WIN_GAME && !player.isBedrockMovement()) {
+        // The DEMO_EVENT with value 0 sets the demo intro screen, which sends nothing when it closes.
+        boolean screen = packet.event() == GameEventType.WIN_GAME
+                || packet.event() == GameEventType.DEMO_EVENT && packet.param() == 0;
+        if (screen && !player.isBedrockMovement()) {
             player.openWindow.onServerScreenOverContainer(event);
+        }
+    }
+
+    @CultPacketHandler
+    public void onPlayerCombatKill(
+            PacketSendEvent<ClientboundPlayerCombatKill> event, CultPlayer player, ClientboundPlayerCombatKill packet) {
+        if (packet.playerId() == player.entityID && !player.isBedrockMovement()) {
+            player.openWindow.onServerDeathScreen(event);
         }
     }
 
     @CultPacketHandler("serverbound.sign_update")
     public void onSignUpdate(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (!player.isBedrockMovement() && !event.isCancelled()) player.openWindow.onClientSignUpdate();
+        // AbstractSignEditScreen#removed alone sends sign_update, so the editor is gone even when it is cancelled.
+        if (!player.isBedrockMovement()) player.openWindow.onClientSignUpdate();
     }
 
     @CultPacketHandler

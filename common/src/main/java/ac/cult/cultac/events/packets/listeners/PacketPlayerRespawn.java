@@ -112,6 +112,7 @@ public class PacketPlayerRespawn {
         // handles transaction split between JOIN_GAME and server teleport
 
         player.packetStateData.showsDeathScreen = packet.showDeathScreen();
+        if (!player.isBedrockMovement()) player.openWindow.onLoginSent();
         final boolean newJavaLocalPlayer =
                 !player.isBedrockMovement() && !player.packetStateData.javaLocalPlayerPresent;
         event.getTasksAfterSend().add(() -> {
