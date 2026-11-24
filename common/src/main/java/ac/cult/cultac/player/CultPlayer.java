@@ -542,17 +542,33 @@ public class CultPlayer implements GrimUser {
      * sends a boat rider's Rot after ClientLevel#tickEntities ran AbstractBoat#positionRider.
      */
     public boolean rotationTurnedAfterPick() {
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        return riding != null && riding.isBoat() && !getClientVersion().isOlderThan(ClientVersion.V_26_3);
+        return vehicleTurnsRider() && !getClientVersion().isOlderThan(ClientVersion.V_26_3);
     }
 
     /**
-     * The yaw Minecraft#pick saw before AbstractBoat#positionRider turned this 26.3 rider to the {@code sent} one; NaN
-     * when that is not one yaw. Valid where {@link #yawWithoutLook} is.
+     * Whether the vehicle this player rides turns it in positionRider: AbstractBoat does, and Minecart does under
+     * minecart_improvements when the client's Rotate with Minecarts option, which the client does not send, is on.
+     */
+    public boolean vehicleTurnsRider() {
+        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        return riding != null && (riding.isBoat() || ridesTurningMinecart(riding));
+    }
+
+    private boolean ridesTurningMinecart(PacketEntity riding) {
+        return riding.type == EntityTypeIds.MINECART
+                &&!getClientVersion().isOlderThan(ClientVersion.V_1_21_2)
+                && compensatedWorld.clientHasFeature("minecraft:minecart_improvements");
+    }
+
+    /**
+     * The yaw Minecraft#pick saw before positionRider turned this 26.3 rider to the {@code sent} one; NaN when that is
+     * not one yaw. Valid where {@link #yawWithoutLook} is.
      */
     public float yawBeforeRideTurn(float sent) {
         PacketEntity boat = compensatedEntities.getSelf().getRiding();
-        if (boat == null || !boat.isBoat()) return sent;
+        if (boat == null) return sent;
+        if (ridesTurningMinecart(boat)) return Float.NaN;
+        if (!boat.isBoat()) return sent;
         if (drivesBoat(boat) ? !boatYawFollowsTurn() : !boat.clientPhysicalYawCurrent) return Float.NaN;
         double rounding = 2.0 * Math.ulp(Math.abs(sent) + 512.0F);
         if (Math.abs(CultMath.wrapDegrees(sent - boat.clientPhysicalYaw)) >= 105.0 - rounding) return Float.NaN;

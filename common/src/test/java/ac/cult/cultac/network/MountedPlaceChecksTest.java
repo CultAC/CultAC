@@ -16,6 +16,7 @@ import ac.cult.cultac.checks.impl.scaffolding.RotationPlace;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.WorldPackets.EnabledFeatures;
 import ac.cult.cultac.network.packet.WorldPackets.TimeUpdate;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -36,6 +37,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -47,6 +49,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 class MountedPlaceChecksTest {
     private static final int CAMEL = 72;
     private static final int BOAT = 100;
+    private static final int MINECART = 101;
     private static final long GAME_TIME = 1027398L;
     // A standing camel facing east at (0.3, 64, 0.6) seats its driver's eye at (0.8, 67.02, 0.6).
     private static final Vec3 CAMEL_AT = new Vec3(0.3, FLOOR_Y, 0.6);
@@ -241,6 +244,63 @@ class MountedPlaceChecksTest {
             }
 
             assertTrue(flagged > 0, "RotationPlace violations after the place behind " + flagged);
+            assertEquals(flagged, rotation.violations, "RotationPlace");
+            assertEquals(state("stone"), f.player.compensatedWorld.getBlockStateIdAt(stone.north()));
+        }
+    }
+
+    /**
+     * Under minecart_improvements Minecart#positionRider turns a rider with Rotate with Minecarts on. A rider whose cart
+     * turns it places on the face its pick looked at: from 26.3 the place's Rot carries the turn of that tick, before
+     * 26.3 the place goes out before a Rot, after a place behind it, with the turns of the ticks before.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_11", "V_26_3"})
+    void aMinecartRiderTurnedByItsCartPlacingOnTheFaceItPickedIsNotFlagged(ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            f.player.setExperimentalChecks(true);
+            f.player.compensatedWorld.applyClientFeatures(
+                    new EnabledFeatures(Set.of("minecraft:vanilla", "minecraft:minecart_improvements")));
+            f.place(BOAT_AT, Vec3.ZERO);
+            f.player.compensatedEntities.addEntity(MINECART, EntityTypeIds.MINECART, BOAT_AT, 0, 0, 0);
+            f.setPassengers(MINECART, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.getInventory().inventory.setHeldItem(ItemUtil.modelItems().stack("minecraft:stone", 64));
+            var rotation = enable(f, RotationPlace.class);
+            BlockPos behind = new BlockPos(0, FLOOR_Y + 1, -3);
+            BlockPos stone = new BlockPos(0, FLOOR_Y + 1, 3);
+            block(f, behind, "stone");
+            block(f, stone, "stone");
+            Vec3 aim = new Vec3(0.5, FLOOR_Y + 1.5, 3);
+            boolean sendsTurnOfItsTick = !version.isOlderThan(ClientVersion.V_26_3);
+            float turn = 20;
+            int placeTick = 4;
+            double flagged = 0;
+            for (int tick = 0; tick <= placeTick; tick++) {
+                Vec3 origin = f.player.compensatedEntities.pickPositions().getFirst();
+                double dx = aim.x - origin.x;
+                double dy = aim.y - (origin.y + STANDING_EYE);
+                double dz = aim.z - origin.z;
+                float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+                float pitch = (float) Math.toDegrees(-Math.atan2(dy, Math.hypot(dx, dz)));
+                if (tick == 0 && !sendsTurnOfItsTick) use(f, behind, Direction.SOUTH, new Vec3d(.5, .5, 1), 1);
+                if (tick == placeTick) {
+                    var cursor = new Vec3d(aim.x - stone.x(), aim.y - stone.y(), 0);
+                    assertFalse(use(f, stone, Direction.NORTH, cursor, 2).isCancelled());
+                }
+                float sent = yaw;
+                if (sendsTurnOfItsTick && tick == placeTick) sent = yaw + turn;
+                if (tick == placeTick - 1) sent = yaw - turn;
+                if (!sendsTurnOfItsTick && tick == placeTick - 2) sent = yaw - 2 * turn;
+                rot(f, sent, pitch);
+                f.tickEnd();
+                if (tick == 0) flagged = rotation.violations;
+            }
+
+            assertTrue(sendsTurnOfItsTick || flagged > 0, "RotationPlace violations after the place behind " + flagged);
             assertEquals(flagged, rotation.violations, "RotationPlace");
             assertEquals(state("stone"), f.player.compensatedWorld.getBlockStateIdAt(stone.north()));
         }

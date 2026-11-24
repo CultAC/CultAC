@@ -6,7 +6,6 @@ import ac.cult.cultac.checks.type.RotationListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.anticheat.update.RotationUpdate;
-import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 @CheckData(
@@ -36,7 +35,7 @@ public class DuplicateRotPlace extends BlockPlaceCheck implements RotationListen
 
     @Override
     public void onPostFlyingBlockPlace(BlockPlace place) {
-        if (rotated && !ridesBoat()) {
+        if (rotated && !player.vehicleTurnsRider()) {
             if (turns.place(deltaX, player.totalFlyingPacketsSent)) {
                 flag(V.write(verbose())
                         .f64(deltaX)
@@ -48,11 +47,6 @@ public class DuplicateRotPlace extends BlockPlaceCheck implements RotationListen
             }
             rotated = false;
         }
-    }
-
-    private boolean ridesBoat() {
-        PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
-        return riding != null && riding.isBoat();
     }
 
     /**

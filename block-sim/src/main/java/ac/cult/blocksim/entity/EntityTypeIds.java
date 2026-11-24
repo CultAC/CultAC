@@ -34,6 +34,7 @@ public final class EntityTypeIds {
     public static final int ITEM_DISPLAY = id("item_display");
     public static final int LLAMA = id("llama");
     public static final int MAGMA_CUBE = id("magma_cube");
+    public static final int MINECART = id("minecart");
     public static final int MOOSHROOM = id("mooshroom");
     public static final int MULE = id("mule");
     public static final int OAK_BOAT = id("oak_boat");

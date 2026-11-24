@@ -21,10 +21,10 @@ public final class RiderPickYaw {
             return;
         }
         PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
-        if (riding == null || !riding.isBoat()) return;
+        if (riding == null || !player.vehicleTurnsRider()) return;
         vehicle = riding;
         fromYaw = player.xRot;
-        yaw = player.yawAfterRideTick();
+        yaw = riding.isBoat() ? player.yawAfterRideTick() : Float.NaN;
     }
 
     /** The yaw of the pick behind a place or break that arrives before this tick's Rot; NaN when that is not one yaw. */
