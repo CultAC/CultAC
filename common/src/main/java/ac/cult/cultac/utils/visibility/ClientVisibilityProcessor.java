@@ -122,5 +122,6 @@ public final class ClientVisibilityProcessor extends CultProcessor implements Ch
         if (!movedThisTick) positionReported = false;
         movedThisTick = false;
         visibility.endSelection();
+        visibility.onTickEnd();
     }
 }

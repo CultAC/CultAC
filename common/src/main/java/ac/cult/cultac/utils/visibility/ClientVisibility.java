@@ -9,6 +9,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.utils.blockplace.ClientEntityQueries;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TransactionVel;
@@ -184,6 +185,12 @@ public final class ClientVisibility {
         activeSelection = null;
         player.compensatedWorld.endSelectionSnapshot();
     }
+
+    // Ender dragon parts lie within this distance of the dragon's box (EnderDragon#aiStep's part offsets).
+    private static final double DRAGON_PART_REACH = 8;
+    private PacketEntity tickEndSelf;
+    private double tickEndX, tickEndY, tickEndZ;
+    private List<Vec3> tickEndSeatEyes = List.of();
 
     public ClientVisibility(CultPlayer player) {
         this.player = player;
@@ -400,22 +407,80 @@ public final class ClientVisibility {
     /**
      * Whether LocalPlayer#raycastHitResult, from the local player's eye, may have selected {@code target}, an entity
      * that shares the player's Entity#getRootVehicle. ProjectileUtil#getEntityHitResult selects such an entity only
-     * from inside its box, or along the ray once the box of any entity holds the eye; AttackRange#getClosesetHit
-     * selects it like any other entity.
+     * from inside its box, or along the ray once the box of any entity iterated before it holds the eye;
+     * AttackRange#getClosesetHit selects it like any other entity.
      */
     public boolean ownVehicleTreePickPossible(PacketEntity target, double positionError) {
         if (!hiddenForEverySelection(() -> itemPickHidden(pickEnvelope(target), positionError))) return true;
         double error = EyePositionTolerance.BUFFER + positionError;
-        List<Vec3> eyes = new ArrayList<>();
-        addSelfEyes(eyes, new ArrayList<>());
+        List<Vec3> eyes = tickStartEyes();
         var self = player.compensatedEntities.getSelf();
+        var queries = new ClientEntityQueries(player);
+        // Through 1.21.3 Level#getEntities lists an ender dragon's parts right after it, so a part around the eye
+        // comes before the entities after the dragon; later releases list every part last. Parts are not modelled.
+        boolean partsInline = player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4);
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-            if (entity == self || !EntityTypeUtil.isPickable(entity.type)) continue;
+            if (entity == self) continue;
+            double reach;
+            if (entity.type == EntityTypeIds.ENDER_DRAGON) {
+                if (!partsInline) continue;
+                reach = error + DRAGON_PART_REACH;
+            } else if (queries.pickable(entity)) {
+                reach = error + pickRadius(entity);
+            } else continue;
             SimpleCollisionBox box = pickEnvelope(entity);
-            double reach = error + pickRadius(entity);
             for (Vec3 eye : eyes) if (contains(box, eye, reach)) return true;
         }
         return false;
+    }
+
+    /**
+     * Called at each client tick end. Minecraft#tick picks before LocalPlayer#rideTick, so the next tick's pick runs
+     * from the eye this tick left: a vehicle mounted or moved since seats the player only after the pick.
+     */
+    public void onTickEnd() {
+        var self = player.compensatedEntities.getSelf();
+        tickEndSelf = self;
+        tickEndX = player.x;
+        tickEndY = player.y;
+        tickEndZ = player.z;
+        if (self.getRiding() == null) {
+            tickEndSeatEyes = List.of();
+            return;
+        }
+        List<Vec3> eyes = new ArrayList<>();
+        addSelfEyes(eyes, null, crouchingPossible(), lowPosePossible());
+        tickEndSeatEyes = eyes;
+    }
+
+    // The eyes the pick of the tick in progress may have run from: the eye the last tick end left, or the current
+    // one should a teleport or the model's own lag have moved it since.
+    private List<Vec3> tickStartEyes() {
+        List<Vec3> eyes = new ArrayList<>();
+        addSelfEyes(eyes, null, crouchingPossible(), lowPosePossible());
+        if (tickEndSelf != player.compensatedEntities.getSelf()) return eyes;
+        // Entity#startRiding sets the standing pose at once; any earlier pose may still hold on foot.
+        if (tickEndSeatEyes.isEmpty()) addPoseEyes(eyes, null, new Vec3(tickEndX, tickEndY, tickEndZ), 0, true, true);
+        else eyes.addAll(tickEndSeatEyes);
+        return eyes;
+    }
+
+    // Player#getDesiredPose's crouching, which needs the shift key Player#updatePlayerPose last read.
+    private boolean crouchingPossible() {
+        return player.isSneaking || player.pose == Pose.CROUCHING;
+    }
+
+    // Player#getDesiredPose's 0.6 high poses: swimming, fall flying and the riptide spin.
+    private boolean lowPosePossible() {
+        return player.isGliding
+                || player.isRiptidePose
+                || player.riptideSpinAttackTicks > 0
+                || player.swimState.swimming()
+                || lowPose(player.pose);
+    }
+
+    private static boolean lowPose(Pose pose) {
+        return pose == Pose.SWIMMING || pose == Pose.FALL_FLYING || pose == Pose.SPIN_ATTACK;
     }
 
     // Every position the client may hold the entity's bounding box at.
@@ -558,29 +623,46 @@ public final class ClientVisibility {
     }
 
     private void addSelfEyes(List<Vec3> eyes, List<Vec3> trackedEyes) {
+        addSelfEyes(eyes, trackedEyes, true, true);
+    }
+
+    /**
+     * Entity#getEyePosition of the local player in the tracked pose, standing, crouching when {@code crouching} and in
+     * the 0.4 poses when {@code low}. Entity#positionRider subtracts the pose's EntityAttachment.VEHICLE from the
+     * seat; Avatar.POSES gives one to standing and crouching only, so the other poses sit at the seat.
+     */
+    private void addSelfEyes(List<Vec3> eyes, List<Vec3> trackedEyes, boolean crouching, boolean low) {
         var self = player.compensatedEntities.getSelf();
-        if (self.getRiding() == null) addPlayerEyes(eyes, trackedEyes, new Vec3(player.x, player.y, player.z));
-        else {
-            var riding = self.getRiding();
-            for (SimpleCollisionBox box : riding.getPositionCollisionBoxCandidates()) {
-                Vec3 origin = BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player, box);
-                addPlayerEyes(eyes, trackedEyes, origin);
-            }
+        var riding = self.getRiding();
+        if (riding == null) {
+            addPoseEyes(eyes, trackedEyes, new Vec3(player.x, player.y, player.z), 0, crouching, low);
+            return;
+        }
+        double attachment = BoundingBoxSize.vehicleAttachmentY(self);
+        for (SimpleCollisionBox box : riding.getPositionCollisionBoxCandidates()) {
+            Vec3 feet = BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player, box);
+            addPoseEyes(eyes, trackedEyes, feet, attachment, crouching, low);
         }
     }
 
-    private void addPlayerEyes(List<Vec3> eyes, List<Vec3> trackedEyes, Vec3 origin) {
-        Vec3 tracked = origin.add(0, player.getEyeHeight(), 0);
+    /** {@code feet} is where the standing pose's attachment puts the feet; {@code attachment} is that attachment. */
+    private void addPoseEyes(
+            List<Vec3> eyes, List<Vec3> trackedEyes, Vec3 feet, double attachment, boolean crouching, boolean low) {
+        boolean attached = player.pose == Pose.STANDING || player.pose == Pose.CROUCHING;
+        Vec3 tracked = feet.add(0, (attached ? 0 : attachment) + player.getEyeHeight(), 0);
         eyes.add(tracked);
-        trackedEyes.add(tracked);
+        if (trackedEyes != null) trackedEyes.add(tracked);
         // Entity#getEyePosition uses the pose's discrete EntityDimensions eye
         // height. Avatar.POSES (26.3) has 1.62F, 1.27F and .4F; scale is a float
         // product. Include the tracked height separately for sleeping/forced poses.
-        List<Pose> poses = List.of(Pose.STANDING, Pose.CROUCHING, Pose.SWIMMING);
-        for (Pose pose : poses) {
-            Vec3 eye = origin.add(0, pose.eyeHeight * player.getScale(), 0);
-            if (!eyes.contains(eye)) eyes.add(eye);
-        }
+        float scale = player.getScale();
+        addEye(eyes, feet.add(0, Pose.STANDING.eyeHeight * scale, 0));
+        if (crouching) addEye(eyes, feet.add(0, Pose.CROUCHING.eyeHeight * scale, 0));
+        if (low) addEye(eyes, feet.add(0, attachment + Pose.SWIMMING.eyeHeight * scale, 0));
+    }
+
+    private static void addEye(List<Vec3> eyes, Vec3 eye) {
+        if (!eyes.contains(eye)) eyes.add(eye);
     }
 
     private List<SimpleCollisionBox> nearbyEyeShapes(Vec3 eye, double radius) {

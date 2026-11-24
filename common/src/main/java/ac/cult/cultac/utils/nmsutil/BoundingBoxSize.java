@@ -247,6 +247,16 @@ public class BoundingBoxSize {
         return out;
     }
 
+    /**
+     * The height of {@code passenger}'s EntityAttachment.VEHICLE in its type's default dimensions, the attachment
+     * {@link #ridingPosition} subtracts from the seat.
+     */
+    public static double vehicleAttachmentY(PacketEntity passenger) {
+        EntityTypes.Type type = baseDimensions(passenger);
+        double y = type.vehicle().getFirst().y();
+        return !type.fixed() && passenger.scale != 1.0F ? y * passenger.scale : y;
+    }
+
     private static void rotateAttachment(SimpleCollisionBox out, double x, double y, double z, float yaw) {
         rotateRadians(out, x, y, z, -yaw * (float) (Math.PI / 180.0));
     }
