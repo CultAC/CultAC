@@ -631,11 +631,12 @@ public final class CultConnection
     }
 
     /**
-     * Whether the server has been forwarded this client's movement and not yet the tick end that follows it: a packet
-     * forwarded now lands inside the client's tick. Never for a client without tick ends. On the channel loop.
+     * Whether the server has been forwarded this client's movement and not yet the tick end that follows it, or packets
+     * of the client's tick are held: a packet written to the server now lands inside the client's tick or ahead of
+     * packets the client sent before it. Never for a client without tick ends. On the channel loop.
      */
     public boolean midClientTick() {
-        return midClientTick && owner == channel.eventLoop();
+        return owner == channel.eventLoop() && (midClientTick || forwardHold.holds());
     }
 
     /** The serverbound packets processed and not yet forwarded. On the owner. */

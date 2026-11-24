@@ -17,12 +17,13 @@ final class VelocityServerbound {
             // Frames enter after Cult's decoder in the observed format Velocity's decoder expects.
             var context = channel.pipeline().context(CultDecoder.NAME);
             if (context == null
+                    || !(context.handler() instanceof CultDecoder decoder)
                     || !channel.isActive()
                     || connection.phase(PacketDirection.SERVERBOUND) != ConnectionPhase.PLAY) return;
             try {
                 var encoded =
                         connection.packets().encode(ConnectionPhase.PLAY, type, packet, channel.alloc(), connection);
-                encoded.frames().forEach(context::fireChannelRead);
+                encoded.frames().forEach(frame -> decoder.forwardInjected(context, frame));
             } catch (RuntimeException failure) {
                 CultNetworkManager.reportFailure("Velocity serverbound injection", failure);
             }

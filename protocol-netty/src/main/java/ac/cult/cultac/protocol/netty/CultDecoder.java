@@ -99,6 +99,12 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
         }
     }
 
+    /** Passes a frame cultac writes as the client's on to the server, behind every packet still held. */
+    public void forwardInjected(ChannelHandlerContext ctx, ByteBuf frame) {
+        if (connection.owner().inEventLoop()) forwardUnprocessed(ctx, frame);
+        else ctx.fireChannelRead(frame);
+    }
+
     /** Passes a frame cultac could not process on to the server, behind every packet still held. */
     private void forwardUnprocessed(ChannelHandlerContext ctx, ByteBuf frame) {
         ForwardHold hold = connection.forwardHold();

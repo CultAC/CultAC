@@ -27,6 +27,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockChangedAck;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -174,6 +175,27 @@ class UseItemTickRotationForwardTest {
             t.tickEnd();
             assertEquals(List.of("use_item 1", "client_tick_end"), t.forwarded());
             assertEquals(0, t.check.getViolations());
+        }
+    }
+
+    @Test
+    void aPacketCultacWritesForTheClientReachesTheServerBehindTheHeldPackets() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+            var connection = f.fixture.connection;
+            var context = f.fixture.channel.pipeline().context(CultDecoder.NAME);
+
+            t.use(1, YAW, PITCH);
+            assertTrue(connection.midClientTick(), "a bridge message would land ahead of the use");
+            ((CultDecoder) context.handler())
+                    .forwardInjected(
+                            context,
+                            f.fixture.encode(ServerboundPackets.CONTAINER_CLOSE, new ServerboundContainerClose(0)));
+            assertEquals(List.of(), t.forwarded());
+            t.tickEnd();
+            assertEquals(List.of("use_item 1", "container_close", "client_tick_end"), t.forwarded());
+            assertFalse(connection.midClientTick());
         }
     }
 
