@@ -1,23 +1,52 @@
 package ac.cult.cultac.player;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
-/** Client identity reported by the brand, registered channels and companion. */
-public record ClientClassification(Type brandType, Type channelType, Type modType) {
+/**
+ * Client identity reported by the brand, registered channels and companion. {@code channelTypes} lists every client
+ * family the registered channels name, in {@link Type} order; {@code channelType} is that family when there is one,
+ * {@link Type#UNKNOWN} when they name several and {@link Type#UNSET} when none.
+ */
+public record ClientClassification(Type brandType, Type channelType, Type modType, List<Type> channelTypes) {
     public enum Type {
-        VANILLA,
-        FABRIC,
-        FORGE,
-        NEOFORGE,
-        QUILT,
-        LUNAR,
-        BADLION,
-        FEATHER,
-        LABYMOD,
-        BEDROCK,
-        UNKNOWN,
-        UNSET
+        VANILLA("Vanilla"),
+        FABRIC("Fabric"),
+        FORGE("Forge"),
+        NEOFORGE("NeoForge"),
+        QUILT("Quilt"),
+        LUNAR("Lunar"),
+        BADLION("Badlion"),
+        FEATHER("Feather"),
+        LABYMOD("LabyMod"),
+        BEDROCK("Bedrock"),
+        UNKNOWN("Unknown"),
+        UNSET("None");
+
+        private final String label;
+
+        Type(String label) {
+            this.label = label;
+        }
+
+        /** The name shown to staff. */
+        public String label() {
+            return label;
+        }
+    }
+
+    public ClientClassification {
+        channelTypes = List.copyOf(channelTypes);
+    }
+
+    public ClientClassification(Type brandType, Type channelType, Type modType) {
+        this(
+                brandType,
+                channelType,
+                modType,
+                channelType == Type.UNSET || channelType == Type.UNKNOWN ? List.of() : List.of(channelType));
     }
 
     public static Type brandType(String brand) {
@@ -49,7 +78,7 @@ public record ClientClassification(Type brandType, Type channelType, Type modTyp
     }
 
     public static Type channelType(String channel) {
-        if (channel.equals("fabric:registry/sync") || channel.equals("fabric:registry/sync/direct")) return Type.FABRIC;
+        if (channel.startsWith("fabric:") || channel.startsWith("fabric-")) return Type.FABRIC;
         if (channel.startsWith("neoforge:")) return Type.NEOFORGE;
         if (channel.startsWith("fml:")
                 || channel.startsWith("forge:")
@@ -70,5 +99,28 @@ public record ClientClassification(Type brandType, Type channelType, Type modTyp
         return "brandtype=" + brandType
                 + (brandType == channelType ? "" : " channeltype=" + channelType)
                 + (modType == Type.UNSET ? "" : " modtype=" + modType);
+    }
+
+    /** The registered channels' families for staff, such as {@code Fabric, Lunar}; {@code None} without any. */
+    public String channelLabel() {
+        return channelTypes.isEmpty()
+                ? Type.UNSET.label()
+                : channelTypes.stream().map(Type::label).collect(Collectors.joining(", "));
+    }
+
+    /**
+     * The classification for staff: the brand's family, then the channels' families when they are not just that one,
+     * then the companion's when it differs, such as {@code Lunar (channels: Fabric, Lunar)} or {@code Fabric}.
+     */
+    public String summary() {
+        StringBuilder details = new StringBuilder();
+        if (!channelTypes.isEmpty() && !channelTypes.equals(List.of(brandType))) {
+            details.append("channels: ").append(channelLabel());
+        }
+        if (modType != Type.UNSET && modType != brandType) {
+            if (!details.isEmpty()) details.append("; ");
+            details.append("mod: ").append(modType.label());
+        }
+        return details.isEmpty() ? brandType.label() : brandType.label() + " (" + details + ")";
     }
 }

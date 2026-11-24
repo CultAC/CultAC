@@ -65,6 +65,19 @@ final class PluginChannelListTest {
         assertEquals(ClientClassification.Type.UNSET, manager.getChannelType());
     }
 
+    @Test
+    void channelTypesListEveryActiveFamilyInTypeOrder() {
+        var manager = new PluginChannelManager(null);
+        manager.handleChannelRegistered("lunar:apollo");
+        manager.handleChannelRegistered("fabric-screen-handler-api-v1:open_screen");
+        manager.handleChannelRegistered("voicechat:state");
+        assertEquals(
+                List.of(ClientClassification.Type.FABRIC, ClientClassification.Type.LUNAR), manager.getChannelTypes());
+        manager.handleChannelUnregistered("lunar:apollo");
+        assertEquals(List.of(ClientClassification.Type.FABRIC), manager.getChannelTypes());
+        assertEquals(ClientClassification.Type.FABRIC, manager.getChannelType());
+    }
+
     private static final class CountingChannels extends LinkedHashSet<String> {
         int visits;
 

@@ -86,7 +86,8 @@ public class CultProfile implements BuildableCommand {
                         MessageUtil.miniMessage(CultAPI.INSTANCE
                                 .getConfigManager()
                                 .getConfig()
-                                .getStringElse("profile-client-classification", "&7%client_classification%"))));
+                                .getStringElse(
+                                        "profile-client-classification", "&bClient Type: &f%client_classification%"))));
             }
         }
         return lines;

@@ -6,6 +6,7 @@ import ac.cult.cultac.manager.PunishmentManager;
 import ac.cult.cultac.manager.config.ConfigManagerFileImpl;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.network.routing.NetworkModule;
+import ac.cult.cultac.player.ClientClassification;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.AlertDetails;
@@ -268,22 +269,22 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         variableReplacements.putIfAbsent(
                 "%brandtype%",
                 user -> user instanceof CultPlayer p
-                        ? p.getClientClassification().brandType().name()
-                        : "UNKNOWN");
+                        ? p.getClientClassification().brandType().label()
+                        : ClientClassification.Type.UNKNOWN.label());
         variableReplacements.putIfAbsent(
                 "%channeltype%",
                 user -> user instanceof CultPlayer p
-                        ? p.getClientClassification().channelType().name()
-                        : "UNSET");
+                        ? p.getClientClassification().channelLabel()
+                        : ClientClassification.Type.UNSET.label());
         variableReplacements.putIfAbsent(
                 "%modtype%",
                 user -> user instanceof CultPlayer p
-                        ? p.getClientClassification().modType().name()
-                        : "UNSET");
+                        ? p.getClientClassification().modType().label()
+                        : ClientClassification.Type.UNSET.label());
         variableReplacements.putIfAbsent(
                 "%client_classification%",
                 user -> user instanceof CultPlayer p
-                        ? p.getClientClassification().display()
+                        ? p.getClientClassification().summary()
                         : "");
         variableReplacements.putIfAbsent(
                 "%h_sensitivity%", user -> AlertDetails.sensitivity(user.getHorizontalSensitivity(), false));

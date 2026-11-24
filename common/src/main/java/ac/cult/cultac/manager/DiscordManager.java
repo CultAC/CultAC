@@ -62,6 +62,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
     private static final AtomicBoolean taskStarted = new AtomicBoolean();
     static final String DEFAULT_TITLE = "%player% has been detected for %check% [%violations%]";
     static final String DEFAULT_FOOTER_TEXT = "v%cult_version%";
+    static final String CLIENT_TYPE_LINE = "**Client Type**: `%client_classification%`";
     private URI url;
     private int embedColor;
     private CompiledDiscordTemplate compiledContent;
@@ -155,8 +156,8 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             StringBuilder sb = new StringBuilder();
             List<String> content = config.getStringListElse(
                     "violation-content", EnglishDefaults.stringList("discord", "violation-content"));
-            for (String string : content) {
-                sb.append(string).append("\n");
+            for (String line : withClientType(content)) {
+                sb.append(line).append("\n");
             }
             includeTimestamp = config.getBooleanElse("include-timestamp", true);
             includeVerbose = config.getBooleanElse("include-verbose", true);
@@ -167,6 +168,29 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
         } catch (Exception e) {
             LogUtil.error("Failed to load Discord webhook configuration", e);
         }
+    }
+
+    /**
+     * {@code content} with {@link #CLIENT_TYPE_LINE} after its first {@code %brand%} line, unless a line already shows
+     * the client type.
+     */
+    static List<String> withClientType(List<String> content) {
+        for (String line : content) {
+            if (line.contains("%client_classification%")
+                    || line.contains("%brandtype%")
+                    || line.contains("%channeltype%")
+                    || line.contains("%modtype%")) return content;
+        }
+        List<String> lines = new ArrayList<>(content.size() + 1);
+        boolean placed = false;
+        for (String line : content) {
+            lines.add(line);
+            if (!placed && line.contains("%brand%")) {
+                lines.add(CLIENT_TYPE_LINE);
+                placed = true;
+            }
+        }
+        return lines;
     }
 
     public void sendAlert(@NotNull CultPlayer player, String verbose, String checkName, int violations) {
@@ -190,11 +214,6 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
                 CultAPI.INSTANCE.getExternalAPI().getVariableReplacements();
 
         String content = compiledContent.render(player, statics, dynamics, backtickReplacement);
-        if (compiledContent.uses("%brand%")
-                && !compiledContent.uses("%client_classification%")
-                && !compiledContent.uses("%brandtype%")) {
-            content += "\n" + player.getClientClassification().display();
-        }
         String title = compiledTitle.render(player, statics, dynamics, backtickReplacement);
 
         Embed embed = new Embed(truncate(content, Embed.MAX_DESCRIPTION_LENGTH))
