@@ -25,7 +25,9 @@ public final class PlayerSearchSnapshot {
         values.put("fastmath", List.of(Boolean.toString(!player.isVanillaMath())));
         ClientClassification classification = player.getClientClassification();
         values.put("brandtype", List.of(typeName(classification.brandType())));
-        values.put("channeltype", List.of(typeName(classification.channelType())));
+        values.put("channeltype", classification.channelTypes().isEmpty()
+                ? List.of(typeName(classification.channelType()))
+                : classification.channelTypes().stream().map(PlayerSearchSnapshot::typeName).toList());
         values.put("modtype", List.of(typeName(classification.modType())));
         if (!player.isBedrockMovement()) {
             AimProcessor aim = player.checkManager.getCheck(AimProcessor.class);
