@@ -259,6 +259,7 @@ public class WorldStageBuilder {
                                 player,
                                 simulationContext,
                                 simulationContext.getEnd().subtract(simulationContext.getStart()));
+        player.localPortalProcess.onContactJudged();
 
         DesyncStatus honeySlide = isSlidingDown(player, simulationContext);
         // MCP-Reborn Entity#checkSupportingBlock stores mainSupportingBlockPos

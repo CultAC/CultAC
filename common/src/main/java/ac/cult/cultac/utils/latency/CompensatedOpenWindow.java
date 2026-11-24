@@ -6,7 +6,9 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import lombok.Getter;
 import org.jetbrains.annotations.Nullable;
@@ -16,6 +18,8 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     private static final Window PLAYER_INVENTORY = new Window(0, Long.MIN_VALUE, null);
     private final CultPlayer player;
     private final Set<@Nullable Window> possibleOpenWindows = new HashSet<>(2);
+    // Server windows sent without proofs, by id: the newest transaction written before each.
+    private final Map<Integer, Integer> untrackedServerWindows = new HashMap<>(2);
     private long openPlayerInventoryTransaction = Long.MIN_VALUE;
     private long closeTransaction = Long.MIN_VALUE;
     private int newestServerWindow = Integer.MIN_VALUE;
@@ -46,13 +50,17 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
             onClose();
             closeTransaction = transaction;
         }
+        untrackedServerWindows.values().removeIf(sent -> sent < transaction);
     }
 
     public void onServerWindow(PacketSendEvent<?> event, int id, @Nullable MenuType type) {
         CultPlayer.TrackedTransaction before =
                 player.createTrackedTransactionPacketForDeferredSend(CultPlayer.PING_LEADING);
         CultPlayer.TrackedTransaction after = player.createTrackedTransactionPacketForDeferredSend();
-        if (before == null || after == null) return;
+        if (before == null || after == null) {
+            if (type != null) onUntrackedServerWindow(id);
+            return;
+        }
         Window window = type == null ? null : new Window(id, before.transaction(), type);
         if (window != null) newestServerWindow = before.transaction();
         // Both proofs stay inside the outbound group. Vanilla processes bundles
@@ -72,6 +80,38 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
             closeDialogBefore(before.transaction());
             if (window != null) player.serverOpenedInventoryThisTick = true;
         });
+    }
+
+    /** An open_screen or a mount screen this model cannot follow, for a window the client may show. */
+    public void onUntrackedServerWindow(int id) {
+        untrackedServerWindows.put(id, player.lastTransactionSent.get());
+    }
+
+    /**
+     * Whether the client may have handled a server window {@code id} after a container_close it sent once it had
+     * answered {@code closeTransaction}: a possible window, kept by that close for being handled after it, or an
+     * untracked one written after the last ping answered by then.
+     */
+    public boolean mayHaveOpenedSince(int id, int closeTransaction) {
+        for (Window window : possibleOpenWindows) {
+            if (window != null && window.type() != null && window.id() == id) return true;
+        }
+        Integer sent = untrackedServerWindows.get(id);
+        return sent != null && sent >= closeTransaction;
+    }
+
+    /**
+     * Whether window {@code id} may be a {@code type} menu: one possible window is, or none the model knows has its id
+     * and it is not 0, the player inventory menu's.
+     */
+    public boolean mayBe(int id, MenuType type) {
+        boolean known = false;
+        for (Window window : possibleOpenWindows) {
+            if (window == null || window.id() != id) continue;
+            if (window.type() == type) return true;
+            known = true;
+        }
+        return !known && id != 0;
     }
 
     private void closeBefore(int transaction, boolean closeEmpty) {

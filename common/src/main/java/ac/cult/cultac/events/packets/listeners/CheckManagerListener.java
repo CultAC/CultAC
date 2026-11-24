@@ -1289,7 +1289,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         // Entity#isAffectedByBlocks excludes the noPhysics spectator, and Entity#canUsePortal a passenger.
         if (aiStep) {
             player.localPortalProcess.onAiStep(
-                    player.intersectedWithNetherPortal && player.gamemode != GameMode.SPECTATOR && !player.inVehicle());
+                    player.gamemode != GameMode.SPECTATOR && !player.inVehicle(), player.intersectedWithNetherPortal);
         }
         if (aiStep && !event.isSynthetic() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
             player.ridingJumpCharge.onClientTick(

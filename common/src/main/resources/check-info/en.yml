@@ -374,6 +374,9 @@ checks:
   InventoryL:
     summary: "Picked a block or left a bed with an inventory open"
     details: "The pick block key does nothing while an inventory or chest is open, and the Leave Bed button isn't on screen. Doing either anyway comes from a modified client or a cheat that sends actions on its own. The alert says which one it was."
+  InventoryM:
+    summary: "Clicked in or closed an inventory again right after closing one"
+    details: "Once an inventory closes, the game can't click in it or close it again until its next tick, unless the server opened a new one in between. Doing so anyway comes from a modified client or a cheat that sends inventory actions on its own. The alert says whether it was a click or a close."
   # Chat
   ChatA:
     summary: "Asked for command suggestions with nothing typed"

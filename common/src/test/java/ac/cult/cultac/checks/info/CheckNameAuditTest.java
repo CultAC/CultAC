@@ -36,8 +36,7 @@ class CheckNameAuditTest {
         List<String> newer = CheckNameAudit.warnings(config(1, 1, List.of("AttackEntityVisibility"), null));
         assertEquals(1, newer.size(), newer.toString());
         assertTrue(
-                newer.get(0).startsWith("punishments.yml: \"attackentityvisibility\" selects no check."),
-                newer.get(0));
+                newer.get(0).startsWith("punishments.yml: \"attackentityvisibility\" selects no check."), newer.get(0));
         assertTrue(newer.get(0).endsWith("where that check is AttackMobVisibility"), newer.get(0));
 
         List<String> older = CheckNameAudit.warnings(config(2, 2, List.of("!AttackMobVisibility"), null));
@@ -59,15 +58,15 @@ class CheckNameAuditTest {
                         .endsWith("where those checks are MultiActionsC, MultiActionsD, MultiActionsH, MultiActionsI,"
                                 + " MultiActionsJ, MultiActionsK, MultiActionsL, MultiActionsM, MultiActionsN,"
                                 + " MultiActionsO, MultiActionsP, MultiActionsQ, MultiActionsR, MultiActionsS,"
-                                + " MultiActionsT, MultiActionsU"),
+                                + " MultiActionsT, MultiActionsU, MultiActionsV"),
                 newer.get(0));
 
         // Version 3 moves these out of MultiActions, so a file of it selects them with "Inventory".
         assertEquals(
                 List.of("punishments.yml: \"multiactions\" selects InventoryA, InventoryB, InventoryC, InventoryD,"
                         + " InventoryE, InventoryF, InventoryG, InventoryH, InventoryI, InventoryJ, InventoryK,"
-                        + " InventoryL as name version 2 names them, and punishment-check-name-version is 3, where no"
-                        + " group selects them"),
+                        + " InventoryL, InventoryM as name version 2 names them, and punishment-check-name-version is 3,"
+                        + " where no group selects them"),
                 CheckNameAudit.warnings(config(3, 3, List.of("MultiActions"), null)));
         assertEquals(List.of(), CheckNameAudit.warnings(config(3, 3, List.of("MultiActions", "Inventory"), null)));
         assertEquals(List.of(), CheckNameAudit.warnings(config(3, 3, List.of("MultiActions", "!Inventory"), null)));

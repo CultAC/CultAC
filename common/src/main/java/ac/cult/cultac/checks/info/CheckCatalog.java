@@ -137,6 +137,7 @@ import ac.cult.cultac.checks.impl.multiactions.MultiActionsR;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsS;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsT;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsU;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsV;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderA;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderB;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderC;
@@ -371,6 +372,7 @@ public final class CheckCatalog {
             check(MultiActionsS.class, INVENTORY),
             check(MultiActionsT.class, INVENTORY),
             check(MultiActionsU.class, INVENTORY),
+            check(MultiActionsV.class, INVENTORY),
             check(ChatA.class, CHAT),
             check(ChatB.class, CHAT),
             check(ChatC.class, CHAT),

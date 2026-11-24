@@ -121,6 +121,7 @@ public class PacketPlayerWindow {
         if (!player.isBedrockMovement()) {
             MenuType type = MenuType.fromRegistryKey(packet.menuType());
             if (type != MenuType.UNKNOWN) player.openWindow.onServerWindow(event, packet.containerId(), type);
+            else player.openWindow.onUntrackedServerWindow(packet.containerId());
             return;
         }
         player.sendTransaction();
@@ -142,6 +143,8 @@ public class PacketPlayerWindow {
                             || EntityTypeUtil.isType(entity.getEntityType(), "nautilus")
                             || EntityTypeUtil.isType(entity.getEntityType(), "zombie_nautilus"))) {
                 player.openWindow.onServerWindow(event, packet.containerId(), MenuType.UNKNOWN);
+            } else {
+                player.openWindow.onUntrackedServerWindow(packet.containerId());
             }
             return;
         }
