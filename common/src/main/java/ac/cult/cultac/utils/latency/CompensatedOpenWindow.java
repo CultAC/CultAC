@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import java.util.HashMap;
@@ -252,7 +253,19 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     }
 
     public boolean mustBeOpen() {
-        return !possibleOpenWindows.contains(null);
+        return !possibleOpenWindows.contains(null) && !debugOptionsKeyMayReplaceCoveredContainer();
+    }
+
+    /**
+     * KeyboardHandler's debug options key (1.21.9+) runs a handled dialog's Screen#onClose, which sets the covered
+     * container screen back, then sets a DebugOptionsScreen in its place: Minecraft#setScreen only calls
+     * AbstractContainerScreen#removed, which sends no container_close. A container click or close after the dialog
+     * proves the container screen is back on top.
+     */
+    private boolean debugOptionsKeyMayReplaceCoveredContainer() {
+        return dialogMayCover
+                && player.lastTransactionReceived.get() > dialogTransaction
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_9);
     }
 
     /**

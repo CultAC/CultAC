@@ -358,6 +358,49 @@ class MultiActionsUPickLeaveBedTest {
         }
     }
 
+    /**
+     * KeyboardHandler's debug options key (1.21.9+) runs the dialog's Screen#onClose, which sets the chest back, then
+     * sets a DebugOptionsScreen in its place; AbstractContainerScreen#removed sends no container_close.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource(RELEASES)
+    void aPickAfterTheDebugOptionsKeyReplacedADialogOverAChestDoesNotFlag(String release, ClientVersion version)
+            throws Exception {
+        assumeTrue(version.isNewerThanOrEquals(ClientVersion.V_1_21_9));
+        try (var f = chestOpen(version)) {
+            showDialog(f);
+            f.pongThrough(f.player.sendTransactionAndGetId());
+            pick(f);
+            assertEquals(0, violations(f));
+        }
+    }
+
+    /** Before 1.21.9 a dialog over a chest leaves no key that drops the chest without a container_close. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource(RELEASES)
+    void aPickWithAHandledDialogOverAChestFlagsBeforeTheDebugOptionsKey(String release, ClientVersion version)
+            throws Exception {
+        assumeTrue(version.isNewerThanOrEquals(ClientVersion.V_1_21_6) && version.isOlderThan(ClientVersion.V_1_21_9));
+        try (var f = chestOpen(version)) {
+            showDialog(f);
+            f.pongThrough(f.player.sendTransactionAndGetId());
+            pick(f);
+            assertEquals(1, violations(f));
+        }
+    }
+
+    /** Until the client has handled the dialog the chest is on top, so a pick still flags. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource(RELEASES)
+    void aPickWhileADialogIsUnhandledFlags(String release, ClientVersion version) throws Exception {
+        assumeTrue(version.isNewerThanOrEquals(ClientVersion.V_1_21_9));
+        try (var f = chestOpen(version)) {
+            showDialog(f);
+            pick(f);
+            assertEquals(1, violations(f));
+        }
+    }
+
     /** handleContainerClose closes the client's screen whatever its id: the click may come before or after it. */
     @ParameterizedTest(name = "{0}")
     @MethodSource(RELEASES)
