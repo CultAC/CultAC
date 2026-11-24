@@ -89,7 +89,27 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             connection.runInModel(() -> hold.forwardAll(read));
         } catch (Throwable failure) {
             CultNetworkManager.reportFailure("held packet release", failure);
+            try {
+                hold.forwardAll(read);
+            } catch (Throwable again) {
+                CultNetworkManager.reportFailure("held packet release", again);
+            } finally {
+                hold.discard();
+            }
         }
+    }
+
+    /** Passes a frame cultac could not process on to the server, behind every packet still held. */
+    private void forwardUnprocessed(ChannelHandlerContext ctx, ByteBuf frame) {
+        ForwardHold hold = connection.forwardHold();
+        if (!hold.holds()) {
+            ctx.fireChannelRead(frame);
+            return;
+        }
+        ModelRead read = new ModelRead();
+        read.ctx = ctx;
+        hold.add(frame, null, null);
+        hold.drain(read);
     }
 
     @Override
@@ -107,7 +127,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             }
         } catch (Throwable failure) {
             CultNetworkManager.reportFailure("inbound packet owner", failure);
-            ctx.fireChannelRead(frame);
+            forwardUnprocessed(ctx, frame);
             return;
         }
         ModelRead read = idleRead;
@@ -120,7 +140,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             connection.runInModel(read);
         } catch (Throwable failure) {
             CultNetworkManager.reportFailure("inbound model context", failure);
-            if (!read.consumed) ctx.fireChannelRead(frame);
+            if (!read.consumed) forwardUnprocessed(ctx, frame);
             return;
         }
         read.ctx = null;

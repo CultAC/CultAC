@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsJ;
@@ -12,6 +13,7 @@ import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockChangedAck;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -93,6 +95,75 @@ class UseItemTickRotationForwardTest {
         }
     }
 
+    @Test
+    void aUseAtARotationTheTickDoesNotSendIsTheOnlyPacketOfItsTickThatDoesNotReachTheServer() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+
+            t.carry(1);
+            t.use(1, YAW, 90);
+            t.carry(2);
+            t.tickEnd();
+            assertEquals(List.of("set_carried_item", "set_carried_item", "client_tick_end"), t.forwarded());
+            assertEquals(1, t.check.getViolations());
+        }
+    }
+
+    @Test
+    void theHeldPacketsReachTheServerBeforeTheConfigurationAcknowledgement() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+
+            t.use(1, YAW, PITCH);
+            f.fixture.channel.writeInbound(f.fixture.id(
+                    ServerboundPackets.CONFIGURATION_ACKNOWLEDGED, "configuration_acknowledged"));
+            assertEquals("use_item 1", t.forwarded().getFirst());
+            assertFalse(f.fixture.connection.forwardHold().holds());
+        }
+    }
+
+    @Test
+    void removingTheDecoderForwardsTheHeldPacketsInOrder() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+
+            t.use(1, YAW, PITCH);
+            t.carry(1);
+            CultDecoder.uninstall(f.fixture.channel);
+            assertEquals(List.of("use_item 1", "set_carried_item"), t.forwarded());
+        }
+    }
+
+    @Test
+    void closingTheChannelReleasesTheHeldPackets() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+
+            ByteBuf use = t.use(1, YAW, PITCH);
+            assertEquals(1, use.refCnt(), "the use is not held");
+            f.fixture.channel.close();
+            assertEquals(0, use.refCnt());
+        }
+    }
+
+    @Test
+    void aUseFollowedByMorePacketsThanAClientTickHoldsIsDroppedAndTheRestReachTheServer() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+
+            t.use(1, YAW, PITCH);
+            for (int i = 0; i < ForwardHold.MAX_PACKETS; i++) t.carry(i % 9);
+            List<String> forwarded = t.forwarded();
+            assertEquals(ForwardHold.MAX_PACKETS, forwarded.size());
+            assertTrue(forwarded.stream().allMatch("set_carried_item"::equals), "the use reached the server");
+        }
+    }
+
     private static final class Ticks {
         final JavaTickFixture f;
         final BadPacketsJ check;
@@ -148,12 +219,13 @@ class UseItemTickRotationForwardTest {
             f.fixture.channel.writeInbound(f.fixture.id(ServerboundPackets.CLIENT_TICK_END, "client_tick_end"));
         }
 
-        void use(int sequence, float yaw, float pitch) {
+        ByteBuf use(int sequence, float yaw, float pitch) {
             ByteBuf frame = f.fixture.id(ServerboundPackets.USE_ITEM, "use_item");
             Wire.writeVarInt(frame, Hand.MAIN_HAND.ordinal());
             Wire.writeVarInt(frame, sequence);
             frame.writeFloat(yaw).writeFloat(pitch);
             f.fixture.channel.writeInbound(frame);
+            return frame;
         }
 
         void carry(int slot) {
