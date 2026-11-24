@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.latency.CompensatedVehicleState;
 import ac.cult.cultac.utils.math.Vec3;
 
 // Player velocity packets use a bundle proof when available, otherwise the Cult3.0-clean transaction sandwich.
@@ -33,11 +34,13 @@ public class KnockbackHandler extends PacketModHandler {
             return -1;
         }
         var motion = velocity;
-        // The client handles a sent dismount before this packet, so the player's own velocity moves the player.
-        PacketEntity vehicle =
-                motion.entityId() == player.entityID && player.compensatedEntities.vehicles.hasPendingServerDismount()
-                        ? null
-                        : player.compensatedEntities.vehicles.getVelocityMovementVehicle();
+        // The client handles a sent dismount or removal of its vehicle before this packet, so the player's own
+        // velocity moves the player.
+        CompensatedVehicleState vehicles = player.compensatedEntities.vehicles;
+        PacketEntity vehicle = motion.entityId() == player.entityID
+                        && (vehicles.serverPlayerVehicle == null || vehicles.hasPendingServerDismount())
+                ? null
+                : vehicles.getVelocityMovementVehicle();
         int movementEntityId = vehicle != null ? vehicle.getEntityId() : player.entityID;
         if (motion.entityId() != movementEntityId) {
             return -1;

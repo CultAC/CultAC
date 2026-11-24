@@ -11,7 +11,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
+import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -68,13 +72,33 @@ class KnockbackDuringPendingDismountTest {
         }
     }
 
+    /** ClientPacketListener#handleRemoveEntities ejects the player from its removed vehicle before the velocity. */
+    @Test
+    void aVelocitySentAfterTheVehicleIsRemovedMovesThePlayer() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            dismountThen(f, true, () -> f.velocity(KNOCKBACK));
+            // The player keeps the seat its last Entity#rideTick put it on, above the floor.
+            Vec3 seat = new Vec3(f.player.x, f.player.y, f.player.z);
+            PredictionResult result = f.tick(seat.add(KNOCKBACK), false);
+            assertTrue(exact(result), describe(result));
+            assertEquals(0.0, f.player.checkManager.getKnockbackHandler().violations, "the client took the velocity");
+        }
+    }
+
     /** Seated on an armor stand, then set_passengers empties it and a velocity follows before any ping returns. */
     private static void dismountThenKnockback(JavaTickFixture f) {
         dismountThen(f, () -> f.velocity(KNOCKBACK));
     }
 
-    /** Seated on an armor stand, then set_passengers empties it and {@code impulse} follows before any ping returns. */
     private static void dismountThen(JavaTickFixture f, IntSupplier impulse) {
+        dismountThen(f, false, impulse);
+    }
+
+    /**
+     * Seated on an armor stand, then set_passengers empties it or the stand is removed, and {@code impulse} follows
+     * before any ping returns.
+     */
+    private static void dismountThen(JavaTickFixture f, boolean removeSeat, IntSupplier impulse) {
         f.place(SEAT, Vec3.ZERO);
         f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.ARMOR_STAND, SEAT, 0, 0, 0);
         f.setPassengers(VEHICLE, List.of(f.player.entityID));
@@ -84,8 +108,17 @@ class KnockbackDuringPendingDismountTest {
         f.rideTick();
 
         List<Integer> before = teleportIds(f);
-        f.setPassengers(VEHICLE, List.of());
-        assertTrue(f.player.compensatedEntities.vehicles.hasPendingServerDismount());
+        if (removeSeat) {
+            var packet = new ClientboundRemoveEntities(List.of(VEHICLE));
+            var event = new PacketSendEvent<>(
+                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.REMOVE_ENTITIES, packet, false);
+            f.player.packetEntityReplication.onRemoveEntities(event, f.player, packet);
+            event.tasksAfter().forEach(Runnable::run);
+            assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+        } else {
+            f.setPassengers(VEHICLE, List.of());
+            assertTrue(f.player.compensatedEntities.vehicles.hasPendingServerDismount());
+        }
         int proof = impulse.getAsInt();
         assertNotEquals(-1, proof, "the impulse was taken for the vehicle's");
 
