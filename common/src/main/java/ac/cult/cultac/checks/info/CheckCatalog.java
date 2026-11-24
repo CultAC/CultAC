@@ -37,6 +37,7 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsP;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsQ;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsR;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsT;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsU;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsV;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsW;
@@ -386,6 +387,7 @@ public final class CheckCatalog {
             check(BadPacketsQ.class, PACKETS),
             check(BadPacketsR.class, PACKETS),
             check(BadPacketsT.class, PACKETS),
+            check(BadPacketsU.class, PACKETS),
             check(BadPacketsV.class, PACKETS),
             check(BadPacketsVehicle.class, PACKETS),
             check(BadPacketsW.class, PACKETS),

@@ -388,6 +388,7 @@ public class CheckManager {
                 new BadPacketsQ(player),
                 new BadPacketsR(player),
                 new BadPacketsT(player),
+                new BadPacketsU(player),
                 new BadPacketsV(player),
                 new BadPacketsW(player),
                 new BadPacketsY(player),
@@ -608,6 +609,7 @@ public class CheckManager {
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsI.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsK.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsM.class));
+        registerEarlyReceive(registrations, packetChecks.get(BadPacketsU.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsW.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsY.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsZ.class));

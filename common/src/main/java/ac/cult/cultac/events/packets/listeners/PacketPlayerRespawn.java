@@ -9,6 +9,7 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsF;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsG;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsU;
 import ac.cult.cultac.checks.impl.breaking.AirLiquidBreak;
 import ac.cult.cultac.checks.impl.breaking.FastBreak;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -180,6 +181,10 @@ public class PacketPlayerRespawn {
         // Its replacement player has no prior travel carry, ground state or active use.
         // Apply only when the ping after LOGIN proves that ordered client processing.
         if (!player.isBedrockMovement()) {
+            // ClientPacketListener#handleLogin can create the LocalPlayer.
+            player.checkManager
+                    .getListener(BadPacketsU.class)
+                    .localPlayerMayBeReplaced(player.lastTransactionSent.get() + 1);
             player.latencyUtils.addRealTimeTaskNext(() -> {
                 player.compensatedWorld.clearChunks();
                 player.compensatedWorld.initializeClientChunkCache(packet.chunkRadius());
@@ -477,6 +482,10 @@ public class PacketPlayerRespawn {
         };
         // The respawned LocalPlayer carries no passengers.
         player.compensatedEntities.markSelfPassengersChange(player.lastTransactionSent.get() + 1);
+        // ClientPacketListener#handleRespawn creates a LocalPlayer.
+        player.checkManager
+                .getListener(BadPacketsU.class)
+                .localPlayerMayBeReplaced(player.lastTransactionSent.get() + 1);
         player.latencyUtils.addRealTimeTaskNext(applyRespawnState);
     }
 }

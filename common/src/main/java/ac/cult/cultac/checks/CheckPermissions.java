@@ -40,6 +40,7 @@ public final class CheckPermissions {
             "badpacketsq",
             "badpacketsr",
             "badpacketst",
+            "badpacketsu",
             "badpacketsv",
             "badpacketsvehicle",
             "badpacketsw",

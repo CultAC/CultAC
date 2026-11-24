@@ -436,6 +436,9 @@ checks:
   BadPacketsT:
     summary: "Right-clicked a player at a spot outside their body"
     details: "When you right-click a player, your game reports the spot on their body you clicked. A spot outside their body, or one that makes no sense, comes from a cheat client making its own right-clicks."
+  BadPacketsU:
+    summary: "Repeated the same movement controls without changing a key"
+    details: "Minecraft only reports your movement keys when one of them changes. Reporting the same keys twice in a row comes from a cheat client sending its own control updates."
   BadPacketsV:
     summary: "Sent position updates that Minecraft never sends"
     details: "This usually means a modified client is faking its movement."
