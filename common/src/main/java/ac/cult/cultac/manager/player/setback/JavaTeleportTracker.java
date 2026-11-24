@@ -2,6 +2,7 @@ package ac.cult.cultac.manager.player.setback;
 
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsN;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -171,7 +172,8 @@ public final class JavaTeleportTracker {
 
             boolean exactTeleportPosition = xPass && yPass && zPass;
             if (exactTeleportPosition
-                    && (teleportPos.isPositionOnly() || receivedTransaction == teleportPos.getTransaction())) {
+                    && (teleportPos.isPositionOnly()
+                            || (receivedTransaction == teleportPos.getTransaction() && idSentAhead(teleportPos)))) {
                 pendingTeleports.poll();
                 player.compensatedWorld.onClientPositionSet();
                 TeleportAcceptData accepted = answers.complete(teleportPos, clamped, true);
@@ -421,6 +423,16 @@ public final class JavaTeleportTracker {
             if (isJavaIdTeleport(pending) && !pending.isAnswered() && received > pending.getTransaction()) return true;
         }
         return false;
+    }
+
+    /**
+     * From 1.21.4 ClientPacketListener#handleMovePlayer sends the ID ahead of the PosRot that answers it; a Bedrock
+     * player's Java acknowledgement comes from Geyser and is not read as an answer.
+     */
+    private boolean idSentAhead(TeleportData teleport) {
+        return teleport.isAnswered()
+                || player.isBedrockMovement()
+                || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4);
     }
 
     /** A player_position teleport, which the Java client accepts by ID. */
