@@ -2,6 +2,7 @@ package ac.cult.cultac.manager.datastore;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
+import ac.cult.cultac.cloud.settings.CloudStaffSettings;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.manager.init.stop.StoppableInitable;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
@@ -115,8 +116,9 @@ public final class DataStoreLifecycle implements StartableInitable, StoppableIni
         return shared.sessionTracker();
     }
 
+    /** The staff toggles; each user toggle also goes to the cloud while it is configured. */
     public @NotNull PlayerToggleStore playerToggleStore() {
-        return shared.playerToggleStore();
+        return CloudStaffSettings.sending(shared.playerToggleStore());
     }
 
     /** Holds the player's toggle slot for this connection. */
