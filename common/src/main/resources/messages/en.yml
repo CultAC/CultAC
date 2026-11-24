@@ -48,7 +48,7 @@ alerts-format-proxy: "%prefix% &f[&cproxy&f] &f<click:run_command:'/%command% sp
 alerts-format-suspected: "%prefix% &f<click:run_command:'/%command% spectate %player%'><hover:show_text:\"&7Click to spectate %player%\n&b%check_name%%experimental%\n&8%description%\">%player%</hover></click> &cis suspected of cheating!"
 experimental-symbol: "*"
 
-profile-client-classification: "&7%client_classification%"
+profile-client-classification: "&bClient Type: &f%client_classification%"
 profile:
     - "&7======================"
     - "&bProfile for &f%player%"

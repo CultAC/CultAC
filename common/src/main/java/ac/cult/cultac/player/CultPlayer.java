@@ -1931,7 +1931,8 @@ public class CultPlayer implements GrimUser {
                         ? ClientClassification.brandType(getBrand())
                         : ClientClassification.Type.UNKNOWN,
                 pluginChannelManager.getChannelType(),
-                mods != null && mods.lunar() ? ClientClassification.Type.LUNAR : ClientClassification.Type.UNSET);
+                mods != null && mods.lunar() ? ClientClassification.Type.LUNAR : ClientClassification.Type.UNSET,
+                pluginChannelManager.getChannelTypes());
     }
 
     @Override

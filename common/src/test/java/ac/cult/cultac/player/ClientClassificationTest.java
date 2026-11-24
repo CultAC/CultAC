@@ -38,6 +38,28 @@ class ClientClassificationTest {
     }
 
     @Test
+    void fabricApiPlayChannelsAreFabric() {
+        assertEquals(
+                FABRIC,
+                ClientClassification.channelType(List.of(
+                        "fabric-screen-handler-api-v1:open_screen", "fabric:attachment_sync_v1", "voicechat:state")));
+    }
+
+    @Test
+    void summaryNamesBrandThenOtherChannelFamiliesAndMod() {
+        assertEquals("Fabric", new ClientClassification(FABRIC, FABRIC, UNSET).summary());
+        assertEquals("Vanilla", new ClientClassification(VANILLA, UNSET, UNSET).summary());
+        assertEquals(
+                "Lunar (channels: Fabric, Lunar)",
+                new ClientClassification(LUNAR, UNKNOWN, LUNAR, List.of(FABRIC, LUNAR)).summary());
+        assertEquals(
+                "Unknown (channels: Fabric; mod: Lunar)",
+                new ClientClassification(UNKNOWN, FABRIC, LUNAR).summary());
+        assertEquals("None", new ClientClassification(VANILLA, UNSET, UNSET).channelLabel());
+        assertEquals("NeoForge", NEOFORGE.label());
+    }
+
+    @Test
     void missingAndSharedChannelsDoNotContradictBrands() {
         for (var type : List.of(VANILLA, FABRIC, FORGE, NEOFORGE, QUILT, LUNAR, BADLION, FEATHER, BEDROCK)) {
             assertFalse(new ClientClassification(type, UNSET, UNSET).contradictsVanilla());

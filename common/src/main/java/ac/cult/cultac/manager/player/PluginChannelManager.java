@@ -42,6 +42,7 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
 
     private String brand = null;
     private volatile ClientClassification.Type channelType = ClientClassification.Type.UNSET;
+    private volatile List<ClientClassification.Type> channelTypes = List.of();
 
     @CultPacketHandler
     public void onCustomPayload(
@@ -115,16 +116,16 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         ClientClassification.Type type = ClientClassification.channelType(channel);
         if (type == ClientClassification.Type.UNSET) return;
         channelTypeCounts[type.ordinal()] += delta;
-        ClientClassification.Type result = ClientClassification.Type.UNSET;
+        List<ClientClassification.Type> families = new ArrayList<>();
         for (ClientClassification.Type candidate : ClientClassification.Type.values()) {
-            if (channelTypeCounts[candidate.ordinal()] == 0) continue;
-            if (result != ClientClassification.Type.UNSET) {
-                result = ClientClassification.Type.UNKNOWN;
-                break;
-            }
-            result = candidate;
+            if (channelTypeCounts[candidate.ordinal()] != 0) families.add(candidate);
         }
-        channelType = result;
+        channelTypes = List.copyOf(families);
+        channelType = switch (families.size()) {
+            case 0 -> ClientClassification.Type.UNSET;
+            case 1 -> families.get(0);
+            default -> ClientClassification.Type.UNKNOWN;
+        };
     }
 
     /** Records a channel the client sent a payload on; false when ExploitC flagged it instead. */
