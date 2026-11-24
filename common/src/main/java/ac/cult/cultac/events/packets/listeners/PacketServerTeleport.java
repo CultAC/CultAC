@@ -23,6 +23,8 @@ import ac.cult.cultac.utils.math.Vec3;
 
 public class PacketServerTeleport {
     private static final double MOVE_VEHICLE_SNAP_EPSILON = 1.0E-5F;
+    // Mth#RAD_TO_DEG: Entity#lookAt multiplies the double arctangent by this float.
+    private static final float RAD_TO_DEG = 180.0F / (float) Math.PI;
 
     // LOW
 
@@ -113,8 +115,8 @@ public class PacketServerTeleport {
         double yd = targetY - (player.y + (packet.fromEyes() ? player.getEyeHeight() : 0.0));
         double zd = targetZ - player.z;
         double sd = Math.sqrt(xd * xd + zd * zd);
-        float pitch = CultMath.wrapDegrees((float) (-(VanillaMath.atan2(yd, sd) * 180.0F / (float) Math.PI)));
-        float yaw = CultMath.wrapDegrees((float) (VanillaMath.atan2(zd, xd) * 180.0F / (float) Math.PI) - 90.0F);
+        float pitch = CultMath.wrapDegrees((float) (-(VanillaMath.atan2(yd, sd) * RAD_TO_DEG)));
+        float yaw = CultMath.wrapDegrees((float) (VanillaMath.atan2(zd, xd) * RAD_TO_DEG) - 90.0F);
         // Entity#setYRot and Entity#setXRot discard a rotation that is not finite.
         if (Float.isFinite(yaw)) {
             player.xRot = yaw;
