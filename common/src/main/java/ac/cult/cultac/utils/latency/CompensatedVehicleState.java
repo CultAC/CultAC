@@ -566,7 +566,12 @@ public final class CompensatedVehicleState implements Debuggable {
 
     public float controlledTravelPitch(@Nullable PacketEntity vehicle, float reportedPitch) {
         if (!reportsInterpolationRotation(vehicle)) return reportedPitch;
-        return vehicle.isBoat() || refusesRiddenRotation(vehicle) ? vehicle.clientPhysicalPitch : player.yRot * 0.5F;
+        return vehicle.isBoat() ? vehicle.clientPhysicalPitch : riddenPitch(vehicle);
+    }
+
+    /** The pitch a living root's tickRidden turns it to before travel: getRiddenRotation's half of the rider's. */
+    public float riddenPitch(PacketEntity vehicle) {
+        return refusesRiddenRotation(vehicle) ? vehicle.clientPhysicalPitch : player.yRot * 0.5F;
     }
 
     private boolean refusesRiddenRotation(PacketEntity vehicle) {

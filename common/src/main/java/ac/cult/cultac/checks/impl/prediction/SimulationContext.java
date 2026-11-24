@@ -433,8 +433,7 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     public boolean stopsFallFlyingAfterTravel() {
         // LivingEntity#travel prioritizes fluids. In dry travelFallFlying,
         // stopFallFlying runs AFTER travelInAir, even if the move leaves the climbable.
-        return vehicle == null
-                && gliding
+        return gliding
                 && version.isNewerThanOrEquals(ClientVersion.V_1_21_5)
                 && worldData.getClimbingAtStart().determinePessimistically()
                 && !worldData.mayBeInLiquid();
@@ -575,9 +574,9 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     public double getHorizontalInputRadius(CultPlayer player, PredVector candidate) {
         // A candidate that already holds its exact moveRelative input has no input left to allow.
         if (candidate != null && candidate.hasTravelInput()) return 0.0D;
-        if (getVehicle() != null) return getMaxSpeed(player);
         // LivingEntity#travelFallFlying moves without moveRelative, so a dry glide takes no input.
         if (usesFallFlyingMovement() && !worldData.isInLiquid()) return 0.0D;
+        if (getVehicle() != null) return getMaxSpeed(player);
         return getHorizontalInputAllowance(player, getSprintOutcome(player, candidate));
     }
 

@@ -2,6 +2,8 @@ package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 
 /** Whether LivingEntity#travelRidden reaches travel, independently of root authority and tickRidden. */
 public final class JavaRiddenTravel {
@@ -17,5 +19,12 @@ public final class JavaRiddenTravel {
                 && vehicle.isLivingEntity()
                 && vehicle.actionAlive
                 && vehicle.noAI;
+    }
+
+    /** LivingEntity#travel's isFallFlying branch for a ridden root: its shared flag 7. HappyGhast#travel never glides. */
+    public static boolean fallFlying(PacketEntity vehicle) {
+        return vehicle.isLivingEntity()
+                && !(vehicle instanceof PacketEntityHappyGhast)
+                && (vehicle.actionSharedFlags & 0x80) != 0;
     }
 }

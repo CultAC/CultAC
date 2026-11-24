@@ -322,7 +322,10 @@ public class VelocityTransformer {
                 || !vehicle.actionAlive
                 || !player.packetStateData.isVehicleMovementFromClientTick()
                 || !canUseItemControlledMovement(player, vehicle)
-                || EntityTypeUtil.isBoat(vehicle.type)) {
+                || EntityTypeUtil.isBoat(vehicle.type)
+                // LivingEntity#travelFallFlying never calls moveRelative.
+                || simulationContext.usesFallFlyingMovement()
+                        && !simulationContext.getWorldData().isInLiquid()) {
             return input;
         }
 

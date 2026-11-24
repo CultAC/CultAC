@@ -68,7 +68,9 @@ public final class PacketEntityFirework extends PacketEntity {
                     : pass == null ? context.getEnd() : pass.travel().position();
             gliding = before && player.packetStateData.glidingBeforeClientAction != null
                     ? player.packetStateData.glidingBeforeClientAction
-                    : context.isGliding() && (before || !context.stopsFallFlyingAfterTravel());
+                    : context.getVehicle() == null
+                            && context.isGliding()
+                            && (before || !context.stopsFallFlyingAfterTravel());
             yaw = context.getXRot();
         }
         if (gliding) {

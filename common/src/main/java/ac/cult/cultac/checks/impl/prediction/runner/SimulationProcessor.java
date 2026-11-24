@@ -51,6 +51,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRemoteBlockEntityPass;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiptideRelease;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaUnreportedTravel;
@@ -1707,7 +1708,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.player.checkManager.getDebugHandler().onPredictionCommitted(result, this.validPlayerStartingVels);
             if (!this.player.isBedrockMovement()
                     && result.getSimulationContext().stopsFallFlyingAfterTravel()) {
-                this.player.isGliding = false;
+                PacketEntity vehicle = result.getSimulationContext().getVehicle();
+                if (vehicle == null) this.player.isGliding = false;
+                // The root's LivingEntity#stopFallFlying holds until a set_entity_data carries its flags again.
+                else vehicle.actionSharedFlags &= ~0x80;
             }
             this.lastPrediction = result;
             this.supportAfterCorrection = null;
@@ -3650,12 +3654,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 riding,
                 xRot,
                 this.lastXRot,
-                yRot,
+                riding == null || player.isBedrockMovement() || !riding.isLivingEntity()
+                        ? yRot
+                        : player.compensatedEntities.vehicles.riddenPitch(riding),
                 this.lastYRot,
                 player.onGround,
                 player.isSneaking,
                 this.lastSneaking,
-                riding == null && player.isGliding,
+                riding == null ? player.isGliding : !player.isBedrockMovement() && JavaRiddenTravel.fallFlying(riding),
                 player.compensatedEntities.getPotionLevelForPlayer(MovementEffect.JUMP_BOOST),
                 this.sprintingAtTravel(player, riding),
                 player.minPlayerAttackSlow,
