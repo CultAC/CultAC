@@ -1,9 +1,11 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
@@ -17,6 +19,7 @@ import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -114,7 +117,9 @@ public class PacketServerTeleport {
                     Vec3 feet = entity.clientPhysicalPosition;
                     // A rider's Entity#lookAt measures from its seat, not the vehicle position player.x/y/z holds.
                     if (player.compensatedEntities.getSelf().getRiding() != null
+                            || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
                             || packet.toEyes()
+                            || !placedOnlyByServer(entity)
                             || entity.getRiding() != null
                             || feet == null
                             || !entity.clientPhysicalPositionExact) return;
@@ -143,6 +148,16 @@ public class PacketServerTeleport {
             player.yRot = clamp(pitch % 360.0F, -90.0F, 90.0F);
             player.lastTickYRot = player.yRot;
         }
+    }
+
+    /** Kinds whose client copy moves only on the server's packets. */
+    private static boolean placedOnlyByServer(PacketEntity entity) {
+        if (entity instanceof PacketEntityPlayer remote && !remote.actionPresent) return false;
+        return entity.isLivingEntity()
+                || entity.isBoat()
+                || entity.isDisplay()
+                || entity.type == EntityTypeIds.INTERACTION
+                || entity.type == EntityTypeIds.END_CRYSTAL;
     }
 
     @CultPacketHandler

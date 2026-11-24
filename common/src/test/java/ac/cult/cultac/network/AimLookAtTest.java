@@ -8,15 +8,21 @@ import ac.cult.cultac.checks.impl.aim.AimDuplicateLook;
 import ac.cult.cultac.checks.impl.aim.AimModulo360;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerLookAt;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
+import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -61,6 +67,18 @@ class AimLookAtTest {
     private static final int CAMEL = 1950;
     private static final Vec3 CAMEL_AT = new Vec3(0.5, JavaTickFixture.FLOOR_Y, 0.5);
     private static final Vec3 NORTH_OF_CAMEL = new Vec3(0.75, JavaTickFixture.FLOOR_Y, -5.5);
+    private static final Vec3 VIEWER = new Vec3(0.5, JavaTickFixture.FLOOR_Y, 10.5);
+    private static final int INTERACTION = 1951;
+    private static final Vec3 INTERACTION_FROM = new Vec3(0.375, JavaTickFixture.FLOOR_Y, 5.5);
+    private static final Vec3 INTERACTION_TO = new Vec3(0.625, JavaTickFixture.FLOOR_Y, 5.5);
+    private static final int SNOWBALL = 1952;
+    private static final Vec3 SNOWBALL_FROM = new Vec3(1.0, 66.0, 5.5);
+    private static final Vec3 SNOWBALL_VELOCITY = new Vec3(-0.8, 0.0, 0.0);
+    // One client ThrowableProjectile#tick: applyGravity (0.03), applyInertia (0.99F), setPos(position + delta).
+    private static final Vec3 SNOWBALL_TO = new Vec3(0.2079999923706054, 65.9702999997139, 5.5);
+    private static final int UNLISTED_PLAYER = 1953;
+    private static final Vec3 UNLISTED_FROM = new Vec3(1.0, JavaTickFixture.FLOOR_Y, 5.5);
+    private static final Vec3 UNLISTED_TO = new Vec3(0.2080078125, JavaTickFixture.FLOOR_Y, 5.5);
 
     @Test
     void theRotReportingTheLookOfALookAtIsNoDuplicateLook() throws Exception {
@@ -127,6 +145,112 @@ class AimLookAtTest {
             drive(f, 177.61398f, 13.122987f);
             assertEquals(0, violations(f, AimModulo360.class));
         }
+    }
+
+    /**
+     * A 26.2 client's Entity#moveOrInterpolateTo sets an entity without an InterpolationHandler on its move at once, so
+     * a look-at handled before the next tick aims at the moved interaction, just east of due north.
+     */
+    @Test
+    void aLookAtAnEntityMovedBeforeTheClientTicksIsNoModulo360Snap() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_2, ClientVersion.V_26_2)) {
+            Check check = f.player.checkManager.getCheck(AimModulo360.class);
+            check.setEnabled(true);
+            check.reload();
+            f.place(VIEWER, Vec3.ZERO);
+            f.tickEnd();
+            look(f, -170.0f, 0.0f);
+            look(f, -171.0f, 0.0f);
+            f.addEntity(INTERACTION, "minecraft:interaction", INTERACTION_FROM);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.tickEnd();
+            moveX(f, INTERACTION, (short) 1024);
+            check.violations = 0;
+            lookAt(
+                    f,
+                    new ClientboundPlayerLookAt(
+                            false, INTERACTION_TO.x, INTERACTION_TO.y, INTERACTION_TO.z, true, INTERACTION, false));
+            look(f, -178.56804f, -0.0f);
+            assertEquals(0, violations(f, AimModulo360.class));
+        }
+    }
+
+    /**
+     * ThrowableProjectile#tick moves the client's snowball by its own delta movement, so a look-at after that tick aims
+     * at the moved snowball, just west of due north.
+     */
+    @Test
+    void aLookAtASnowballCrossingDueNorthIsNoModulo360Snap() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Check check = f.player.checkManager.getCheck(AimModulo360.class);
+            check.setEnabled(true);
+            check.reload();
+            f.place(VIEWER, Vec3.ZERO);
+            f.tickEnd();
+            look(f, 170.0f, 0.0f);
+            look(f, 171.0f, 0.0f);
+            var spawn = new ClientboundAddEntity(
+                    SNOWBALL,
+                    "minecraft:snowball",
+                    new Vec3d(SNOWBALL_FROM.x, SNOWBALL_FROM.y, SNOWBALL_FROM.z),
+                    0,
+                    0,
+                    0,
+                    new UUID(0, 0),
+                    new Vec3d(SNOWBALL_VELOCITY.x, SNOWBALL_VELOCITY.y, SNOWBALL_VELOCITY.z));
+            var event = new PacketSendEvent<>(
+                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, spawn, false);
+            f.player.packetEntityReplication.onAddEntity(event, f.player, spawn);
+            event.tasksAfter().forEach(Runnable::run);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.statusTick(true, false);
+            check.violations = 0;
+            lookAt(
+                    f,
+                    new ClientboundPlayerLookAt(
+                            false, SNOWBALL_TO.x, SNOWBALL_TO.y, SNOWBALL_TO.z, true, SNOWBALL, false));
+            look(f, 176.6577f, -21.474243f);
+            assertEquals(0, violations(f, AimModulo360.class));
+        }
+    }
+
+    /**
+     * ClientPacketListener#createEntityFromPacket spawns no player that has no PlayerInfo entry, so a look-at at one aims
+     * at the sent point, just west of due north.
+     */
+    @Test
+    void aLookAtAPlayerSpawnedWithoutPlayerInfoIsNoModulo360Snap() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Check check = f.player.checkManager.getCheck(AimModulo360.class);
+            check.setEnabled(true);
+            check.reload();
+            f.place(VIEWER, Vec3.ZERO);
+            f.tickEnd();
+            look(f, 170.0f, 0.0f);
+            look(f, 171.0f, 0.0f);
+            f.addEntity(UNLISTED_PLAYER, "minecraft:player", UNLISTED_FROM);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.statusTick(true, false);
+            moveX(f, UNLISTED_PLAYER, (short) -3244);
+            check.violations = 0;
+            lookAt(
+                    f,
+                    new ClientboundPlayerLookAt(
+                            false, UNLISTED_TO.x, UNLISTED_TO.y, UNLISTED_TO.z, true, UNLISTED_PLAYER, false));
+            look(f, 176.65779f, -0.0f);
+            assertEquals(0, violations(f, AimModulo360.class));
+        }
+    }
+
+    /** ClientPacketListener#handleMoveEntity moving {@code entity} {@code dx} 4096ths of a block along x. */
+    private static void moveX(JavaTickFixture f, int entity, short dx) {
+        var move = new ClientboundMoveEntity(
+                entity, new EntityDelta.Linear(dx, (short) 0, (short) 0), 0, 0, true, true, false);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.MOVE_ENTITY, move, false);
+        f.player.packetEntityReplication.onMoveEntity(event, f.player, move);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
     }
 
     /** One ridden tick: the passenger Rot, then the camel's move. */
