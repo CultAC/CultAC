@@ -888,6 +888,19 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     /**
+     * The passengers {@code vehicleId} carries, in seat order, once the client has handled every packet sent so far;
+     * null while it carries none.
+     */
+    public int[] passengersAsSent(int vehicleId) {
+        return sentRiding.passengersOf(vehicleId);
+    }
+
+    /** Entity#getRootVehicle of {@code entityId} once the client has handled every packet sent so far. */
+    public int rootAsSent(int entityId) {
+        return sentRiding.rootOf(entityId);
+    }
+
+    /**
      * Whether the local player is a passenger of {@code vehicleId} itself once the client has handled every packet
      * sent so far, which is when it handles the next one.
      */

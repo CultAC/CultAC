@@ -532,13 +532,18 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     /** The positions the client may have attacked from: where it stands, or each seat its vehicle may hold it in. */
     public List<Vec3> getAttackOrigins() {
+        return attackOrigins(player);
+    }
+
+    /** The positions {@code player}'s client may have attacked from. */
+    public static List<Vec3> attackOrigins(CultPlayer player) {
         PacketEntity self = player.compensatedEntities.getSelf();
         PacketEntity riding = self.getRiding();
         if (riding == null) {
             return List.of(new Vec3(player.x, player.y, player.z));
         }
 
-        List<Vec3> packetDerivedOrigins = getMountedPacketDerivedOrigins(self, riding);
+        List<Vec3> packetDerivedOrigins = getMountedPacketDerivedOrigins(player, self, riding);
 
         // Each mounted candidate comes from packet/transaction-proven vehicle
         // interpolation state. Do not keep a separate vehicle-id latch for the
@@ -547,7 +552,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         return packetDerivedOrigins;
     }
 
-    private List<Vec3> getMountedPacketDerivedOrigins(PacketEntity self, PacketEntity riding) {
+    private static List<Vec3> getMountedPacketDerivedOrigins(
+            CultPlayer player, PacketEntity self, PacketEntity riding) {
         List<Vec3> candidates = new ArrayList<>();
         // Entity#positionRider seats from the vehicle's position, not a shell a shulker's peek opened.
         for (SimpleCollisionBox vehicleBox : riding.getPositionCollisionBoxCandidates()) {

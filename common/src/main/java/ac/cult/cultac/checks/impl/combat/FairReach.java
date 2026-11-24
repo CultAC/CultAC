@@ -15,7 +15,12 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.anticheat.NettyScheduler.PlayerTask;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.ReachInterpolationData;
+import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.latency.CompensatedVehicleState;
+import ac.cult.cultac.utils.latency.SentRidingGraph;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
@@ -37,8 +42,16 @@ import lombok.AllArgsConstructor;
 public class FairReach extends Check implements CheckListener {
 
     private static final Object MOVE_APPLIED = new Object();
+    // A remote player's position handler interpolates over 3 client ticks.
+    private static final int PLAYER_LERP_STEPS = 3;
 
     final Int2ObjectOpenHashMap<FairReachEntity> targetPlayers = new Int2ObjectOpenHashMap<>();
+    // Root vehicles carrying a tracked player; Entity#positionRider seats their riders from them.
+    final Int2ObjectOpenHashMap<FairReachEntity> vehicles = new Int2ObjectOpenHashMap<>();
+    // The riding links each applied at the same time as the moves around it.
+    private final SentRidingGraph riding = new SentRidingGraph();
+    private final SimpleCollisionBox seatBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox seat = new SimpleCollisionBox();
 
     TickingStatus playerTickingStatus = TickingStatus.ALLOWED_TO_TICK;
 
@@ -67,6 +80,8 @@ public class FairReach extends Check implements CheckListener {
     @CultPacketHandler
     public void onAddEntity(
             PacketSendEvent<ClientboundAddEntity> event, CultPlayer player, ClientboundAddEntity packet) {
+        // ClientLevel#addEntity removes an entity already held under the same ID.
+        removeEntity(packet.entityId());
         if (packet.entityType().equals("minecraft:player")) {
             addEntity(
                     packet.entityId(),
@@ -81,8 +96,19 @@ public class FairReach extends Check implements CheckListener {
             PacketSendEvent<ClientboundRemoveEntities> event, CultPlayer player, ClientboundRemoveEntities packet) {
         // Server won't process destroyed entity hits anyway... might as well remove them immediately
         for (int entityId : packet.entityIds()) {
-            targetPlayers.remove(entityId);
+            removeEntity(entityId);
         }
+    }
+
+    /** Entity#setRemoved stops the entity riding and leaves each of its passengers on the seat it last held. */
+    private void removeEntity(int entityId) {
+        int[] passengers = riding.passengersOf(entityId);
+        if (passengers != null) {
+            for (int passenger : passengers) dismount(passenger);
+        }
+        riding.remove(entityId);
+        targetPlayers.remove(entityId);
+        vehicles.remove(entityId);
     }
 
     /** The packet that moved an entity; a teleport and a position sync snap past 64 blocks instead of lerping. */
@@ -93,6 +119,7 @@ public class FairReach extends Check implements CheckListener {
     }
 
     public void handleEntityMove(int entityId, double x, double y, double z, PositionUpdate update) {
+        if (tracked(entityId) == null) return;
         schedule(new PendingMove(entityId, x, y, z, update, false));
     }
 
@@ -107,10 +134,106 @@ public class FairReach extends Check implements CheckListener {
         if (version.isNewerThanOrEquals(ClientVersion.V_1_21_9) && !rotationChanged) return;
         boolean holdsShownPosition =
                 version.isNewerThanOrEquals(ClientVersion.V_1_21_5) && version.isOlderThan(ClientVersion.V_1_21_9);
+        if (tracked(entityId) == null) return;
         schedule(new PendingMove(entityId, x, y, z, PositionUpdate.RELATIVE, holdsShownPosition));
     }
 
-    private void schedule(PendingMove move) {
+    /**
+     * A set_passengers for {@code vehicleId} naming the {@code passengers} the client holds, after the sent riding
+     * graph took it. A root vehicle that now carries a tracked player is tracked from its last sent position.
+     */
+    public void handlePassengers(int vehicleId, int[] passengers) {
+        CompensatedVehicleState sentRiding = player.compensatedEntities.vehicles;
+        int root = sentRiding.rootAsSent(vehicleId);
+        if (tracked(root) == null && carriesTrackedPlayer(sentRiding, root)) {
+            TrackerData sent = player.compensatedEntities.getTrackedEntity(root);
+            PacketEntity entity = player.compensatedEntities.getEntity(root);
+            if (sent != null) {
+                int steps = entity == null
+                        ? PLAYER_LERP_STEPS
+                        : ReachInterpolationData.vanillaInterpolationStepsFor(player, entity);
+                vehicles.put(root, new FairReachEntity(root, sent.getX(), sent.getY(), sent.getZ(), steps));
+            }
+        }
+        schedule(new PendingPassengers(vehicleId, passengers));
+    }
+
+    private boolean carriesTrackedPlayer(CompensatedVehicleState sentRiding, int vehicleId) {
+        int[] passengers = sentRiding.passengersAsSent(vehicleId);
+        if (passengers == null) return false;
+        for (int passenger : passengers) {
+            if (targetPlayers.containsKey(passenger) || carriesTrackedPlayer(sentRiding, passenger)) return true;
+        }
+        return false;
+    }
+
+    private FairReachEntity tracked(int entityId) {
+        FairReachEntity entity = targetPlayers.get(entityId);
+        return entity != null ? entity : vehicles.get(entityId);
+    }
+
+    /**
+     * ClientPacketListener#handleSetEntityPassengersPacket: the vehicle ejects its passengers, which keep the seat they
+     * last held, and each listed one rides it from its next tick on (Entity#rideTick).
+     */
+    private void seatPassengers(int vehicleId, int[] passengers) {
+        int[] previous = riding.passengersOf(vehicleId);
+        if (previous != null) {
+            for (int passenger : previous) {
+                if (!contains(passengers, passenger)) dismount(passenger);
+            }
+        }
+        for (int passenger : passengers) {
+            FairReachEntity entity = tracked(passenger);
+            if (entity == null || (riding.rides(passenger) && riding.vehicleOf(passenger) == vehicleId)) continue;
+            dismount(passenger);
+            entity.awaitingSeat = true;
+        }
+        riding.setPassengers(vehicleId, passengers);
+    }
+
+    private static boolean contains(int[] ids, int id) {
+        for (int each : ids) {
+            if (each == id) return true;
+        }
+        return false;
+    }
+
+    /** Entity#stopRiding moves nothing, so the passenger stays where its last ride tick seated it. */
+    private void dismount(int entityId) {
+        FairReachEntity entity = tracked(entityId);
+        if (entity == null || !riding.rides(entityId)) return;
+        locate(entityId);
+        entity.snapTo(seat.minX, seat.minY, seat.minZ);
+    }
+
+    /**
+     * Writes where the client shows {@code entityId} into seat.minX/minY/minZ: on the seat Entity#positionRider gives
+     * it on its vehicle, or where it is itself. False when neither is known.
+     */
+    private boolean locate(int entityId) {
+        FairReachEntity own = tracked(entityId);
+        if (riding.rides(entityId) && (own == null || !own.awaitingSeat)) {
+            int vehicleId = riding.vehicleOf(entityId);
+            if (locate(vehicleId)) {
+                PacketEntity vehicle = player.compensatedEntities.getEntity(vehicleId);
+                PacketEntity passenger = player.compensatedEntities.getEntity(entityId);
+                // Past its deadline the client may not hold the vehicle's spawn yet; the rider is then at the vehicle.
+                if (vehicle == null || passenger == null) return true;
+                int[] passengers = riding.passengersOf(vehicleId);
+                int index = 0;
+                while (passengers[index] != entityId) index++;
+                seatBox.set(seat.minX, seat.minY, seat.minZ, seat.minX, seat.minY, seat.minZ);
+                BoundingBoxSize.ridingPosition(vehicle, passenger, player, seatBox, index, passengers.length, seat);
+                return true;
+            }
+        }
+        if (own == null) return false;
+        seat.set(own.currentX, own.currentY, own.currentZ, own.currentX, own.currentY, own.currentZ);
+        return true;
+    }
+
+    private void schedule(PendingChange move) {
         // Ensure the client has received this before MAX_PING_TIME, or apply them sooner if client responds in time
         player.latencyUtils.addRealTimeTaskNext(move);
         if (move.get() == MOVE_APPLIED) return;
@@ -122,12 +245,30 @@ public class FairReach extends Check implements CheckListener {
     }
 
     /**
-     * One entity move, applied by whichever of its transaction or its deadline comes first. The deadline runs it as a
-     * {@link Callable} through {@link CultPlayer#runSafely}. The atomic state is null until its deadline is
-     * installed, that future while pending, or MOVE_APPLIED. A receipt cancels the deadline without leaving a
-     * no-op model task behind; a deadline already dequeued still observes the same exact-once guard.
+     * One entity move or riding change, applied by whichever of its transaction or its deadline comes first. The
+     * deadline runs it as a {@link Callable} through {@link CultPlayer#runSafely}. The atomic state is null until its
+     * deadline is installed, that future while pending, or MOVE_APPLIED. A receipt cancels the deadline without
+     * leaving a no-op model task behind; a deadline already dequeued still observes the same exact-once guard.
      */
-    private final class PendingMove extends AtomicReference<Object> implements Runnable, Callable<Void> {
+    private abstract class PendingChange extends AtomicReference<Object> implements Runnable, Callable<Void> {
+        @Override
+        public void run() {
+            Object previous = getAndSet(MOVE_APPLIED);
+            if (previous == MOVE_APPLIED) return;
+            if (previous instanceof ScheduledFuture<?> deadline) deadline.cancel(false);
+            apply();
+        }
+
+        @Override
+        public Void call() {
+            if (get() != MOVE_APPLIED) player.runSafely(this);
+            return null;
+        }
+
+        abstract void apply();
+    }
+
+    private final class PendingMove extends PendingChange {
         private final int entityId;
         private final double x;
         private final double y;
@@ -146,22 +287,28 @@ public class FairReach extends Check implements CheckListener {
         }
 
         @Override
-        public void run() {
-            Object previous = getAndSet(MOVE_APPLIED);
-            if (previous == MOVE_APPLIED) return;
-            if (previous instanceof ScheduledFuture<?> deadline) deadline.cancel(false);
+        void apply() {
             applyChanges(entityId, x, y, z, update, holdsShownPosition);
+        }
+    }
+
+    private final class PendingPassengers extends PendingChange {
+        private final int vehicleId;
+        private final int[] passengers;
+
+        private PendingPassengers(int vehicleId, int[] passengers) {
+            this.vehicleId = vehicleId;
+            this.passengers = passengers;
         }
 
         @Override
-        public Void call() {
-            if (get() != MOVE_APPLIED) player.runSafely(this);
-            return null;
+        void apply() {
+            seatPassengers(vehicleId, passengers);
         }
     }
 
     private void addEntity(int entityId, double x, double y, double z) {
-        targetPlayers.put(entityId, new FairReachEntity(entityId, x, y, z));
+        targetPlayers.put(entityId, new FairReachEntity(entityId, x, y, z, PLAYER_LERP_STEPS));
     }
 
     private void handleInteract(final PacketReceiveEvent event, ServerboundInteract attack) {
@@ -171,12 +318,11 @@ public class FairReach extends Check implements CheckListener {
         if (!player.isDisabled() && attack != null) {
 
             FairReachEntity target = targetPlayers.get(attack.entityId());
-            PacketEntity reachTarget = player.compensatedEntities.getEntity(attack.entityId());
 
-            if (player.compensatedEntities.getSelf().inVehicle()) return;
-            if (reachTarget != null && reachTarget.riding != null) return;
             if (target == null) return;
             if (attack.action() != InteractAction.ATTACK) return;
+            // The client seats every rider of its own vehicle from the vehicle it moves itself.
+            if (riding.rootOf(attack.entityId()) == riding.rootOf(player.entityID)) return;
 
             double maxReach = AttackReach.capture(player, visibility).maxClosestDistance() + reach_leniency;
             if (target.getMinDistanceForReach() > maxReach && mayModifyPackets()) {
@@ -215,6 +361,9 @@ public class FairReach extends Check implements CheckListener {
         for (FairReachEntity entity : targetPlayers.values()) {
             entity.tick();
         }
+        for (FairReachEntity entity : vehicles.values()) {
+            entity.tick();
+        }
 
         // Prepare for the next tick, however, it is too soon for the next tick
         playerTickingStatus = TickingStatus.BEFORE_VALID_TICK;
@@ -246,7 +395,7 @@ public class FairReach extends Check implements CheckListener {
 
     private void applyChanges(
             int entityId, double x, double y, double z, PositionUpdate update, boolean holdsShownPosition) {
-        FairReachEntity target = targetPlayers.get(entityId);
+        FairReachEntity target = tracked(entityId);
         if (target == null) return;
         if (holdsShownPosition) {
             target.setTarget(target.currentX, target.currentY, target.currentZ);
@@ -270,9 +419,11 @@ public class FairReach extends Check implements CheckListener {
         return dx * dx + dy * dy + dz * dz > 4096.0;
     }
 
-    /** A replacement client level holds none of the old level's players. */
+    /** A replacement client level holds none of the old level's entities. */
     public void clearLevel() {
         targetPlayers.clear();
+        vehicles.clear();
+        riding.clear();
     }
 
     public void onPlayerQuit() {
@@ -313,9 +464,13 @@ public class FairReach extends Check implements CheckListener {
         double targetY;
         double targetZ;
         int lerpTicks = 0;
+        private final int steps;
+        // Entity#rideTick seats a new passenger from its next tick on.
+        boolean awaitingSeat;
 
-        private FairReachEntity(int entityId, double x, double y, double z) {
+        private FairReachEntity(int entityId, double x, double y, double z, int steps) {
             this.entityId = entityId;
+            this.steps = steps;
             this.currentX = x;
             this.currentY = y;
             this.currentZ = z;
@@ -328,7 +483,7 @@ public class FairReach extends Check implements CheckListener {
             this.targetX = x;
             this.targetY = y;
             this.targetZ = z;
-            this.lerpTicks = 3;
+            this.lerpTicks = steps;
         }
 
         private void snapTo(double x, double y, double z) {
@@ -342,6 +497,7 @@ public class FairReach extends Check implements CheckListener {
         }
 
         private void tick() {
+            awaitingSeat = false;
             if (lerpTicks > 0) {
                 double scale = 1d / lerpTicks;
                 // Each axis reads only its own coordinates, so stepping them in turn is exact.
@@ -356,10 +512,16 @@ public class FairReach extends Check implements CheckListener {
             PacketEntity trackedEntity = player.compensatedEntities.getEntity(entityId);
             float width = trackedEntity == null ? 0.6f : BoundingBoxSize.getReachWidth(player, trackedEntity);
             float height = trackedEntity == null ? 1.8f : BoundingBoxSize.getReachHeight(player, trackedEntity);
+            locate(entityId);
             SimpleCollisionBox thisEntityBox =
-                    GetBoundingBox.getBoundingBoxFromPosAndSize(currentX, currentY, currentZ, width, height);
+                    GetBoundingBox.getBoundingBoxFromPosAndSize(seat.minX, seat.minY, seat.minZ, width, height);
 
-            return ReachUtils.getMinReachToBox(player, thisEntityBox);
+            double lowest = Double.MAX_VALUE;
+            for (Vec3 from : ReachCheck.attackOrigins(player)) {
+                lowest = Math.min(
+                        lowest, ReachUtils.getMinReachToBox(player, thisEntityBox.copy(), from.x, from.y, from.z));
+            }
+            return lowest;
         }
     }
 }

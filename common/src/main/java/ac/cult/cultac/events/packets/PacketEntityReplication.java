@@ -1609,6 +1609,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 && player.compensatedEntities.vehicles.ridesAsSent(packet.vehicleId())
                 && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(packet.vehicleId());
         player.compensatedEntities.vehicles.onSentPassengers(packet.vehicleId(), passengers);
+        player.checkManager.getFairReach().handlePassengers(packet.vehicleId(), passengers);
         PacketEntity vehicle = player.compensatedEntities.getEntity(packet.vehicleId());
         boolean setsSelfPassengers = packet.vehicleId() == player.entityID;
         boolean changesSelfPassengers =
@@ -2192,19 +2193,17 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         event, movement.kind == MovementKind.TELEPORT_ENTITY ? Proof.AFTER_RESPONSE : Proof.SAME_TASK);
         if (data != null) {
             data.setLastTransactionHung(proof);
-            if (data.getEntityType() == EntityTypeIds.PLAYER) {
-                FairReach fairReach = player.checkManager.getFairReach();
-                if (movement.hasPosition) {
-                    FairReach.PositionUpdate update = switch (movement.kind) {
-                        case TELEPORT_ENTITY -> FairReach.PositionUpdate.TELEPORT;
-                        case POSITION_SYNC -> FairReach.PositionUpdate.POSITION_SYNC;
-                        case RELATIVE_ENTITY, MINECART -> FairReach.PositionUpdate.RELATIVE;
-                    };
-                    fairReach.handleEntityMove(movement.entityId, data.getX(), data.getY(), data.getZ(), update);
-                } else if (movement.hasRotation) {
-                    fairReach.handleEntityRotation(
-                            movement.entityId, data.getX(), data.getY(), data.getZ(), rotationChanged);
-                }
+            FairReach fairReach = player.checkManager.getFairReach();
+            if (movement.hasPosition) {
+                FairReach.PositionUpdate update = switch (movement.kind) {
+                    case TELEPORT_ENTITY -> FairReach.PositionUpdate.TELEPORT;
+                    case POSITION_SYNC -> FairReach.PositionUpdate.POSITION_SYNC;
+                    case RELATIVE_ENTITY, MINECART -> FairReach.PositionUpdate.RELATIVE;
+                };
+                fairReach.handleEntityMove(movement.entityId, data.getX(), data.getY(), data.getZ(), update);
+            } else if (movement.hasRotation) {
+                fairReach.handleEntityRotation(
+                        movement.entityId, data.getX(), data.getY(), data.getZ(), rotationChanged);
             }
         }
 

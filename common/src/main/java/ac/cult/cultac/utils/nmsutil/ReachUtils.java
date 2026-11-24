@@ -206,11 +206,17 @@ public class ReachUtils {
     }
 
     public static double getMinReachToBox(CultPlayer player, SimpleCollisionBox targetBox) {
+        return getMinReachToBox(player, targetBox, player.x, player.y, player.z);
+    }
+
+    /** {@link #getMinReachToBox(CultPlayer, SimpleCollisionBox)} from feet at {@code x}, {@code y}, {@code z}. */
+    public static double getMinReachToBox(
+            CultPlayer player, SimpleCollisionBox targetBox, double x, double y, double z) {
         double lowest = Double.MAX_VALUE;
 
         for (double eyes : player.getPossibleEyeHeights()) {
             targetBox.expand(player.getMovementThreshold());
-            Vector3dm from = new Vector3dm(player.x, player.y + eyes, player.z);
+            Vector3dm from = new Vector3dm(x, y + eyes, z);
             Vector3dm closestPoint = VectorUtils.cutBoxToVector(from, targetBox);
             lowest = Math.min(lowest, closestPoint.distance(from));
         }

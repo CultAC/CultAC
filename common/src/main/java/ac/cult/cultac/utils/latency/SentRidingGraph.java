@@ -9,11 +9,11 @@ import java.util.Arrays;
  * Each set_passengers is applied the way ClientPacketListener#handleSetEntityPassengersPacket applies it: the vehicle
  * ejects its passengers, and each listed passenger leaves any other vehicle to ride it (Entity#startRiding).
  */
-final class SentRidingGraph {
+public final class SentRidingGraph {
     private final Int2IntOpenHashMap vehicleOf = new Int2IntOpenHashMap();
     private final Int2ObjectOpenHashMap<int[]> passengersOf = new Int2ObjectOpenHashMap<>();
 
-    void setPassengers(int vehicle, int[] passengers) {
+    public void setPassengers(int vehicle, int[] passengers) {
         eject(vehicle);
         int[] kept = new int[passengers.length];
         int count = 0;
@@ -28,12 +28,12 @@ final class SentRidingGraph {
     }
 
     /** ClientLevel#removeEntity: Entity#setRemoved stops the entity riding and ejects its passengers. */
-    void remove(int entity) {
+    public void remove(int entity) {
         if (vehicleOf.containsKey(entity)) leave(entity, vehicleOf.get(entity));
         eject(entity);
     }
 
-    void clear() {
+    public void clear() {
         vehicleOf.clear();
         passengersOf.clear();
     }
@@ -44,12 +44,22 @@ final class SentRidingGraph {
     }
 
     /** Whether {@code entity} rides another entity. */
-    boolean rides(int entity) {
+    public boolean rides(int entity) {
         return vehicleOf.containsKey(entity);
     }
 
+    /** The vehicle {@code entity} rides; only meaningful while {@link #rides} holds. */
+    public int vehicleOf(int entity) {
+        return vehicleOf.get(entity);
+    }
+
+    /** The passengers {@code vehicle} carries in seat order, or null when it carries none. */
+    public int[] passengersOf(int vehicle) {
+        return passengersOf.get(vehicle);
+    }
+
     /** Entity#getRootVehicle: the bottom of {@code entity}'s riding chain, {@code entity} itself when it rides nothing. */
-    int rootOf(int entity) {
+    public int rootOf(int entity) {
         int current = entity;
         // A cycle cannot form, as every link is added through ridesIndirectly; the bound only guards corrupt input.
         for (int hops = 0; vehicleOf.containsKey(current) && hops <= vehicleOf.size(); hops++) {

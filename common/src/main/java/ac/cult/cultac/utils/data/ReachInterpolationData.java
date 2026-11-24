@@ -593,7 +593,7 @@ public class ReachInterpolationData {
         return steppedTarget;
     }
 
-    private static int vanillaInterpolationStepsFor(CultPlayer player, PacketEntity entity) {
+    public static int vanillaInterpolationStepsFor(CultPlayer player, PacketEntity entity) {
         // A Bedrock client lerps every actor over 3 ticks. From 26.51 the move's own tick count can raise that, which
         // Geyser never sets.
         if (player.isBedrockMovement()) return 3;
