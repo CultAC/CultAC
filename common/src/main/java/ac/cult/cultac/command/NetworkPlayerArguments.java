@@ -35,7 +35,8 @@ import org.jetbrains.annotations.Nullable;
  * instance or engine generation for the commands that work across instances, and tells the sender the others only work
  * on the same server.
  * Without a transport, a player who is not here fails as with the platform's parser. While a transport runs, player
- * suggestions of the commands that work across instances add the roster's names.
+ * suggestions of the commands that work across instances add the roster's names. A player typed by a name a server lists
+ * them under rather than their account name matches that account ({@link ShownNames}).
  */
 public final class NetworkPlayerArguments implements CloudPlatformCommandArguments {
     static final int MAX_SUGGESTIONS = 25;
@@ -63,10 +64,29 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                     public CompletableFuture<ArgumentParseResult<PlayerSelector>> parseFuture(
                             CommandContext<Sender> context, CommandInput input) {
                         String name = input.peekString();
-                        return base.parseFuture(context, input).thenApply(result -> {
+                        int start = input.cursor();
+                        return base.parseFuture(context, input).thenCompose(result -> {
                             PlayerElsewhereException elsewhere =
                                     result.failure().isEmpty() ? otherGeneration(context, name) : elsewhere(name);
-                            return elsewhere == null ? result : ArgumentParseResult.failure(elsewhere);
+                            if (elsewhere != null)
+                                return CompletableFuture.completedFuture(ArgumentParseResult.failure(elsewhere));
+                            if (result.failure().isEmpty()) return CompletableFuture.completedFuture(result);
+                            return ShownNames.find(context.sender(), name).thenCompose(match -> {
+                                if (match == null) return CompletableFuture.completedFuture(result);
+                                if (input.cursor() == start) input.readString();
+                                PlayerElsewhereException there = elsewhere(match.account());
+                                if (there != null)
+                                    return CompletableFuture.completedFuture(ArgumentParseResult.failure(there));
+                                return base.parseFuture(context, CommandInput.of(match.account()))
+                                        .thenApply(found -> {
+                                            PlayerElsewhereException other = found.failure().isEmpty()
+                                                    ? otherGeneration(context, match.account())
+                                                    : null;
+                                            if (other != null) return ArgumentParseResult.failure(other);
+                                            if (found.failure().isEmpty()) ShownNames.remember(context, match);
+                                            return found;
+                                        });
+                            });
                         });
                     }
 
@@ -90,13 +110,43 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
     public static ParserDescriptor<Sender, String> playerName(ParserDescriptor<Sender, String> base) {
         return ParserDescriptor.of(
                 base.parser().flatMapSuccess((context, name) -> {
-                    PlayerElsewhereException elsewhere = elsewhere(name);
-                    if (elsewhere == null) elsewhere = otherGeneration(context, name);
-                    return elsewhere == null
-                            ? ArgumentParseResult.successFuture(name)
-                            : ArgumentParseResult.failureFuture(elsewhere);
+                    PlayerElsewhereException elsewhere = placed(context, name);
+                    if (elsewhere != null) return ArgumentParseResult.failureFuture(elsewhere);
+                    if (NetworkRouting.current().locate(name).isPresent())
+                        return ArgumentParseResult.successFuture(name);
+                    return ShownNames.find(context.sender(), name).thenApply(match -> {
+                        if (match == null) return ArgumentParseResult.success(name);
+                        PlayerElsewhereException there = placed(context, match.account());
+                        if (there != null) return ArgumentParseResult.failure(there);
+                        ShownNames.remember(context, match);
+                        return ArgumentParseResult.success(match.account());
+                    });
                 }),
                 String.class);
+    }
+
+    /**
+     * {@code base}, taking the account of an online player typed by the name the sender sees them listed under. Unlike
+     * {@link #playerName} it never sends the command elsewhere.
+     */
+    public static ParserDescriptor<Sender, String> shownAs(ParserDescriptor<Sender, String> base) {
+        return ParserDescriptor.of(
+                base.parser().flatMapSuccess((context, name) -> {
+                    if (NetworkRouting.current().locate(name).isPresent())
+                        return ArgumentParseResult.successFuture(name);
+                    return ShownNames.find(context.sender(), name).thenApply(match -> {
+                        if (match == null) return ArgumentParseResult.success(name);
+                        ShownNames.remember(context, match);
+                        return ArgumentParseResult.success(match.account());
+                    });
+                }),
+                String.class);
+    }
+
+    /** {@code name} on another instance or held by another engine generation here; null otherwise. */
+    private static @Nullable PlayerElsewhereException placed(CommandContext<Sender> context, String name) {
+        PlayerElsewhereException elsewhere = elsewhere(name);
+        return elsewhere != null ? elsewhere : otherGeneration(context, name);
     }
 
     /**

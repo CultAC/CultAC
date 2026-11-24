@@ -5,6 +5,7 @@ import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.labels.LabelRequest;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.dialog.DialogViewer;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -48,7 +49,7 @@ public class CultLabel implements BuildableCommand {
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
         commandManager.command(label(commandManager)
                 .literal("list")
-                .required("player", StringParser.stringParser(), CloudArguments.players())
+                .required("player", NetworkPlayerArguments.shownAs(StringParser.stringParser()), CloudArguments.players())
                 .handler(this::handleList));
         commandManager.command(label(commandManager)
                 .literal("revoke")
@@ -56,7 +57,7 @@ public class CultLabel implements BuildableCommand {
                 .optional("reason", StringParser.greedyStringParser())
                 .handler(this::handleRevoke));
         commandManager.command(note(confidence(label(commandManager)
-                        .required("player", StringParser.stringParser(), CloudArguments.players())
+                        .required("player", NetworkPlayerArguments.shownAs(StringParser.stringParser()), CloudArguments.players())
                         .literal("clean")))
                 .handler(context -> handleLabel(
                         context,
@@ -64,7 +65,7 @@ public class CultLabel implements BuildableCommand {
                                 context.get("confidence"),
                                 context.<String>optional("note").orElse(null)))));
         commandManager.command(chosen(label(commandManager)
-                        .required("player", StringParser.stringParser(), CloudArguments.players())
+                        .required("player", NetworkPlayerArguments.shownAs(StringParser.stringParser()), CloudArguments.players())
                         .required(
                                 "cheat",
                                 StringParser.stringParser(),
@@ -77,7 +78,7 @@ public class CultLabel implements BuildableCommand {
                                 context.get("span"),
                                 context.<String>optional("note").orElse(null)))));
         commandManager.command(label(commandManager)
-                .required("player", StringParser.stringParser(), CloudArguments.players())
+                .required("player", NetworkPlayerArguments.shownAs(StringParser.stringParser()), CloudArguments.players())
                 .handler(this::handleMenu));
     }
 

@@ -235,6 +235,8 @@ alerts-scope-local: "network-wide alerts are not enabled on this server"
 # A command routed to another instance or engine generation. %instance% is the instance id, %player% the player,
 # %location% the instance with its backend server, %reason% why it failed, %lines% and %kb% the output caps.
 network-command-same-server: "&c%player% is on %location%; this command only works on the same server."
+# A typed player name matched the account of a player a server lists under another name.
+player-listed-as: "%prefix% &f%shown% &7is &f%player%"
 network-spectate-unreachable: "&c%player% is on %location%; spectating across servers needs CultAC on the proxy."
 network-command-stopped: "&cThe command could not be forwarded to %instance%: network routing stopped."
 network-command-not-forwarded: "&cThe command could not be forwarded to %instance%."

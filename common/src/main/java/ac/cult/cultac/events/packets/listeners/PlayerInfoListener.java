@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate.Action;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate.Entry;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.latency.ClientPlayerModes;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -23,6 +24,11 @@ public class PlayerInfoListener {
             PacketSendEvent<ClientboundPlayerInfoUpdate> event,
             CultPlayer receiver,
             ClientboundPlayerInfoUpdate packet) {
+        if (packet.actions().contains(Action.ADD_PLAYER)) {
+            for (Entry entry : packet.entries()) {
+                if (receiver.playerUUID.equals(entry.profileId())) receiver.shownName = ClientPlayerModes.name(entry);
+            }
+        }
         if (!packet.actions().contains(Action.UPDATE_GAME_MODE)) {
             track(event, receiver, packet, List.of());
             return;
