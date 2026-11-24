@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.breaking;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.EyePositions;
+import ac.cult.cultac.checks.RiderPickYaw;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
@@ -36,6 +37,7 @@ public class RotationBreak extends Check
     private final ClientVisibilityProcessor visibility;
     // From 26.3, a boat rider's breaks of this client tick and where its pick saw it from.
     private final List<TurnedBreak> turnedBreaks = new ArrayList<>();
+    private final RiderPickYaw pickYaw = new RiderPickYaw();
 
     public RotationBreak(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player);
@@ -46,12 +48,11 @@ public class RotationBreak extends Check
         if (!player.cameraEntity.isSelf()) return; // you don't send flying packets when spectating entities
         if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) return; // falses
 
-        if (flagBuffer > 0
+        if (flagBuffer <= 0) return;
+        float yaw = pickYaw.beforeRot(player);
+        if (!Float.isNaN(yaw)
                 && !didRayTraceHit(
-                        blockBreak,
-                        player.compensatedEntities.pickPositions(),
-                        player.getPoseEyeHeights(),
-                        player.xRot)) {
+                        blockBreak, player.compensatedEntities.pickPositions(), player.getPoseEyeHeights(), yaw)) {
             ignorePost = true;
             // If the player hit and has flagged this check recently
             if (flag(V.write(verbose()).bool(true).uint(VerboseCodecs.digging(blockBreak.action)))
@@ -82,6 +83,7 @@ public class RotationBreak extends Check
     // After the tick's vehicle move and the riding tree's interpolation, which give the boat's turn and yaw.
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
+        pickYaw.onTickEnd(player);
         if (turnedBreaks.isEmpty()) return;
         float yaw = player.yawBeforeRideTurn(player.xRot);
         if (!Float.isNaN(yaw)) {

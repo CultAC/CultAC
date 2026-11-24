@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.scaffolding;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.EyePositions;
+import ac.cult.cultac.checks.RiderPickYaw;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -32,6 +33,7 @@ public class RotationPlace extends BlockPlaceCheck implements ClientTickEndListe
     private final ClientVisibilityProcessor visibility;
     // From 26.3, a boat rider's places of this client tick and where its pick saw it from.
     private final List<TurnedPlace> turnedPlaces = new ArrayList<>();
+    private final RiderPickYaw pickYaw = new RiderPickYaw();
 
     public RotationPlace(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player);
@@ -42,9 +44,11 @@ public class RotationPlace extends BlockPlaceCheck implements ClientTickEndListe
     public void onBlockPlace(final BlockPlace place) {
         if (place.getMaterial() == BlockIds.SCAFFOLDING) return;
         if (!player.cameraEntity.isSelf()) return; // you don't send flying packets when spectating entities
-        if (flagBuffer > 0
+        if (flagBuffer <= 0) return;
+        float yaw = pickYaw.beforeRot(player);
+        if (!Float.isNaN(yaw)
                 && !didRayTraceHit(
-                        place, player.compensatedEntities.pickPositions(), player.getPoseEyeHeights(), player.xRot)) {
+                        place, player.compensatedEntities.pickPositions(), player.getPoseEyeHeights(), yaw)) {
             ignorePost = true;
             // If the player hit and has flagged this check recently
             if (flag(V.write(verbose()).bool(true)) && shouldModifyPackets() && shouldCancel()) {
@@ -76,6 +80,7 @@ public class RotationPlace extends BlockPlaceCheck implements ClientTickEndListe
     // After the tick's vehicle move and the riding tree's interpolation, which give the boat's turn and yaw.
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
+        pickYaw.onTickEnd(player);
         if (turnedPlaces.isEmpty()) return;
         float yaw = player.yawBeforeRideTurn(player.xRot);
         if (!Float.isNaN(yaw)) {

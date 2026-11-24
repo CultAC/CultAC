@@ -188,6 +188,64 @@ class MountedPlaceChecksTest {
         }
     }
 
+    /**
+     * Before 26.3 a driver's Rot goes out before AbstractBoat#positionRider turns it by the boat's deltaRotation, so a
+     * still mouse picks the next tick from the turned yaw. After a place behind it, the driver places on a face edge
+     * that its turned yaw looks at and the yaws it sent do not.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_11", "V_26_2"})
+    void aBoatDriverPlacingWithTheLookItsBoatTurnedItToIsNotFlagged(ClientVersion version) throws Exception {
+        try (var f = boardBoat(version)) {
+            var rotation = enable(f, RotationPlace.class);
+            BlockPos behind = new BlockPos(0, FLOOR_Y + 1, -3);
+            BlockPos stone = new BlockPos(0, FLOOR_Y + 1, 3);
+            block(f, behind, "stone");
+            block(f, stone, "stone");
+            Vec3 aim = new Vec3(0.03, FLOOR_Y + 1.5, 3);
+            int placeTick = 5;
+            int releaseTick = 4;
+            float[] turns = new float[placeTick + 1];
+            float turn = 0;
+            for (int tick = 0; tick <= placeTick; tick++) {
+                turn *= landFriction();
+                if (tick >= 1 && tick <= releaseTick) turn--;
+                turns[tick] = turn;
+            }
+            float boatYaw = 0;
+            double flagged = 0;
+            for (int tick = 0; tick <= placeTick; tick++) {
+                Vec3 origin = f.player.compensatedEntities.pickPositions().getFirst();
+                double dx = aim.x - origin.x;
+                double dy = aim.y - (origin.y + STANDING_EYE);
+                double dz = aim.z - origin.z;
+                float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+                float pitch = (float) Math.toDegrees(-Math.atan2(dy, Math.hypot(dx, dz)));
+                if (tick == 0) use(f, behind, Direction.SOUTH, new Vec3d(.5, .5, 1), 1);
+                if (tick == placeTick) {
+                    var cursor = new Vec3d(aim.x - stone.x(), aim.y - stone.y(), 0);
+                    assertFalse(use(f, stone, Direction.NORTH, cursor, 2).isCancelled());
+                }
+                if (tick == 0) f.input(LEFT);
+                if (tick == releaseTick) f.input(RELEASED);
+                boatYaw += turns[tick];
+                float sent = yaw;
+                if (tick == placeTick - 1) sent = yaw - turns[tick];
+                if (tick == placeTick - 2) sent = yaw - turns[tick + 1] - turns[tick];
+                rot(f, sent, pitch);
+                moveBoat(f, boatYaw);
+                f.tickEnd();
+                if (tick == 0) flagged = rotation.violations;
+            }
+
+            assertTrue(flagged > 0, "RotationPlace violations after the place behind " + flagged);
+            assertEquals(flagged, rotation.violations, "RotationPlace");
+            assertEquals(state("stone"), f.player.compensatedWorld.getBlockStateIdAt(stone.north()));
+        }
+    }
+
     private static <T extends Check> T enable(JavaTickFixture f, Class<T> type) {
         T check = f.player.checkManager.getCheck(type);
         check.setEnabled(true);
