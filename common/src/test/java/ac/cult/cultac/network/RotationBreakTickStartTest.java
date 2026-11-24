@@ -65,6 +65,50 @@ class RotationBreakTickStartTest {
         assertEquals(1, replay(walkedBack));
     }
 
+    // A 1.21.11 capture: seq 481 PosRot, seq 482 START_DESTROY_BLOCK beyond the block range, seq 482 PosRot,
+    // seq 483 START_DESTROY_BLOCK on the next block, seq 483 PosRot.
+    private static final Dig OUT_OF_RANGE_DIG = new Dig(
+            new Vec3(1002.3012328790371, 62.121296840539195, 993.8831461881388),
+            111.9f,
+            13.8f,
+            new BlockPos(998, 61, 992),
+            Direction.UP,
+            4,
+            new Vec3(1002.129997280572, 62.0, 993.8147958262203),
+            111.6f,
+            21.15f);
+
+    private static final Dig NEXT_DIG = new Dig(
+            OUT_OF_RANGE_DIG.sent(),
+            OUT_OF_RANGE_DIG.yaw(),
+            OUT_OF_RANGE_DIG.pitch(),
+            new BlockPos(999, 61, 992),
+            Direction.UP,
+            5,
+            new Vec3(1001.8828703, 62.42, 993.7170025),
+            111.3f,
+            27.0f);
+
+    @Test
+    void aDigAfterAFlaggedDigWhoseOwnLookHitsStaysClean() throws Exception {
+        assertEquals(1, replay(OUT_OF_RANGE_DIG, NEXT_DIG));
+    }
+
+    @Test
+    void aDigAfterAFlaggedDigBehindThePlayerFlags() throws Exception {
+        Dig behind = new Dig(
+                NEXT_DIG.tickStart(),
+                NEXT_DIG.startYaw(),
+                NEXT_DIG.startPitch(),
+                new BlockPos(1005, 61, 995),
+                NEXT_DIG.face(),
+                NEXT_DIG.sequence(),
+                NEXT_DIG.sent(),
+                NEXT_DIG.yaw(),
+                NEXT_DIG.pitch());
+        assertEquals(2, replay(OUT_OF_RANGE_DIG, behind));
+    }
+
     /** The movement ending the tick before the dig, the dig, and the movement its own tick sends. */
     private record Dig(
             Vec3 tickStart,
@@ -77,33 +121,38 @@ class RotationBreakTickStartTest {
             float yaw,
             float pitch) {}
 
-    private static double replay(Dig dig) throws Exception {
+    private static double replay(Dig... digs) throws Exception {
         try (var f = new JavaTickFixture()) {
             f.player.checkManager.allChecks.values().forEach(check -> check.setEnabled(false));
             RotationBreak check = f.player.checkManager.getCheck(RotationBreak.class);
             check.setEnabled(true);
             f.player.setExperimentalChecks(true);
 
-            int dx = -(int) Math.floor(dig.tickStart().x);
-            int dy = JavaTickFixture.FLOOR_Y - (int) Math.floor(dig.tickStart().y);
-            int dz = -(int) Math.floor(dig.tickStart().z);
-            BlockPos target = new BlockPos(
-                    dig.target().getX() + dx,
-                    dig.target().getY() + dy,
-                    dig.target().getZ() + dz);
-            f.player.compensatedWorld.updateBlock(target, BlockIds.STONE.defaultState());
+            Dig first = digs[0];
+            int dx = -(int) Math.floor(first.tickStart().x);
+            int dy = JavaTickFixture.FLOOR_Y - (int) Math.floor(first.tickStart().y);
+            int dz = -(int) Math.floor(first.tickStart().z);
+            for (Dig dig : digs) {
+                f.player.compensatedWorld.updateBlock(shifted(dig, dx, dy, dz), BlockIds.STONE.defaultState());
+            }
             for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
-            Vec3 start = dig.tickStart().add(dx, dy, dz);
+            Vec3 start = first.tickStart().add(dx, dy, dz);
             f.place(start, Vec3.ZERO);
-            move(f, start, dig.startYaw(), dig.startPitch());
-            var action =
-                    new ServerboundPlayerAction(PlayerAction.START_DESTROY_BLOCK, target, dig.face(), dig.sequence());
-            new PacketPlayerDigging()
-                    .onPlayerAction(f.event(ServerboundPackets.PLAYER_ACTION, action), f.player, action);
-            move(f, dig.sent().add(dx, dy, dz), dig.yaw(), dig.pitch());
+            move(f, start, first.startYaw(), first.startPitch());
+            for (Dig dig : digs) {
+                var action = new ServerboundPlayerAction(
+                        PlayerAction.START_DESTROY_BLOCK, shifted(dig, dx, dy, dz), dig.face(), dig.sequence());
+                new PacketPlayerDigging()
+                        .onPlayerAction(f.event(ServerboundPackets.PLAYER_ACTION, action), f.player, action);
+                move(f, dig.sent().add(dx, dy, dz), dig.yaw(), dig.pitch());
+            }
             return check.getViolations();
         }
+    }
+
+    private static BlockPos shifted(Dig dig, int dx, int dy, int dz) {
+        return new BlockPos(dig.target().getX() + dx, dig.target().getY() + dy, dig.target().getZ() + dz);
     }
 
     private static void move(JavaTickFixture f, Vec3 to, float yaw, float pitch) {

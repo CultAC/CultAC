@@ -39,7 +39,7 @@ public class RotationPlace extends BlockPlaceCheck {
         if (place.getMaterial() == BlockIds.SCAFFOLDING) return;
         if (!player.cameraEntity.isSelf()) return; // you don't send flying packets when spectating entities
         if (player.inVehicle()) return;
-        if (flagBuffer > 0 && !didRayTraceHit(place)) {
+        if (flagBuffer > 0 && !didRayTraceHit(place, player.getPoseEyeHeights())) {
             ignorePost = true;
             // If the player hit and has flagged this check recently
             if (flag(V.write(verbose()).bool(true)) && shouldModifyPackets() && shouldCancel()) {
@@ -62,7 +62,7 @@ public class RotationPlace extends BlockPlaceCheck {
         }
 
         // Ray trace to try and hit the target block.
-        boolean hit = didRayTraceHit(place);
+        boolean hit = didRayTraceHit(place, place.eyeHeights);
         // This can false with rapidly moving yaw in 1.8+ clients
         if (!hit) {
             flagBuffer = 1;
@@ -72,13 +72,11 @@ public class RotationPlace extends BlockPlaceCheck {
         }
     }
 
-    private boolean didRayTraceHit(BlockPlace place) {
+    private boolean didRayTraceHit(BlockPlace place, List<Double> possibleEyeHeights) {
         SimpleCollisionBox box = new SimpleCollisionBox(place.getPlacedAgainstBlockLocation());
 
         List<Vector3f> possibleLookDirs = new ArrayList<>(Arrays.asList(
                 new Vector3f(player.xRot, player.yRot, 0), new Vector3f(player.lastTickXRot, player.yRot, 0)));
-
-        final List<Double> possibleEyeHeights = place.eyeHeights;
 
         // Start checking if player is in the block
         SimpleCollisionBox eyePositions = EyePositions.box(player, possibleEyeHeights);
