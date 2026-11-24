@@ -43,6 +43,8 @@ class FastBreakClientTickTest {
     private static final int DESTROY_DELAY = 5;
     // Efficiency V: 5 * 5 + 1
     private static final double EFFICIENCY_V = 26.0;
+    // A golden pickaxe adds 0.04F a tick to iron ore; the float sum reaches 1.0F at the 25th tick, not the 26th.
+    private static final int GOLD_ON_IRON_TICKS = 25;
 
     @BeforeAll
     static void registerVerboseTags() {
@@ -109,6 +111,34 @@ class FastBreakClientTickTest {
             }
             assertEquals(0, f.check.getViolations());
             f.heldBreak(TICKS_2 - 1);
+            assertEquals(1, f.check.getViolations());
+        }
+    }
+
+    @Test
+    void heldBreaksEndOnTheTickTheFloatDestroyProgressReachesOne() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = new Fixture(0.0)) {
+            f.hold("minecraft:golden_pickaxe", "minecraft:iron_ore");
+            f.freshBreak(0, GOLD_ON_IRON_TICKS);
+            for (int i = 0; i < 30; i++) {
+                f.heldBreak(GOLD_ON_IRON_TICKS);
+            }
+            assertEquals(0, f.check.getViolations());
+        }
+    }
+
+    @Test
+    void heldBreaksOneTickBeforeTheFloatDestroyProgressReachesOneFlag() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = new Fixture(0.0)) {
+            f.hold("minecraft:golden_pickaxe", "minecraft:iron_ore");
+            f.freshBreak(0, GOLD_ON_IRON_TICKS);
+            for (int i = 0; i < 20; i++) {
+                f.heldBreak(GOLD_ON_IRON_TICKS - 1);
+            }
+            assertEquals(0, f.check.getViolations());
+            f.heldBreak(GOLD_ON_IRON_TICKS - 1);
             assertEquals(1, f.check.getViolations());
         }
     }
@@ -225,6 +255,11 @@ class FastBreakClientTickTest {
 
         void setBlock(int state) {
             player.compensatedWorld.updateBlock(TARGET, state);
+        }
+
+        void hold(String item, String block) {
+            player.getInventory().inventory.setHeldItem(OfflineCultTestBootstrap.item(item));
+            setBlock(state(block));
         }
 
         /**

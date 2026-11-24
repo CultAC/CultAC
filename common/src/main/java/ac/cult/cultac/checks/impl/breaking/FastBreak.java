@@ -77,7 +77,7 @@ public class FastBreak extends Check implements BlockBreakListener {
             // Minecraft#startAttack swings once after START; continueAttack swings again in that tick only when
             // continueDestroyBlock ran, the one way progress or a destroyDelay tick happens in the START tick
             double startTickCredit = startTickSwings >= 2 ? 1 : 0;
-            double predictedTicks = Math.ceil(1 / maximumBlockDamage) + startDestroyDelay - startTickCredit;
+            double predictedTicks = progressTicks((float) maximumBlockDamage) + startDestroyDelay - startTickCredit;
             double diff = (predictedTicks - (clientTicks - startTick)) * MILLISECONDS_PER_TICK;
 
             clampBalance();
@@ -152,6 +152,34 @@ public class FastBreak extends Check implements BlockBreakListener {
 
     private double blockDamage(int clientState) {
         return damage.damage(player, player.getInventory().getHeldItem(), clientState);
+    }
+
+    /**
+     * The client ticks MultiPlayerGameMode#continueDestroyBlock adds {@code progress} to its float destroyProgress
+     * until it reaches 1.0F, or infinity when it never does.
+     */
+    private static double progressTicks(float progress) {
+        if (!(progress > 0.0F)) return Double.POSITIVE_INFINITY;
+        float destroyProgress = 0.0F;
+        long ticks = 0;
+        while (destroyProgress < 1.0F) {
+            float next = destroyProgress + progress;
+            if (next == destroyProgress) return Double.POSITIVE_INFINITY;
+            ticks++;
+            // Past one sum inside a binade, every sum that stays below the binade's top rounds by the same step
+            int exponent = Math.getExponent(next);
+            float after = next + progress;
+            if (exponent == Math.getExponent(destroyProgress) && exponent == Math.getExponent(after)) {
+                float ulp = Math.ulp(next);
+                long gap = (long) ((Math.scalb(1.0F, exponent + 1) - next) / ulp);
+                long step = (long) ((after - next) / ulp);
+                long steps = (gap - 1) / step;
+                next += steps * step * ulp;
+                ticks += steps;
+            }
+            destroyProgress = next;
+        }
+        return ticks;
     }
 
     private void clampBalance() {
