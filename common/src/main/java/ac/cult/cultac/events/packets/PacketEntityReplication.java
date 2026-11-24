@@ -1609,7 +1609,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 && player.compensatedEntities.vehicles.ridesAsSent(packet.vehicleId())
                 && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(packet.vehicleId());
         player.compensatedEntities.vehicles.onSentPassengers(packet.vehicleId(), passengers);
-        player.checkManager.getFairReach().handlePassengers(packet.vehicleId(), passengers);
         PacketEntity vehicle = player.compensatedEntities.getEntity(packet.vehicleId());
         boolean setsSelfPassengers = packet.vehicleId() == player.entityID;
         boolean changesSelfPassengers =
@@ -1627,6 +1626,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                             player.getSetbackTeleportUtil().sender().nextTeleportId());
             CultPlayer.TrackedTransaction proof = proofForSetPassengers(event, null, dismountResyncState);
             int transaction = proof == null ? player.lastTransactionSent.get() + 1 : proof.transaction();
+            player.checkManager.getFairReach().handlePassengers(packet.vehicleId(), passengers, transaction);
             if (changesSelfPassengers) player.compensatedEntities.markSelfPassengersChange(transaction);
             int vehicleId = packet.vehicleId();
             DismountResync resync =
@@ -1660,6 +1660,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         CultPlayer.TrackedTransaction proof = proofForSetPassengers(event, mountResyncState, null);
         int transaction = proof == null ? player.lastTransactionSent.get() + 1 : proof.transaction();
+        player.checkManager.getFairReach().handlePassengers(packet.vehicleId(), passengers, transaction);
         if (setsSelfPassengers) {
             player.compensatedEntities.sentSelfPassengers(packet.passengers(), transaction);
         } else if (changesSelfPassengers) {

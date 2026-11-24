@@ -145,10 +145,10 @@ public class FairReach extends Check implements CheckListener {
 
     /**
      * A set_passengers for {@code vehicleId} naming the {@code passengers} the client holds, after the sent riding
-     * graph took it. Each vehicle that now carries a tracked player or the attacker is tracked from its last sent
-     * position.
+     * graph took it, applied at {@code transaction}, the one that proves it to the client model. Each vehicle that now
+     * carries a tracked player or the attacker is tracked from its last sent position.
      */
-    public void handlePassengers(int vehicleId, int[] passengers) {
+    public void handlePassengers(int vehicleId, int[] passengers, int transaction) {
         CompensatedVehicleState sentRiding = player.compensatedEntities.vehicles;
         if (carriesTrackedPlayer(sentRiding, vehicleId)) {
             // Each keeps its own position once its chain splits.
@@ -161,7 +161,7 @@ public class FairReach extends Check implements CheckListener {
         if (attacker == null && contains(passengers, player.entityID)) {
             attacker = new FairReachEntity(player.entityID, player.x, player.y, player.z, 0);
         }
-        schedule(new PendingPassengers(vehicleId, passengers));
+        schedule(new PendingPassengers(vehicleId, passengers), transaction);
     }
 
     /** A player_position for the attacker itself, once a riding change has carried it. */
@@ -289,8 +289,12 @@ public class FairReach extends Check implements CheckListener {
     }
 
     private void schedule(PendingChange move) {
+        schedule(move, player.lastTransactionSent.get() + 1);
+    }
+
+    private void schedule(PendingChange move, int transaction) {
         // Ensure the client has received this before MAX_PING_TIME, or apply them sooner if client responds in time
-        player.latencyUtils.addRealTimeTaskNext(move);
+        player.latencyUtils.addRealTimeTask(transaction, move);
         if (move.get() == MOVE_APPLIED) return;
         ScheduledFuture<?> deadline = player.user
                 .getPacketExecutor()

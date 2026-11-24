@@ -215,13 +215,31 @@ class FairReachRiderTest {
     @Test
     void aRidingChangeForAReplacedLevelLeavesTheNewLevelAlone() {
         try (Fixture f = new Fixture()) {
-            f.fairReach.handlePassengers(OWN_CART, new int[] {f.player.entityID});
+            f.fairReach.handlePassengers(
+                    OWN_CART, new int[] {f.player.entityID}, f.player.lastTransactionSent.get() + 1);
             f.fairReach.clearLevel();
             f.acknowledge();
             f.tick(1);
             f.addTarget(5);
             f.player.x = 3;
             assertFalse(f.attackCancelled(), "the attacker attacks from where it stands in the new level");
+        }
+    }
+
+    @Test
+    void aFirstMountInABundleSeatsTheAttackerWhenTheClientHandlesIt() {
+        try (Fixture f = new Fixture()) {
+            f.addHorse(OWN_HORSE, 3);
+            f.addTarget(6);
+            assertTrue(f.attackCancelled(), "the target is out of reach of the attacker on foot");
+
+            f.fairReach.max_ping_compensation = 300;
+            int bundled = f.ping();
+            f.send(new ClientboundSetPassengers(OWN_HORSE, List.of(f.player.entityID)), bundled);
+            f.acknowledge(bundled);
+            f.tick(1);
+            assertTrue(f.player.compensatedEntities.getSelf().inVehicle(), "the client handled the mount");
+            assertFalse(f.attackCancelled(), "the attacker attacks from its seat");
         }
     }
 
@@ -304,11 +322,15 @@ class FairReachRiderTest {
         }
 
         void send(ClientboundSetPassengers packet) {
-            player.packetEntityReplication.onSetPassengers(
-                    new PacketSendEvent<>(
-                            player.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false),
-                    player,
-                    packet);
+            send(packet, 0);
+        }
+
+        /** A set_passengers in a flush bundle that holds the ping of {@code sharedPing}; 0 for none. */
+        void send(ClientboundSetPassengers packet, int sharedPing) {
+            var event = new PacketSendEvent<>(
+                    player.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false);
+            event.sharedPing(sharedPing);
+            player.packetEntityReplication.onSetPassengers(event, player, packet);
         }
 
         /** LivingEntity#dismountVehicle: the server teleports the player to {@code x} with an absolute position. */
