@@ -144,6 +144,10 @@ TimerA:
     # Liczba milisekund, które gracz może zgromadzić do późniejszego wykorzystania, gdy się opóźni.
     drift: 120
 
+NegativeTimer:
+    # Liczba milisekund straconych podczas ruchu, zanim zaczniemy wykrywać naruszenia.
+    drift: 1200
+
 PacketOrderI:
     # Włącz, jeśli gracze są oznaczani za używanie modów do animacji z 1.7.
     exempt-placing-while-digging: false

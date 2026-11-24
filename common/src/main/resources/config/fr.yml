@@ -145,6 +145,10 @@ TimerA:
     # Le nombre de millisecondes que le joueur peut accumuler pour une utilisation ultérieure lorsqu'il prend du retard.
     drift: 120
 
+NegativeTimer:
+    # Le nombre de millisecondes perdus pendant le déplacement avant de commencer à signaler des infractions.
+    drift: 1200
+
 PacketOrderI:
     # Activer si les joueurs sont signalés pour l'utilisation de mods d'animation 1.7
     exempt-placing-while-digging: false

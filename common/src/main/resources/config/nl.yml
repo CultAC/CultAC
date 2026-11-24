@@ -144,6 +144,10 @@ TimerA:
     # Milliseconden die de speler kan verzamelen om later te gebruiken als hij achterop raakt
     drift: 120
 
+NegativeTimer:
+    # Aantal milliseconden dat verloren gaat tijdens het bewegen voordat we moeten beginnen met flaggen
+    drift: 1200
+
 PacketOrderI:
     # Inschakelen als spelers worden gemarkeerd vanwege het gebruik van 1.7-animatiemods
     exempt-placing-while-digging: false

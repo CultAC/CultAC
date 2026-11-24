@@ -49,6 +49,7 @@ import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
+import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
@@ -493,6 +494,7 @@ public class CheckManager {
                 new Phase(player),
                 new PostCheck(player),
                 new OffsetHandler(player),
+                new NegativeTimerCheck(player),
                 new DebugHandler(player),
                 new SetbackTeleportUtil(player), // setback state depends on current friction
                 player.knockbackHandler,
@@ -727,6 +729,7 @@ public class CheckManager {
         registerReceive(registrations, postPredictionCheck.get(PostCheck.class));
         // AimDuplicateLook (rotation listener) declares no packet handlers; registering it for
         // receive dispatch would throw in registerReceive at CheckManager construction.
+        registerReceive(registrations, postPredictionCheck.get(NegativeTimerCheck.class));
 
         for (Class<? extends CheckListener> type : List.of(
                 PacketOrderA.class,

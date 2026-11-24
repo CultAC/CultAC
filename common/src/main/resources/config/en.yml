@@ -148,6 +148,10 @@ TimerA:
     # Milliseconds that the player can accumulate for later use when they fall behind
     drift: 120
 
+NegativeTimer:
+    # Number of milliseconds lost while moving before we should start flagging
+    drift: 1200
+
 PacketOrderI:
     # enable if players are getting flagged for using 1.7 animations mods
     exempt-placing-while-digging: false

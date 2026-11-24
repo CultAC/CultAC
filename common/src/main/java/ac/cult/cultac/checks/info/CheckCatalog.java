@@ -111,6 +111,7 @@ import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
 import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
+import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
@@ -289,6 +290,7 @@ public final class CheckCatalog {
             check(InputKeys.INFO, MOVEMENT),
             check(ItemUseBurst.INFO, MOVEMENT),
             check(NoFallExecutor.INFO, MOVEMENT),
+            check(NegativeTimerCheck.INFO, MOVEMENT),
             check(NoSlow.INFO, MOVEMENT),
             check(NoSneakSlow.INFO, MOVEMENT),
             check(OmniSprint.INFO, MOVEMENT),

@@ -144,6 +144,10 @@ TimerA:
     # Milisecunde pe care jucătorul le poate acumula pentru folosire ulterioară când rămâne în urmă
     drift: 120
 
+NegativeTimer:
+    # Număr de milisecunde pierdute în timp ce se mișcă înainte de a începe să marcheze
+    drift: 1200
+
 PacketOrderI:
     # activează dacă jucătorii sunt marcați folosind moduri de animații 1.7
     exempt-placing-while-digging: false

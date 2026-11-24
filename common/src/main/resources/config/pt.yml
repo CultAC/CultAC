@@ -146,6 +146,10 @@ TimerA:
     # Milissegundos que o jogador pode acumular para depois usar quando eles têm um atraso no ping.
     drift: 120
 
+NegativeTimer:
+    # Número de milissegundos perdidos ao se mover antes de começarmos a registrar violações.
+    drift: 1200
+
 PacketOrderI:
     # Ativar se os jogadores estão sendo sinalizados por usar mods de animação 1.7
     exempt-placing-while-digging: false

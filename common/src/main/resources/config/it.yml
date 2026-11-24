@@ -136,6 +136,10 @@ TimerA:
     # Millisecondi accumulabili per il timer
     drift: 120
 
+NegativeTimer:
+    # Millisecondi persi prima di rilevare il timer negativo
+    drift: 1200
+
 PacketOrderI:
     # Abilitare se i giocatori vengono segnalati per l'uso di mod di animazione 1.7
     exempt-placing-while-digging: false

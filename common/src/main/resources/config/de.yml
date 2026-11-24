@@ -144,6 +144,10 @@ TimerA:
     # Millisekunden, die der Spieler akkumulieren kann, um sie später zu nutzen, wenn er zurückfällt.
     drift: 120
 
+NegativeTimer:
+    # Anzahl der Millisekunden, die während der Bewegung verloren gehen, bevor mit der Markierung begonnen werden sollte.
+    drift: 1200
+
 VehicleC:
     setbackvl: 25
 

@@ -120,6 +120,9 @@ checks:
   ItemUseBurst:
     summary: "Skipped the slowdown from using an item"
     details: "Eating, drinking, blocking or drawing a bow slows you down while you do it. NoSlow and Timer cheats let the player dodge that slowdown."
+  NegativeTimer:
+    summary: "Their game ran slower than normal"
+    details: "Their game ran in slow motion while it kept answering the server on time. Slowed Timer cheats do this to fall slowly or hang in the air."
   NoFall:
     summary: "Avoided fall damage they should have taken"
     details: "Their game sent false ground or movement information to cancel fall damage. That's what NoFall cheats do."

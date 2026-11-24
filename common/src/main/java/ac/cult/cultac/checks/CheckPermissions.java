@@ -158,6 +158,7 @@ public final class CheckPermissions {
             "multiplace",
             "nofall",
             "noslow",
+            "negativetimer",
             "nosneakslow",
             "noswingbreak",
             "omnisprint",

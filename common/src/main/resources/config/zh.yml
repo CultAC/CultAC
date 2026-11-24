@@ -164,6 +164,10 @@ TimerA:
     drift: 120
     # 玩家卡顿时，可以累积以供以后使用的时间（单位：毫秒）
 
+NegativeTimer:
+    # 玩家的移动丢失了多少毫秒？
+    drift: 1200
+
 PacketOrderI:
     # 如果玩家因使用1.7动画模组而误判，则启用此项
     exempt-placing-while-digging: false

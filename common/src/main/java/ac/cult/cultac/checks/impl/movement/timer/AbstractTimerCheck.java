@@ -9,7 +9,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 
 public abstract class AbstractTimerCheck extends Check implements CheckListener {
-    private static final long ONE_CLIENT_TICK = 50_000_000L;
+    protected static final long ONE_CLIENT_TICK = 50_000_000L;
     private final boolean serverSupportsClientTickEnd;
 
     long timerBalanceRealTime = 0;

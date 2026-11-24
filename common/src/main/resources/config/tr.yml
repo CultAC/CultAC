@@ -144,6 +144,10 @@ TimerA:
     # Oyuncunun geri kaldığında biriktirebileceği milisaniye miktarı
     drift: 120
 
+NegativeTimer:
+    # Uyarı vermeye başlamadan önce hareket halindeyken kaybedilen milisaniye sayısı
+    drift: 1200
+
     # TimerA ile aynı kontrol yöntemi, ancak araçlar için
 
 PacketOrderI:
