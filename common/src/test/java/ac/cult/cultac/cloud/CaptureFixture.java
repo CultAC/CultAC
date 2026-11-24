@@ -178,6 +178,7 @@ final class CaptureFixture implements AutoCloseable {
         final Map<String, FakeUplink> sockets = new LinkedHashMap<>();
         boolean enabled = true;
         boolean connect = true;
+        boolean profiles;
         CloudConnection.Terms terms = CloudConnection.Terms.sections(0, 0);
         int opened;
         int released;
@@ -257,6 +258,11 @@ final class CaptureFixture implements AutoCloseable {
         @Override
         public CloudConnection.Terms terms(long generation) {
             return owner.terms;
+        }
+
+        @Override
+        public boolean profiles(long generation) {
+            return owner.profiles && generation == this.generation;
         }
 
         @Override

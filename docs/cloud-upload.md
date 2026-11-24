@@ -16,6 +16,10 @@ While the upload is on, each player's session is streamed from the moment they r
 - **Session facts**, once per session and again after a server switch: the player's UUID, name and client brand, the
   client's protocol version, the server software and version, the target tick length, a few combat-related server
   settings and the player's attack speed, and the names in the damage-type and enchantment registries.
+- **Client profile**, when the intake service takes it: what `/cult profile` shows of the player's client (its
+  edition, protocol version and release, brand, the client type its brand, plugin channels and mods suggest, mouse
+  sensitivity and whether it uses fast math). Sent once known after the session facts, again when it changes, and
+  every few minutes while the player stays.
 - **Terrain.** The blocks around the player, as CultAC's own world model holds them, so the service can replay
   movement against the same world.
 - **Verdicts.** Every tick's check flags, the simulation engine's state and combat geometry (reach targets and
@@ -45,8 +49,8 @@ enforcing, and a SHA-256 hash of the parsed config files with `bridge.secret` an
 tells the service that the configuration changed; it does not carry the files' contents or reveal the secrets, and
 comments and formatting do not change it.
 
-Java clients are streamed. Bedrock players are announced with their session facts and the reason they are not
-streamed, and nothing more.
+Java clients are streamed. Bedrock players are announced with their session facts, their client profile and the
+reason they are not streamed, and nothing more.
 
 ## What is never uploaded
 

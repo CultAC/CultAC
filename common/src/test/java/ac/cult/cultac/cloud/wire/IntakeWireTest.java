@@ -23,6 +23,7 @@ import ac.cult.cultac.cloud.intake.v3.Join;
 import ac.cult.cultac.cloud.intake.v3.Meta;
 import ac.cult.cultac.cloud.intake.v3.Outcome;
 import ac.cult.cultac.cloud.intake.v3.PortalRole;
+import ac.cult.cultac.cloud.intake.v3.Profile;
 import ac.cult.cultac.cloud.intake.v3.Record;
 import ac.cult.cultac.cloud.intake.v3.Refused;
 import ac.cult.cultac.cloud.intake.v3.Replies;
@@ -35,6 +36,8 @@ import ac.cult.cultac.cloud.intake.v3.TeamSweep;
 import ac.cult.cultac.cloud.intake.v3.Unstreamed;
 import ac.cult.cultac.cloud.intake.v3.Verdict;
 import ac.cult.cultac.cloud.intake.v3.World;
+import ac.cult.cultac.player.ClientClassification;
+import ac.cult.cultac.player.ClientProfile;
 import com.github.luben.zstd.ZstdDecompressCtx;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
@@ -549,6 +552,29 @@ class IntakeWireTest {
                                         .addPlayers(ByteString.copyFrom(IntakeWire.uuid(TEAM_PLAYER)))))
                         .build()
                         .toByteArray());
+    }
+
+    @Test
+    void aClientProfileMatchesTheGoldenBytes() throws InvalidProtocolBufferException {
+        byte[] golden = hex("0a 53 42 51 0a 10 " + TEAM_PLAYER_HEX + " 18 87 06 22 04 32 36 2e 33"
+                + " 2a 07 76 61 6e 69 6c 6c 61 32 07 76 61 6e 69 6c 6c 61 3a 07 76 61 6e 69 6c 6c 61"
+                + " 42 05 75 6e 73 65 74 49 00 00 00 00 00 00 59 40 51 00 00 00 00 00 00 59 40 58 00");
+        ClientClassification types = new ClientClassification(
+                ClientClassification.Type.VANILLA, ClientClassification.Type.VANILLA, ClientClassification.Type.UNSET);
+
+        byte[] written = IntakeWire.profile(
+                TEAM_PLAYER, new ClientProfile(false, 775, "26.3", "vanilla", types, 100, 100, false));
+
+        assertArrayEquals(golden, written);
+        Profile unknown = Intake.parseFrom(IntakeWire.profile(
+                        TEAM_PLAYER,
+                        new ClientProfile(true, 924, "26.3", "Geyser", types, Double.NaN, Double.NaN, null)))
+                .getMessages(0)
+                .getProfile();
+        assertEquals(Edition.EDITION_BEDROCK, unknown.getEdition());
+        assertFalse(unknown.hasHorizontalSensitivity());
+        assertFalse(unknown.hasVerticalSensitivity());
+        assertFalse(unknown.hasFastMath());
     }
 
     @Test

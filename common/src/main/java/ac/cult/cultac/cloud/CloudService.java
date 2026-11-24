@@ -393,6 +393,11 @@ public final class CloudService {
         }
 
         @Override
+        public boolean profiles(long generation) {
+            return connection.profiles(generation);
+        }
+
+        @Override
         public int maxFrameBytes() {
             return connection.maxFrameBytes();
         }

@@ -11,11 +11,14 @@ import ac.cult.cultac.cloud.intake.v3.Join;
 import ac.cult.cultac.cloud.intake.v3.Leave;
 import ac.cult.cultac.cloud.intake.v3.Meta;
 import ac.cult.cultac.cloud.intake.v3.PortalRole;
+import ac.cult.cultac.cloud.intake.v3.Profile;
 import ac.cult.cultac.cloud.intake.v3.Registry;
 import ac.cult.cultac.cloud.intake.v3.Replies;
 import ac.cult.cultac.cloud.intake.v3.TeamRole;
 import ac.cult.cultac.cloud.intake.v3.TeamRoles;
 import ac.cult.cultac.cloud.intake.v3.Unstreamed;
+import ac.cult.cultac.player.ClientClassification;
+import ac.cult.cultac.player.ClientProfile;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import com.github.luben.zstd.EndDirective;
@@ -33,6 +36,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -50,6 +54,8 @@ public final class IntakeWire {
      * as chunk packets.
      */
     public static final int PROTOCOL_5 = 5;
+    /** The client profile version connect offers. */
+    public static final int PROFILE_VERSION = 1;
 
     /** The message flag: what follows the flags byte is compressed, as the socket's zstd frame. */
     public static final int COMPRESSED = 0x01;
@@ -287,6 +293,29 @@ public final class IntakeWire {
                 .setOffline(offline);
         if (name != null) entry.setName(name);
         return entry.build();
+    }
+
+    /** {@code player}'s client profile; what is not known is left out. */
+    public static byte[] profile(UUID player, ClientProfile profile) {
+        ClientClassification types = profile.classification();
+        Profile.Builder built = Profile.newBuilder()
+                .setPlayer(ByteString.copyFrom(uuid(player)))
+                .setEdition(profile.bedrock() ? Edition.EDITION_BEDROCK : Edition.EDITION_JAVA)
+                .setClientProtocol(profile.protocol())
+                .setBrandType(clientType(types.brandType()))
+                .setChannelType(clientType(types.channelType()))
+                .setModType(clientType(types.modType()));
+        if (profile.version() != null) built.setVersion(truncate(profile.version(), MAX_KEY_BYTES));
+        if (profile.brand() != null) built.setBrand(truncate(profile.brand(), MAX_STRING_BYTES));
+        if (Double.isFinite(profile.horizontalSensitivity()))
+            built.setHorizontalSensitivity(profile.horizontalSensitivity());
+        if (Double.isFinite(profile.verticalSensitivity())) built.setVerticalSensitivity(profile.verticalSensitivity());
+        if (profile.fastMath() != null) built.setFastMath(profile.fastMath());
+        return entry(IntakeMessage.newBuilder().setProfile(built).build());
+    }
+
+    private static String clientType(ClientClassification.Type type) {
+        return type.name().toLowerCase(Locale.ROOT);
     }
 
     /** An {@code Intake} holding one message: a queued record, which concatenates with others into one. */

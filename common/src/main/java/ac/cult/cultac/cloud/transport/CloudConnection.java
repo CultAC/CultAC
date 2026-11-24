@@ -228,7 +228,7 @@ public final class CloudConnection {
     private volatile long generation;
     private volatile int maxMessageBytes;
     /** The open socket's generation, the terms it was opened on, and the {@code textStripped} its connect said. */
-    private volatile Agreed agreed = new Agreed(0, Terms.NONE, true);
+    private volatile Agreed agreed = new Agreed(0, Terms.NONE, true, false);
 
     /** The agent this socket announced; a reload that changes its mode or config hash reconnects. */
     private volatile JsonObject announced;
@@ -321,7 +321,7 @@ public final class CloudConnection {
         }
     }
 
-    private record Agreed(long generation, Terms terms, boolean textStripped) {}
+    private record Agreed(long generation, Terms terms, boolean textStripped, boolean profiles) {}
 
     /**
      * The quiet and idle periods, the clock liveness, idleness, retirement, a message's age and the end of the open
@@ -607,6 +607,12 @@ public final class CloudConnection {
         return current.generation() != generation || current.textStripped();
     }
 
+    /** Whether the connect of the socket of {@code generation} took client profiles; false once it is gone. */
+    public boolean profiles(long generation) {
+        Agreed current = agreed;
+        return current.generation() == generation && current.profiles();
+    }
+
     /**
      * Whether records are piling up: this socket's queue is over half its cap, or every socket's together over half the
      * process's.
@@ -840,6 +846,7 @@ public final class CloudConnection {
             body.addProperty("textStripped", textStripped);
             body.addProperty("diag", DiagWire.VERSION);
             if (offerTeam) body.addProperty("team", TeamSocket.VERSION);
+            body.addProperty("profile", IntakeWire.PROFILE_VERSION);
             JsonObject agent = agent();
             body.add("agent", agent);
             HttpResponse<String> response = http.send(
@@ -892,7 +899,11 @@ public final class CloudConnection {
             diagnostics.connected(opened, connected.diagLimits());
             pipeline.stream();
             batch.clear();
-            agreed = new Agreed(opened, terms, textStripped);
+            agreed = new Agreed(
+                    opened,
+                    terms,
+                    textStripped,
+                    Integer.valueOf(IntakeWire.PROFILE_VERSION).equals(connected.profile));
             generation = opened;
             announced = agent;
             reloaded = false;
@@ -1083,6 +1094,8 @@ public final class CloudConnection {
         DiagLimitsJson diag;
         /** Present when the service takes the team sync offered: the organization's state. */
         TeamStateJson team;
+        /** Present when the service takes the client profiles offered: the version taken. */
+        Integer profile;
 
         /** The diagnostics limits answered, clamped; null when the service took none. */
         Limits diagLimits() {
