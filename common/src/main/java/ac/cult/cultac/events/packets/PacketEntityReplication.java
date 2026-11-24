@@ -1683,9 +1683,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             PacketEntity mounted = player.compensatedEntities.getEntity(vehicleId);
             boolean firstMount = mountsLocalPlayer && mounted != null && !ridesIndirectly(mounted);
             // Entity#startRiding refuses a vehicle that rides the player, before AbstractHorse#addPassenger.
+            // AbstractHorse#addPassenger first turns the rider in 1.21.9; older clients keep their look.
             if (mountsLocalPlayer
                     && mounted instanceof PacketEntityHorse horse
                     && !player.isBedrockMovement()
+                    && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_9)
                     && !player.compensatedEntities.ridesIndirectly(horse, player.compensatedEntities.getSelf())) {
                 turnToHorseLook(horse);
             } else if (mountsLocalPlayer) {

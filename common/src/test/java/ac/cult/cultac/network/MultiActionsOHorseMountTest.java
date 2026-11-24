@@ -23,7 +23,11 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * ClientPacketListener#handleSetEntityPassengersPacket calls Entity#startRiding for every passenger it lists, and
@@ -63,6 +67,40 @@ class MultiActionsOHorseMountTest {
             f.tickEnd();
             assertEquals(1, violations(f));
         }
+    }
+
+    /** Before 1.21.9 AbstractHorse has no addPassenger turn: the rider's next Rot keeps its own look. */
+    @ParameterizedTest(name = "{1}")
+    @MethodSource("beforeTheMountTurn")
+    void aRiderBeforeTheMountTurnKeepsItsLookOnAServerMount(ProtocolVersion host, ClientVersion client)
+            throws Exception {
+        try (var f = inventoryOpen(SUMMONED, false, host, client)) {
+            mount(f);
+            mount(f);
+            look(f, YAW, PITCH);
+            f.tickEnd();
+            assertEquals(0, violations(f));
+        }
+    }
+
+    @ParameterizedTest(name = "{1}")
+    @MethodSource("beforeTheMountTurn")
+    void aRiderBeforeTheMountTurnReportingTheHorsesLookFlags(ProtocolVersion host, ClientVersion client)
+            throws Exception {
+        try (var f = inventoryOpen(SUMMONED, false, host, client)) {
+            mount(f);
+            mount(f);
+            look(f, 90.0f, 0.0f);
+            f.tickEnd();
+            assertEquals(1, violations(f));
+        }
+    }
+
+    static Stream<Arguments> beforeTheMountTurn() {
+        return Stream.of(
+                Arguments.of(ProtocolVersion.V1_21_3, ClientVersion.V_1_21_2),
+                Arguments.of(ProtocolVersion.V1_21_4, ClientVersion.V_1_21_4),
+                Arguments.of(ProtocolVersion.V1_21_5, ClientVersion.V_1_21_5));
     }
 
     /**
@@ -261,7 +299,12 @@ class MultiActionsOHorseMountTest {
     }
 
     private static JavaTickFixture inventoryOpen(ClientboundAddEntity spawn, boolean moves) throws Exception {
-        var f = new JavaTickFixture(ProtocolVersion.V26_3, ClientVersion.V_26_3);
+        return inventoryOpen(spawn, moves, ProtocolVersion.V26_3, ClientVersion.V_26_3);
+    }
+
+    private static JavaTickFixture inventoryOpen(
+            ClientboundAddEntity spawn, boolean moves, ProtocolVersion host, ClientVersion client) throws Exception {
+        var f = new JavaTickFixture(host, client);
         MultiActionsO check = f.player.checkManager.getCheck(MultiActionsO.class);
         f.player.setExperimentalChecks(true);
         check.setEnabled(true);
