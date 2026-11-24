@@ -512,6 +512,7 @@ public class CheckManager {
                 new SprintF(player),
                 new SprintG(player),
                 new SprintH(player),
+                new SprintI(player),
                 new JavaAutoJump(player),
                 new ElytraA(player),
                 new ElytraB(player),
@@ -604,6 +605,7 @@ public class CheckManager {
             registerEarlyReceive(registrations, packetChecks.get(type));
         }
         registerEarlyReceive(registrations, postPredictionCheck.get(SprintH.class));
+        registerEarlyReceive(registrations, postPredictionCheck.get(SprintI.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsA.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsC.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsF.class));
@@ -716,6 +718,7 @@ public class CheckManager {
         registerTickEnd(positionCheck.get(CompensatedCooldown.class));
         registerTickEnd(packetChecks.get(MultiActionsH.class));
         registerTickEnd(postPredictionCheck.get(SprintH.class));
+        registerTickEnd(postPredictionCheck.get(SprintI.class));
         registerTickEnd(rotationCheck.get(MultiActionsO.class));
         registerTickEnd(packetChecks.get(BadPacketsJ.class));
         registerTickEnd(player.openWindow);

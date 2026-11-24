@@ -171,6 +171,9 @@ checks:
   SprintH:
     summary: "Sprinted with an inventory open"
     details: "You can't start or keep sprinting with an inventory or chest open. InvMove cheats let the player keep running around while a menu is open."
+  SprintI:
+    summary: "Sprinted without holding the forward key"
+    details: "Minecraft stops your sprint as soon as you let go of forward. Sprint cheats keep the player sprinting while standing still or moving sideways and backwards, for extra knockback and speed."
   Strafe:
     summary: "Changed direction or sped up in midair"
     details: "Once you're in the air, you only have limited control over where you go. Strafe and Speed cheats let the player turn sharply or speed up mid-jump."

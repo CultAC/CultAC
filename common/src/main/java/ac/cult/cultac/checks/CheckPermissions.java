@@ -199,6 +199,7 @@ public final class CheckPermissions {
             "sprintf",
             "sprintg",
             "sprinth",
+            "sprinti",
             "strafe",
             "ticktimer",
             "timera",
