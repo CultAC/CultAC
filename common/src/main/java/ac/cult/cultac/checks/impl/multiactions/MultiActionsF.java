@@ -60,7 +60,8 @@ public class MultiActionsF extends BlockPlaceCheck implements BlockBreakListener
             PacketReceiveEvent<ServerboundSpectatorAction> event,
             CultPlayer player,
             ServerboundSpectatorAction packet) {
-        onEntityAction(event);
+        // Minecraft#startAttack sends an empty target when the spectator's hit result is a block or a miss
+        if (packet.target().isPresent()) onEntityAction(event);
     }
 
     private void onEntityAction(PacketReceiveEvent event) {
