@@ -15,6 +15,7 @@ import ac.cult.cultac.cloud.capture.CaptureStream;
 import ac.cult.cultac.cloud.capture.ChunkIds;
 import ac.cult.cultac.cloud.capture.EngineVerdicts;
 import ac.cult.cultac.cloud.capture.PlayerText;
+import ac.cult.cultac.cloud.capture.ProfileUploads;
 import ac.cult.cultac.cloud.capture.SectionBytes;
 import ac.cult.cultac.cloud.capture.Sections;
 import ac.cult.cultac.cloud.capture.TickFlags;
@@ -27,6 +28,7 @@ import ac.cult.cultac.manager.player.setback.SetbackReason;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.player.ClientProfile;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -97,7 +99,7 @@ import org.jetbrains.annotations.Nullable;
  * disconnect. The {@link SegmentBinder} names the backend a segment belongs to, and the segment uploads on that
  * backend's socket; frames wait until it is bound and the service has answered its JOIN. A segment of a backend in
  * {@code cloud.uncaptured-servers} never joins: the taps pass its packets by unread. Java clients are streamed;
- * Bedrock players are only announced, with a JOIN saying why and a LEAVE.
+ * Bedrock players are only announced, with a JOIN saying why, their client profile and a LEAVE.
  */
 public final class CloudCapture implements PlayerObserver {
     static final String INBOUND = "cult-cloud-in";
@@ -246,6 +248,11 @@ public final class CloudCapture implements PlayerObserver {
         /** Whether the socket of {@code generation} said {@code textStripped} at connect; true once it is gone. */
         default boolean textStripped(long generation) {
             return true;
+        }
+
+        /** Whether the connect of the socket of {@code generation} took client profiles; false once it is gone. */
+        default boolean profiles(long generation) {
+            return false;
         }
 
         int maxFrameBytes();
@@ -847,6 +854,7 @@ public final class CloudCapture implements PlayerObserver {
         if (ended.uncaptured) idle = false;
         actions.forget();
         if (ended.timeout != null) ended.timeout.cancel(false);
+        if (ended.profileChecks != null) ended.profileChecks.cancel(false);
         if (ended.uncaptured) return;
         if (ended.uplink == null) {
             stream.reset();
@@ -978,6 +986,35 @@ public final class CloudCapture implements PlayerObserver {
                         ClientPacketCodecs.MODEL_VERSION.protocol());
         stream.join(sink(uplink, generation), join, base, sent);
         if (!unstreamed) mirror();
+        profiles(owner, uplink, generation);
+    }
+
+    /** The client profile goes out when the socket takes it, then is checked every {@link ProfileUploads#CHECK_NANOS}. */
+    private void profiles(Segment owner, Uplink uplink, long generation) {
+        if (owner.profileChecks != null) owner.profileChecks.cancel(false);
+        owner.profileChecks = null;
+        owner.profiles.reset();
+        Channel tapped = channel;
+        if (tapped == null || !uplink.profiles(generation)) return;
+        sendProfile(owner, generation);
+        owner.profileChecks = tapped.eventLoop()
+                .scheduleAtFixedRate(
+                        guarded("profile", () -> sendProfile(owner, generation)),
+                        ProfileUploads.CHECK_NANOS,
+                        ProfileUploads.CHECK_NANOS,
+                        TimeUnit.NANOSECONDS);
+    }
+
+    private void sendProfile(Segment owner, long generation) {
+        Uplink uplink = owner.uplink;
+        if (segment != owner || uplink == null || owner.refused || generation != owner.generation || !stream.joined())
+            return;
+        ClientProfile current = ClientProfile.of(player);
+        long now = System.nanoTime();
+        if (owner.profiles.due(current, now)
+                && uplink.send(generation, IntakeWire.profile(player.getUniqueId(), current), 0)) {
+            owner.profiles.sent(current, now);
+        }
     }
 
     private void reply(Segment owner, long generation, IntakeWire.Reply reply) {
@@ -1690,6 +1727,11 @@ public final class CloudCapture implements PlayerObserver {
 
         @Nullable
         Future<?> timeout;
+
+        @Nullable
+        Future<?> profileChecks;
+
+        final ProfileUploads profiles = new ProfileUploads();
 
         CaptureStream.Session initialSession;
         boolean initiallyLoggedIn;

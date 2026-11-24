@@ -6,7 +6,9 @@ import ac.cult.cultac.cloud.CaptureFixture.FakeUplink;
 import ac.cult.cultac.cloud.CaptureFixture.Host;
 import ac.cult.cultac.cloud.intake.v3.IntakeMessage;
 import ac.cult.cultac.cloud.intake.v3.Join;
+import ac.cult.cultac.cloud.intake.v3.Profile;
 import ac.cult.cultac.cloud.transport.CloudConnection;
+import ac.cult.cultac.cloud.wire.IntakeWire;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
@@ -125,6 +127,29 @@ class CloudCaptureJoinTest {
             fixture.install();
             assertTrue(
                     joins(fixture.uplinks.socket("a")).get(0).getRegistriesMap().isEmpty());
+        }
+    }
+
+    @Test
+    void theClientProfileFollowsTheJoinOnASocketThatTakesIt() {
+        try (CaptureFixture fixture = new CaptureFixture(Host.SERVER, false)) {
+            CloudCapture.segmentBinder((player, bind, playing) -> bind.accept("a"));
+            fixture.install();
+            assertFalse(fixture.uplinks.socket("a").kinds().contains(IntakeMessage.KindCase.PROFILE));
+        }
+        try (CaptureFixture fixture = new CaptureFixture(Host.SERVER, false)) {
+            CloudCapture.segmentBinder((player, bind, playing) -> bind.accept("a"));
+            fixture.uplinks.profiles = true;
+            fixture.install();
+            FakeUplink socket = fixture.uplinks.socket("a");
+            List<IntakeMessage.KindCase> kinds = socket.kinds();
+            assertTrue(kinds.indexOf(IntakeMessage.KindCase.PROFILE) > kinds.indexOf(IntakeMessage.KindCase.JOIN));
+            Profile profile = socket.of(IntakeMessage.KindCase.PROFILE).get(0).getProfile();
+            assertArrayEquals(
+                    IntakeWire.uuid(fixture.player.getUniqueId()),
+                    profile.getPlayer().toByteArray());
+            assertEquals(fixture.player.getVersionName(), profile.getVersion());
+            assertFalse(profile.hasHorizontalSensitivity());
         }
     }
 }

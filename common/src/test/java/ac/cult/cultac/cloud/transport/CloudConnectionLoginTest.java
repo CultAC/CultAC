@@ -95,6 +95,7 @@ class CloudConnectionLoginTest {
             assertTrue(connect.get("textStripped").getAsBoolean());
             assertFalse(connect.has("entityFilter"));
             assertTrue(connect.has("diag"));
+            assertEquals(1, connect.get("profile").getAsInt());
             assertEquals("[5]", connect.getAsJsonArray("protocols").toString());
             JsonObject agent = connect.getAsJsonObject("agent");
             assertEquals("cultac", agent.get("name").getAsString());

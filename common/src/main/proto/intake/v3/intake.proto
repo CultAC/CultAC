@@ -42,6 +42,8 @@ message ConnectRequest {
   reserved "perf";
   // The team sync version the server offers (1); absent when it reports no portal roles.
   optional uint32 team = 6;
+  // The client profile version the server offers (1); absent when it sends no client profiles.
+  optional uint32 profile = 7;
 }
 
 message Agent {
@@ -67,6 +69,8 @@ message ConnectResponse {
   reserved "perf";
   // Present when the service takes the team sync the request offered: the organization's current state.
   TeamState team = 6;
+  // Present when the service takes the client profiles the request offered: the version taken.
+  optional uint32 profile = 7;
 }
 
 // A message from the server.
@@ -85,6 +89,8 @@ message IntakeMessage {
     DiagPart diag = 5;
     // Team sync: portal roles, only while the socket's last TeamState is enabled.
     TeamRoles team = 7;
+    // Client profile: a joined player's client, only on a socket whose connect answered profile.
+    Profile profile = 8;
   }
   reserved 6;
   reserved "perf";
@@ -807,4 +813,26 @@ enum PortalRole {
   PORTAL_ROLE_VIEWER = 2;
   PORTAL_ROLE_MODERATOR = 3;
   PORTAL_ROLE_ADMIN = 4;
+}
+
+// Client profile: what the server knows of a joined player's client, sent once known after its JOIN, again when it
+// changes, and at least every few minutes while the player stays; each replaces the player's last.
+message Profile {
+  bytes player = 1;
+  Edition edition = 2;
+  // The client's protocol version.
+  uint32 client_protocol = 3;
+  // The client's release name, such as 1.21.4.
+  optional string version = 4;
+  optional string brand = 5;
+  // The client type its brand, its plugin channels and its reported mods each suggest, in lower case: vanilla, fabric,
+  // forge, neoforge, quilt, lunar, badlion, feather, labymod, bedrock, unknown or unset.
+  optional string brand_type = 6;
+  optional string channel_type = 7;
+  optional string mod_type = 8;
+  // Mouse sensitivity in percent as the client's options show it (0 to 200); absent until known, and for Bedrock.
+  optional double horizontal_sensitivity = 9;
+  optional double vertical_sensitivity = 10;
+  // Whether the client uses fast trigonometry (OptiFine's fast math); absent for Bedrock.
+  optional bool fast_math = 11;
 }
