@@ -286,8 +286,10 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             // The flush bundle's ping is handled in the same ClientPacketListener#handleBundlePacket task as
             // the update, before the client can emit another tick or inventory click.
             int proof = player.appendFlushProofTransaction(event);
-            if (proof > 0) player.latencyUtils.addRealTimeTask(proof, task);
-            else task.run();
+            if (proof > 0) {
+                player.latencyUtils.addRealTimeTask(proof, task);
+                player.checkManager.getFairReach().handleHandChange();
+            } else task.run();
             return;
         }
 

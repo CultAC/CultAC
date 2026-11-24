@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.combat;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -56,6 +57,11 @@ public class FairReach extends Check implements CheckListener {
     private final SentRidingGraph riding = new SentRidingGraph();
     // Counts the client levels replaced so far.
     private int level;
+    // Counts the sent changes getControllingPassenger can read for the attacker's root, then the last applied here
+    // and the last its client answered; while one applied here is unanswered the server alone decides control.
+    private int controlChanges;
+    private int controlApplied;
+    private int controlAnswered;
     private final SimpleCollisionBox seatBox = new SimpleCollisionBox();
     private final SimpleCollisionBox seat = new SimpleCollisionBox();
 
@@ -170,6 +176,35 @@ public class FairReach extends Check implements CheckListener {
         schedule(new PendingTeleport(x, y, z, relatives));
     }
 
+    /** A sent change to the attacker's hands, which Pig and Strider#getControllingPassenger read (Player#isHolding). */
+    public void handleHandChange() {
+        int root = player.compensatedEntities.vehicles.rootAsSent(player.entityID);
+        TrackerData sent = root == player.entityID ? null : player.compensatedEntities.getTrackedEntity(root);
+        if (sent != null
+                && (sent.getEntityType() == EntityTypeIds.PIG || sent.getEntityType() == EntityTypeIds.STRIDER))
+            controlChange();
+    }
+
+    /**
+     * Equipment or entity data sent for {@code entityId}. A root's saddle, harness, still timeout, health, age and
+     * tame state decide whether its first passenger controls it.
+     */
+    public void handleEntityState(int entityId) {
+        if (entityId != player.entityID
+                && player.compensatedEntities.vehicles.rootAsSent(player.entityID) == entityId) controlChange();
+    }
+
+    /** Sent entity type tags, which Mob#isSaddled reads through Equippable#canBeEquippedBy. */
+    public void handleEntityTags() {
+        if (player.compensatedEntities.vehicles.rootAsSent(player.entityID) != player.entityID) controlChange();
+    }
+
+    private void controlChange() {
+        int change = ++controlChanges;
+        schedule(new PendingControl(change));
+        player.latencyUtils.addRealTimeTaskNext(() -> controlAnswered = change);
+    }
+
     private void trackVehicle(int vehicleId) {
         if (tracked(vehicleId) != null) return;
         TrackerData sent = player.compensatedEntities.getTrackedEntity(vehicleId);
@@ -278,11 +313,15 @@ public class FairReach extends Check implements CheckListener {
         return List.of(new Vec3(seat.minX, seat.minY, seat.minZ));
     }
 
-    /** Whether the attacker controls the root it rides, both as the applied links and as its client has it. */
+    /**
+     * Whether the attacker controls the root it rides, both as the applied links and changes and as its client has
+     * it.
+     */
     private boolean drivesItself(PacketEntity vehicle) {
         if (vehicle == null || vehicle.getRiding() != null) return false;
         int vehicleId = vehicle.getEntityId();
-        return riding.vehicleOf(player.entityID) == vehicleId
+        return controlAnswered >= controlApplied
+                && riding.vehicleOf(player.entityID) == vehicleId
                 && !riding.rides(vehicleId)
                 && riding.passengersOf(vehicleId)[0] == player.entityID
                 && player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(vehicle);
@@ -400,6 +439,19 @@ public class FairReach extends Check implements CheckListener {
                     relatives.isSet(RelativeFlag.X.getMask()) ? attacker.currentX + x : x,
                     relatives.isSet(RelativeFlag.Y.getMask()) ? attacker.currentY + y : y,
                     relatives.isSet(RelativeFlag.Z.getMask()) ? attacker.currentZ + z : z);
+        }
+    }
+
+    private final class PendingControl extends PendingChange {
+        private final int change;
+
+        private PendingControl(int change) {
+            this.change = change;
+        }
+
+        @Override
+        void apply() {
+            controlApplied = change;
         }
     }
 

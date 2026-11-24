@@ -37,6 +37,7 @@ public class PacketServerRegistries {
                 for (PacketEntity entity : player.compensatedEntities.entityMap.values())
                     ClientSaddle.refresh(player, entity);
             });
+            player.checkManager.getFairReach().handleEntityTags();
             event.getTasksAfterSend().add(player::sendTrailingTransaction);
         }
     }

@@ -1342,6 +1342,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         else
             player.latencyUtils.addRealTimeTaskNow(
                     () -> player.compensatedEntities.updateEntityMetadata(packet.id(), metadata, proven));
+        player.checkManager.getFairReach().handleEntityState(packet.id());
         retirePoseAt(packet.id(), metadata, proven);
     }
 
@@ -1364,6 +1365,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 player.latencyUtils.addRealTimeTask(
                         proof.transaction(),
                         () -> player.compensatedEntities.updateEntityEquipment(packet.entityId(), packet.slots()));
+                player.checkManager.getFairReach().handleEntityState(packet.entityId());
                 return;
             }
         }
@@ -1373,6 +1375,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         Runnable apply = () -> player.compensatedEntities.updateEntityEquipment(packet.entityId(), packet.slots());
         if (flushProof > 0) player.latencyUtils.addRealTimeTask(flushProof, apply);
         else player.latencyUtils.addRealTimeTaskNow(apply);
+        player.checkManager.getFairReach().handleEntityState(packet.entityId());
     }
 
     @CultPacketHandler

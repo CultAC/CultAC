@@ -3,19 +3,23 @@ package ac.cult.cultac.checks.impl.combat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.PlatformConnection;
+import ac.cult.cultac.network.TestProtocolRuntime;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -30,6 +34,10 @@ import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
+import ac.cult.cultac.utils.inventory.Inventory;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.List;
@@ -51,6 +59,7 @@ class FairReachRiderTest {
     private static final int OWN_HORSE = 3002;
     private static final int OWN_CART = 3003;
     private static final int OWN_BOAT = 3004;
+    private static final int OWN_PIG = 3005;
     private static final int BLOCK = 4096;
 
     @Test
@@ -243,6 +252,42 @@ class FairReachRiderTest {
         }
     }
 
+    @Test
+    void aDriverWhoseSteeringItemTheServerReplacedIsJudgedFromWhereTheServerHoldsItsVehicle() {
+        try (Fixture f = new Fixture()) {
+            f.addVehicle(OWN_PIG, EntityTypeIds.PIG, 0);
+            ((PacketEntityRideable) f.player.compensatedEntities.getEntity(OWN_PIG)).hasSaddle = true;
+            f.player.getInventory()
+                    .inventory
+                    .getInventoryStorage()
+                    .setItem(Inventory.HOTBAR_OFFSET, stack("carrot_on_a_stick"));
+            f.send(new ClientboundSetPassengers(OWN_PIG, List.of(f.player.entityID)));
+            f.acknowledge();
+            f.tick(1);
+            f.addTarget(5);
+            // The client's own vehicle moves put its pig here.
+            f.player.compensatedEntities
+                    .getEntity(OWN_PIG)
+                    .setPositionRaw(new SimpleCollisionBox(2.55, 64, -0.45, 3.45, 64.9, 0.45));
+            assertFalse(f.attackCancelled(), "the pig's driver attacks from where it drove it");
+
+            f.fairReach.max_ping_compensation = 300;
+            f.setPlayerInventorySlot(0, stack("fishing_rod"));
+            assertFalse(f.attackCancelled(), "the client may not have its new item yet");
+
+            f.tick(7);
+            assertTrue(
+                    f.player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(
+                            f.player.compensatedEntities.getEntity(OWN_PIG)),
+                    "the client has not answered the item change");
+            assertTrue(f.attackCancelled(), "the item change is due, so the server moves the pig");
+        }
+    }
+
+    private static SimItemStack stack(String item) {
+        return ItemUtil.modelItems().stack("minecraft:" + item, 1);
+    }
+
     private static ClientboundMoveEntity move(int entityId, int blocks) {
         return new ClientboundMoveEntity(
                 entityId,
@@ -331,6 +376,18 @@ class FairReachRiderTest {
                     player.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false);
             event.sharedPing(sharedPing);
             player.packetEntityReplication.onSetPassengers(event, player, packet);
+        }
+
+        /** A set_player_inventory for Inventory's {@code slot}. */
+        @SuppressWarnings("unchecked")
+        void setPlayerInventorySlot(int slot, SimItemStack item) {
+            var packet = new InventoryPackets.PlayerInventory(slot, item);
+            var type = (PacketType<InventoryPackets.PlayerInventory>) TestProtocolRuntime.catalog().stream()
+                    .filter(each -> each.recordClass() == InventoryPackets.PlayerInventory.class)
+                    .findFirst()
+                    .orElseThrow();
+            var event = new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, type, packet, false);
+            player.getInventory().onSetPlayerInventory(event, player, packet);
         }
 
         /** LivingEntity#dismountVehicle: the server teleports the player to {@code x} with an absolute position. */
