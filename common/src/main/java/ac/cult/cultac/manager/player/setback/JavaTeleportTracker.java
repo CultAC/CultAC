@@ -184,7 +184,8 @@ public final class JavaTeleportTracker {
             boolean exactTeleportPosition =
                     xPass && yPass && zPass && (pistonTeleport == null || pistonTeleport.matched());
             if (exactTeleportPosition
-                    && (teleportPos.isPositionOnly() || receivedTransaction == teleportPos.getTransaction())) {
+                    && (teleportPos.isPositionOnly()
+                            || (receivedTransaction == teleportPos.getTransaction() && idSentAhead(teleportPos)))) {
                 pendingTeleports.poll();
                 if (pistonTeleport != null) simulation.acceptRelativePistonTeleport(pistonTeleport);
                 // The rotation this response replaces is the one the client handled the teleport with.
@@ -557,6 +558,16 @@ public final class JavaTeleportTracker {
             if (isJavaIdTeleport(pending) && !pending.isAnswered() && received > pending.getTransaction()) return true;
         }
         return false;
+    }
+
+    /**
+     * From 1.21.4 ClientPacketListener#handleMovePlayer sends the ID ahead of the PosRot that answers it; a Bedrock
+     * player's Java acknowledgement comes from Geyser and is not read as an answer.
+     */
+    private boolean idSentAhead(TeleportData teleport) {
+        return teleport.isAnswered()
+                || player.isBedrockMovement()
+                || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4);
     }
 
     /** A player_position teleport, which the Java client accepts by ID. */

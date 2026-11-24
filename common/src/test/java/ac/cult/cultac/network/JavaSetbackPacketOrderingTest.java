@@ -87,6 +87,10 @@ class JavaSetbackPacketOrderingTest {
             setup.player.lastTransactionReceived.set(20);
             assertTrue(teleports.isPendingSetback());
             if (version == ProtocolVersion.V26_2) {
+                var ack = new ServerboundAcceptTeleportation(1, null, 0, 0);
+                var ackEvent = new PacketReceiveEvent<>(
+                        setup.fixture.user, ConnectionPhase.PLAY, ServerboundPackets.ACCEPT_TELEPORTATION, ack);
+                new PacketServerTeleport().onAcceptTeleportation(ackEvent, setup.player, ack);
                 var packet = new ServerboundMovePlayer(2, 64, 2, 0, 0, false, false, true, true);
                 var event = new PacketReceiveEvent<>(
                         setup.fixture.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet);
