@@ -46,7 +46,9 @@ public class PacketPlayerWindow {
     @CultPacketHandler
     public void onShowDialog(
             PacketSendEvent<ClientboundShowDialog> event, CultPlayer player, ClientboundShowDialog packet) {
-        if (!player.isBedrockMovement()) player.openWindow.onServerDialog();
+        if (player.isBedrockMovement()) return;
+        player.openWindow.onServerScreen();
+        player.openWindow.onServerDialog();
     }
 
     @CultPacketHandler("clientbound.clear_dialog")
@@ -63,12 +65,16 @@ public class PacketPlayerWindow {
 
     @CultPacketHandler
     public void onOpenBook(PacketSendEvent<ClientboundOpenBook> event, CultPlayer player, ClientboundOpenBook packet) {
-        if (!player.isBedrockMovement()) player.openWindow.onServerBook(event, packet.hand());
+        if (player.isBedrockMovement()) return;
+        player.openWindow.onServerScreen();
+        player.openWindow.onServerBook(event, packet.hand());
     }
 
     @CultPacketHandler("clientbound.open_sign_editor")
     public void onOpenSignEditor(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (!player.isBedrockMovement()) player.openWindow.onServerSignEditor(event);
+        if (player.isBedrockMovement()) return;
+        player.openWindow.onServerScreen();
+        player.openWindow.onServerSignEditor(event);
     }
 
     @CultPacketHandler("serverbound.sign_update")
@@ -97,6 +103,7 @@ public class PacketPlayerWindow {
     public void onOpenScreen(
             PacketSendEvent<ClientboundOpenScreen> event, CultPlayer player, ClientboundOpenScreen packet) {
         if (!player.isBedrockMovement()) {
+            player.openWindow.onServerScreen();
             MenuType type = MenuType.fromRegistryKey(packet.menuType());
             if (type != MenuType.UNKNOWN) player.openWindow.onServerWindow(event, packet.containerId(), type);
             return;
@@ -114,6 +121,7 @@ public class PacketPlayerWindow {
     public void onMountScreenOpen(
             PacketSendEvent<ClientboundMountScreenOpen> event, CultPlayer player, ClientboundMountScreenOpen packet) {
         if (!player.isBedrockMovement()) {
+            player.openWindow.onServerScreen();
             var entity = player.compensatedEntities.serverPositionsMap.get(packet.entityId());
             if (entity != null
                     && (EntityTypeUtil.isHorseFamily(entity.getEntityType())
@@ -134,6 +142,7 @@ public class PacketPlayerWindow {
     public void onClientboundContainerClose(
             PacketSendEvent<ClientboundContainerClose> event, CultPlayer player, ClientboundContainerClose packet) {
         if (!player.isBedrockMovement()) {
+            player.openWindow.onServerScreen();
             player.openWindow.onServerWindow(event, 0, null);
             return;
         }

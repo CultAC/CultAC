@@ -28,6 +28,9 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     // An acknowledged open_sign_editor whose editor has not yet sent its sign_update.
     private boolean signEditorOpen;
     private int signEditorTransaction;
+    // The newest LocalPlayer's LevelLoadingScreen, and the transaction at which the newest respawn sent replaces it.
+    private boolean levelLoadingScreen;
+    private int respawnTransaction = Integer.MIN_VALUE;
 
     @Getter
     private int ticksOpen;
@@ -164,6 +167,30 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         possibleOpenWindows.add(null);
         signEditorOpen = false;
         onClose();
+    }
+
+    /** ClientPacketListener#startWaitingForNewLevel shows a LevelLoadingScreen in place of any screen. */
+    public void onLocalPlayerCreated() {
+        levelLoadingScreen = true;
+    }
+
+    /** The model replaces the client's LocalPlayer at {@code transaction} with the one a respawn sent now creates. */
+    public void onRespawnSent(int transaction) {
+        respawnTransaction = transaction;
+    }
+
+    /**
+     * A packet whose handler sets a screen in place of the one on top, or none: open_screen, mount_screen_open,
+     * container_close, open_book, open_sign_editor, show_dialog, and the win and demo game events.
+     */
+    public void onServerScreen() {
+        int transaction = Math.max(player.lastTransactionSent.get(), respawnTransaction);
+        player.latencyUtils.addRealTimeTask(transaction, () -> levelLoadingScreen = false);
+    }
+
+    /** Whether the newest LocalPlayer's LevelLoadingScreen is on top: the client handled no packet that replaces it. */
+    public boolean levelLoadingScreenShown() {
+        return levelLoadingScreen;
     }
 
     // A closed screen lets the client change its selected slot again before its next tick.

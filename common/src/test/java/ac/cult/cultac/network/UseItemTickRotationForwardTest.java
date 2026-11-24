@@ -11,6 +11,7 @@ import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerWindow;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -24,6 +25,7 @@ import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockChangedAck;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
@@ -141,24 +143,37 @@ class UseItemTickRotationForwardTest {
         }
     }
 
+    /** Minecraft#handleKeybinds, which sends use_item, runs only without a screen. */
     @Test
-    void aUseBeforeTheClientLoadedCarriesTheLookItsLastTeleportAnswerReported() throws Exception {
+    void aUseUnderTheLevelLoadingScreenNeverReachesTheServer() throws Exception {
         try (var f = new JavaTickFixture()) {
             var t = new Ticks(f);
             t.start();
-            f.teleport(f.player.sendTrailingTransaction(), START, new RelativeFlag(0), YAW, PITCH, TURNED_YAW, PITCH);
-            f.player.packetStateData.playerLoadedIntoLevel = false;
+            t.respawn();
+            t.forwarded();
+
+            t.use(1, YAW, 90);
+            t.tickEnd();
+            assertEquals(List.of("client_tick_end"), t.forwarded());
+            assertEquals(0, t.check.getViolations());
+        }
+    }
+
+    /** ClientPacketListener#handleContainerClose sets no screen in place of the LevelLoadingScreen. */
+    @Test
+    void aUseAfterAServerScreenReplacedTheLevelLoadingScreenReachesTheServer() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+            t.respawn();
+            f.teleport(f.player.sendTrailingTransaction(), START, new RelativeFlag(0), 0, 0, YAW, PITCH);
+            t.containerClose();
             t.forwarded();
 
             t.use(1, TURNED_YAW, PITCH);
             t.tickEnd();
             assertEquals(List.of("use_item 1", "client_tick_end"), t.forwarded());
             assertEquals(0, t.check.getViolations());
-
-            t.use(2, YAW, PITCH);
-            t.tickEnd();
-            assertEquals(List.of("client_tick_end"), t.forwarded());
-            assertEquals(1, t.check.getViolations());
         }
     }
 
@@ -324,6 +339,16 @@ class UseItemTickRotationForwardTest {
             event.getTasksAfterSend().forEach(Runnable::run);
             f.pongThrough(f.player.lastTransactionSent.get());
             assertFalse(f.player.packetStateData.playerLoadedIntoLevel, "the respawn did not reach the client");
+        }
+
+        /** The server's container_close reaches the client. */
+        void containerClose() {
+            var packet = new ClientboundContainerClose(0);
+            var event = new PacketSendEvent<>(
+                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.CONTAINER_CLOSE, packet, false);
+            new PacketPlayerWindow().onClientboundContainerClose(event, f.player, packet);
+            event.getTasksAfterSend().forEach(Runnable::run);
+            f.pongThrough(f.player.lastTransactionSent.get());
         }
 
         void rot(float yaw) {

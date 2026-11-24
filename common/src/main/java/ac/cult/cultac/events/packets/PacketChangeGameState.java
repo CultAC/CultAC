@@ -20,6 +20,10 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
     public void onGameEvent(
             PacketSendEvent<ClientboundGameEvent> event, CultPlayer player, ClientboundGameEvent packet) {
         if (packet.event() == GameEventType.WIN_GAME) player.blockActionReconciler.wonGameSent();
+        // ClientPacketListener#handleGameEvent sets the WinScreen, and the demo intro for parameter 0
+        boolean setsScreen = packet.event() == GameEventType.WIN_GAME
+                || packet.event() == GameEventType.DEMO_EVENT && packet.param() == 0;
+        if (setsScreen) player.openWindow.onServerScreen();
         if (packet.event() != GameEventType.CHANGE_GAME_MODE) {
             return;
         }

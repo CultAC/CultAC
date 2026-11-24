@@ -13,7 +13,6 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.nmsutil.BoatRiderYaw;
 
 @CheckData(
@@ -118,22 +117,21 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
                     flagged = onTickPacket(
                             player.packetStateData.lastSendPositionYaw, player.packetStateData.lastSendPositionPitch);
                 }
-            } else if (holdsAnsweredLook()) {
-                flagged = (this.yaw != player.xRot || this.pitch != player.yRot) && flagRotations();
+            } else if (levelLoadingScreenShown()) {
+                ended(shouldModifyPackets());
+                return;
             }
             judged(flagged);
         }
     }
 
-    // Until ClientPacketListener#hasClientLoaded the loading screen keeps the mouse from turning the player and
-    // LocalPlayer#tick sends nothing: the player keeps the look its last teleport answer reported
-    private boolean holdsAnsweredLook() {
-        PacketEntitySelf self = player.compensatedEntities.getSelf();
+    // Minecraft#tick runs handleKeybinds, which alone sends use_item, only without a screen; the LevelLoadingScreen
+    // stays until the tick that sends player_loaded, unless a server packet set another screen in its place
+    private boolean levelLoadingScreenShown() {
         return !player.isBedrockMovement()
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)
-                && player.packetStateData.teleportLookOf == self
-                && !self.isRemovedFromLevel()
-                && self.getRiding() == null;
+                && !player.packetStateData.playerLoadedIntoLevel
+                && player.openWindow.levelLoadingScreenShown();
     }
 
     private PacketEntity riddenBoat() {

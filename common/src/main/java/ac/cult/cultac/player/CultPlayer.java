@@ -448,6 +448,7 @@ public class CultPlayer implements GrimUser {
     /** A login or respawn replaced the LocalPlayer, which has not ticked yet. */
     public void onLocalPlayerCreated(int portalCooldown) {
         localPortalProcess.onLocalPlayerCreated(portalCooldown);
+        openWindow.onLocalPlayerCreated();
         packetStateData.localPlayerTickedSinceSpawn = false;
         packetStateData.localPlayerNoPhysics = false;
         packetStateData.lastSentTickYaw = 0;

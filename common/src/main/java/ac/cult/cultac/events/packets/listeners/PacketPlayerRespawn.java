@@ -477,6 +477,7 @@ public class PacketPlayerRespawn {
         };
         // The respawned LocalPlayer carries no passengers.
         player.compensatedEntities.markSelfPassengersChange(player.lastTransactionSent.get() + 1);
+        player.openWindow.onRespawnSent(player.lastTransactionSent.get() + 1);
         player.latencyUtils.addRealTimeTaskNext(applyRespawnState);
     }
 }

@@ -1338,7 +1338,6 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     private static void applyTeleportResponse(
             CultPlayer player, TeleportAcceptData accepted, float yaw, float pitch, boolean hasLook) {
         player.packetStateData.teleportedThisClientTick = true;
-        if (hasLook) player.packetStateData.teleportLookOf = player.compensatedEntities.getSelf();
         if (accepted.isMatchedTeleportPosition()) {
             if (player.compensatedEntities.vehicles.hasClientVisiblePendingDismount()) {
                 player.compensatedEntities.vehicles.applyClientVisibleDismount();
