@@ -85,6 +85,11 @@ public final class EntityTypeUtil {
                 || isType(type, "cushion");
     }
 
+    /** Entity#couldAcceptPassenger by type: Entity#startRiding refuses these vehicles, the client's forced mount too. */
+    public static boolean refusesPassengers(int type) {
+        return isType(type, "marker") || isType(type, "ominous_item_spawner") || isType(type, "creaking_transient");
+    }
+
     public static boolean canFloatWhileRidden(int type) {
         return type == EntityTypeIds.HORSE
                 || type == EntityTypeIds.ZOMBIE_HORSE

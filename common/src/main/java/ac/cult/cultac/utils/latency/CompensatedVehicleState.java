@@ -873,6 +873,19 @@ public final class CompensatedVehicleState implements Debuggable {
         sentRiding.clear();
     }
 
+    /** The client holds every riding change recorded so far once it answers {@code transaction}. */
+    public void sentRidingChangesProvenAt(int transaction) {
+        sentRiding.provenAt(transaction, player.lastTransactionReceived.get());
+    }
+
+    /**
+     * Whether the client may not yet hold the last change sent to what {@code entityId} rides: until it answers that
+     * change's proof it rides either what it rode before the change or what it rides after it.
+     */
+    public boolean ridingChangeUnanswered(int entityId) {
+        return sentRiding.changeUnanswered(entityId, player.lastTransactionReceived.get());
+    }
+
     /**
      * Whether {@code entityId} rides another entity once the client has handled every packet sent so far, which is
      * when it handles the next one. ClientPacketListener#handleMoveVehicle only moves, and echoes, a player's

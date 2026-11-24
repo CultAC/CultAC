@@ -689,6 +689,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
         // A removal and a respawn of one id in the same flush share its ping and apply in packet order.
         int transaction = proveHandled(event, Proof.SAME_TASK);
+        if (replacesHeld) player.compensatedEntities.vehicles.sentRidingChangesProvenAt(transaction);
         if (changesSelfPassengers) player.compensatedEntities.markSelfPassengersChange(transaction);
         var model =
                 player.user.getCultConnection().dispatcher().runtime().data().version();
@@ -1626,6 +1627,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                             player.getSetbackTeleportUtil().sender().nextTeleportId());
             CultPlayer.TrackedTransaction proof = proofForSetPassengers(event, null, dismountResyncState);
             int transaction = proof == null ? player.lastTransactionSent.get() + 1 : proof.transaction();
+            player.compensatedEntities.vehicles.sentRidingChangesProvenAt(transaction);
             if (changesSelfPassengers) player.compensatedEntities.markSelfPassengersChange(transaction);
             int vehicleId = packet.vehicleId();
             DismountResync resync =
@@ -1659,6 +1661,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         CultPlayer.TrackedTransaction proof = proofForSetPassengers(event, mountResyncState, null);
         int transaction = proof == null ? player.lastTransactionSent.get() + 1 : proof.transaction();
+        player.compensatedEntities.vehicles.sentRidingChangesProvenAt(transaction);
         if (setsSelfPassengers) {
             player.compensatedEntities.sentSelfPassengers(packet.passengers(), transaction);
         } else if (changesSelfPassengers) {
@@ -1938,6 +1941,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             TrackerData tracked = player.compensatedEntities.serverPositionsMap.remove(entityID);
             if (tracked != null) player.compensatedEntities.onRemovalSent(entityID, tracked, removedAt);
         }
+        player.compensatedEntities.vehicles.sentRidingChangesProvenAt(removedAt);
 
         // A Java login clears entities; an older level's removal must not remove a reused ID in the new one.
         int level = player.compensatedWorld.level();

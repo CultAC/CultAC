@@ -81,6 +81,7 @@ import ac.cult.cultac.checks.impl.combat.MultiInteractA;
 import ac.cult.cultac.checks.impl.combat.MultiInteractB;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
+import ac.cult.cultac.checks.impl.combat.RidingInteract;
 import ac.cult.cultac.checks.impl.combat.SelfInteract;
 import ac.cult.cultac.checks.impl.crash.CrashA;
 import ac.cult.cultac.checks.impl.crash.CrashB;
@@ -282,6 +283,7 @@ public final class CheckCatalog {
             check(MultiInteractB.class, COMBAT),
             check(PlayerHitboxes.class, COMBAT),
             check(PlayerReach.INFO, COMBAT),
+            check(RidingInteract.class, COMBAT),
             check(SelfInteract.class, COMBAT),
             check(Angle.INFO, MOVEMENT),
             check(BedrockMovement.INFO, MOVEMENT),

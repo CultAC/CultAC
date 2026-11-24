@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.latency;
 
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.Arrays;
 
 /**
@@ -12,6 +13,16 @@ import java.util.Arrays;
 final class SentRidingGraph {
     private final Int2IntOpenHashMap vehicleOf = new Int2IntOpenHashMap();
     private final Int2ObjectOpenHashMap<int[]> passengersOf = new Int2ObjectOpenHashMap<>();
+    // The transaction whose answer proves the client holds the last change sent to what each entity rides;
+    // Integer.MAX_VALUE until provenAt names it.
+    private final Int2IntOpenHashMap changeProvenAt = new Int2IntOpenHashMap();
+    private final IntArrayList unproven = new IntArrayList();
+    // As changeProvenAt, for every entity: the last clear.
+    private int clearProvenAt = Integer.MIN_VALUE;
+
+    SentRidingGraph() {
+        changeProvenAt.defaultReturnValue(Integer.MIN_VALUE);
+    }
 
     void setPassengers(int vehicle, int[] passengers) {
         eject(vehicle);
@@ -22,6 +33,7 @@ final class SentRidingGraph {
             if (passenger == vehicle || ridesIndirectly(vehicle, passenger)) continue;
             if (vehicleOf.containsKey(passenger)) leave(passenger, vehicleOf.get(passenger));
             vehicleOf.put(passenger, vehicle);
+            changed(passenger);
             kept[count++] = passenger;
         }
         if (count > 0) passengersOf.put(vehicle, count == kept.length ? kept : Arrays.copyOf(kept, count));
@@ -31,11 +43,39 @@ final class SentRidingGraph {
     void remove(int entity) {
         if (vehicleOf.containsKey(entity)) leave(entity, vehicleOf.get(entity));
         eject(entity);
+        changed(entity);
     }
 
     void clear() {
         vehicleOf.clear();
         passengersOf.clear();
+        changeProvenAt.clear();
+        unproven.clear();
+        clearProvenAt = Integer.MAX_VALUE;
+    }
+
+    /**
+     * The client holds every change recorded since the last call once it answers {@code transaction}. Changes the
+     * client already held when it answered {@code answered} are forgotten.
+     */
+    void provenAt(int transaction, int answered) {
+        for (int i = 0; i < unproven.size(); i++) changeProvenAt.put(unproven.getInt(i), transaction);
+        unproven.clear();
+        if (clearProvenAt == Integer.MAX_VALUE) clearProvenAt = transaction;
+        if (changeProvenAt.size() > 256)
+            changeProvenAt.int2IntEntrySet().removeIf(change -> change.getIntValue() <= answered);
+    }
+
+    /**
+     * Whether the client, having answered {@code answered}, may not yet hold the last change sent to what
+     * {@code entity} rides: between that change's packet and its proof it rides either what it rode or what it rides.
+     */
+    boolean changeUnanswered(int entity, int answered) {
+        return clearProvenAt > answered || changeProvenAt.get(entity) > answered;
+    }
+
+    private void changed(int entity) {
+        if (changeProvenAt.put(entity, Integer.MAX_VALUE) != Integer.MAX_VALUE) unproven.add(entity);
     }
 
     /** Whether {@code passenger} rides {@code vehicle} directly. */
@@ -73,6 +113,7 @@ final class SentRidingGraph {
         if (old == null) return;
         for (int passenger : old) {
             if (vehicleOf.containsKey(passenger) && vehicleOf.get(passenger) == vehicle) vehicleOf.remove(passenger);
+            changed(passenger);
         }
     }
 

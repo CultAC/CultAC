@@ -397,6 +397,44 @@ public final class ClientVisibility {
         return Math.max(0, Math.max((max - length) - (eye - error), (eye + error) - (min + length)));
     }
 
+    /**
+     * Whether LocalPlayer#raycastHitResult, from the local player's eye, may have selected {@code target}, an entity
+     * that shares the player's Entity#getRootVehicle. ProjectileUtil#getEntityHitResult selects such an entity only
+     * from inside its box, or along the ray once the box of any entity holds the eye; AttackRange#getClosesetHit
+     * selects it like any other entity.
+     */
+    public boolean ownVehicleTreePickPossible(PacketEntity target, double positionError) {
+        if (!hiddenForEverySelection(() -> itemPickHidden(pickEnvelope(target), positionError))) return true;
+        double error = EyePositionTolerance.BUFFER + positionError;
+        List<Vec3> eyes = new ArrayList<>();
+        addSelfEyes(eyes, new ArrayList<>());
+        var self = player.compensatedEntities.getSelf();
+        for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
+            if (entity == self || !EntityTypeUtil.isPickable(entity.type)) continue;
+            SimpleCollisionBox box = pickEnvelope(entity);
+            double reach = error + pickRadius(entity);
+            for (Vec3 eye : eyes) if (contains(box, eye, reach)) return true;
+        }
+        return false;
+    }
+
+    // Every position the client may hold the entity's bounding box at.
+    private SimpleCollisionBox pickEnvelope(PacketEntity entity) {
+        return entity.toBoundingBox(
+                player, entity.getPossibleCollisionBoxes().union(entity.getPossibleMovementCollisionBoxes()));
+    }
+
+    // Whether no eye's AttackRange pick selects the target under the active selection.
+    private boolean itemPickHidden(SimpleCollisionBox target, double positionError) {
+        ItemComponents.AttackRange attack = selectionAttackRange();
+        if (attack == null) return true;
+        double range = Math.sqrt(3) * nativeItemRayScale(attack);
+        for (Vec3 eye : eyes(positionError, List.of(target.copy().expand(attack.hitboxMargin())), null, range)) {
+            if (selectable(eye, target, attack.hitboxMargin(), range)) return false;
+        }
+        return true;
+    }
+
     /** Whether no eye selects the target under the active selection; sets {@code inRange[0]} for an eye within range. */
     private boolean entityHidden(
             SimpleCollisionBox target, double positionError, double pickRadius, boolean[] inRange) {
@@ -433,8 +471,10 @@ public final class ClientVisibility {
     }
 
     private ItemComponents.AttackRange currentAttackRange() {
-        if (player.gamemode == GameMode.SPECTATOR) return null;
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_11)) return null;
+        // LivingEntity#getActiveItem is empty for a spectator from 26.1.
+        if (player.gamemode == GameMode.SPECTATOR
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1)) return null;
         var hand = player.isClientUsingItem() ? player.getClientItemUseHand() : Hand.MAIN_HAND;
         var item = hand == Hand.MAIN_HAND
                 ? player.getInventory().getClientSelectedHeldItem()

@@ -101,6 +101,9 @@ checks:
   PlayerReach:
     summary: "Hit a player from too far away"
     details: "You can only hit a player who's close enough. Reach cheats let the player hit from farther than anyone else can."
+  RidingInteract:
+    summary: "Attacked or right-clicked their own mount or a fellow rider"
+    details: "Your crosshair skips whatever you're riding and anyone riding with you unless your view starts inside a mob or you hold a long-reach weapon like a spear. Hitting or right-clicking them any other way comes from a modified client sending fake actions."
   SelfInteract:
     summary: "Attacked or right-clicked themselves"
     details: "There's no way to hit or right-click yourself in Minecraft. This comes from a modified client sending fake actions."

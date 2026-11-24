@@ -943,6 +943,28 @@ public class CompensatedEntities {
         return root != null && root == rootOfSelf;
     }
 
+    /**
+     * Whether {@code entity} is another entity that shares the local player's Entity#getRootVehicle in every state the
+     * client may be in: the client holds the last change sent to what the player, {@code entity} and each vehicle
+     * under them rides, and Entity#startRiding refused none of those links.
+     */
+    public boolean certainlySharesRootVehicleWithSelf(PacketEntity entity) {
+        if (entity == playerEntity) return false;
+        PacketEntity root = rootOf(playerEntity);
+        return root != null && rootOf(entity) == root && holdsRidingChain(playerEntity) && holdsRidingChain(entity);
+    }
+
+    // Outside a riding cycle, which rootOf rules out before this walk.
+    private boolean holdsRidingChain(PacketEntity rider) {
+        for (PacketEntity current = rider; current != null; current = current.getRiding()) {
+            int id = current == playerEntity ? player.entityID : current.getEntityId();
+            if (vehicles.ridingChangeUnanswered(id)) return false;
+            PacketEntity vehicle = current.getRiding();
+            if (vehicle != null && EntityTypeUtil.refusesPassengers(vehicle.type)) return false;
+        }
+        return true;
+    }
+
     /** Entity#getRootVehicle; null inside a riding cycle (a server mounting a vehicle on its own passenger). */
     @Nullable
     public PacketEntity rootOf(PacketEntity entity) {

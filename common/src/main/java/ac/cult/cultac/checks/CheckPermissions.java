@@ -185,6 +185,7 @@ public final class CheckPermissions {
             "positionbreaka",
             "positionbreakb",
             "post",
+            "ridinginteract",
             "riptideoffset",
             "rotationbreak",
             "rotationplace",

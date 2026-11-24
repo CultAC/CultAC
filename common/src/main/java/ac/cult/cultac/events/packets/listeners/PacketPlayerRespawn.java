@@ -134,6 +134,7 @@ public class PacketPlayerRespawn {
         // A proxy may rewrite it independently of the backend's native entity ID.
         player.entityID = packet.playerId();
         player.compensatedEntities.vehicles.clearSentRiding();
+        ridingChangesProvenAfter(event, player);
         if (!player.isBedrockMovement()) {
             player.compensatedEntities.serverPositionsMap.clear();
             player.compensatedEntities.onSentLevelDrop();
@@ -263,6 +264,13 @@ public class PacketPlayerRespawn {
         if (fairReach != null) fairReach.clearLevel();
     }
 
+    // A login or respawn drops riding links; the first ping written after it proves the client dropped them.
+    private static void ridingChangesProvenAfter(PacketSendEvent<?> event, CultPlayer player) {
+        event.getTasksAfterSend()
+                .add(() -> player.compensatedEntities.vehicles.sentRidingChangesProvenAt(
+                        player.lastTransactionSent.get() + 1));
+    }
+
     @CultPacketHandler
     public void onRespawn(PacketSendEvent<ClientboundRespawn> event, CultPlayer player, ClientboundRespawn packet) {
         PlayerObserver observer = player.observer;
@@ -305,6 +313,7 @@ public class PacketPlayerRespawn {
             // KEEP_ENTITY_DATA copies synched data, delta movement and rotation, never a riding link.
             player.compensatedEntities.vehicles.onSentRemoval(player.entityID);
         }
+        ridingChangesProvenAfter(event, player);
         // ClientPacketListener#handleRespawn creates a LocalPlayer with full food, adjusts its abilities to the
         // game mode, and on a dimension change starts a ClientLevel whose block predictions count from 1.
         BadPacketsH sequences = player.checkManager.getListener(BadPacketsH.class);

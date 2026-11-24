@@ -31,6 +31,7 @@ import ac.cult.cultac.checks.impl.combat.MultiInteractA;
 import ac.cult.cultac.checks.impl.combat.MultiInteractB;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
+import ac.cult.cultac.checks.impl.combat.RidingInteract;
 import ac.cult.cultac.checks.impl.combat.SelfInteract;
 import ac.cult.cultac.checks.impl.crash.*;
 import ac.cult.cultac.checks.impl.elytra.*;
@@ -342,6 +343,7 @@ public class CheckManager {
                 new AttackEntityVisibility(player, visibility),
                 new InteractEntityVisibility(player, visibility),
                 new InteractPlayerVisibility(player, visibility),
+                new RidingInteract(player, visibility),
                 new PlayerHitboxes(player),
                 new EntityHitboxes(player),
                 new BedrockPlayerHitboxes(player),
@@ -654,6 +656,7 @@ public class CheckManager {
         registerEarlyReceive(registrations, packetChecks.get(AttackEntityVisibility.class));
         registerEarlyReceive(registrations, packetChecks.get(InteractEntityVisibility.class));
         registerEarlyReceive(registrations, packetChecks.get(InteractPlayerVisibility.class));
+        registerEarlyReceive(registrations, packetChecks.get(RidingInteract.class));
 
         registerReceive(registrations, packetChecks.get(SimulationProcessor.class));
         registerReceive(registrations, packetChecks.get(ActionManager.class));

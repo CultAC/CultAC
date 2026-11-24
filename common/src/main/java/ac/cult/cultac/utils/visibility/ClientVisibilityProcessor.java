@@ -103,6 +103,11 @@ public final class ClientVisibilityProcessor extends CultProcessor implements Ch
                 () -> visibility.entityInteractionHidden(entity, positionError()));
     }
 
+    public boolean ownVehicleTreePickPossible(PacketEntity entity) {
+        return player.compensatedWorld.withSelectionSnapshot(
+                () -> visibility.ownVehicleTreePickPossible(entity, positionError()));
+    }
+
     public boolean entityWithinInteractionRange(PacketEntity entity) {
         return visibility.entityWithinInteractionRange(entity, positionError());
     }
