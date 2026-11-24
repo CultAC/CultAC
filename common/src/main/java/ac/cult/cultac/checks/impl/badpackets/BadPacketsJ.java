@@ -5,9 +5,11 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CameraDetachListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.CultPacketHandler;
+import ac.cult.cultac.network.ForwardHold;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -28,13 +30,13 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
 
     @Override
     public void onCameraDetached() {
-        this.rotations = 0;
+        judged(false);
     }
 
     @CultPacketHandler
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
         if (!player.cameraEntity.isSelf()) {
-            this.rotations = 0;
+            judged(false);
             return;
         }
 
@@ -51,14 +53,12 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
             flag();
         }
 
-        if (this.rotations > 0 && (this.yaw != yaw || this.pitch != pitch)) {
-            while (this.rotations-- > 0) flag();
-            this.rotations = 0;
-        }
+        if (this.rotations > 0 && (this.yaw != yaw || this.pitch != pitch)) judged(flagRotations());
 
         if (this.rotations != Integer.MAX_VALUE) this.rotations++;
         this.yaw = yaw;
         this.pitch = pitch;
+        if (holdsUses()) hold().gate();
     }
 
     // isTickPacket: movement packets count unless they answered a teleport
@@ -66,13 +66,13 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         if (!player.cameraEntity.isSelf()) {
-            this.rotations = 0;
+            judged(false);
             return;
         }
 
         // A boat rider's Rot carries the turn of the vehicle move the client sends after it, judged at tick end
         if (this.rotations > 0 && !event.answersTeleport() && riddenBoat() == null) {
-            onTickPacket(player.xRot, player.yRot);
+            judged(onTickPacket(player.xRot, player.yRot));
         }
     }
 
@@ -80,25 +80,28 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
     // Runs after the riding tree's interpolation step, which gives a ridden boat the yaw positionRider clamped against.
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
+        // The timeout's tick end ends no client tick: the held use waits for its own tick's rotation
+        if (event.isSynthetic() && hold().gating()) return;
         if (!player.cameraEntity.isSelf()) {
-            this.rotations = 0;
+            judged(false);
             return;
         }
 
         if (this.rotations > 0) {
+            boolean flagged = false;
             // The client sends no tick movement, so no rotation, until ClientPacketListener#hasClientLoaded
             if (player.localPlayerTicks()) {
                 // LocalPlayer#sendChanges sends Rot every riding tick, so a tick without movement ran sendPosition,
                 // which sends no rotation while the player's equals the last one it sent
                 if (player.packetStateData.receivedMovementThisClientTick) {
-                    onTickPacket(player.packetStateData.lastSentTickYaw, player.packetStateData.lastSentTickPitch);
+                    flagged = onTickPacket(
+                            player.packetStateData.lastSentTickYaw, player.packetStateData.lastSentTickPitch);
                 } else {
-                    onTickPacket(
+                    flagged = onTickPacket(
                             player.packetStateData.lastSendPositionYaw, player.packetStateData.lastSendPositionPitch);
                 }
-            } else {
-                this.rotations = 0;
             }
+            judged(flagged);
         }
     }
 
@@ -120,12 +123,36 @@ public class BadPacketsJ extends Check implements CameraDetachListener, ClientTi
 
     // Minecraft#tick sends use_item from handleKeybinds, then AbstractBoat#positionRider turns a rider in
     // ClientLevel#tickEntities before LocalPlayer#sendChanges sends the tick's rotation
-    private void onTickPacket(float tickYaw, float tickPitch) {
+    private boolean onTickPacket(float tickYaw, float tickPitch) {
         PacketEntity boat = riddenBoat();
         float expectedYaw = boat != null && turnsRider(boat) ? player.yawWithoutLook(this.yaw) : this.yaw;
-        if (!Float.isNaN(tickYaw) && (expectedYaw != tickYaw || this.pitch != tickPitch)) {
-            while (this.rotations-- > 0) flag();
-        }
+        return !Float.isNaN(tickYaw) && (expectedYaw != tickYaw || this.pitch != tickPitch) && flagRotations();
+    }
+
+    private boolean flagRotations() {
+        boolean flagged = false;
+        while (this.rotations-- > 0) flagged |= flag();
+        return flagged;
+    }
+
+    /** Ends the use_items since the last tick rotation; the held ones reach the server unless they were flagged. */
+    private void judged(boolean flagged) {
         this.rotations = 0;
+        if (!hold().gating()) return;
+        boolean drop = flagged && shouldModifyPackets();
+        hold().settle(!drop);
+        if (drop) player.onPacketCancel();
+    }
+
+    // Minecraft#tick ends every client tick with ServerboundClientTickEndPacket, which bounds the hold
+    private boolean holdsUses() {
+        return shouldModifyPackets()
+                && !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && player.user.getCultConnection().packets().observed().supports(ServerboundPackets.CLIENT_TICK_END);
+    }
+
+    private ForwardHold hold() {
+        return player.user.getCultConnection().forwardHold();
     }
 }

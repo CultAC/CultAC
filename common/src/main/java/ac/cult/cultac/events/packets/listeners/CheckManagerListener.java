@@ -18,6 +18,7 @@ import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.manager.player.CheckManager;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
+import ac.cult.cultac.network.ForwardHold;
 import ac.cult.cultac.network.OpaqueReceiveListener;
 import ac.cult.cultac.network.PacketHandlerScanner;
 import ac.cult.cultac.network.PacketReceiveHandler;
@@ -1206,7 +1207,11 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             player.lastBlockPlaceUseItem = System.currentTimeMillis();
             player.checkManager.dispatchReceiveHandlers(event);
             if (reachesServer(event, player)) {
-                player.blockActionReconciler.forwarded(packet.sequence());
+                ForwardHold.Settlement settlement = forwarded -> {
+                    if (forwarded) player.blockActionReconciler.forwarded(packet.sequence());
+                    else if (applied != null) player.blockActionReconciler.rejectUse(packet, applied);
+                };
+                if (!player.user.getCultConnection().forwardHold().whenSettled(settlement)) settlement.settled(true);
                 if (restart)
                     player.clientItemUse.restarted(
                             packet.hand(), restartStack, packet.sequence(), player.packetStateData.acceptedClientTick);

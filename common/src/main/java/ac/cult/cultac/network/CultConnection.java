@@ -75,6 +75,8 @@ public final class CultConnection
 
     private final List<Runnable> afterClientTick = new ArrayList<>();
 
+    private final ForwardHold forwardHold = new ForwardHold();
+
     private volatile User user;
     private volatile CultPlayer player;
     // Owned by the outbound connection executor. The encoder opens a flush bundle with a
@@ -634,6 +636,11 @@ public final class CultConnection
      */
     public boolean midClientTick() {
         return midClientTick && owner == channel.eventLoop();
+    }
+
+    /** The serverbound packets processed and not yet forwarded. On the owner. */
+    public ForwardHold forwardHold() {
+        return forwardHold;
     }
 
     /** Runs {@code task} once, right after the next tick end is forwarded or the client leaves play. On the owner. */
