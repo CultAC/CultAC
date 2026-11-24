@@ -1206,6 +1206,21 @@ public class Collisions {
                         player, player.compensatedWorld.getBlockStateIdAt(x, y, z), powderSnowCanApply));
     }
 
+    /**
+     * {@code Entity#checkInsideBlocks}' stuck speed for an entity that is not a {@code LivingEntity}: a cobweb slows it
+     * unwoven and powder snow always, and a sweet berry bush not at all. A null {@code originalMovement} sweeps the move
+     * directly, as {@code Entity#applyEffectsFromBlocks} does for a move {@code Entity#move} did not record.
+     */
+    public static Vec3 checkNonLivingStuckSpeedAlongMovement(
+            CultPlayer player, SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb, Vec3 originalMovement) {
+        if (!InsideBlockEffectScan.mayHaveEffects(player, fromAabb, toAabb, true)) return null;
+        return resolveOrderedStuckSpeed26Dot2(fromAabb, toAabb, originalMovement, (x, y, z) -> {
+            int state = player.compensatedWorld.getBlockStateIdAt(x, y, z);
+            if (BlockFamilies.WEB.test(state)) return getCobwebStuckSpeed(false, false);
+            return BlockFamilies.POWDER_SNOW.test(state) ? POWDER_SNOW_STUCK_SPEED : null;
+        });
+    }
+
     static Vec3 resolveOrderedStuckSpeed26Dot2(
             SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb, Vec3 axisOrderMovement, StuckSpeedLookup lookup) {
         Vec3[] result = new Vec3[1];

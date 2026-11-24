@@ -273,6 +273,53 @@ class EntityInteractionVisibilityTest {
         }
     }
 
+    @ParameterizedTest
+    @MethodSource("clients")
+    void aFallingBlockInACobwebFallsAtTheCobwebsStuckSpeed(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            // Stuck from its first move on, the block falls 0.002 a tick between the server's positions, so the eye of
+            // the player in the same cobweb stays inside its box; dropped at full gravity it lands on the stone, behind
+            // the cobweb's outline.
+            stuckInCobweb(setup);
+            setup.place(.388561503484, 62.064619825150615, .762475956988);
+            assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            assertEquals(
+                    62.762752727413970 - 6 * .0020000000298023224,
+                    setup.player.compensatedEntities.getEntity(42).clientPhysicalPosition.y,
+                    1.0E-9);
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("clients")
+    void aFallingBlockStuckInACobwebIsStillOutOfRangeFromBelowIt(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            // The eye is 3.48 from the stuck block's box and 2.83 from where the block lands at full gravity.
+            stuckInCobweb(setup);
+            setup.place(2.6853687570533, 57.98, .66041931685);
+            assertTrue(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+        }
+    }
+
+    private static void stuckInCobweb(Setup setup) throws Exception {
+        var world = setup.player.compensatedWorld;
+        world.applyBlockChangeRawDANGER(0, 61, 0, state("stone"));
+        world.applyBlockChangeRawDANGER(0, 62, 0, state("cobweb"));
+        world.applyBlockChangeRawDANGER(0, 63, 0, state("cobweb"));
+        setup.spawn(
+                42,
+                "minecraft:falling_block",
+                new Vec3d(.6953687475166, 62.88453983678897, .66041931685),
+                Vec3d.ZERO,
+                14845);
+        setup.sync(42, new Vec3d(.6953687475166, 62.84453983678897, .66041931685));
+        for (int tick = 0; tick < 20; tick++) setup.clientTick();
+        setup.sync(42, new Vec3d(.6953687475166, 62.80254764928897, .66041931685));
+        for (int tick = 0; tick < 21; tick++) setup.clientTick();
+        setup.sync(42, new Vec3d(.6953687475166, 62.76275272741397, .66041931685));
+        for (int tick = 0; tick < 6; tick++) setup.clientTick();
+    }
+
     @Test
     void aFallingBlockThatHitsAWallLosesThatAxisOfItsDeltaMovementExceptOn26_2() throws Exception {
         // Stopped by the wall on the second tick, the block rises past the wall's top on the fourth. 1.21.11's
