@@ -45,8 +45,8 @@ import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
-import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.ClientVersionFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -1018,6 +1018,47 @@ class InteractionVisibilityTest {
             assertFalse(
                     setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled(),
                     "Within range the crawling eye sees it");
+        }
+    }
+
+    @Test
+    void aStandingAttackerIsNotShownATargetOnlyTheCrawlingEyeSees() throws Exception {
+        try (var setup = new Setup()) {
+            var mobs = setup.check(AttackEntityVisibility.class);
+            setup.fixture.player.compensatedEntities.addEntity(
+                    42, EntityTypeIds.SILVERFISH, new Vec3(.5, 65.3, 1.65), 0, 0, 0);
+            setup.fixture
+                    .player
+                    .compensatedEntities
+                    .getSelf()
+                    .entityInteractionRange
+                    .replace(3.2, List.of());
+            setup.block(0, 65, -1, "stone");
+            setup.fixture.player.refreshPlayerPose();
+            assertEquals(Pose.STANDING, setup.fixture.player.pose);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertEquals(1, mobs.violations);
+        }
+    }
+
+    @Test
+    void aCrawlingAttackerSeesATargetFromTheCrawlingEye() throws Exception {
+        try (var setup = new Setup()) {
+            var mobs = setup.check(AttackEntityVisibility.class);
+            setup.fixture.player.compensatedEntities.addEntity(
+                    42, EntityTypeIds.SILVERFISH, new Vec3(.5, 65.3, 1.65), 0, 0, 0);
+            setup.fixture
+                    .player
+                    .compensatedEntities
+                    .getSelf()
+                    .entityInteractionRange
+                    .replace(3.2, List.of());
+            setup.block(0, 65, -1, "stone");
+            setup.block(0, 65, -2, "stone");
+            setup.fixture.player.refreshPlayerPose();
+            assertEquals(Pose.SWIMMING, setup.fixture.player.pose);
+            assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertEquals(0, mobs.violations);
         }
     }
 
