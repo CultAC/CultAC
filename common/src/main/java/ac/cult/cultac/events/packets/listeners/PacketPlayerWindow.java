@@ -7,12 +7,14 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.protocol.value.GameEventType;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
@@ -63,6 +65,19 @@ public class PacketPlayerWindow {
     @CultPacketHandler("clientbound.open_sign_editor")
     public void onOpenSignEditor(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
         if (!player.isBedrockMovement()) player.openWindow.onServerSignEditor(event);
+    }
+
+    @CultPacketHandler("clientbound.open_book")
+    public void onOpenBook(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (!player.isBedrockMovement()) player.openWindow.onServerScreenOverContainer(event);
+    }
+
+    @CultPacketHandler
+    public void onGameEvent(
+            PacketSendEvent<ClientboundGameEvent> event, CultPlayer player, ClientboundGameEvent packet) {
+        if (packet.event() == GameEventType.WIN_GAME && !player.isBedrockMovement()) {
+            player.openWindow.onServerScreenOverContainer(event);
+        }
     }
 
     @CultPacketHandler("serverbound.sign_update")

@@ -123,6 +123,27 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         closeTransaction = transaction;
     }
 
+    /**
+     * ClientPacketListener#handleOpenBook sets a BookViewScreen, and the WIN_GAME game event a WinScreen, in place of
+     * any container screen, whose AbstractContainerScreen#removed sends no container_close. Leaving the book sends
+     * nothing, and the credits leave no screen until the respawn they ask for arrives. The client handles the packet
+     * between the two pings, so a container click it sends between them does not prove the container stayed.
+     */
+    public void onServerScreenOverContainer(PacketSendEvent<?> event) {
+        CultPlayer.TrackedTransaction before =
+                player.createTrackedTransactionPacketForDeferredSend(CultPlayer.PING_LEADING);
+        CultPlayer.TrackedTransaction after = player.createTrackedTransactionPacketForDeferredSend();
+        if (before == null || after == null) return;
+        event.getWritesBeforeSend().add(before.packet());
+        event.getWritesAfterSend().add(after.packet());
+        event.getTasksAfterSend().add(() -> {
+            player.markTrackedTransactionPacketSent(before);
+            player.markTrackedTransactionPacketSent(after);
+        });
+        player.latencyUtils.addRealTimeTask(before.transaction(), this::maybeClose);
+        player.latencyUtils.addRealTimeTask(after.transaction(), this::maybeClose);
+    }
+
     public void maybeClose() {
         possibleOpenWindows.add(null);
         closeTransaction = player.lastTransactionReceived.get();
