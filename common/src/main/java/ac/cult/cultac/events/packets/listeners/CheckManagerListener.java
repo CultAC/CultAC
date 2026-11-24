@@ -783,8 +783,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 // ground state from the movement collision.
                 boolean reportedOnGround =
                         clientReportsOnGround ? packet.onGround() : state.vehicleMovementStartOnGround;
-                VehiclePositionUpdate update =
-                        new VehiclePositionUpdate(from, newPos, yaw, pitch, reportedOnGround, clientReportsOnGround);
+                VehiclePositionUpdate update = new VehiclePositionUpdate(
+                        from, newPos, yaw, pitch, reportedOnGround, clientReportsOnGround, true);
                 setbacks.holdSafePosition();
                 try {
                     player.checkManager.onVehiclePositionUpdate(update);

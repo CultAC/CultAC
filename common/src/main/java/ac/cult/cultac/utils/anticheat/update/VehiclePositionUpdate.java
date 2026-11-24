@@ -12,4 +12,6 @@ public class VehiclePositionUpdate {
     private final float xRot, yRot;
     private final boolean onGround;
     private final boolean hasOnGround;
+    /** Whether the client sent this move in a MoveVehicle; otherwise the engine staged it for a tick that sent none. */
+    private final boolean reported;
 }

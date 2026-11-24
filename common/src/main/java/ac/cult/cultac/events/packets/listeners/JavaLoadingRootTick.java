@@ -68,7 +68,7 @@ final class JavaLoadingRootTick {
         setbacks.holdSafePosition();
         try {
             player.checkManager.onVehiclePositionUpdate(
-                    new VehiclePositionUpdate(from, to, yaw, pitch, end.onGround(), true));
+                    new VehiclePositionUpdate(from, to, yaw, pitch, end.onGround(), true, false));
         } finally {
             setbacks.releaseSafePosition();
         }

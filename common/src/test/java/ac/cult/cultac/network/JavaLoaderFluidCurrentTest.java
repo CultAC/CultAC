@@ -5,21 +5,27 @@ import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
 
 /**
  * The fluid currents a claimed mod loader may leave out. NeoForge 21.10.31 through 21.11.x LivingEntity#checkFallDamage
@@ -34,6 +40,7 @@ class JavaLoaderFluidCurrentTest {
     private static final double SURFACE = FLOOR_Y + 8 / 9.0F;
     private static final double SHALLOW_CURRENT = (SURFACE - (ENTRY.y + 0.001D)) * 0.014D;
 
+    private static final int CAMERA = 4242;
     private static final double CURRENT = 0.014D;
     private static final Vec3 WADING = new Vec3(-0.5, FLOOR_Y, 0.5);
     private static final Vec3 WADING_VELOCITY = new Vec3(0.05, -0.005, 0.0);
@@ -158,6 +165,42 @@ class JavaLoaderFluidCurrentTest {
         }
     }
 
+    /**
+     * While another entity is the camera, LocalPlayer#sendPosition reports nothing: the current pushes the player
+     * unseen, and the reports after the camera returns continue the pushed travel.
+     */
+    @Test
+    void forgeDriftsInTheCurrentWhileAnotherEntityIsTheCamera() throws Exception {
+        try (var f = channel()) {
+            brand(f, "forge");
+            f.player.nettyScheduler.removeScheduler();
+            Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+            f.player.packetStateData.playerLoadedIntoLevel = true;
+            f.place(WADING, Vec3.ZERO);
+            SetbackFixtures.seedSafePosition(f.player, new SetbackPosWithVector(WADING, Vec3.ZERO));
+            f.addRemotePlayer(CAMERA, new Vec3(3.5, FLOOR_Y, 3.5), GameMode.SURVIVAL);
+            camera(f, CAMERA);
+            double dx = 0.0;
+            Vec3 position = WADING;
+            for (int tick = 0; tick < 3; tick++) {
+                f.tickEnd();
+                dx = dx * 0.8F + CURRENT;
+                position = position.add(dx, 0.0, 0.0);
+                assertEquals(position.x, f.player.x, 1.0E-9, "camera tick " + tick);
+                assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback(), "camera tick " + tick);
+            }
+            assertNull(f.player.loaderFluids.known());
+            camera(f, f.player.entityID);
+            for (int tick = 0; tick < 5; tick++) {
+                dx = dx * 0.8F + CURRENT;
+                position = position.add(dx, 0.0, 0.0);
+                assertExact(f.tick(position, true));
+                assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback(), "report " + tick);
+            }
+            assertEquals(false, f.player.loaderFluids.known());
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void aReportedForgeBuildIsTheOnlyOneSimulated(boolean withoutCurrent) throws Exception {
@@ -229,6 +272,13 @@ class JavaLoaderFluidCurrentTest {
         }
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return f;
+    }
+
+    /** ClientboundSetCameraPacket, handled by the client once both of its pings are answered. */
+    private static void camera(JavaTickFixture f, int id) {
+        f.player.cameraEntity.onSetCamera(id);
+        f.player.sendTransaction();
+        f.pongThrough(f.player.lastTransactionSent.get());
     }
 
     private static void assertExact(PredictionResult result) {

@@ -50,7 +50,7 @@ final class JavaUnreportedRootTick {
         setbacks.holdSafePosition();
         try {
             player.checkManager.onVehiclePositionUpdate(
-                    new VehiclePositionUpdate(at, at, yaw, pitch, root.onGround, false));
+                    new VehiclePositionUpdate(at, at, yaw, pitch, root.onGround, false, false));
         } finally {
             setbacks.releaseSafePosition();
         }
