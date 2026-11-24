@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.cloud.settings.CloudStaffSettings;
 import ac.cult.cultac.manager.alerts.AlertKind;
 import ac.cult.cultac.manager.alerts.AlertNetwork;
 import ac.cult.cultac.manager.alerts.AlertPairs;
@@ -29,6 +30,7 @@ import ac.grim.grimac.api.storage.DataStore;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -385,6 +387,12 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     /** Sets and persists {@code player}'s alert scope. */
     public void chooseScope(@NotNull PlatformPlayer player, @NotNull AlertScope scope) {
         scopes.choose(player, scope);
+        CloudStaffSettings.send(player.getUniqueId(), Map.of(AlertScopes.SETTING_KEY, scope.id()));
+    }
+
+    /** Takes {@code scope}, chosen on another server, as {@code player}'s choice while they are here. */
+    public void adoptScope(@NotNull PlatformPlayer player, @NotNull AlertScope scope) {
+        scopes.adopt(player, scope);
     }
 
     /** Whether other instances' alerts reach this one: over a network transport, or the proxy's plugin messaging. */

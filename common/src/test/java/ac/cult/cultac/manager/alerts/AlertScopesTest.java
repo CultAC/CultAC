@@ -117,6 +117,30 @@ class AlertScopesTest {
     }
 
     @Test
+    void aChoiceFromElsewhereAppliesUntilTheQuitAndIsNotStoredHere() {
+        DataStore store = store();
+        AlertScopes scopes = new AlertScopes(null, () -> store);
+        PlatformPlayer player = player(UUID.randomUUID());
+
+        scopes.adopt(player, AlertScope.GLOBAL);
+        assertNull(scopes.chosen(player));
+
+        scopes.load(player);
+        scopes.adopt(player, AlertScope.GLOBAL);
+        assertEquals(AlertScope.GLOBAL, scopes.chosen(player));
+        assertEquals(Map.of(), settings);
+
+        scopes.forget(player);
+        scopes.adopt(player, AlertScope.GLOBAL);
+        assertNull(scopes.chosen(player));
+
+        AlertScopes withoutStore = new AlertScopes(null, () -> null);
+        withoutStore.load(player);
+        withoutStore.adopt(player, AlertScope.GLOBAL);
+        assertEquals(AlertScope.GLOBAL, withoutStore.chosen(player));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void everyGenerationSeesTheSameChoice() {
         Map<String, Object> shared = new ConcurrentHashMap<>();

@@ -26,7 +26,7 @@ public final class AlertScopes {
     public static final String SETTING_KEY = "alert-scope";
     public static final AlertScope DEFAULT = AlertScope.SERVER;
     static final String SHARED_KEY = "cultac.alerts.scope";
-    /** Held while the persisted choice is being read; counts as no choice. */
+    /** Held from the join until a persisted choice lands; counts as no choice. */
     private static final String LOADING = "";
 
     /** Native player to scope id; JDK types only, since every generation reads it. */
@@ -48,18 +48,22 @@ public final class AlertScopes {
 
     /** Reads {@code player}'s persisted choice in the background; a choice made meanwhile wins. */
     public void load(PlatformPlayer player) {
-        DataStore store = this.store.get();
-        if (store == null) return;
         Object handle = player.getNative();
         if (chosen.putIfAbsent(handle, LOADING) != null) return;
+        DataStore store = this.store.get();
+        if (store == null) return;
         UUID uuid = player.getUniqueId();
         store.query(Categories.SETTING, new Queries.GetSetting(SettingScope.PLAYER, uuid.toString(), SETTING_KEY))
                 .whenComplete((page, failure) -> {
                     if (failure != null) LogUtil.warn("Could not read the alert scope of " + uuid, failure);
                     AlertScope persisted = failure == null ? decode(page) : null;
-                    if (persisted == null || !chosen.replace(handle, LOADING, persisted.id()))
-                        chosen.remove(handle, LOADING);
+                    if (persisted != null) chosen.replace(handle, LOADING, persisted.id());
                 });
+    }
+
+    /** Takes a choice {@code player} made elsewhere, from their {@link #load} to their {@link #forget}; not persisted. */
+    public void adopt(PlatformPlayer player, AlertScope scope) {
+        chosen.computeIfPresent(player.getNative(), (handle, choice) -> scope.id());
     }
 
     /** {@code player}'s own choice; null when they made none or it is still loading. */

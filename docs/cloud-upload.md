@@ -36,6 +36,9 @@ While the upload is on, each player's session is streamed from the moment they r
 - **Staff portal roles, only with `cloud.team-sync`.** Off by default. When on, the UUID, name and portal role of
   players holding a `cult.portal.*` permission, and of synced players who lost it, are sent to the intake service so
   its portal lists them in your organization. See [Team sync](#team-sync).
+- **Staff alert settings.** When staff change their alerts, verbose or brand toggle or their alert scope, the new
+  value is sent under their UUID and read back when they join, so the choice follows them to every server of your
+  organization. See [Staff settings](#staff-settings).
 
 Each connection also announces the plugin's name, version and build commit, whether it runs observe-only or
 enforcing, and a SHA-256 hash of the parsed config files with `bridge.secret` and `cloud.api-key` left out. The hash
@@ -195,6 +198,15 @@ implicitly, but a LuckPerms `*` grants admin.
 On Velocity the online check asks the proxy's permission provider (LuckPerms-Velocity answers it), and the LuckPerms
 change listener and offline sweep run when LuckPerms is installed on the proxy. On Paper they use Paper's permissions
 and LuckPerms the same way.
+
+### Staff settings
+
+While the upload is configured (`url` and `api-key`), each staff member's alert toggles (`alerts`, `verbose`,
+`brands`) and alert scope (`alert-scope`: `server` or `global`) are kept by the cloud for your organization as well as
+in this server's datastore. A change is sent when staff make it. At join, staff holding `cult.alerts`, `cult.verbose`
+or `cult.brand` first get this server's values, then the cloud's once they arrive; a toggle applies only with its
+permission. Staff who never chose a scope keep `alerts.default-scope`, which is never stored. When the cloud cannot
+be reached, this server's values stay. Without the upload only the datastore keeps them.
 
 ### Staff bans
 

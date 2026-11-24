@@ -1,6 +1,7 @@
 package ac.cult.cultac.events.packets;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.cloud.settings.CloudStaffSettings;
 import ac.cult.cultac.manager.datastore.PlayerToggleStore;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import java.util.function.BiConsumer;
@@ -44,11 +45,15 @@ public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHoo
         applyStaffState(platformPlayer);
     }
 
-    /** Loads the alert scope, applies the alert, verbose and brand toggles and hides a spectator. */
+    /**
+     * Loads the alert scope, applies the alert, verbose and brand toggles, reads the cloud's for staff and hides a
+     * spectator.
+     */
     private static void applyStaffState(@NotNull PlatformPlayer platformPlayer) {
-        if (platformPlayer.hasPermission("cult.alerts")
+        boolean staff = platformPlayer.hasPermission("cult.alerts")
                 || platformPlayer.hasPermission("cult.verbose")
-                || platformPlayer.hasPermission("cult.brand")) {
+                || platformPlayer.hasPermission("cult.brand");
+        if (staff) {
             CultAPI.INSTANCE.getAlertManager().loadScope(platformPlayer);
         }
 
@@ -80,6 +85,9 @@ public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHoo
                 "cult.brand.enable-on-join.silent",
                 (p, silent) -> CultAPI.INSTANCE.getAlertManager().toggleBrands(p, silent),
                 (p, value) -> CultAPI.INSTANCE.getAlertManager().setBrandsEnabled(p, value, true));
+        if (staff) {
+            CloudStaffSettings.join(platformPlayer);
+        }
 
         var config = CultAPI.INSTANCE.getConfigManager();
         if (platformPlayer.hasPermission("cult.spectate")
