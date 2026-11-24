@@ -82,7 +82,7 @@ debug-client-brand: "%prefix% &bБренд клієнта: &f%brand%"
 help:
     - "&7======================"
     - "/%command% alerts &f- &7Увімкнути/вимкнути сповіщення"
-    - "/%command% alerts scope [server|global] &f- &7Показати або задати, чиї сповіщення ви бачите"
+    - "/%command% alerts server|global &f- &7Задати, чиї сповіщення ви бачите"
     - "/%command% brands &f- &7Увімкнути/вимкнути показ брендів"
     - "/%command% findplayer [brand=...] &f- &7Список брендів клієнтів онлайн або хто використовує певний"
     - "/%command% profile <гравець> &f- &7Переглянути інформацію про гравця"
@@ -221,7 +221,7 @@ cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # Модератор запитує мережеві сповіщення, а network.type у config.yml не задано.
 network-disabled-alerts: "%prefix% &cМережеві сповіщення на цьому сервері не ввімкнені. Попросіть адміністратора сервера задати network.type у конфігурації CultAC."
-# /cult alerts scope [server|global]: %scope% — server або global, %source% — один із текстів alerts-scope-* нижче.
+# /cult alerts [server|global]: %scope% — server або global, %source% — один із текстів alerts-scope-* нижче.
 alerts-scope: "%prefix% &fОбласть сповіщень: &b%scope% &7(%source%)"
 alerts-scope-set: "%prefix% &fОбласть сповіщень змінено на &b%scope%"
 alerts-scope-chosen: "вибрано вами"

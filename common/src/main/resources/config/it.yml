@@ -14,7 +14,7 @@ alerts:
         send: false
         # Gli avvisi ricevuti da altri server devono essere annunciati a questo server?
         receive: false
-    # Ambito degli avvisi dello staff che non ne ha scelto uno con /cult alerts scope: server o global.
+    # Ambito degli avvisi dello staff che non ne ha scelto uno con /cult alerts server|global: server o global.
     # global vale solo con gli avvisi di rete attivi; altrimenti si usa server.
     default-scope: server
 

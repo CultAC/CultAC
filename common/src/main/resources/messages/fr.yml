@@ -58,7 +58,7 @@ profile:
 help:
     - "&7======================"
     - "/%command% alerts &f- &7Activer/Désactiver les alertes"
-    - "/%command% alerts scope [server|global] &f- &7Show or set whose alerts you see"
+    - "/%command% alerts server|global &f- &7Set whose alerts you see"
     - "/%command% brands &f- &7Toggle brands"
     - "/%command% findplayer [brand=...] &f- &7List client brands online, or who uses one"
     - "/%command% profile <player> &f- &7Voir le profil du joueur"
@@ -146,7 +146,7 @@ cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # A staff member asks for network-wide alerts while network.type in config.yml is unset.
 network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to set network.type in the CultAC configuration."
-# /cult alerts scope [server|global]: %scope% is server or global, %source% one of the alerts-scope-* texts below.
+# /cult alerts [server|global]: %scope% is server or global, %source% one of the alerts-scope-* texts below.
 alerts-scope: "%prefix% &fAlert scope: &b%scope% &7(%source%)"
 alerts-scope-set: "%prefix% &fAlert scope set to &b%scope%"
 alerts-scope-chosen: "chosen"

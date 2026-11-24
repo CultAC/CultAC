@@ -14,7 +14,7 @@ alerts:
         send: false
         # Чи показувати на цьому сервері сповіщення, отримані з інших серверів?
         receive: false
-    # Область сповіщень для персоналу, який не обрав її через /cult alerts scope: server або global.
+    # Область сповіщень для персоналу, який не обрав її через /cult alerts server|global: server або global.
     # global діє лише з увімкненими мережевими сповіщеннями; інакше використовується server.
     default-scope: server
 

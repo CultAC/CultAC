@@ -16,7 +16,7 @@ alerts:
         send: false
         # プロキシに接続された他のサーバーからのアラートを受信するかどうか。
         receive: false
-    # /cult alerts scope で範囲を選んでいないスタッフのアラート範囲: server または global。
+    # /cult alerts server|global で範囲を選んでいないスタッフのアラート範囲: server または global。
     # global はネットワーク全体のアラートが有効な場合のみ適用され、それ以外は server になります。
     default-scope: server
 

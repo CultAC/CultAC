@@ -86,13 +86,7 @@ class CultAlertsScopeTest {
         assertTrue(reply().contains("Alert scope set to "));
         assertEquals(AlertScope.SERVER, alerts.chosenScope(player));
 
-        Sender asking = mock(Sender.class);
-        when(asking.isPlayer()).thenReturn(true);
-        when(asking.getPlatformPlayer()).thenReturn(player);
-        CultAlerts.showScope(asking);
-        ArgumentCaptor<Component> message = ArgumentCaptor.forClass(Component.class);
-        verify(asking).sendMessage(message.capture());
-        String shown = GsonComponentSerializer.gson().serialize(message.getValue());
+        String shown = GsonComponentSerializer.gson().serialize(CultAlerts.scopeLine(sender, player));
         assertTrue(shown.contains("server"), shown);
         assertTrue(shown.contains("network-wide alerts are not enabled on this server"), shown);
     }
