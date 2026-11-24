@@ -1520,6 +1520,8 @@ public class CompensatedEntities {
                 ClientSaddle.update(player, entity);
             } else if (slot == EquipmentSlot.BODY && entity instanceof PacketEntityHappyGhast happyGhast) {
                 happyGhast.bodyItem = slots.get(index).item();
+            } else if (slot == EquipmentSlot.FEET && entity.isLivingEntity()) {
+                entity.feetItem = slots.get(index).item();
             }
         }
         vehicles.markSaddleControlSwitch(entity, controlled);

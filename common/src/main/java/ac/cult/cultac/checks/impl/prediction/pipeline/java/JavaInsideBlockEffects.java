@@ -6,7 +6,6 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
-import ac.cult.blocksim.entity.EntityTags;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
@@ -19,7 +18,6 @@ import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
-import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
@@ -47,10 +45,7 @@ public final class JavaInsideBlockEffects {
     /** handleRelativeFrictionAndCalculateMovement's powder branch, separate from onClimbable's ladder clamp. */
     public static boolean canClimbPowderSnow(CultPlayer player, SimulationContext context, Vec3 end) {
         PacketEntity actor = context.getVehicle() == null ? player.compensatedEntities.getSelf() : context.getVehicle();
-        boolean walks = EntityTags.POWDER_SNOW_WALKABLE_MOBS.test(actor.type)
-                || context.getVehicle() == null
-                        && player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS;
-        if (!walks) return false;
+        if (!JavaCollisionState.walksOnPowderSnow(player, actor)) return false;
         if (context.getVersion().isOlderThan(ClientVersion.V_1_21_5))
             return BlockIds.is(
                     player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(end.x, end.y, end.z)),

@@ -133,6 +133,8 @@ public class PacketEntity {
     public boolean actionAlive = true;
     // The EquipmentSlot.SADDLE item, which a mount's inventory menu shows in its saddle slot.
     public SimItemStack saddleItem = SimItemStack.EMPTY;
+    // A living entity's EquipmentSlot.FEET item, which PowderSnowBlock#canEntityWalkOnPowderSnow reads.
+    public SimItemStack feetItem = SimItemStack.EMPTY;
     public byte actionSharedFlags;
     public boolean actionArrowInGround;
     public float scale = 1.0f;

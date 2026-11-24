@@ -75,7 +75,7 @@ class SentEquipmentReadersTest {
     }
 
     @Test
-    void otherEntitiesReadOnlyTheirSaddleAndAHappyGhastBody() throws Exception {
+    void otherEntitiesReadOnlyTheirFeetSaddleAndAHappyGhastBody() throws Exception {
         try (var eagerFixture = new RecordReceiveFixture(ProtocolVersion.V26_3);
                 var sentFixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
             spawn(eagerFixture.player);
@@ -88,8 +88,8 @@ class SentEquipmentReadersTest {
                 var sent = sent(items, read);
                 sentFixture.player.compensatedEntities.updateEntityEquipment(entity, sent);
                 if (entity == 44) assertEquals(List.of(), read.slots());
-                else if (entity == 42) assertEquals(List.of(EquipmentSlot.SADDLE), read.slots());
-                else assertEquals(List.of(EquipmentSlot.BODY, EquipmentSlot.SADDLE), read.slots());
+                else if (entity == 42) assertEquals(List.of(EquipmentSlot.FEET, EquipmentSlot.SADDLE), read.slots());
+                else assertEquals(List.of(EquipmentSlot.FEET, EquipmentSlot.BODY, EquipmentSlot.SADDLE), read.slots());
                 for (int index = 0; index < ALL.length; index++)
                     assertEquals(ALL[index], InventoryPackets.Equipment.slot(sent, index));
             }
