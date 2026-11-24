@@ -107,8 +107,21 @@ public class PacketServerTeleport {
                 targetX = player.x;
                 targetY = player.y + (packet.toEyes() ? player.getEyeHeight() : 0.0);
                 targetZ = player.z;
-            } else if (player.compensatedEntities.getEntity(packet.entityId()) != null) {
-                return;
+            } else {
+                PacketEntity entity = player.compensatedEntities.getEntity(packet.entityId());
+                if (entity != null) {
+                    // EntityAnchorArgument.Anchor#apply takes the copy's Entity#position().
+                    Vec3 feet = entity.clientPhysicalPosition;
+                    // A rider's Entity#lookAt measures from its seat, not the vehicle position player.x/y/z holds.
+                    if (player.compensatedEntities.getSelf().getRiding() != null
+                            || packet.toEyes()
+                            || entity.getRiding() != null
+                            || feet == null
+                            || !entity.clientPhysicalPositionExact) return;
+                    targetX = feet.x;
+                    targetY = feet.y;
+                    targetZ = feet.z;
+                }
             }
         }
         double xd = targetX - player.x;
