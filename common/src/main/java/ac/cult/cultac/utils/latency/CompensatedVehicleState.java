@@ -895,6 +895,14 @@ public final class CompensatedVehicleState implements Debuggable {
         return sentRiding.passengersOf(vehicleId);
     }
 
+    /**
+     * The vehicle {@code entityId} rides once the client has handled every packet sent so far; only meaningful while
+     * {@link #ridesAnotherEntityAsSent} holds.
+     */
+    public int vehicleAsSent(int entityId) {
+        return sentRiding.vehicleOf(entityId);
+    }
+
     /** Entity#getRootVehicle of {@code entityId} once the client has handled every packet sent so far. */
     public int rootAsSent(int entityId) {
         return sentRiding.rootOf(entityId);

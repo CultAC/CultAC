@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.TestUsers;
@@ -43,6 +44,7 @@ class FairReachRiderTest {
     private static final int TARGET = 3000;
     private static final int TARGET_HORSE = 3001;
     private static final int OWN_HORSE = 3002;
+    private static final int OWN_CART = 3003;
     private static final int BLOCK = 4096;
 
     @Test
@@ -79,6 +81,25 @@ class FairReachRiderTest {
             f.passDeadlines();
             f.tick(3);
             assertTrue(f.attackCancelled(), "the target's move is due, so it is out of reach");
+        }
+    }
+
+    @Test
+    void aPassengerIsJudgedFromWhereTheServerMovedItsVehicle() {
+        try (Fixture f = new Fixture()) {
+            f.addVehicle(OWN_CART, EntityTypes.defaults().byKey("minecraft:minecart").id(), 0);
+            f.send(new ClientboundSetPassengers(OWN_CART, List.of(f.player.entityID)));
+            f.acknowledge();
+            f.tick(1);
+            f.addTarget(2);
+            assertFalse(f.attackCancelled(), "a target beside the cart's passenger is in reach");
+
+            f.send(move(OWN_CART, -4));
+            assertFalse(f.attackCancelled(), "the client may not have the cart's move yet");
+
+            f.passDeadlines();
+            f.tick(10);
+            assertTrue(f.attackCancelled(), "the cart's move is due, so it carried its passenger out of reach");
         }
     }
 
@@ -181,7 +202,11 @@ class FairReachRiderTest {
         }
 
         void addHorse(int entityId, double x) {
-            player.packetEntityReplication.addEntity(entityId, EntityTypeIds.HORSE, new Vec3(x, 64, 0), 0, 0, 0, -1);
+            addVehicle(entityId, EntityTypeIds.HORSE, x);
+        }
+
+        void addVehicle(int entityId, int type, double x) {
+            player.packetEntityReplication.addEntity(entityId, type, new Vec3(x, 64, 0), 0, 0, 0, -1);
             acknowledge();
         }
 
