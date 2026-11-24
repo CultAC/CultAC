@@ -10,6 +10,8 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsJ;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.InventoryPackets;
@@ -19,11 +21,15 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.netty.CultDecoder;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockChangedAck;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemUtil;
@@ -156,6 +162,29 @@ class UseItemTickRotationForwardTest {
         }
     }
 
+    /** A respawned LocalPlayer starts yRotLast and xRotLast at zero, which its first sendPosition compares against. */
+    @Test
+    void aUseOfARespawnedPlayerIsJudgedByTheLookItsNewLocalPlayerSends() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var t = new Ticks(f);
+            t.start();
+            t.respawn();
+            f.fixture.channel.writeInbound(f.fixture.id(ServerboundPackets.PLAYER_LOADED, "player_loaded"));
+            t.forwarded();
+
+            t.use(1, YAW, 90);
+            t.tickEnd();
+            assertEquals(List.of("client_tick_end"), t.forwarded());
+            assertEquals(1, t.check.getViolations());
+
+            t.use(2, YAW, PITCH);
+            t.rot(YAW);
+            t.tickEnd();
+            assertEquals(List.of("use_item 2", "move_player", "client_tick_end"), t.forwarded());
+            assertEquals(1, t.check.getViolations());
+        }
+    }
+
     @Test
     void aMinecartRidersUseIsJudgedByThePitchItsTickSends() throws Exception {
         try (var f = new JavaTickFixture()) {
@@ -280,6 +309,21 @@ class UseItemTickRotationForwardTest {
                     .filter(type -> type.recordClass() == InventoryPackets.Slot.class)
                     .findFirst()
                     .orElseThrow();
+        }
+
+        /** The server's respawn into another dimension reaches the client, which has not loaded the new level yet. */
+        void respawn() {
+            var spawnInfo = new PlayerSpawnInfo(
+                    ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:the_end"),
+                    f.player.compensatedWorld.getLastClientboundDimension().dimension(),
+                    GameMode.SURVIVAL);
+            var packet = new ClientboundRespawn(spawnInfo, (byte) 0);
+            var event = new PacketSendEvent<>(
+                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.RESPAWN, packet, false);
+            new PacketPlayerRespawn().onRespawn(event, f.player, packet);
+            event.getTasksAfterSend().forEach(Runnable::run);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertFalse(f.player.packetStateData.playerLoadedIntoLevel, "the respawn did not reach the client");
         }
 
         void rot(float yaw) {
