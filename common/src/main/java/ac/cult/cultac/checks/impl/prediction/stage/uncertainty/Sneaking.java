@@ -44,7 +44,7 @@ public class Sneaking implements UncertaintyHandler {
             // A start carried from SneakEdgeBackoff is the client's deltaMovement; skipped ticks may have hidden more.
             boolean carried = lastResult != null && lastResult.isSneakEdgeCarried() && !start.isTickSkip();
             if (carried) {
-                double[] shift = SneakEdgeBackoff.backOffShift(player, context, start);
+                double[] shift = SneakEdgeBackoff.backOffShift(player, context, result.getInitialStartingVel(), start);
                 if (shift != null) {
                     return start.withXYZOrSelf(
                             start.x + CultMath.clamp(end.x - start.x, shift[0], shift[1]),

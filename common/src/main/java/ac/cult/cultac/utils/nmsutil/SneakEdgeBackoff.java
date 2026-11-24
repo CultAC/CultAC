@@ -73,10 +73,12 @@ public final class SneakEdgeBackoff {
     /**
      * What Player#maybeBackOffFromEdge takes off this tick's delta on x and z, {@code {minX, maxX, minZ, maxZ}} over the
      * speeds the client's sprint state and the multipliers its item use allow, for a tick whose {@code start} is the
-     * client's deltaMovement: Entity#move moves {@code start} plus the input plus that shift. Null when the back-off is
-     * outside this model.
+     * client's deltaMovement: Entity#move moves {@code start} plus the input plus that shift. {@code initial} is the
+     * tick's starting velocity before collision and step, the delta's y Player#maybeBackOffFromEdge reads. Null when
+     * the back-off is outside this model.
      */
-    public static double[] backOffShift(CultPlayer player, SimulationContext context, PredVector start) {
+    public static double[] backOffShift(
+            CultPlayer player, SimulationContext context, PredVector initial, PredVector start) {
         if (!appliesTo(player)) {
             boolean released = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6)
                     && !player.isBedrockMovement()
@@ -85,6 +87,7 @@ public final class SneakEdgeBackoff {
             // Player#isStayingOnGroundSurface is false without shift: the delta moves whole.
             return released ? new double[4] : null;
         }
+        if (risesWhole(initial, context)) return new double[4];
         if (!appliesTo(player, start, context)
                 || !NO_STUCK_SPEED.equals(context.getLastStuckSpeed())
                 || context.getWorldData().getStuckSpeed().getUnknownStuckSpeedMultiplier() != null) {
@@ -348,6 +351,21 @@ public final class SneakEdgeBackoff {
         Vec3 delta = new Vec3(startX + input.x, deltaY, startZ + input.z);
         if (!(Math.abs(delta.x) <= MAX_PROBED_AXIS) || !(Math.abs(delta.z) <= MAX_PROBED_AXIS)) return null;
         return delta;
+    }
+
+    /**
+     * Player#maybeBackOffFromEdge leaves a delta whose y is above 0 whole. Out of fluids and off climbables, that y is
+     * the initial starting velocity's, a jump's from LivingEntity#jumpFromGround, before Entity#collide steps.
+     */
+    private static boolean risesWhole(PredVector initial, SimulationContext context) {
+        WorldData world = context.getWorldData();
+        return initial != null
+                && !initial.isKnockback()
+                && !initial.isTickSkip()
+                && initial.y > 0.0D
+                && world.getInWater() == DesyncStatus.FALSE
+                && world.getInLava() == DesyncStatus.FALSE
+                && world.getClimbingAtStart() == DesyncStatus.FALSE;
     }
 
     private static boolean appliesTo(CultPlayer player, PredictionResult result, SimulationContext context) {
