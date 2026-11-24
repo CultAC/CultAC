@@ -14,7 +14,7 @@ alerts:
         send: false
         # Moeten de waarschuwingen die worden ontvangen van andere servers worden aangekondigd op deze server?
         receive: false
-    # Meldingsbereik voor staff die er geen koos met /cult alerts scope: server of global.
+    # Meldingsbereik voor staff die er geen koos met /cult alerts server|global: server of global.
     # global geldt alleen als netwerkbrede meldingen aan staan; anders wordt server gebruikt.
     default-scope: server
 

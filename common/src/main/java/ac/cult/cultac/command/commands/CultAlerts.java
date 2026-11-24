@@ -25,11 +25,9 @@ public class CultAlerts implements BuildableCommand {
                 .literal("alerts", Description.of("Toggle alerts for the sender"))
                 .permission("cult.alerts");
         commandManager.command(alerts.handler(this::handleAlerts));
-        Command.Builder<Sender> scope =
-                alerts.literal("scope", Description.of("Show or set whose alerts reach the sender"));
-        commandManager.command(scope.handler(context -> showScope(context.sender())));
         for (AlertScope each : AlertScope.values()) {
-            commandManager.command(scope.literal(each.id()).handler(context -> chooseScope(context.sender(), each)));
+            commandManager.command(alerts.literal(each.id(), Description.of("Set whose alerts reach the sender"))
+                    .handler(context -> chooseScope(context.sender(), each)));
         }
     }
 
@@ -48,16 +46,6 @@ public class CultAlerts implements BuildableCommand {
         } else if (sender.isConsole()) {
             CultAPI.INSTANCE.getAlertManager().toggleConsoleAlerts();
         }
-    }
-
-    static void showScope(Sender sender) {
-        PlatformPlayer player = sender.isPlayer() ? sender.getPlatformPlayer() : null;
-        if (player == null) {
-            sender.sendMessage(MessageUtil.getParsedComponent(
-                    sender, "run-as-player", "%prefix% &cThis command can only be used by players!"));
-            return;
-        }
-        sender.sendMessage(scopeLine(sender, player));
     }
 
     /** Sets the sender's scope; {@code global} needs {@link AlertManagerImpl#networkAlerts}. */

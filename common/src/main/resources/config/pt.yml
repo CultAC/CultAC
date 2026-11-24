@@ -14,7 +14,7 @@ alerts:
         send: false
         # Deviam os alertas ser recebidos de outros servidores conectados no mesmo proxy?
         receive: false
-    # Escopo de alertas da staff que não escolheu um com /cult alerts scope: server ou global.
+    # Escopo de alertas da staff que não escolheu um com /cult alerts server|global: server ou global.
     # global só vale com os alertas de rede ativos; caso contrário, usa-se server.
     default-scope: server
 

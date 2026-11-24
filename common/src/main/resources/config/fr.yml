@@ -14,7 +14,7 @@ alerts:
         send: false
         # Les alertes reçues des autres serveurs doivent-elles être annoncées sur ce serveur ?
         receive: false
-    # Portée des alertes du staff qui n'en a pas choisi avec /cult alerts scope : server ou global.
+    # Portée des alertes du staff qui n'en a pas choisi avec /cult alerts server|global : server ou global.
     # global ne s'applique que si les alertes réseau sont actives ; sinon server est utilisé.
     default-scope: server
 

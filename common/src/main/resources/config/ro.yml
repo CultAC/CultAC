@@ -14,7 +14,7 @@ alerts:
         send: false
         # Ar trebui ca alertele primite de la alte servere să fie anunțate pe acest server?
         receive: false
-    # Domeniul alertelor pentru staff-ul care nu a ales unul cu /cult alerts scope: server sau global.
+    # Domeniul alertelor pentru staff-ul care nu a ales unul cu /cult alerts server|global: server sau global.
     # global se aplică doar când alertele de rețea sunt active; altfel se folosește server.
     default-scope: server
 

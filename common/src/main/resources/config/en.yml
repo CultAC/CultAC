@@ -14,7 +14,7 @@ alerts:
         send: false
         # Should the alerts received from other servers be announced to this server?
         receive: false
-    # Alert scope of staff who never chose one with /cult alerts scope: server or global.
+    # Alert scope of staff who never chose one with /cult alerts server|global: server or global.
     # global applies only while network-wide alerts are on; otherwise it is server.
     default-scope: server
 

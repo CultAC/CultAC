@@ -14,7 +14,7 @@ alerts:
         send: false
         # Sollen die von anderen Servern empfangenen Alarme diesem Server mitgeteilt werden?
         receive: false
-    # Alarm-Bereich für Teammitglieder, die mit /cult alerts scope keinen gewählt haben: server oder global.
+    # Alarm-Bereich für Teammitglieder, die mit /cult alerts server|global keinen gewählt haben: server oder global.
     # global gilt nur, solange netzwerkweite Alarme aktiv sind; sonst wird server verwendet.
     default-scope: server
 
