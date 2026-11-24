@@ -54,6 +54,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             int index,
             int entityId,
             List<Vec3> fromCandidates,
+            List<Double> eyeHeights,
             SimpleCollisionBox targetBox,
             Vec3 targetSize,
             int type,
@@ -65,16 +66,20 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     /**
      * An attack measured at the client's last tick end: its index among the tick's attack packets, the target's id,
-     * type and lag-compensated reach box, the eye origins it may have come from, and the least-flagging reach to the
-     * box, infinite when the look misses it.
+     * type and lag-compensated reach box, the positions and eye heights it may have come from, and the least-flagging
+     * reach to the box, infinite when the look misses it.
      */
     public record MeasuredAttack(
-            int index, int entityId, int type, SimpleCollisionBox box, List<Vec3> origins, double reach) {}
+            int index,
+            int entityId,
+            int type,
+            SimpleCollisionBox box,
+            List<Vec3> origins,
+            List<Double> eyeHeights,
+            double reach) {}
 
     private static final String MISSED_HITBOX = "Missed hitbox";
     private static final String DEFAULT_SCALE_TEXT = String.format("%.4f", 1.0F);
-    // CultPlayer#getPossibleEyeHeights at scale 1.
-    private static final double[] EYE_HEIGHTS = {0.4, 1.27, 1.62};
     // A Bedrock attack is measured on the target's box grown by 0.1 on every side, players and end crystals included.
     private static final double BEDROCK_PICK_MARGIN = 0.1D;
     private static final double BEDROCK_RAVAGER_PICK_WIDTH = 1.95F;
@@ -231,6 +236,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                     index,
                     entityId,
                     getAttackOrigins(),
+                    player.getPossibleEyeHeights(),
                     getReachBox(entity),
                     getReachSize(entity),
                     entity.type,
@@ -315,7 +321,13 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             if (attack.pick() != null) {
                 bestDistance = attack.pick().reach(bedrockTarget(attack.pick(), measuredBox(attack.targetBox())));
             } else {
-                measureBest(attack.targetBox(), attack.targetSize(), attack.fromCandidates(), attack.reach(), false);
+                measureBest(
+                        attack.targetBox(),
+                        attack.targetSize(),
+                        attack.fromCandidates(),
+                        attack.eyeHeights(),
+                        attack.reach(),
+                        false);
             }
             measured.add(new MeasuredAttack(
                     attack.index(),
@@ -323,6 +335,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                     attack.type(),
                     attack.targetBox(),
                     attack.fromCandidates(),
+                    attack.eyeHeights(),
                     bestDistance));
         }
         return measured;
@@ -341,7 +354,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
         // Filter out what we assume to be cheats
         if (cancelBuffer != 0) {
-            return checkReach(reachEntity, getAttackOrigins(), reach, true) != null; // If they flagged
+            return checkReach(reachEntity, getAttackOrigins(), player.getPossibleEyeHeights(), reach, true)
+                    != null; // If they flagged
         } else {
             SimpleCollisionBox targetBox = getReachBox(reachEntity);
             return ReachUtils.getMinReachToBox(player, targetBox) > reach.maxClosestDistance();
@@ -470,6 +484,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                     attack.type(),
                     attack.enforced(),
                     attack.fromCandidates(),
+                    attack.eyeHeights(),
                     attack.reach(),
                     false);
             if (MISSED_HITBOX.equals(result)) {
@@ -545,13 +560,18 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     }
 
     private String checkReach(
-            PacketEntity reachEntity, List<Vec3> fromCandidates, AttackReach reach, boolean isPrediction) {
+            PacketEntity reachEntity,
+            List<Vec3> fromCandidates,
+            List<Double> eyeHeights,
+            AttackReach reach,
+            boolean isPrediction) {
         return checkReach(
                 getReachBox(reachEntity),
                 getReachSize(reachEntity),
                 reachEntity.type,
                 isEnforced(reachEntity),
                 fromCandidates,
+                eyeHeights,
                 reach,
                 isPrediction);
     }
@@ -628,11 +648,12 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             int type,
             boolean enforced,
             List<Vec3> fromCandidates,
+            List<Double> eyeHeights,
             AttackReach reach,
             boolean isPrediction) {
         targetBox = measuredBox(targetBox);
 
-        measureBest(targetBox, targetSize, fromCandidates, reach, isPrediction);
+        measureBest(targetBox, targetSize, fromCandidates, eyeHeights, reach, isPrediction);
 
         if (enforced) {
             if (bestDistance == Double.POSITIVE_INFINITY) {
@@ -651,11 +672,15 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         return null;
     }
 
-    /** Measures the least-flagging selection of the look at {@code targetBox} from the eyes at {@code fromCandidates}. */
+    /**
+     * Measures the least-flagging selection of the look at {@code targetBox} from each of {@code eyeHeights} above
+     * each of {@code fromCandidates}.
+     */
     private void measureBest(
             SimpleCollisionBox targetBox,
             Vec3 targetSize,
             List<Vec3> fromCandidates,
+            List<Double> eyeHeights,
             AttackReach reach,
             boolean isPrediction) {
         this.targetSize = targetSize;
@@ -681,15 +706,14 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             headArc = !Float.isNaN(player.headArcFrom);
         }
 
-        double scale = player.getScale();
         for (int look = 0; look < lookCount; look++) {
             double lookX = looks[look * 3];
             double lookY = looks[look * 3 + 1];
             double lookZ = looks[look * 3 + 2];
             for (int candidate = 0; candidate < fromCandidates.size(); candidate++) {
                 Vec3 from = fromCandidates.get(candidate);
-                for (double height : EYE_HEIGHTS) {
-                    double eyeY = from.y + height * scale;
+                for (int height = 0; height < eyeHeights.size(); height++) {
+                    double eyeY = from.y + eyeHeights.get(height);
                     if (look < viewLooks) {
                         measureView(targetBox, from.x, eyeY, from.z, lookX, lookY, lookZ, reach);
                     } else {
@@ -699,12 +723,16 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 }
             }
         }
-        if (headArc) measureHeadArc(targetBox, fromCandidates, reach, scale, lookCount);
+        if (headArc) measureHeadArc(targetBox, fromCandidates, eyeHeights, reach, lookCount);
     }
 
     // Of the head yaws the arc allows, the one nearest the yaw from each eye to the target's center.
     private void measureHeadArc(
-            SimpleCollisionBox targetBox, List<Vec3> fromCandidates, AttackReach reach, double scale, int slot) {
+            SimpleCollisionBox targetBox,
+            List<Vec3> fromCandidates,
+            List<Double> eyeHeights,
+            AttackReach reach,
+            int slot) {
         double centerX = (targetBox.minX + targetBox.maxX) / 2.0;
         double centerZ = (targetBox.minZ + targetBox.maxZ) / 2.0;
         float from = player.headArcFrom;
@@ -719,8 +747,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             double lookX = looks[slot * 3];
             double lookY = looks[slot * 3 + 1];
             double lookZ = looks[slot * 3 + 2];
-            for (double height : EYE_HEIGHTS) {
-                measureItem(targetBox, eye.x, eye.y + height * scale, eye.z, lookX, lookY, lookZ, reach);
+            for (int height = 0; height < eyeHeights.size(); height++) {
+                measureItem(targetBox, eye.x, eye.y + eyeHeights.get(height), eye.z, lookX, lookY, lookZ, reach);
                 if (bestDistance == 0 && excess() <= 0) return;
             }
         }
@@ -1147,10 +1175,10 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     public boolean measuresBeyondReach(PacketEntity target) {
         SimpleCollisionBox box = measuredBox(target);
         double max = AttackReach.capture(player, visibility).maxClosestDistance();
-        double scale = player.getScale();
+        List<Double> eyeHeights = player.getPossibleEyeHeights();
         for (Vec3 from : getAttackOrigins()) {
-            for (double height : EYE_HEIGHTS) {
-                if (nearest(box, from.x, from.y + height * scale, from.z) <= max) return false;
+            for (double height : eyeHeights) {
+                if (nearest(box, from.x, from.y + height, from.z) <= max) return false;
             }
         }
         return true;

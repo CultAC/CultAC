@@ -21,6 +21,8 @@ public final class BlockBreak {
     public final int block;
     /** The position the client claimed before this action; Minecraft#pick casts the action's ray from its eye. */
     public final Vec3 clientPosition;
+    /** The eye heights Minecraft#pick may have cast this action from, read when the client sent it. */
+    public final List<Double> eyeHeights;
 
     private final CultPlayer player;
 
@@ -43,6 +45,7 @@ public final class BlockBreak {
         this.sequence = sequence;
         this.block = block;
         this.clientPosition = player.packetStateData.clientSidePosition;
+        this.eyeHeights = player.getPossibleEyeHeights();
     }
 
     public void cancel() {

@@ -21,6 +21,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -62,6 +63,8 @@ public class BlockPlace {
     private final boolean block;
 
     public final int sequence;
+    /** The eye heights Minecraft#pick may have cast this use from, read when the client sent it. */
+    public final List<Double> eyeHeights;
 
     public BlockPlace(
             CultPlayer player,
@@ -87,6 +90,7 @@ public class BlockPlace {
         this.itemStack = itemStack;
         this.blockPosition = blockPosition == null ? null : blockPosition.immutable();
         this.sequence = sequence;
+        this.eyeHeights = player.getPossibleEyeHeights();
 
         BlockDefinition placedType = resolvePlacedType(itemStack.getItem());
         this.material = placedType == null ? BlockIds.FIRE : placedType;

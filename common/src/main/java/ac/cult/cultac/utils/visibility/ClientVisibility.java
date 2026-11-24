@@ -533,6 +533,13 @@ public final class ClientVisibility {
         Vec3 tracked = origin.add(0, player.getEyeHeight(), 0);
         eyes.add(tracked);
         trackedEyes.add(tracked);
+        if (player.knowsActingPose()) {
+            for (double height : player.getPossibleEyeHeights()) {
+                Vec3 eye = origin.add(0, height, 0);
+                if (!eyes.contains(eye)) eyes.add(eye);
+            }
+            return;
+        }
         // Entity#getEyePosition uses the pose's discrete EntityDimensions eye
         // height. Avatar.POSES (26.3) has 1.62F, 1.27F and .4F; scale is a float
         // product. Include the tracked height separately for sleeping/forced poses.

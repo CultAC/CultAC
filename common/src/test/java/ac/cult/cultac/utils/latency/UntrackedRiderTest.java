@@ -151,7 +151,7 @@ class UntrackedRiderTest {
             player.packetStateData.acceptedClientTick++;
             player.packetEntityReplication.onPlayerTickEnd(null);
             player.xRot = -90.0F;
-            player.yRot = 0.0F;
+            player.yRot = 30.0F;
             double beforeNear = reachViolations(player);
             attack(player, MOUNTED);
             assertEquals(beforeNear, reachViolations(player), "a legal attack used the rider's stale spawn box");
@@ -220,7 +220,7 @@ class UntrackedRiderTest {
             assertTrue(mounted.getPossibleCollisionBoxes().isIntersected(seat), "a non-ticking vehicle seated it");
 
             player.xRot = -90.0F;
-            player.yRot = 0.0F;
+            player.yRot = 30.0F;
             double before = reachViolations(player);
             attack(player, MOUNTED);
             assertEquals(before, reachViolations(player), "a legal attack used the rider's stale spawn box");

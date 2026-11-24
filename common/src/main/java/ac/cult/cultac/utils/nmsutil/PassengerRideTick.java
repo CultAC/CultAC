@@ -273,6 +273,13 @@ public final class PassengerRideTick {
         return states.isEmpty() ? List.of() : states.getFirst().recorded();
     }
 
+    /** The poses the kept states' Player#updatePlayerPose left. */
+    public List<Pose> poses() {
+        List<Pose> poses = new ArrayList<>(1);
+        for (State state : states) if (!poses.contains(state.pose())) poses.add(state.pose());
+        return poses;
+    }
+
     public boolean inFluid() {
         return inFluid;
     }

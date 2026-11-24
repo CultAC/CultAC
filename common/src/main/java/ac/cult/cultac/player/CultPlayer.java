@@ -1738,9 +1738,33 @@ public class CultPlayer implements GrimUser {
         return checkManager.getInventory();
     }
 
-    public List<Double> getPossibleEyeHeights() { // We don't return sleeping eye height
+    /** The standing, crouching and swimming eye heights at the current dimensions. */
+    public List<Double> getPoseEyeHeights() {
         double scale = dimensionScale;
         return Arrays.asList(0.4 * scale, 1.27 * scale, 1.62 * scale);
+    }
+
+    /** Whether every client tick ends with CLIENT_TICK_END, so the engine sees each pose the client acts from. */
+    public boolean knowsActingPose() {
+        return !isBedrockMovement() && getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
+    }
+
+    /**
+     * The eye heights Entity#getEyePosition gives a pick, use or dig sent now. Minecraft#tick picks and runs
+     * handleKeybinds before Player#tick's updatePlayerPose, so a Java client whose ticks end with CLIENT_TICK_END acts
+     * from the pose its last tick left: the engine's pose, or that of any ride state it keeps.
+     */
+    public List<Double> getPossibleEyeHeights() {
+        if (!knowsActingPose()) return getPoseEyeHeights();
+        double eyeHeight = getEyeHeight();
+        if (!inVehicle()) return List.of(eyeHeight);
+        List<Double> heights = new ArrayList<>(2);
+        heights.add(eyeHeight);
+        for (Pose ridden : checkManager.getSimulationProcessor().ridePoses()) {
+            double height = ridden.eyeHeight * dimensionScale;
+            if (!heights.contains(height)) heights.add(height);
+        }
+        return heights;
     }
 
     @Override

@@ -78,7 +78,7 @@ public class RotationPlace extends BlockPlaceCheck {
         List<Vector3f> possibleLookDirs = new ArrayList<>(Arrays.asList(
                 new Vector3f(player.xRot, player.yRot, 0), new Vector3f(player.lastTickXRot, player.yRot, 0)));
 
-        final List<Double> possibleEyeHeights = player.getPossibleEyeHeights();
+        final List<Double> possibleEyeHeights = place.eyeHeights;
 
         // Start checking if player is in the block
         SimpleCollisionBox eyePositions = EyePositions.box(player, possibleEyeHeights);

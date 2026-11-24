@@ -136,7 +136,7 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
             } else if (lastDiggingAction == PlayerAction.ABORT_DESTROY_BLOCK) { // Buggy cancel digging
                 // Brute force eye height because desync
                 Vector3dm playerPos = new Vector3dm(x, y, z);
-                for (double eyeHeight : player.getPossibleEyeHeights()) {
+                for (double eyeHeight : player.getPoseEyeHeights()) {
                     Ray trace = new Ray(
                             player,
                             playerPos.getX(),

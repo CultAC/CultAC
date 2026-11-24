@@ -74,7 +74,7 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
         SimpleCollisionBox box = new SimpleCollisionBox(blockBreak.position);
 
         // Start checking if player is in the block
-        SimpleCollisionBox eyePositions = EyePositions.box(player, player.getPossibleEyeHeights());
+        SimpleCollisionBox eyePositions = EyePositions.box(player, blockBreak.eyeHeights);
         eyePositions.expand(player.getMovementThreshold());
 
         // If the player is inside a block, then they can ray trace through the block and hit the other side of the
@@ -92,7 +92,7 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
         possibleLookDirs.add(new float[] {player.lastTickXRot, player.lastTickYRot});
 
         List<SimpleCollisionBox> outline = visibility.outlineBoxes(blockBreak.position);
-        for (double d : player.getPossibleEyeHeights()) {
+        for (double d : blockBreak.eyeHeights) {
             for (float[] lookDir : possibleLookDirs) {
                 Ray trace = new Ray(player, player.x, player.y + d, player.z, lookDir[0], lookDir[1]);
                 if (ReachUtils.pickHits(player, blockBreak.position, outline, trace)) return true;

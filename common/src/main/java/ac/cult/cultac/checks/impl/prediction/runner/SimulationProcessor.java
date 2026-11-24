@@ -755,6 +755,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 BedrockMovementEngine.INSTANCE.applyAcknowledgedClimberFlagsToCarry(this.profileCarry, flags);
     }
 
+    /** The poses the local player's last Entity#rideTick may have left it in. */
+    public List<Pose> ridePoses() {
+        return this.passengerRideTick.poses();
+    }
+
     public Set<Vec3> getLastStartingVelocitiesUsed() {
         return this.validPlayerStartingVels;
     }

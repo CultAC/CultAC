@@ -45,7 +45,7 @@ public class PositionBreakA extends Check implements BlockBreakListener {
 
         SimpleCollisionBox combined = blockBreak.getCombinedBox();
 
-        SimpleCollisionBox eyePositions = EyePositions.box(player, player.getPossibleEyeHeights());
+        SimpleCollisionBox eyePositions = EyePositions.box(player, blockBreak.eyeHeights);
         if (!didLastMovementIncludePosition) {
             eyePositions.expand(player.getMovementThreshold());
         }

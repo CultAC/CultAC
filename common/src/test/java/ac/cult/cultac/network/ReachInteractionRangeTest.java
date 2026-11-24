@@ -62,6 +62,7 @@ import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
@@ -240,6 +241,7 @@ class ReachInteractionRangeTest {
             try (var setup = new Setup()) {
                 Check visibility = setup.player.checkManager.getCheck(AttackPlayerVisibility.class);
                 visibility.setEnabled(true);
+                setup.crawl();
                 // LocalPlayer#pick's block clip from the crawling eye inside the grass outline hits the grass.
                 if (!mode.equals("plain")) setup.block(0, 64, -2, "short_grass");
                 if (mode.endsWith("wall")) for (int y = 58; y <= 68; y++) setup.block(0, y, 0, "stone");
@@ -255,6 +257,62 @@ class ReachInteractionRangeTest {
                     assertEquals(1, visibility.violations, mode);
                 }
             }
+        }
+    }
+
+    @Test
+    void aStandingAttackerIsMeasuredFromTheStandingEye() throws Exception {
+        try (var setup = new Setup()) {
+            // Box y 62.7..64.5 with its near face 2.9 ahead: the level look from the crawling eye passes over it standing.
+            var routed = setup.routedAttack(EntityTypeIds.PLAYER, new Vec3(.5, 62.7, 1.7));
+            assertTrue(routed.cancelled());
+            assertEquals(List.of("PlayerHitboxes"), routed.flagged());
+        }
+    }
+
+    @Test
+    void aCrawlingAttackerIsMeasuredFromTheCrawlingEye() throws Exception {
+        try (var setup = new Setup()) {
+            setup.crawl();
+            var routed = setup.routedAttack(EntityTypeIds.PLAYER, new Vec3(.5, 62.7, 1.7));
+            assertFalse(routed.cancelled());
+            assertEquals(List.of(), routed.flagged());
+        }
+    }
+
+    @Test
+    void aStandingAttackerIsNotMeasuredFromTheCrouchingEye() throws Exception {
+        try (var setup = new Setup()) {
+            setup.look(0, 0, 11.5F, 0, 11.5F);
+            // Box y 62.9..64.7 with its near face 2.9 ahead: the look reaching its top edge from the crouching eye
+            // passes over it standing.
+            var routed = setup.routedAttack(EntityTypeIds.PLAYER, new Vec3(.5, 62.9, 1.7));
+            assertTrue(routed.cancelled());
+            assertEquals(List.of("PlayerHitboxes"), routed.flagged());
+        }
+    }
+
+    @Test
+    void aSneakingAttackerIsMeasuredFromTheCrouchingEye() throws Exception {
+        try (var setup = new Setup()) {
+            setup.player.isSneaking = true;
+            setup.player.refreshPlayerPose();
+            assertEquals(Pose.CROUCHING, setup.player.pose);
+            setup.look(0, 0, 11.5F, 0, 11.5F);
+            var routed = setup.routedAttack(EntityTypeIds.PLAYER, new Vec3(.5, 62.9, 1.7));
+            assertFalse(routed.cancelled());
+            assertEquals(List.of(), routed.flagged());
+        }
+    }
+
+    @Test
+    void anAttackKeepsTheEyeOfThePoseItWasSentFrom() throws Exception {
+        try (var setup = new Setup()) {
+            setup.crawl();
+            int id = setup.addTarget(EntityTypeIds.PLAYER, new Vec3(.5, 62.7, 1.7));
+            var routed = setup.routedAttack(id, () -> setup.player.refreshPlayerPose(Pose.STANDING));
+            assertFalse(routed.cancelled());
+            assertEquals(List.of(), routed.flagged());
         }
     }
 
@@ -1898,6 +1956,17 @@ class ReachInteractionRangeTest {
         }
 
         Routed routedAttack(int id) {
+            return routedAttack(id, () -> {});
+        }
+
+        // Player#updatePlayerPose under a block over the head: neither the standing nor the crouching box fits.
+        void crawl() {
+            block(0, 65, -2, "stone");
+            player.refreshPlayerPose();
+            assertEquals(Pose.SWIMMING, player.pose);
+        }
+
+        Routed routedAttack(int id, Runnable beforeTickEnd) {
             var packet = new ServerboundInteract(id, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
             var event =
                     new PacketReceiveEvent<>(fixture.user, ConnectionPhase.PLAY, ServerboundPackets.INTERACT, packet);
@@ -1905,6 +1974,7 @@ class ReachInteractionRangeTest {
                     checks.stream().mapToDouble(check -> check.violations).toArray();
             player.checkManager.dispatchEarlyReceive(event);
             if (!event.isCancelled()) player.checkManager.dispatchReceiveHandlers(event);
+            beforeTickEnd.run();
             for (Check check : checks) {
                 if (check instanceof ReachCheck reach) reach.onPlayerTickEnd(null);
             }

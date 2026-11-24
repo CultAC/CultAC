@@ -1331,7 +1331,7 @@ public final class CloudCapture implements PlayerObserver {
      */
     private IntakeWire.Geometry geometry(ReachCheck.MeasuredAttack attack) {
         SimpleCollisionBox box = attack.box();
-        List<Double> heights = player.getPossibleEyeHeights();
+        List<Double> heights = attack.eyeHeights();
         int count = Math.min(attack.origins().size() * heights.size(), MAX_EYES);
         double[] eyes = new double[count * 3];
         int at = 0;

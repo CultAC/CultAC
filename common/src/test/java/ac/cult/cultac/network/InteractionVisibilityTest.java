@@ -46,6 +46,8 @@ import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.ClientVersionFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
@@ -999,6 +1001,7 @@ class InteractionVisibilityTest {
                     .onPlayerTickEnd(null);
             // Blocks every ray from the two eyes in range; the crawling eye still sees under it.
             setup.block(0, 65, -1, "stone");
+            setup.withoutTickEnd();
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertEquals(1, mobs.violations);
             setup.fixture
@@ -1025,12 +1028,14 @@ class InteractionVisibilityTest {
         try (var setup = new Setup()) {
             setup.block(0, 64, -1, "stone");
             setup.block(0, 65, -1, "oak_slab[type=top]");
+            setup.withoutTickEnd();
             assertFalse(
                     setup.visibility.entityHidden(new SimpleCollisionBox(.2, 65.25, 1.2, .8, 65.3, 1.8), 0),
                     "Only the crouching eye can see this opening");
         }
         try (var setup = new Setup()) {
             setup.block(0, 65, -1, "stone");
+            setup.withoutTickEnd();
             assertFalse(
                     setup.visibility.entityHidden(new SimpleCollisionBox(.2, 64.25, 1.2, .8, 64.45, 1.8), 0),
                     "Only the crawling/swimming/flying/spin eye can see this opening");
@@ -1039,6 +1044,7 @@ class InteractionVisibilityTest {
             setup.fixture.player.pose = ac.cult.cultac.utils.enums.Pose.SWIMMING;
             setup.block(0, 64, -1, "stone");
             setup.block(0, 65, -1, "oak_slab[type=bottom]");
+            setup.withoutTickEnd();
             assertFalse(
                     setup.visibility.entityHidden(new SimpleCollisionBox(.2, 65.62, 1.2, .8, 65.65, 1.8), 0),
                     "The standing eye remains possible when the tracked pose is swimming");
@@ -1676,6 +1682,11 @@ class InteractionVisibilityTest {
             world.ensureValidationChunkLoaded(0, -1);
             block(0, 64, 2, "stone");
             player.checkManager.allChecks.values().forEach(check -> check.setEnabled(false));
+        }
+
+        // A client older than 1.21.2 sends no CLIENT_TICK_END, so the pose it acts from is any of the three.
+        void withoutTickEnd() {
+            ClientVersionFixtures.setClientVersion(fixture.player, ClientVersion.V_1_21);
         }
 
         <T extends Check> T check(Class<T> type) {
