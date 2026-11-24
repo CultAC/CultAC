@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.blocksim.entity.EntityTags;
@@ -18,10 +19,20 @@ public record JavaCollisionState(
     private static final JavaCollisionState[] AT_REST = atRest();
 
     public static JavaCollisionState of(CultPlayer player, PacketEntity actor, double fallDistance) {
-        boolean self = actor == player.compensatedEntities.getSelf();
-        boolean walks = EntityTags.POWDER_SNOW_WALKABLE_MOBS.test(actor.type)
-                || self && player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS;
-        return of(fallDistance, walks, isDescending(player, actor), actor.type == EntityTypeIds.FALLING_BLOCK);
+        return of(
+                fallDistance,
+                walksOnPowderSnow(player, actor),
+                isDescending(player, actor),
+                actor.type == EntityTypeIds.FALLING_BLOCK);
+    }
+
+    /** PowderSnowBlock#canEntityWalkOnPowderSnow: the walkable tag, or leather boots in a living entity's FEET slot. */
+    public static boolean walksOnPowderSnow(CultPlayer player, PacketEntity actor) {
+        if (EntityTags.POWDER_SNOW_WALKABLE_MOBS.test(actor.type)) return true;
+        SimItemStack feet = actor == player.compensatedEntities.getSelf()
+                ? player.getInventory().getBoots()
+                : actor.feetItem;
+        return feet.getItem() == ItemTypes.LEATHER_BOOTS;
     }
 
     /** A state with these components; a shared one when the fall distance is +0.0. */

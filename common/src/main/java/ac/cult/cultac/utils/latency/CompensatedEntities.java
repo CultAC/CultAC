@@ -1042,6 +1042,8 @@ public class CompensatedEntities {
                 }
             } else if (slot == EquipmentSlot.BODY && entity instanceof PacketEntityHappyGhast happyGhast) {
                 happyGhast.hasBodyArmor = !slots.get(index).item().isEmpty();
+            } else if (slot == EquipmentSlot.FEET && entity.isLivingEntity()) {
+                entity.feetItem = slots.get(index).item();
             }
         }
         vehicles.markSaddleControlSwitch(entity, controlled);
