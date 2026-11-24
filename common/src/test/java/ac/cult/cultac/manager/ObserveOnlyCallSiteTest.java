@@ -201,7 +201,9 @@ class ObserveOnlyCallSiteTest {
             checks/impl/movement/SetbackBlocker.java#handleMovePlayer(PacketReceiveEvent,ServerboundMovePlayer,boolean) replace
             checks/impl/movement/SetbackBlocker.java#handleMovePlayer(PacketReceiveEvent,ServerboundMovePlayer,boolean) setCancelled x2
             checks/impl/movement/SetbackBlocker.java#handleMoveVehicle(PacketReceiveEvent) setCancelled x5
+            checks/impl/movement/SetbackBlocker.java#onInteract(PacketReceiveEvent,CultPlayer,ServerboundInteract) setCancelled
             checks/impl/movement/SetbackBlocker.java#onJavaMovePlayerAfterChecks(PacketReceiveEvent) setCancelled
+            checks/impl/movement/SetbackBlocker.java#onPlayerAction(PacketReceiveEvent,CultPlayer,ServerboundPlayerAction) setCancelled
             events/packets/listeners/CheckManagerListener.java#receiveBedrockMovePlayer(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) replace
             events/packets/listeners/CheckManagerListener.java#receiveBedrockMovePlayer(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) setCancelled x3
             events/packets/listeners/CheckManagerListener.java#receiveBedrockMoveVehicle(PacketReceiveEvent,CultPlayer,ServerboundMoveVehicle,Vec3) setCancelled x2

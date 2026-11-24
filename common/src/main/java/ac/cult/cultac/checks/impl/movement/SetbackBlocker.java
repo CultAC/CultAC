@@ -2,11 +2,16 @@ package ac.cult.cultac.checks.impl.movement;
 
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.type.CheckListener;
+import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
+import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.math.Vec3;
@@ -183,6 +188,31 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
      */
     public void onTranslatedBedrockMove(PacketReceiveEvent<ServerboundMovePlayer> event, ServerboundMovePlayer packet) {
         handleMovePlayer(event, packet, true);
+    }
+
+    // ServerPlayerGameMode#handleBlockBreakAction judges a dig from the position the server holds for the player.
+    @CultPacketHandler
+    public void onPlayerAction(
+            PacketReceiveEvent<ServerboundPlayerAction> event, CultPlayer player, ServerboundPlayerAction packet) {
+        PlayerAction action = packet.action();
+        if ((action == PlayerAction.START_DESTROY_BLOCK || action == PlayerAction.STOP_DESTROY_BLOCK)
+                && withholdsMovement()) {
+            event.setCancelled(true);
+        }
+    }
+
+    // ServerGamePacketListenerImpl#handleInteract judges an interaction from the position the server holds.
+    @CultPacketHandler
+    public void onInteract(
+            PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
+        if (packet.action() != InteractAction.ATTACK && withholdsMovement()) event.setCancelled(true);
+    }
+
+    // The server holds none of the positions the client sent since its movement was first withheld.
+    private boolean withholdsMovement() {
+        if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return false;
+        SetbackTeleportUtil setbacks = player.getSetbackTeleportUtil();
+        return setbacks.shouldBlockMovement() || setbacks.isPendingSetback();
     }
 
     @CultPacketHandler

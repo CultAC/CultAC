@@ -17,8 +17,10 @@ import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.events.packets.worldreader.BasePacketWorldReader;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.packet.WorldPackets.BlockUpdate;
+import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
@@ -35,6 +37,8 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.SetBackData;
+import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.buffer.ByteBuf;
@@ -110,6 +114,29 @@ class CancelledBreakResyncTest {
                     new ServerboundPlayerAction(PlayerAction.STOP_DESTROY_BLOCK, TARGET, Direction.NORTH, 3));
             assertEquals(
                     new ServerboundPlayerAction(PlayerAction.ABORT_DESTROY_BLOCK, TARGET, Direction.NORTH, 3),
+                    received);
+        }
+    }
+
+    @Test
+    void aStopWhileACorrectionIsPendingEndsTheServersDestroySession() throws Exception {
+        try (var setup = new Setup()) {
+            setup.check.setEnabled(false);
+            setup.forward(new ServerboundPlayerAction(PlayerAction.START_DESTROY_BLOCK, TARGET, Direction.NORTH, 1));
+            SetbackFixtures.requireCorrection(
+                    setup.player.getSetbackTeleportUtil(),
+                    new SetBackData(
+                            new TeleportData(new Vec3(.5, 64, -1.5), new RelativeFlag(0), 20, 1),
+                            0,
+                            0,
+                            Vec3.ZERO,
+                            false,
+                            false));
+
+            var received = setup.replaced(
+                    new ServerboundPlayerAction(PlayerAction.STOP_DESTROY_BLOCK, TARGET, Direction.NORTH, 2));
+            assertEquals(
+                    new ServerboundPlayerAction(PlayerAction.ABORT_DESTROY_BLOCK, TARGET, Direction.NORTH, 2),
                     received);
         }
     }
