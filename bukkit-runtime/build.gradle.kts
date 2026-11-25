@@ -155,3 +155,4 @@ tasks.shadowJar {
     }
 }
 tasks.assemble { dependsOn(tasks.shadowJar) }
+checkHostAdventureLinkage()
