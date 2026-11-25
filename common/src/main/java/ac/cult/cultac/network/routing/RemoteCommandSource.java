@@ -44,6 +44,8 @@ public final class RemoteCommandSource implements Sender {
     private final Set<String> granted;
     private final Consumer<Component> output;
     private final @Nullable Object base;
+    private final @Nullable UUID target;
+    private final @Nullable String shown;
     private volatile boolean done;
     private volatile boolean targetLeft;
 
@@ -59,6 +61,23 @@ public final class RemoteCommandSource implements Sender {
             Set<String> known,
             Consumer<Component> output,
             @Nullable Object base) {
+        this(uuid, name, console, granted, known, output, base, null, null);
+    }
+
+    /**
+     * Such a sender whose command names {@code target} by {@code shown}, the name a server lists them under on the
+     * sender's instance; null when it names them by account.
+     */
+    RemoteCommandSource(
+            UUID uuid,
+            String name,
+            boolean console,
+            Collection<String> granted,
+            Set<String> known,
+            Consumer<Component> output,
+            @Nullable Object base,
+            @Nullable UUID target,
+            @Nullable String shown) {
         this.uuid = uuid;
         this.name = name;
         this.console = console;
@@ -69,6 +88,8 @@ public final class RemoteCommandSource implements Sender {
         this.granted = Set.copyOf(held);
         this.output = output;
         this.base = base;
+        this.target = target;
+        this.shown = shown;
     }
 
     /** Ends the command's output; what it sends after this is dropped. */
@@ -83,6 +104,11 @@ public final class RemoteCommandSource implements Sender {
 
     boolean left() {
         return targetLeft;
+    }
+
+    /** The command's player when its line names them by {@code name} (case-insensitive) as their shown name. */
+    public @Nullable UUID listedAs(String name) {
+        return shown != null && shown.equalsIgnoreCase(name) ? target : null;
     }
 
     @Override

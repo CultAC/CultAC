@@ -45,9 +45,9 @@ import org.jetbrains.annotations.Nullable;
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
  * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and, at most every {@value #DELTA_PERIOD_MILLIS} ms, one delta
  * with the joins, quits, backend switches, brand and shown-name changes reported since the last roster message, the
- * last report per player winning, or with a change in the servers verbose staff here cover or in this instance's state, which
- * every roster message lists with its role and build for network commands, or with records new to the shared settings
- * ({@link NetSettings}), which a full snapshot lists in full. Every generation of one host reports
+ * last report per player winning, or with a change in the servers verbose staff here cover or in this instance's
+ * state, which every roster message lists with its role and build for network commands, or with records new to the
+ * shared settings ({@link NetSettings}), which a full snapshot lists in full. Every generation of one host reports
  * into one shared map that only the current generation takes from, so a report made on a superseded generation rides
  * the current one's next roster message. The generation that drew the last roster number sends an empty snapshot when
  * it stops. The generations of one host check that they are current, draw the number and publish one at a time,
@@ -70,9 +70,9 @@ public final class NetworkService implements NetworkRouting {
     static final String NONCE_KEY = "cultac.network.nonce";
     /**
      * The host-shared {@code Map<UUID, String[]>} of each player reported since the last roster message: {@code {name,
-     * server, brand}} for a join, switch, brand or shown-name change and an empty array for a quit. Generations load their own
-     * classes, so it holds JDK types only. Past {@value #MAX_PENDING_REPORTS} players it holds only {@link #FULL_ROSTER},
-     * which the next delta turns into a full roster.
+     * server, brand}} for a join, switch, brand or shown-name change and an empty array for a quit. Generations load
+     * their own classes, so it holds JDK types only. Past {@value #MAX_PENDING_REPORTS} players it holds only
+     * {@link #FULL_ROSTER}, which the next delta turns into a full roster.
      */
     static final String REPORTS_KEY = "cultac.network.reports";
 
@@ -117,6 +117,7 @@ public final class NetworkService implements NetworkRouting {
     private final LogThrottle staleDrops = new LogThrottle(STALE_WARNING_NANOS, System::nanoTime);
     private final AtomicBoolean rosterTooLarge = new AtomicBoolean();
     private final AtomicBoolean brandsLeftOut = new AtomicBoolean();
+    private final AtomicBoolean shownLeftOut = new AtomicBoolean();
     private final AtomicBoolean duplicateId = new AtomicBoolean();
     private final RemoteCommands commands;
     private final NetCommands.Local netLocal;
@@ -648,6 +649,19 @@ public final class NetworkService implements NetworkRouting {
         }
         if (EnvelopeCodec.utf8Length(text) > EnvelopeCodec.MAX_BYTES
                 && type.equals(RosterCache.TYPE)
+                && sent.has(RosterCache.SHOWN)) {
+            JsonObject withoutShown = sent.deepCopy();
+            withoutShown.remove(RosterCache.SHOWN);
+            sent = withoutShown;
+            text = codec.encode(Envelope.create(type, instanceId, to, clock.getAsLong(), withoutShown));
+            if (EnvelopeCodec.utf8Length(text) <= EnvelopeCodec.MAX_BYTES && shownLeftOut.compareAndSet(false, true))
+                LogUtil.warn("Network roster sent without shown names: "
+                        + platform.onlinePlayers().size()
+                        + " players with their shown names do not fit in " + EnvelopeCodec.MAX_BYTES + " bytes;"
+                        + " other instances do not find this instance's players by the names they are listed under");
+        }
+        if (EnvelopeCodec.utf8Length(text) > EnvelopeCodec.MAX_BYTES
+                && type.equals(RosterCache.TYPE)
                 && sent.has(NetSettings.SETTINGS)) {
             JsonObject withoutSettings = sent.deepCopy();
             JsonObject settings = new JsonObject();
@@ -813,12 +827,17 @@ public final class NetworkService implements NetworkRouting {
      */
     @Override
     public CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where) {
+        return run(sender, line, where, null);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where, @Nullable String shown) {
         if (where.instance().equals(instanceId) && answers(where.uuid())) return commands.runHere(sender, line, where);
         if (sender instanceof RemoteCommandSource forwarded) {
             forwarded.targetLeft();
             return CompletableFuture.completedFuture(false);
         }
-        return commands.forward(sender, line, where);
+        return commands.forward(sender, line, where, shown);
     }
 
     @Override

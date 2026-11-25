@@ -82,13 +82,14 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                                 if (input.cursor() == start) input.readString();
                                 PlayerElsewhereException there = elsewhere(match.account());
                                 if (there != null)
-                                    return CompletableFuture.completedFuture(ArgumentParseResult.failure(there));
+                                    return CompletableFuture.completedFuture(
+                                            ArgumentParseResult.failure(there.typed(match)));
                                 return base.parseFuture(context, CommandInput.of(match.account()))
                                         .thenApply(found -> {
                                             PlayerElsewhereException other = found.failure().isEmpty()
                                                     ? otherGeneration(context, match.account())
                                                     : null;
-                                            if (other != null) return ArgumentParseResult.failure(other);
+                                            if (other != null) return ArgumentParseResult.failure(other.typed(match));
                                             if (found.failure().isEmpty()) ShownNames.remember(context, match);
                                             return found;
                                         });
@@ -126,7 +127,7 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                                 Match match = listed.match();
                                 if (match == null) return ArgumentParseResult.success(name);
                                 PlayerElsewhereException there = placed(context, match.account());
-                                if (there != null) return ArgumentParseResult.failure(there);
+                                if (there != null) return ArgumentParseResult.failure(there.typed(match));
                                 ShownNames.remember(context, match);
                                 return ArgumentParseResult.success(match.account());
                             });
@@ -313,18 +314,24 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
             sender.sendMessage(whereabouts(
                     sender,
                     where,
+                    elsewhere.shown() == null ? where.name() : elsewhere.shown(),
                     "network-command-same-server",
                     "&c%player% is on %location%; this command only works on the same server."));
             return;
         }
-        NetworkRouting.current().run(sender, line, where);
+        NetworkRouting.current().run(sender, line, where, elsewhere.shown());
     }
 
     /** The message at {@code key}, {@code %player%} and {@code %location%} naming {@code where}. */
     public static Component whereabouts(Sender sender, NetworkPlayer where, String key, String fallback) {
+        return whereabouts(sender, where, where.name(), key, fallback);
+    }
+
+    /** The message at {@code key}, {@code %player%} being {@code player} and {@code %location%} where they are. */
+    private static Component whereabouts(
+            Sender sender, NetworkPlayer where, String player, String key, String fallback) {
         String location = where.instance() + (where.server() == null ? "" : " (" + where.server() + ")");
-        return MessageUtil.getParsedComponent(
-                sender, key, fallback, Map.of("player", where.name(), "location", location));
+        return MessageUtil.getParsedComponent(sender, key, fallback, Map.of("player", player, "location", location));
     }
 
     /**
@@ -376,17 +383,35 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
     public record NetworkTarget(
             @Nullable PlayerSelector here, @Nullable NetworkPlayer elsewhere) {}
 
-    /** A typed player who is held elsewhere: on {@code where}, another instance or another engine generation here. */
+    /**
+     * A typed player who is held elsewhere: on {@code where}, another instance or another engine generation here,
+     * typed as {@code shown}, a name a server lists them under, or by account when it is null.
+     */
     public static final class PlayerElsewhereException extends IllegalArgumentException {
         private final transient NetworkPlayer where;
+        private final @Nullable String shown;
 
         PlayerElsewhereException(String name, NetworkPlayer where) {
+            this(name, where, null);
+        }
+
+        private PlayerElsewhereException(String name, NetworkPlayer where, @Nullable String shown) {
             super("Player is not on this server: " + name);
             this.where = where;
+            this.shown = shown;
+        }
+
+        /** This player as typed by the shown name {@code match} was found for. */
+        PlayerElsewhereException typed(Match match) {
+            return new PlayerElsewhereException(match.shown(), where, match.shown());
         }
 
         public NetworkPlayer where() {
             return where;
+        }
+
+        public @Nullable String shown() {
+            return shown;
         }
     }
 

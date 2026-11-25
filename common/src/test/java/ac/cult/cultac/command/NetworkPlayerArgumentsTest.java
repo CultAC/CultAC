@@ -71,6 +71,7 @@ class NetworkPlayerArgumentsTest {
     private final Players onP9 = new Players().with(DANA.uuid(), "Dana", null);
     private final List<String> ranOnP7 = new CopyOnWriteArrayList<>();
     private final List<String> ranOnP9 = new CopyOnWriteArrayList<>();
+    private NetworkService p3;
     private NetworkService p9;
     private CloudCommandService service;
     private PlainPlaceholders placeholders;
@@ -130,7 +131,8 @@ class NetworkPlayerArgumentsTest {
 
     /** Runs this instance, p3, as the current routing, with Alice on p7 and Dana on p9. */
     private void networked() {
-        TestNetworks.install(networks.service("p3").platform(here).start());
+        p3 = networks.service("p3").platform(here).start();
+        TestNetworks.install(p3);
         networks.service("p7")
                 .platform(new Players().with(ALICE.uuid(), "Alice", "lobby"))
                 .recording(ranOnP7)
@@ -485,6 +487,47 @@ class NetworkPlayerArgumentsTest {
                         .join()
                         .parsedValue()
                         .orElseThrow());
+    }
+
+    @Test
+    void aPlayerElsewhereTypedByTheNameTheyAreListedUnderIsForwardedAndNamedByIt() {
+        p9.shownNames(uuid -> uuid.equals(DANA.uuid()) ? "Nick" : null);
+        networks.tick(p9);
+        execute(sender, "cult profile Nick");
+        assertEquals(List.of("cult profile Nick"), ranOnP9);
+        execute(sender, "cult debug proxyticks Nick");
+        assertEquals(List.of("Nick is on p9; this command only works on the same server."), messages());
+    }
+
+    @Test
+    void aForwardedCommandTakesTheTypedNameForThePlayerTheSendersInstanceMatched() {
+        UUID adam = uuidOf("Adam");
+        UUID bob = uuidOf("Bob");
+        p3.shownNames(uuid -> uuid.equals(bob) ? "Nick" : null);
+        p9.shownNames(uuid -> uuid.equals(DANA.uuid()) ? "Nick" : null);
+        networks.tick(p9);
+        var parser = new NetworkPlayerArguments(local).singlePlayerSelectorParser().parser();
+
+        var forwarded = new CommandContext<Sender>(TestNetworks.forwarded(adam, "Nick"), manager);
+        PlayerSelector found = parser.parseFuture(forwarded, CommandInput.of("nick"))
+                .join()
+                .parsedValue()
+                .orElseThrow();
+        assertEquals("Adam", found.getSinglePlayer().getName());
+        assertEquals(new ShownNames.Match(adam, "Adam", "nick"), ShownNames.matched(forwarded, "Adam"));
+
+        assertTrue(parser.parseFuture(new CommandContext<>(sender, manager), CommandInput.of("Nick"))
+                .join()
+                .failure()
+                .isPresent());
+    }
+
+    private UUID uuidOf(String name) {
+        return here.online.values().stream()
+                .filter(player -> player.name().equals(name))
+                .findFirst()
+                .orElseThrow()
+                .uuid();
     }
 
     @Test

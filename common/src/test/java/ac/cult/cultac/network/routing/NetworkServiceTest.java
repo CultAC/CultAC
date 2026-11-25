@@ -161,8 +161,35 @@ class NetworkServiceTest {
         assertEquals("Nick", b.listedAs("Nick").getFirst().shown());
 
         shown.remove(ALICE);
-        b.tick();
+        b.shownNameChanged(ALICE);
+        b.sendDelta();
+        assertFalse(rosterBodiesFrom("p7").getLast().get("full").getAsBoolean());
         assertEquals(List.of(), a.listedAs("Nick"));
+        assertEquals("Alice", a.locate("Alice").orElseThrow().name());
+    }
+
+    @Test
+    void aRosterThatFitsOnlyWithoutShownNamesReachesThePeersWithoutThemAndIsLoggedOnce() {
+        Players crowded = new Players();
+        Map<UUID, String> shown = new HashMap<>();
+        for (int i = 0; i < 8_000; i++) {
+            UUID uuid = new UUID(7, i);
+            crowded.with(uuid, "Player" + i, "server" + i % 8);
+            shown.put(uuid, ("nick " + i + " ").repeat(16).substring(0, 64));
+        }
+        NetworkService a = started("p3", new Players());
+        try (CapturedLog sent = new CapturedLog(Level.WARNING, "Network roster sent without shown names");
+                CapturedLog dropped = new CapturedLog(Level.WARNING, "Network roster not sent")) {
+            NetworkService b = service("p7", crowded, null, KEY, true);
+            b.shownNames(shown::get);
+            b.start();
+            b.tick();
+            assertEquals(8_000, a.roster().size());
+            assertTrue(a.roster().stream().allMatch(player -> player.shown() == null));
+            assertFalse(rosterBodiesFrom("p7").getLast().has("shown"));
+            assertEquals(1, sent.messages().size());
+            assertTrue(dropped.messages().isEmpty());
+        }
     }
 
     @Test
