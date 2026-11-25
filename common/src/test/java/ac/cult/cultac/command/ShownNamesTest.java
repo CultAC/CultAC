@@ -8,6 +8,7 @@ import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -19,14 +20,15 @@ class ShownNamesTest {
         CultPlayer player = OfflinePlayers.player();
         try {
             String account = player.getName();
-            assertNull(ShownNames.listedHere(List.of(player), "Shown"));
+            assertEquals(List.of(), ShownNames.listedHere(List.of(player), "Shown"));
 
             player.shownName = "Shown";
-            ShownNames.Match match = ShownNames.listedHere(List.of(player), "sHOWN");
-            assertEquals(new ShownNames.Match(player.playerUUID, account, "Shown"), match);
+            assertEquals(
+                    List.of(new ShownNames.Match(player.playerUUID, account, "Shown")),
+                    ShownNames.listedHere(List.of(player), "sHOWN"));
 
             player.shownName = account.toUpperCase(Locale.ROOT);
-            assertNull(ShownNames.listedHere(List.of(player), account));
+            assertEquals(List.of(), ShownNames.listedHere(List.of(player), account));
         } finally {
             OfflinePlayers.close(player);
         }
@@ -42,5 +44,23 @@ class ShownNamesTest {
                 ShownNames.account(uuid, "Shown", id -> id.equals(uuid) ? online : null));
         assertNull(ShownNames.account(uuid, "account", id -> online));
         assertNull(ShownNames.account(uuid, "Shown", id -> null));
+    }
+
+    @Test
+    void theSendersOwnViewComesFirstAndANameListedForSeveralMatchesNone() {
+        UUID seen = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        Map<UUID, NetworkPlayer> online = Map.of(
+                seen, new NetworkPlayer(seen, "Seen", "p3", null),
+                other, new NetworkPlayer(other, "Other", "p3", null));
+        ShownNames.Match here = new ShownNames.Match(UUID.randomUUID(), "Here", "Shown");
+        ShownNames.Match alsoHere = new ShownNames.Match(UUID.randomUUID(), "AlsoHere", "Shown");
+
+        assertEquals(
+                new ShownNames.Match(seen, "Seen", "Shown"),
+                ShownNames.choose(List.of(seen), List.of(here), "Shown", online::get));
+        assertEquals(here, ShownNames.choose(List.of(), List.of(here), "Shown", online::get));
+        assertNull(ShownNames.choose(List.of(seen, other), List.of(here), "Shown", online::get));
+        assertNull(ShownNames.choose(List.of(), List.of(here, alsoHere), "Shown", online::get));
     }
 }

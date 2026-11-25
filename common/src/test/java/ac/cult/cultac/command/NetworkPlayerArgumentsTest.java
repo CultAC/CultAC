@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.bridge.protocol.CommandRoots;
+import ac.cult.cultac.command.NetworkPlayerArguments.NameRefusedException;
 import ac.cult.cultac.command.NetworkPlayerArguments.NetworkTarget;
 import ac.cult.cultac.command.NetworkPlayerArguments.PlayerElsewhereException;
 import ac.cult.cultac.network.NetworkPlayer;
@@ -34,10 +35,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.incendo.cloud.context.CommandContext;
@@ -384,6 +388,56 @@ class NetworkPlayerArgumentsTest {
                         .failure()
                         .orElseThrow()
                         .getMessage());
+    }
+
+    @Test
+    void aStoredAccountByTheTypedNameComesBeforeAPlayerListedUnderIt() {
+        UUID stored = UUID.randomUUID();
+        ShownNames.Match listed = new ShownNames.Match(ALICE.uuid(), "Alice", "Shown");
+        BiFunction<Sender, String, CompletableFuture<ShownNames.@Nullable Match>> find =
+                (who, name) -> CompletableFuture.completedFuture("shown".equalsIgnoreCase(name) ? listed : null);
+        Function<String, CompletableFuture<Optional<UUID>>> account =
+                name -> CompletableFuture.completedFuture(Optional.of(stored));
+        Function<String, CompletableFuture<Optional<UUID>>> none =
+                name -> CompletableFuture.completedFuture(Optional.empty());
+        var context = new CommandContext<>(sender, manager);
+
+        NameRefusedException ambiguous = assertInstanceOf(
+                NameRefusedException.class,
+                NetworkPlayerArguments.shownAs(StringParser.stringParser(), true, find, account)
+                        .parser()
+                        .parseFuture(context, CommandInput.of("Shown"))
+                        .join()
+                        .failure()
+                        .orElseThrow());
+        String said = PlainTextComponentSerializer.plainText().serialize(ambiguous.message(sender));
+        assertTrue(said.contains("Alice") && said.contains(stored.toString()), said);
+        assertNull(context.getOrDefault(ShownNames.MATCHES, null));
+
+        assertEquals(
+                "Alice",
+                NetworkPlayerArguments.shownAs(StringParser.stringParser(), true, find, none)
+                        .parser()
+                        .parseFuture(context, CommandInput.of("Shown"))
+                        .join()
+                        .parsedValue()
+                        .orElseThrow());
+        assertEquals(List.of(listed), context.get(ShownNames.MATCHES));
+
+        var label = NetworkPlayerArguments.shownAs(StringParser.stringParser(), false, find, none).parser();
+        NameRefusedException typed = assertInstanceOf(
+                NameRefusedException.class,
+                label.parseFuture(new CommandContext<>(sender, manager), CommandInput.of("Shown"))
+                        .join()
+                        .failure()
+                        .orElseThrow());
+        assertTrue(PlainTextComponentSerializer.plainText().serialize(typed.message(sender)).contains("Alice"));
+        assertEquals(
+                "Carol",
+                label.parseFuture(new CommandContext<>(sender, manager), CommandInput.of("Carol"))
+                        .join()
+                        .parsedValue()
+                        .orElseThrow());
     }
 
     @Test
