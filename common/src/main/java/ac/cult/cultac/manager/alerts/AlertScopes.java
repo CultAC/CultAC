@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
@@ -26,11 +27,14 @@ public final class AlertScopes {
     public static final String SETTING_KEY = "alert-scope";
     public static final AlertScope DEFAULT = AlertScope.SERVER;
     static final String SHARED_KEY = "cultac.alerts.scope";
+    static final String OWN_KEY = "cultac.alerts.scope.own";
     /** Held from the join until a persisted choice lands; counts as no choice. */
     private static final String LOADING = "";
 
     /** Native player to scope id; JDK types only, since every generation reads it. */
     private final Map<Object, String> chosen;
+    /** The native players whose scope in {@link #chosen} they chose here; changed only holding {@link #chosen}. */
+    private final Set<Object> own;
 
     private final Supplier<@Nullable DataStore> store;
 
@@ -39,11 +43,16 @@ public final class AlertScopes {
     @SuppressWarnings("unchecked")
     public AlertScopes(@Nullable HostContext host, Supplier<@Nullable DataStore> store) {
         this.chosen = host == null ? newMap() : (Map<Object, String>) host.shared(SHARED_KEY, AlertScopes::newMap);
+        this.own = host == null ? newSet() : (Set<Object>) host.shared(OWN_KEY, AlertScopes::newSet);
         this.store = store;
     }
 
     private static Map<Object, String> newMap() {
         return Collections.synchronizedMap(new IdentityHashMap<>());
+    }
+
+    private static Set<Object> newSet() {
+        return Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
     }
 
     /** Reads {@code player}'s persisted choice in the background; a choice made meanwhile wins. */
@@ -61,9 +70,15 @@ public final class AlertScopes {
                 });
     }
 
-    /** Takes a choice {@code player} made elsewhere, from their {@link #load} to their {@link #forget}; not persisted. */
+    /**
+     * Takes a choice {@code player} made elsewhere over one loading or loaded from the store, from their {@link #load}
+     * to their {@link #forget}; a choice they made here stands. Not persisted.
+     */
     public void adopt(PlatformPlayer player, AlertScope scope) {
-        chosen.computeIfPresent(player.getNative(), (handle, choice) -> scope.id());
+        Object handle = player.getNative();
+        synchronized (chosen) {
+            if (!own.contains(handle)) chosen.computeIfPresent(handle, (held, choice) -> scope.id());
+        }
     }
 
     /** {@code player}'s own choice; null when they made none or it is still loading. */
@@ -90,7 +105,11 @@ public final class AlertScopes {
     }
 
     public void choose(PlatformPlayer player, AlertScope scope) {
-        chosen.put(player.getNative(), scope.id());
+        Object handle = player.getNative();
+        synchronized (chosen) {
+            chosen.put(handle, scope.id());
+            own.add(handle);
+        }
         DataStore store = this.store.get();
         if (store == null) return;
         String uuid = player.getUniqueId().toString();
@@ -107,7 +126,11 @@ public final class AlertScopes {
 
     /** Drops {@code player}'s choice from memory when their connection ends; the persisted one stays. */
     public void forget(PlatformPlayer player) {
-        chosen.remove(player.getNative());
+        Object handle = player.getNative();
+        synchronized (chosen) {
+            chosen.remove(handle);
+            own.remove(handle);
+        }
     }
 
     private static @Nullable AlertScope decode(@Nullable Page<SettingRecord> page) {
