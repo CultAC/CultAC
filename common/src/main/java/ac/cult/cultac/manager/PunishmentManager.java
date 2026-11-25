@@ -13,9 +13,8 @@ import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.config.ConfigReloadable;
 import ac.grim.grimac.api.event.events.CommandExecuteEvent;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.*;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import net.kyori.adventure.text.Component;
@@ -26,6 +25,7 @@ public class PunishmentManager implements ConfigReloadable {
             CultAPI.INSTANCE.getEventBus().get(CommandExecuteEvent.class);
     private static final Set<String> BUILTIN_ACTIONS = Set.of("[webhook]", "[log]", "[proxy]", "[alert]");
     private final CultPlayer player;
+    private final LongSupplier clock;
     private final List<PunishGroup> groups = new ArrayList<>();
     private String experimentalSymbol = "*";
     private String alertString;
@@ -33,7 +33,13 @@ public class PunishmentManager implements ConfigReloadable {
     private String proxyAlertString = "";
 
     public PunishmentManager(CultPlayer player) {
+        this(player, System::currentTimeMillis);
+    }
+
+    /** @param clock the wall clock in milliseconds that ages the groups' flags */
+    PunishmentManager(CultPlayer player, LongSupplier clock) {
         this.player = player;
+        this.clock = clock;
     }
 
     @Override
@@ -363,23 +369,15 @@ public class PunishmentManager implements ConfigReloadable {
     public void handleViolation(Check check) {
         for (PunishGroup group : groups) {
             if (group.checks.contains(check)) {
-                long currentTime = System.currentTimeMillis();
-
-                group.violations.put(currentTime, check);
-                // Remove violations older than the defined time in the config
-                group.violations
-                        .long2ObjectEntrySet()
-                        .removeIf(time -> currentTime - time.getLongKey() > group.removeViolationsAfter);
+                long currentTime = clock.getAsLong();
+                group.violations.add(currentTime, check.getStableKey());
+                group.violations.expire(currentTime, group.removeViolationsAfter);
             }
         }
     }
 
     private int getViolations(PunishGroup group, Check check) {
-        int vl = 0;
-        for (Check value : group.violations.values()) {
-            if (value == check) vl++;
-        }
-        return vl;
+        return group.violations.count(check.getStableKey());
     }
 }
 
@@ -387,7 +385,7 @@ public class PunishmentManager implements ConfigReloadable {
 class PunishGroup {
     public final Set<AbstractCheck> checks;
     public final List<ParsedCommand> commands;
-    public final Long2ObjectMap<Check> violations = new Long2ObjectOpenHashMap<>();
+    public final ViolationWindow violations = new ViolationWindow();
     public final int removeViolationsAfter; // time to remove violations after in milliseconds
 }
 
