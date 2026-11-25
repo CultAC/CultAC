@@ -42,6 +42,36 @@ class LinearInterpolationOfferTest {
     }
 
     @Test
+    void theOneOfferListsEveryConfiguredChannel() throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = proxy(true)) {
+            configured("antistutter:linear_3", "lunar:linear_3");
+            List<CultWrite> offers = offers(login(f));
+            assertEquals(1, offers.size());
+            var payload = (ClientboundCustomPayload) offers.get(0).packet();
+            assertEquals("antistutter:linear_3\0lunar:linear_3", new String(payload.data(), StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
+    void aListChangedAfterTheLoginLeavesTheSessionsChannels() throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = proxy(true)) {
+            configured("lunar:linear_3");
+            login(f);
+            configured("antistutter:linear_3");
+            assertEquals(List.of("lunar:linear_3"), f.player.interpolationOptIn.sessionChannels());
+            ClientInterpolationOptInTest.channels(f, ConnectionPhase.PLAY, "minecraft:register", "antistutter:linear_3");
+            assertFalse(f.player.interpolationOptIn.isDeclared());
+            assertTrue(filtered(f, "minecraft:register", "lunar:linear_3").isCancelled());
+            ClientInterpolationOptInTest.channels(f, ConnectionPhase.PLAY, "minecraft:register", "lunar:linear_3");
+            assertTrue(f.player.interpolationOptIn.linearForNewEntities());
+            reconfigure(f);
+            assertOffer(login(f));
+        }
+    }
+
+    @Test
     void noOfferWithTheKeyOffForBedrockOrForAnOlderJavaClient() throws Exception {
         try (var f = new JavaTickFixture();
                 var ignored = proxy(false)) {
@@ -88,9 +118,19 @@ class LinearInterpolationOfferTest {
     }
 
     @Test
+    void aConfiguredChannelIsLeftOutOfABackendRegister() throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = proxy(false)) {
+            configured("antistutter:linear_3", "lunar:linear_3");
+            var event = filtered(f, "minecraft:register", "lunar:apollo\0lunar:linear_3\0fabric:b");
+            assertEquals("lunar:apollo\0fabric:b", new String(event.getPacket().data(), StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
     void otherFramesPassUntouched() throws Exception {
         try (var f = new JavaTickFixture()) {
-            var register = filtered(f, "minecraft:register", "velocity:a\0fabric:b");
+            var register = filtered(f, "minecraft:register", "velocity:a\0fabric:b\0lunar:apollo");
             assertFalse(register.isCancelled());
             assertFalse(register.isReplaced());
             var other = filtered(f, "lunar:apollo", "antistutter:linear_3");
@@ -104,12 +144,23 @@ class LinearInterpolationOfferTest {
         Platform platform = CultAPI.INSTANCE.getPlatform();
         BaseConfigManager config = CultAPI.INSTANCE.getConfigManager();
         boolean key = config.isLinearInterpolationOptIn();
+        List<String> channels = config.getLinearInterpolationChannels();
         JavaTickFixture.setField(CultAPI.class, CultAPI.INSTANCE, "platform", Platform.VELOCITY);
         key(on);
         return () -> {
             JavaTickFixture.setField(CultAPI.class, CultAPI.INSTANCE, "platform", platform);
             key(key);
+            JavaTickFixture.setField(BaseConfigManager.class, config, "linearInterpolationChannels", channels);
         };
+    }
+
+    /** The configured linear interpolation channels, until the enclosing {@link #proxy} closes. */
+    static void configured(String... channels) throws Exception {
+        JavaTickFixture.setField(
+                BaseConfigManager.class,
+                CultAPI.INSTANCE.getConfigManager(),
+                "linearInterpolationChannels",
+                List.of(channels));
     }
 
     static void key(boolean on) throws Exception {

@@ -4,6 +4,7 @@ import ac.cult.cultac.bridge.protocol.CommandRoots;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.latency.ClientInterpolationOptIn;
 import ac.cult.reload.api.HostContext;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
@@ -84,6 +85,9 @@ public class BaseConfigManager {
 
     @Getter
     private boolean linearInterpolationOptIn;
+
+    @Getter
+    private List<String> linearInterpolationChannels = ClientInterpolationOptIn.DEFAULT_CHANNELS;
 
     private boolean launchFailOpen = true;
 
@@ -193,6 +197,8 @@ public class BaseConfigManager {
                 "<red>An error occurred whilst processing packets. Please contact the administrators.");
         disablePongCancelling = config.getBooleanElse("disable-pong-cancelling", false);
         linearInterpolationOptIn = config.getBooleanElse("linear-interpolation-opt-in", false);
+        linearInterpolationChannels = ClientInterpolationOptIn.configuredChannels(
+                config.getStringListElse("linear-interpolation-channels", null), LogUtil::warn);
         launchFailOpen = config.getBooleanElse("launch-safety.fail-open", true);
         maxPingKnockback = config.getIntElse("cult.prediction.max-knockback-ping-ms", 1000);
 
