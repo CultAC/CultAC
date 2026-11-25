@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
@@ -17,9 +18,12 @@ import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -35,11 +39,16 @@ import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.inventory.Inventory;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import io.netty.buffer.ByteBuf;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeAll;
@@ -86,6 +95,27 @@ class CorrectionWindowActionsTest {
             assertFalse(s.player.getSetbackTeleportUtil().isPendingSetback());
             assertFalse(s.dig(IN_FRONT, Direction.NORTH).isCancelled());
             assertTrue(s.dig(BEHIND_WALL, Direction.NORTH).isCancelled());
+        }
+    }
+
+    @Test
+    void aWithheldEntityInteractionGivesBackTheItemsTheServerHolds() throws Exception {
+        try (var s = new Setup()) {
+            s.player.compensatedEntities.addEntity(COW, EntityTypeIds.COW, new Vec3(.5, 64, -1), 0, 0, 0);
+            SimItemStack bucket = ItemUtil.modelItems().stack("minecraft:bucket", 1);
+            s.serverSlot(Inventory.HOTBAR_OFFSET, bucket);
+            s.player.getInventory().inventory.getInventoryStorage().setItem(Inventory.HOTBAR_OFFSET, bucket);
+            s.player.getInventory().selectHotbarSlot(0);
+            int hand = s.player.getInventory().inventory.menuSlotForStorage(Inventory.HOTBAR_OFFSET);
+
+            assertTrue(s.move(.5, 64, 3.5).isCancelled());
+            s.output();
+            assertTrue(s.interact(InteractAction.INTERACT).isCancelled());
+            assertTrue(s.output().stream()
+                    .anyMatch(packet -> packet instanceof InventoryPackets.Slot slot
+                            && slot.windowId() == 0
+                            && slot.slot() == hand
+                            && "minecraft:bucket".equals(slot.item().itemKey())));
         }
     }
 
@@ -195,14 +225,57 @@ class CorrectionWindowActionsTest {
         }
 
         PacketReceiveEvent<ServerboundInteract> interact() {
-            var packet = new ServerboundInteract(
-                    COW, InteractAction.INTERACT_AT, Hand.MAIN_HAND, Optional.of(new Vec3d(0, .5, -.3)), false);
+            return interact(new ServerboundInteract(
+                    COW, InteractAction.INTERACT_AT, Hand.MAIN_HAND, Optional.of(new Vec3d(0, .5, -.3)), false));
+        }
+
+        PacketReceiveEvent<ServerboundInteract> interact(InteractAction action) {
+            return interact(new ServerboundInteract(COW, action, Hand.MAIN_HAND, Optional.empty(), false));
+        }
+
+        private PacketReceiveEvent<ServerboundInteract> interact(ServerboundInteract packet) {
             var event = route(ServerboundPackets.INTERACT, packet);
             if (!event.isCancelled()) {
                 player.checkManager.dispatchPrePredictionReceive(event);
                 player.checkManager.dispatchReceiveHandlers(event);
             }
             return event;
+        }
+
+        // The server's value for a player storage slot, applied once the client answers its ping.
+        void serverSlot(int storageSlot, SimItemStack item) {
+            int menuSlot = player.getInventory().inventory.menuSlotForStorage(storageSlot);
+            var packet = new InventoryPackets.Slot(0, 1, menuSlot, item);
+            var event = new PacketSendEvent<>(fixture.user, ConnectionPhase.PLAY, slotType(), packet, false);
+            player.getInventory().onContainerSetSlot(event, player, packet);
+            event.tasksAfter().forEach(Runnable::run);
+            for (int id = player.lastTransactionReceived.get() + 1; id <= player.lastTransactionSent.get(); id++) {
+                player.lastTransactionReceived.set(id);
+                player.latencyUtils.handleNettySyncTransaction(id);
+            }
+        }
+
+        List<Object> output() {
+            List<Object> packets = new ArrayList<>();
+            ByteBuf frame;
+            while ((frame = fixture.channel.readOutbound()) != null) {
+                try {
+                    int id = Wire.readVarInt(frame);
+                    Object packet = fixture.codec.read(PacketDirection.CLIENTBOUND, id, frame);
+                    if (packet != null) packets.add(packet);
+                } finally {
+                    frame.release();
+                }
+            }
+            return packets;
+        }
+
+        @SuppressWarnings("unchecked")
+        private static PacketType<InventoryPackets.Slot> slotType() {
+            return (PacketType<InventoryPackets.Slot>) TestProtocolRuntime.catalog().stream()
+                    .filter(type -> type.recordClass() == InventoryPackets.Slot.class)
+                    .findFirst()
+                    .orElseThrow();
         }
 
         <T extends ServerboundPacket> PacketReceiveEvent<T> route(PacketType<T> type, T packet) {
