@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Finds online players on every instance of the network and runs commands on the instance holding one. Without a
@@ -63,6 +64,15 @@ public interface NetworkRouting {
      * could not be reached, after telling {@code sender} why.
      */
     CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where);
+
+    /**
+     * {@link #run(Sender, String, NetworkPlayer)} for a line that names {@code where} by {@code shown}, a name a
+     * server lists them under, which the instance running it takes for {@code where}; null when it names them by
+     * account.
+     */
+    default CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where, @Nullable String shown) {
+        return run(sender, line, where);
+    }
 
     /** Whether another engine generation of this instance holds {@code player}, so commands about them run there. */
     default boolean otherGeneration(UUID player) {

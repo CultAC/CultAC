@@ -29,7 +29,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * CultAC commands run for a sender on another instance, or on another engine generation of this one. {@value #CMD}
- * asks for a command line to run as the sender, and {@value #DONE} answers once it ran, or why it could not, with the
+ * asks for a command line to run as the sender, with {@code shown} when the line names its player by a name a server
+ * lists them under, and {@value #DONE} answers once it ran, or why it could not, with the
  * components the command sent as {@code output}, at most {@value #MAX_COMPONENTS} of them or {@value #MAX_OUTPUT_BYTES}
  * bytes, and {@code cut} when the output stopped at that cap. Of an instance's generations, the one holding the target
  * player runs it, else the current one, and only the first of them to claim the request. A command still running after
@@ -125,9 +126,13 @@ final class RemoteCommands {
         }
     }
 
-    CompletableFuture<Boolean> forward(Sender sender, String line, NetworkPlayer where) {
+    /**
+     * Sends {@code line} to the instance holding {@code where}; {@code shown} is the name the line names them by when
+     * it is a name a server lists them under, null when it names them by account.
+     */
+    CompletableFuture<Boolean> forward(Sender sender, String line, NetworkPlayer where, @Nullable String shown) {
         UUID id = UUID.randomUUID();
-        Request request = new Request(sender, where, clock.getAsLong());
+        Request request = new Request(sender, where, shown, clock.getAsLong());
         boolean stopped;
         synchronized (this) {
             pending.put(id, request);
@@ -154,6 +159,7 @@ final class RemoteCommands {
         body.add("sender", from);
         body.add("granted", granted);
         body.addProperty("target", where.uuid().toString());
+        if (shown != null) body.addProperty("shown", shown);
         if (!service.send(where.instance(), CMD, body)) {
             request.fail(MessageUtil.getParsedComponent(
                     sender,
@@ -203,11 +209,13 @@ final class RemoteCommands {
         UUID senderId;
         String senderName;
         boolean console;
+        String shown;
         List<String> granted = new ArrayList<>();
         try {
             id = UUID.fromString(body.get("id").getAsString());
             target = UUID.fromString(body.get("target").getAsString());
             line = body.get("line").getAsString();
+            shown = body.get("shown") instanceof JsonPrimitive typed && typed.isString() ? typed.getAsString() : null;
             JsonObject from = body.getAsJsonObject("sender");
             senderId = UUID.fromString(from.get("u").getAsString());
             senderName = from.get("n").getAsString();
@@ -232,7 +240,9 @@ final class RemoteCommands {
                     granted,
                     commands.permissionNodes(),
                     relay,
-                    service.remoteSenderBase());
+                    service.remoteSenderBase(),
+                    target,
+                    shown);
             commands.dispatch(() -> {
                 try {
                     commands.execute(source, CloudCommandService.onRegisteredRoot(line))
@@ -301,7 +311,11 @@ final class RemoteCommands {
                                     request.sender,
                                     "network-command-target-left",
                                     "&c%player% is no longer on %instance%.",
-                                    Map.of("player", where.name(), "instance", where.instance()))
+                                    Map.of(
+                                            "player",
+                                            Objects.requireNonNullElse(request.shown, where.name()),
+                                            "instance",
+                                            where.instance()))
                             : failed(request.sender, where.instance(), reason));
         }
         request.result.complete(ok);
@@ -364,13 +378,15 @@ final class RemoteCommands {
     private final class Request {
         final Sender sender;
         final NetworkPlayer where;
+        final @Nullable String shown;
         final long sent;
         final CompletableFuture<Boolean> result = new CompletableFuture<>();
         private boolean finished;
 
-        Request(Sender sender, NetworkPlayer where, long sent) {
+        Request(Sender sender, NetworkPlayer where, @Nullable String shown, long sent) {
             this.sender = sender;
             this.where = where;
+            this.shown = shown;
             this.sent = sent;
         }
 

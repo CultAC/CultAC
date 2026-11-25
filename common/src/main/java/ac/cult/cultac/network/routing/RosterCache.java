@@ -28,8 +28,8 @@ import org.jetbrains.annotations.Nullable;
  * players and removes {@code left}. {@code brands} groups the listed players whose client brand is known by that
  * brand, so a player costs one UUID there however long the brand; a player it leaves out, or a body without it, has no
  * known brand. {@code shown} names each listed player whose own client lists them under a name other than their
- * account; a player it leaves out, or a body without it, has no known shown name. A body too large with {@code brands}
- * goes out without them. A body whose {@code o} is not above the last one applied from its
+ * account; a player it leaves out, or a body without it, has no known shown name. A body too large goes out without
+ * {@code brands}, then without {@code shown}. A body whose {@code o} is not above the last one applied from its
  * instance is dropped, unless nothing from it was applied for
  * {@value #EXPIRY_MILLIS} ms. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any type
  * heard from it. Builds that run network commands add {@code role} ({@value #PROXY} or {@value #SERVER}),

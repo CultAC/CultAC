@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
+import ac.cult.cultac.network.routing.RemoteCommandSource;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import ac.grim.grimac.api.storage.DataStore;
@@ -58,8 +59,15 @@ public final class ShownNames {
                         id -> routing.locate(id.toString()).orElse(null)));
     }
 
-    /** The profiles the sender's own client was given under {@code name}; none for a sender not connected here. */
+    /**
+     * The profiles the sender's own client was given under {@code name}; for a forwarded command, the player its own
+     * instance matched {@code name} to; none for another sender not connected here.
+     */
     private static CompletableFuture<List<UUID>> viewed(Sender sender, String name) {
+        if (sender instanceof RemoteCommandSource forwarded) {
+            UUID target = forwarded.listedAs(name);
+            return CompletableFuture.completedFuture(target == null ? List.of() : List.of(target));
+        }
         CultPlayer viewer = sender.isPlayer()
                 ? CultAPI.INSTANCE.getPlayerDataManager().getPlayer(sender.getUniqueId())
                 : null;

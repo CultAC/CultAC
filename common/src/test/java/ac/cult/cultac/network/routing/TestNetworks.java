@@ -95,6 +95,12 @@ public final class TestNetworks {
         service.netSettings().merge(records);
     }
 
+    /** A forwarded command's sender, holding every node, whose line names {@code target} by {@code shown}. */
+    public static RemoteCommandSource forwarded(UUID target, String shown) {
+        return new RemoteCommandSource(
+                UUID.randomUUID(), "Mod", false, Set.of(), Set.of(), ignored -> {}, null, target, shown);
+    }
+
     /** Sends what {@code service} was told since its last roster message, as its delta schedule would. */
     public static void sendDelta(NetworkService service) {
         service.sendDelta();

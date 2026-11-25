@@ -306,6 +306,24 @@ class RemoteCommandsTest {
     }
 
     @Test
+    void aPlayerTypedByTheNameTheyAreListedUnderIsSentAndReportedByThatName() {
+        NetworkService a = started("p3", new Players(), new Recorder());
+        Players players = new Players().with(ALICE, "Alice");
+        Recorder there = new Recorder();
+        started("p7", players, there);
+
+        assertTrue(a.run(staff, "cult debug mods Nick", aliceOn("p7"), "Nick").join());
+        RemoteCommandSource source = assertInstanceOf(RemoteCommandSource.class, there.senders.getFirst());
+        assertEquals(ALICE, source.listedAs("nick"));
+        assertNull(source.listedAs("Alice"));
+
+        players.online.remove(ALICE);
+        staff.heard.clear();
+        assertFalse(a.run(staff, "cult debug mods Nick", aliceOn("p7"), "Nick").join());
+        assertEquals(List.of("Nick is no longer on p7."), staff.plain());
+    }
+
+    @Test
     void aCommandThatFailedThereStillRanAndItsOwnErrorsReachTheSender() {
         NetworkService a = started("p3", new Players(), new Recorder());
         Recorder there = new Recorder();
