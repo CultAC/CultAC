@@ -1908,6 +1908,13 @@ public class CultPlayer implements GrimUser {
         return user.getName();
     }
 
+    /** Sets {@link #shownName}, telling the network roster when it changes. */
+    public void shownName(@Nullable String name) {
+        String previous = shownName;
+        shownName = name;
+        if (!Objects.equals(previous, name)) NetworkModule.shownNameChanged(playerUUID);
+    }
+
     @Override
     public UUID getUniqueId() {
         return user.getProfile().getUUID();

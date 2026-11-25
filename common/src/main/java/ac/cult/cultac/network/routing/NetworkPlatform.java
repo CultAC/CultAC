@@ -11,7 +11,8 @@ import org.jetbrains.annotations.Nullable;
 /**
  * What the platform tells the network service about this instance. The platform also reports each join, quit and
  * backend switch through {@link NetworkModule#playerChanged} and {@link NetworkModule#playerLeft}; the client brand
- * check reports a brand arriving after join through {@link NetworkModule#brandChanged}.
+ * check reports a brand arriving after join through {@link NetworkModule#brandChanged}, and the player tracker each
+ * change of the name a player is listed under on their own client through {@link NetworkModule#shownNameChanged}.
  */
 public interface NetworkPlatform {
 
@@ -58,15 +59,22 @@ public interface NetworkPlatform {
 
     /**
      * A player online here; {@code server} is their backend server on a proxy and null elsewhere, {@code brand} their
-     * client brand, null until it is known.
+     * client brand, null until it is known, {@code shown} the name the server lists them under on their own client,
+     * null while it is unknown or their account name.
      */
     record OnlinePlayer(
             UUID uuid,
             String name,
             @Nullable String server,
-            @Nullable String brand) {
+            @Nullable String brand,
+            @Nullable String shown) {
         public OnlinePlayer {
             brand = ClientBrandText.sanitize(brand);
+            if (shown != null && shown.equalsIgnoreCase(name)) shown = null;
+        }
+
+        public OnlinePlayer(UUID uuid, String name, @Nullable String server, @Nullable String brand) {
+            this(uuid, name, server, brand, null);
         }
 
         public OnlinePlayer(UUID uuid, String name, @Nullable String server) {

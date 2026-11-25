@@ -143,6 +143,29 @@ class NetworkServiceTest {
     }
 
     @Test
+    void aShownNameChangeRidesTheNextDeltaAndIsListedOnOtherInstances() {
+        Map<UUID, String> shown = new ConcurrentHashMap<>();
+        NetworkService a = started("p3", new Players());
+        NetworkService b = started("p7", new Players().with(ALICE, "Alice", "lobby"));
+        b.shownNames(shown::get);
+        assertEquals(List.of(), a.listedAs("Nick"));
+
+        shown.put(ALICE, "Nick");
+        b.shownNameChanged(ALICE);
+        b.sendDelta();
+        assertFalse(rosterBodiesFrom("p7").getLast().get("full").getAsBoolean());
+        assertEquals(
+                List.of(ALICE),
+                a.listedAs("nICK").stream().map(NetworkPlayer::uuid).toList());
+        assertEquals("p7", a.listedAs("Nick").getFirst().instance());
+        assertEquals("Nick", b.listedAs("Nick").getFirst().shown());
+
+        shown.remove(ALICE);
+        b.tick();
+        assertEquals(List.of(), a.listedAs("Nick"));
+    }
+
+    @Test
     void aBrandArrivingAfterJoinRidesTheNextDelta() {
         Players here = new Players().with(ALICE, "Alice", "lobby");
         NetworkService a = started("p3", new Players());

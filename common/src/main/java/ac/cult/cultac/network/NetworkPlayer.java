@@ -8,7 +8,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * An online player as the network roster lists them: the instance holding their connection, where that instance is a
- * proxy the backend server they are on, and their client brand, null until it is known.
+ * proxy the backend server they are on, their client brand, null until it is known, and the name the server lists them
+ * under on their own client, null while it is unknown or their account name.
  */
 public record NetworkPlayer(
         UUID uuid,
@@ -16,11 +17,23 @@ public record NetworkPlayer(
         String instance,
         @Nullable String server,
         @Nullable String brand,
-        Map<String, List<String>> details) {
+        Map<String, List<String>> details,
+        @Nullable String shown) {
     public NetworkPlayer {
         brand = ClientBrandText.sanitize(brand);
         details = details.entrySet().stream()
                 .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> List.copyOf(e.getValue())));
+        if (shown != null && shown.equalsIgnoreCase(name)) shown = null;
+    }
+
+    public NetworkPlayer(
+            UUID uuid,
+            String name,
+            String instance,
+            @Nullable String server,
+            @Nullable String brand,
+            Map<String, List<String>> details) {
+        this(uuid, name, instance, server, brand, details, null);
     }
 
     public NetworkPlayer(UUID uuid, String name, String instance, @Nullable String server, @Nullable String brand) {

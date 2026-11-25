@@ -441,6 +441,53 @@ class NetworkPlayerArgumentsTest {
     }
 
     @Test
+    void aNameAPlayerOnAnotherInstanceIsListedUnderMatchesTheirAccountUnlessItIsAStoredAccount() {
+        p9.shownNames(uuid -> uuid.equals(DANA.uuid()) ? "Nick" : null);
+        networks.tick(p9);
+        Function<String, CompletableFuture<Optional<UUID>>> none =
+                name -> CompletableFuture.completedFuture(Optional.empty());
+        var context = new CommandContext<>(sender, manager);
+
+        assertEquals(
+                "Dana",
+                NetworkPlayerArguments.shownAs(StringParser.stringParser(), true, ShownNames::find, none)
+                        .parser()
+                        .parseFuture(context, CommandInput.of("nick"))
+                        .join()
+                        .parsedValue()
+                        .orElseThrow());
+        assertEquals(new ShownNames.Match(DANA.uuid(), "Dana", "Nick"), ShownNames.matched(context, "Dana"));
+
+        UUID stored = UUID.randomUUID();
+        Throwable refused = NetworkPlayerArguments.shownAs(
+                        StringParser.stringParser(),
+                        true,
+                        ShownNames::find,
+                        name -> CompletableFuture.completedFuture(Optional.of(stored)))
+                .parser()
+                .parseFuture(new CommandContext<>(sender, manager), CommandInput.of("Nick"))
+                .join()
+                .failure()
+                .orElseThrow();
+        assertInstanceOf(NameRefusedException.class, refused);
+
+        UUID erin = UUID.randomUUID();
+        NetworkService p8 = networks.service("p8")
+                .platform(new Players().with(erin, "Erin", null))
+                .start();
+        p8.shownNames(uuid -> uuid.equals(erin) ? "NICK" : null);
+        networks.tick(p8);
+        assertEquals(
+                "Nick",
+                NetworkPlayerArguments.shownAs(StringParser.stringParser(), true, ShownNames::find, none)
+                        .parser()
+                        .parseFuture(new CommandContext<>(sender, manager), CommandInput.of("Nick"))
+                        .join()
+                        .parsedValue()
+                        .orElseThrow());
+    }
+
+    @Test
     void aPacketLogNameFailsOnlyForAPlayerOnAnotherInstance() {
         var parser = NetworkPlayerArguments.playerName(StringParser.quotedStringParser())
                 .parser();

@@ -49,6 +49,14 @@ class RosterCacheTest {
                 .brand();
     }
 
+    private @Nullable String shown(UUID uuid) {
+        return cache.players(0).stream()
+                .filter(player -> player.uuid().equals(uuid))
+                .findFirst()
+                .orElseThrow()
+                .shown();
+    }
+
     @Test
     void fullAndDeltaBodiesCarryTheKnownBrandsApart() {
         JsonObject first = full(List.of(new OnlinePlayer(ALICE, "Alice", "lobby", "lunarclient"), BOB_ONLINE), 1L);
@@ -101,6 +109,25 @@ class RosterCacheTest {
         assertEquals("vanilla", brand(ALICE, 0));
         assertEquals(longBrand, brand(BOB, 0));
         assertEquals("vanilla", brand(carol, 0));
+    }
+
+    @Test
+    void shownNamesRoundTripAndABodyWithoutThemLeavesThemUnknown() {
+        JsonObject body = full(
+                List.of(
+                        new OnlinePlayer(ALICE, "Alice", "lobby", null, "Nick"),
+                        new OnlinePlayer(BOB, "Bob", null, null, "BOB")),
+                1L);
+        assertEquals(1, body.getAsJsonObject("shown").size());
+        cache.apply("p3", body, 0);
+        assertEquals("Nick", shown(ALICE));
+        assertNull(shown(BOB));
+
+        JsonObject older = full(List.of(new OnlinePlayer(ALICE, "Alice", "lobby", null, "Nick")), 2L);
+        older.remove("shown");
+        cache.apply("p3", older, 0);
+        assertEquals(List.of("Alice"), names(0));
+        assertNull(shown(ALICE));
     }
 
     @Test
