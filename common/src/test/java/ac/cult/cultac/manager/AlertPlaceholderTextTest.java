@@ -10,9 +10,14 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.network.routing.PlainPlaceholders;
+import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.api.GrimUser;
 import ac.grim.grimac.api.config.ConfigManager;
+import ac.grim.grimac.api.event.events.CommandExecuteEvent;
+import ac.grim.grimac.api.plugin.GrimPlugin;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,8 +54,17 @@ class AlertPlaceholderTextTest {
     }
 
     /** The alert {@code format} renders for one flag of {@code name} using {@code brand} with {@code verbose}. */
-    @SuppressWarnings({"rawtypes", "unchecked"})
     private Component alert(String format, String name, String brand, String verbose)
+            throws ReflectiveOperationException {
+        flag(format, name, brand, verbose, "1:0 [alert]");
+        var sent = ArgumentCaptor.forClass(Component.class);
+        verify(player).sendMessage(sent.capture());
+        return sent.getValue();
+    }
+
+    /** One flag of {@code name} using {@code brand} with {@code verbose}, running {@code commands} with {@code format}. */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void flag(String format, String name, String brand, String verbose, String... commands)
             throws ReflectiveOperationException {
         clearInvocations(player);
         when(player.getName()).thenReturn(name);
@@ -64,8 +78,9 @@ class AlertPlaceholderTextTest {
         doReturn(List.of(check)).when(player).getChecks();
         when(config.getBooleanElse("test-mode", false)).thenReturn(true);
         when(config.getStringElse(eq("alerts-format"), anyString())).thenReturn(format);
+        when(config.getStringElse(eq("alerts-format-proxy"), anyString())).thenReturn(format);
         when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List) List.of(
-                new LinkedHashMap<>(Map.of("checks", List.of("alerttextprobe"), "commands", List.of("1:0 [alert]")))));
+                new LinkedHashMap<>(Map.of("checks", List.of("alerttextprobe"), "commands", List.of(commands)))));
 
         var external = CultAPI.INSTANCE.getExternalAPI();
         Map<String, Function<GrimUser, String>> registered = new LinkedHashMap<>();
@@ -81,9 +96,6 @@ class AlertPlaceholderTextTest {
         } finally {
             registered.forEach(external::registerVariable);
         }
-        var sent = ArgumentCaptor.forClass(Component.class);
-        verify(player).sendMessage(sent.capture());
-        return sent.getValue();
     }
 
     private static void collect(Component component, List<ClickEvent> clicks, List<String> insertions) {
@@ -151,5 +163,43 @@ class AlertPlaceholderTextTest {
         assertEquals(List.of(), clicks(alert));
         assertEquals(
                 brand + " " + verbose, PlainTextComponentSerializer.plainText().serialize(alert));
+    }
+
+    /** The alert lines {@code [proxy]} forwards for one flag; the commands the command event sees go to {@code fired}. */
+    private List<String> relayed(String format, String name, String brand, List<String> fired) throws Exception {
+        PlatformServer server = mock(PlatformServer.class);
+        Field field = AlertManagerImpl.class.getDeclaredField("platformServer");
+        field.setAccessible(true);
+        Object original = field.get(null);
+        GrimPlugin plugin = mock(GrimPlugin.class);
+        CultAPI.INSTANCE
+                .getEventBus()
+                .get(CommandExecuteEvent.class)
+                .onCommandExecuteSupplier(plugin, (user, flagged, verbose, command, cancelled) -> {
+                    fired.add(command);
+                    return cancelled;
+                });
+        field.set(null, server);
+        try {
+            flag(format, name, brand, "verbose", "1:0 [alert]", "1:0 [proxy]");
+        } finally {
+            field.set(null, original);
+            CultAPI.INSTANCE.getEventBus().unregisterAllListeners(plugin);
+        }
+        var forwarded = ArgumentCaptor.forClass(String.class);
+        verify(server).forwardAlert(forwarded.capture());
+        return forwarded.getAllValues();
+    }
+
+    @Test
+    void theCommandEventAndARelayedAlertCarryTheBrandAsWritten() throws Exception {
+        String brand = "<red>Lunar 50% x'y";
+        List<String> fired = new ArrayList<>();
+        List<String> relayed = relayed("&f%player% %brand%", "Steve", brand, fired);
+        assertEquals(List.of("&fSteve " + brand, "&fSteve " + brand), fired);
+        assertTrue(relayed.getFirst().chars().noneMatch(c -> c >= 0xFDD0 && c <= 0xFDEF || c >= 0xFFFE));
+        Component shown = MessageUtil.miniMessage(relayed.getFirst());
+        assertEquals("Steve " + brand, PlainTextComponentSerializer.plainText().serialize(shown));
+        assertEquals(List.of(), clicks(shown));
     }
 }
