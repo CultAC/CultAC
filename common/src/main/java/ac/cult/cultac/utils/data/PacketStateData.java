@@ -52,6 +52,8 @@ public class PacketStateData {
     public Hand itemInUseHand = Hand.MAIN_HAND;
     private int slowedByUsingItemSlot = Integer.MIN_VALUE;
     public KnownInput knownInput = KnownInput.DEFAULT;
+    // A player_input arrived since the client's last client_tick_end; LocalPlayer sends at most one per client tick.
+    public boolean playerInputThisClientTick = false;
     // A respawned LocalPlayer's kept lastSentInput holds shift, which its KeyboardInput reads at the first aiStep.
     public boolean respawnShiftPending;
     public int riptideLevel = 0;

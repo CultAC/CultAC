@@ -76,6 +76,18 @@ public class PacketManager implements StartableInitable {
 
         PacketPlayerSteer steerListener = new PacketPlayerSteer();
         registrar.registerReceiveListener(PacketListenerPriority.LOW, steerListener);
+        // Ahead of every check, which then sees a further input of the tick already cancelled. Without a tick end the
+        // backend protocol closes no input tick.
+        if (registrar.scanner().supports(ServerboundPackets.CLIENT_TICK_END)) {
+            registrar.earlyReceive(
+                    ServerboundPackets.CLIENT_TICK_END,
+                    PacketListenerPriority.LOWEST,
+                    steerListener::onClientTickEndArrival);
+            registrar.earlyReceive(
+                    ServerboundPackets.PLAYER_INPUT,
+                    PacketListenerPriority.LOWEST,
+                    steerListener::onPlayerInputArrival);
+        }
 
         PacketBlockAction blockActionListener = new PacketBlockAction();
         registrar.registerSendListener(PacketListenerPriority.HIGH, blockActionListener);
