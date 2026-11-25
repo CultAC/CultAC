@@ -159,8 +159,12 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         boolean usedSecondBread =
                 predictionComplete.getPredictionResult().getInitialStartingVel().hasPacketModifier(this.secondBread);
 
+        // A move sent before the client takes a pending correction starts from a state the correction replaces.
+        boolean beforePendingCorrection =
+                predictionComplete.isExempt() && player.getSetbackTeleportUtil().isPendingSetback();
         if (this.secondBread != null
                 && this.secondBread.getOffset() > offsetToFlag
+                && !beforePendingCorrection
                 && !player.compensatedEntities.getSelf().isDead
                 && player.gamemode != GameMode.SPECTATOR) {
             // TODO: Perhaps if the velocity overrode other velocities, we flag multiple times?
