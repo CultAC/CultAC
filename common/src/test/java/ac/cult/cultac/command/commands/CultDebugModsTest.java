@@ -91,8 +91,7 @@ class CultDebugModsTest {
 
     @Test
     void aBrandWithFormattingIsShownAsWrittenInWhite() throws Exception {
-        String brand =
-                "<click:run_command:'/cult debug channels Alice'><hover:show_text:'x'><insert:y>&cvanilla %player%";
+        String brand = "<click:run_command:'/x'><hover:show_text:'x'><insert:y>&cvanilla %player%";
         Component line = brandLine(components(null, false, brand));
         assertTrue(PlainTextComponentSerializer.plainText().serialize(line).endsWith("Client brand: " + brand));
         assertEquals(List.of(), styled(line));
