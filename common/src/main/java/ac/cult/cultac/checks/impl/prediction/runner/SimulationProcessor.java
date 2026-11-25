@@ -1807,14 +1807,17 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             return;
         }
         Vec3 from = context.getStart();
+        // A swimming client's updateSwimming needs only isInWater, which its taller box has wherever the engine swims.
         boolean resumes = !possibleAttackReset
                 && this.player.sprintState.flagBeforeAiStep()
-                && swim.exitUnderwater()
-                && ClientFluidQueries.is(
-                        this.player,
-                        ClientFluidQueries.fluidAt(
-                                this.player.compensatedWorld, BlockPos.containing(from.x, from.y, from.z)),
-                        FluidTags.WATER);
+                && (swim.exitSwimming()
+                        || swim.exitUnderwater()
+                                && ClientFluidQueries.is(
+                                        this.player,
+                                        ClientFluidQueries.fluidAt(
+                                                this.player.compensatedWorld,
+                                                BlockPos.containing(from.x, from.y, from.z)),
+                                        FluidTags.WATER));
         if (resumes) {
             swim.endExit();
             return;

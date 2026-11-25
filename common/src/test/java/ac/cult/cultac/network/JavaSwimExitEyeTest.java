@@ -8,8 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerAttack;
+import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
@@ -22,6 +25,8 @@ import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -62,6 +67,47 @@ class JavaSwimExitEyeTest {
             assertTrue(exact(next), describe(next));
             assertEquals(List.of(SWIM), f.player.getPossibleEyeHeights());
         }
+    }
+
+    @Test
+    void theServersSharedFlagsKeepThePoseTheLastTickLeft() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            attacked(f, swim(f));
+            assertEquals(List.of(SWIM, STAND), f.player.getPossibleEyeHeights());
+
+            sharedFlags(f, (byte) 0);
+            assertEquals(List.of(SWIM, STAND), f.player.getPossibleEyeHeights());
+        }
+    }
+
+    /** The tick of a possible attack reset; the velocity carried into the next tick. */
+    private Vec3 attacked(JavaTickFixture f, Vec3 velocity) {
+        attack(f);
+        Vec3 delta = new Vec3(velocity.x * 0.6, 0.0, velocity.z * 0.6).add(input(f));
+        position = position.add(delta.x, 0.0, delta.z);
+        PredictionResult attacked = f.tick(position, false);
+        assertTrue(exact(attacked), describe(attacked));
+        return slowed(delta);
+    }
+
+    /** The server's shared flags for the player, acknowledged by the client. */
+    private static void sharedFlags(JavaTickFixture f, byte flags) {
+        var packet = new EntityMetadata(
+                f.player.entityID,
+                List.of(new EntityMetadata.Entry(
+                        WatchableIndexUtil.ENTITY_SHARED_FLAGS, flags, ByteBuffer.allocate(0))));
+        var event = new PacketSendEvent<>(f.player.user, ConnectionPhase.PLAY, metadataType(), packet, false);
+        new PacketSelfMetadataListener().onSetEntityData(event, f.player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static PacketType<EntityMetadata> metadataType() {
+        return (PacketType<EntityMetadata>) TestProtocolRuntime.catalog().stream()
+                .filter(type -> type.recordClass() == EntityMetadata.class)
+                .findFirst()
+                .orElseThrow();
     }
 
     /**

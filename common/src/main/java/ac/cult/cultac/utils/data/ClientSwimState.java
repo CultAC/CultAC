@@ -20,11 +20,16 @@ public final class ClientSwimState {
     // The pose of the ticks where a possible attack reset cleared Entity#isSwimming, while that client stays out.
     private @Nullable Pose exitPose;
     private boolean exitUnderwater;
+    // The flag the server's shared flags gave the client out of the swim; Player#updatePlayerPose has not read it yet.
+    private boolean exitSwimming;
 
-    /** Entity shared flag 4 from self entity data, applied by its bundled proof. */
+    /**
+     * Entity shared flag 4 from self entity data, applied by its bundled proof. It sets Entity#isSwimming of either
+     * client, but neither pose changes before Player#updatePlayerPose.
+     */
     public void onServerFlag(boolean swimming) {
         this.swimming = swimming;
-        exitPose = null;
+        exitSwimming = swimming;
     }
 
     /**
@@ -35,6 +40,7 @@ public final class ClientSwimState {
     public void onPossibleExit(Pose pose, boolean underwater) {
         exitPose = pose;
         exitUnderwater = underwater;
+        exitSwimming = false;
     }
 
     /** The client the engine swims with is the only one left. */
@@ -50,6 +56,11 @@ public final class ClientSwimState {
     /** LocalPlayer#isUnderWater of the client out of the swim, for its next Entity#updateSwimming. */
     public boolean exitUnderwater() {
         return exitUnderwater;
+    }
+
+    /** Entity#isSwimming of the client out of the swim, for its next Entity#updateSwimming. */
+    public boolean exitSwimming() {
+        return exitSwimming;
     }
 
     /** A Java client tick's Entity#updateSwimming result. */
