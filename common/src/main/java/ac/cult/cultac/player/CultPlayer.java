@@ -278,6 +278,8 @@ public class CultPlayer implements GrimUser {
     public boolean onGround;
     public boolean lastOnGround;
     public boolean isSneaking;
+    // The shift key of the last player_input the server received, from a server player that starts with it up
+    public boolean forwardedShift;
     // The client's last START/STOP_SPRINTING (LocalPlayer#wasSprinting)
     public boolean isSprinting;
     // LocalPlayer#aiStep cleared the sprint flag of a passenger without a STOP_SPRINTING; the next tick that reaches
@@ -379,6 +381,11 @@ public class CultPlayer implements GrimUser {
 
     public boolean isBedrockMovement() {
         return movementPlatform == MovementPlatform.BEDROCK;
+    }
+
+    /** Entity#isShiftKeyDown of the server's player, which ServerPlayerGameMode#useItemOn reads as secondary use. */
+    public boolean isServerShiftKeyDown() {
+        return isBedrockMovement() ? isSneaking : forwardedShift;
     }
 
     /**

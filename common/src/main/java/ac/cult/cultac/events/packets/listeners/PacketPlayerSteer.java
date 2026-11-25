@@ -32,6 +32,8 @@ public class PacketPlayerSteer {
             return;
         }
         player.isSneaking = packet.shift();
+        // A kept tick input sets the server's shift key once it is forwarded.
+        if (!player.user.getCultConnection().forwardHold().receivesTickInput()) player.forwardedShift = packet.shift();
         player.packetStateData.respawnShiftPending = false;
         ServerboundPlayerInput input = packet;
         // Vanilla sends input only when key state changes; keep the latest raw state even before mounting.

@@ -27,6 +27,11 @@ public final class ForwardHold {
         receivingTickInput = true;
     }
 
+    /** Whether {@link #markTickInput} marked the packet being received. */
+    public boolean receivesTickInput() {
+        return receivingTickInput;
+    }
+
     /** Takes the mark {@link #markTickInput} put on the packet being received. */
     public boolean takeTickInputMark() {
         boolean marked = receivingTickInput;

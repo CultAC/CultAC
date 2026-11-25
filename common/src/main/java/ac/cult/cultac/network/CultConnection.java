@@ -11,6 +11,7 @@ import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import io.netty.buffer.ByteBuf;
@@ -618,6 +619,7 @@ public final class CultConnection
             var values = platform.modelValues();
             if (values != null) values.beginConfiguration();
         }
+        if (packet instanceof ServerboundPlayerInput input && player != null) player.forwardedShift = input.shift();
         if (type == ServerboundPackets.CLIENT_TICK_END || serverbound != ConnectionPhase.PLAY) clientTickEnded();
         else if (type == ServerboundPackets.MOVE_PLAYER
                 && packets.observed().supports(ServerboundPackets.CLIENT_TICK_END)) midClientTick = true;
