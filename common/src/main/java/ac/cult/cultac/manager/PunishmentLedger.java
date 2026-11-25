@@ -59,11 +59,6 @@ final class PunishmentLedger {
         Entry entry = connected.get(id);
         if (entry == null || --entry.connections > 0) return;
         connected.remove(id);
-        for (GroupState group : entry.state) {
-            synchronized (group.violations()) {
-                for (ParsedCommand command : group.commands()) command.waiting = null;
-            }
-        }
         if (entry.lasts(now)) left.put(id, entry);
         Iterator<Entry> oldest = left.values().iterator();
         while (oldest.hasNext()) {
@@ -85,12 +80,13 @@ final class PunishmentLedger {
 
     /** A group's flags and commands, apart from the checks of a connection. */
     record GroupState(List<ParsedCommand> commands, ViolationWindow violations, int removeViolationsAfter) {
-        /** Drops what is older than the window; true when something is left. */
+        /** Drops what is older than the window and the runs waiting for a server; true when something is left. */
         boolean age(long now) {
             synchronized (violations) {
                 violations.expire(now, removeViolationsAfter);
                 boolean holds = violations.size() > 0;
                 for (ParsedCommand command : commands) {
+                    command.waiting = null;
                     if (command.interval > 0 || command.executeCount == 0) continue;
                     if (now - command.usedAt > removeViolationsAfter) {
                         command.executeCount = 0;

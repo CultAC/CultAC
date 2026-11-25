@@ -33,6 +33,8 @@ class PunishmentThresholdsTest {
     private final PunishmentLedger ledger = new PunishmentLedger(2);
     private final Check check;
     private long now = 1_000_000L;
+    // Global tasks held back until the test runs them; null runs them at once.
+    private List<Runnable> deferred;
 
     PunishmentThresholdsTest() {
         when(config.getBooleanElse(anyString(), anyBoolean())).thenAnswer(invocation -> invocation.getArgument(1));
@@ -80,6 +82,46 @@ class PunishmentThresholdsTest {
             punishments.deliverWaiting();
 
             assertEquals(List.of("ban probe"), ran);
+        }
+    }
+
+    @Test
+    void aWaitingOneTimeCommandIsDroppedOnceItsFlagsLeaveTheWindow() throws Exception {
+        List<String> ran = new ArrayList<>();
+        AtomicBoolean reachable = new AtomicBoolean();
+        try (var ignored = platform(ran, reachable)) {
+            PunishmentManager punishments = punishments("2:0 ban probe");
+            flag(punishments);
+            flag(punishments);
+
+            now += 301_000;
+            reachable.set(true);
+            punishments.deliverWaiting();
+
+            assertEquals(List.of(), ran);
+        }
+    }
+
+    @Test
+    void aRunThatSettlesAfterThePlayerLeftDoesNotRunOnALaterConnection() throws Exception {
+        List<String> ran = new ArrayList<>();
+        AtomicBoolean reachable = new AtomicBoolean();
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        try (var ignored = platform(ran, reachable)) {
+            deferred = new ArrayList<>();
+            PunishmentManager first = punishments("2:0 ban probe");
+            flag(first);
+            flag(first);
+            first.release();
+            deferred.forEach(Runnable::run);
+            deferred = null;
+
+            now += 3_600_000;
+            reachable.set(true);
+            PunishmentManager second = punishments("2:0 ban probe");
+            second.deliverWaiting();
+
+            assertEquals(List.of(), ran);
         }
     }
 
@@ -242,7 +284,11 @@ class PunishmentThresholdsTest {
                 });
         GlobalRegionScheduler global = mock(GlobalRegionScheduler.class);
         when(global.run(any(), any())).thenAnswer(invocation -> {
-            invocation.<Runnable>getArgument(1).run();
+            if (deferred != null) {
+                deferred.add(invocation.getArgument(1));
+            } else {
+                invocation.<Runnable>getArgument(1).run();
+            }
             return null;
         });
         PlatformScheduler scheduler = mock(PlatformScheduler.class);

@@ -326,7 +326,11 @@ public class PunishmentManager implements ConfigReloadable {
                                                     .dispatchesVerbose(cmd, player.platformPlayer)
                                             ? safeGet(verbose)
                                             : "";
-                                    dispatch(group, command, new Delivery(cmd, check, violations, renderedVerbose));
+                                    dispatch(
+                                            group,
+                                            command,
+                                            new Delivery(cmd, check.getStableKey(), violations, renderedVerbose),
+                                            check);
                                 }
                             }
                         } catch (RuntimeException | LinkageError e) {
@@ -342,12 +346,14 @@ public class PunishmentManager implements ConfigReloadable {
 
     /**
      * Runs the one-time console commands that wait for a server able to run them, such as a backend whose companion
-     * was not ready yet. On the player's packet owner.
+     * was not ready yet, while the flags in the window still reach them. On the player's packet owner.
      */
     public void deliverWaiting() {
+        long now = clock.getAsLong();
         for (PunishGroup group : groups) {
             for (ParsedCommand command : group.commands) {
                 Delivery waiting;
+                Check check;
                 synchronized (group.violations) {
                     waiting = command.waiting;
                     if (waiting == null || command.claimed || command.executeCount > 0) continue;
@@ -356,11 +362,24 @@ public class PunishmentManager implements ConfigReloadable {
                         command.waiting = null;
                         continue;
                     }
+                    group.violations.expire(now, group.removeViolationsAfter);
+                    check = heldCheck(group, waiting.checkKey());
+                    if (check == null || group.violations.countAfter(command.withheldThrough) < command.threshold) {
+                        command.waiting = null;
+                        continue;
+                    }
                     command.claimed = true;
                 }
-                dispatch(group, command, waiting);
+                dispatch(group, command, waiting, check);
             }
         }
+    }
+
+    private static @Nullable Check heldCheck(PunishGroup group, String checkKey) {
+        for (AbstractCheck held : group.checks) {
+            if (held instanceof Check check && check.getStableKey().equals(checkKey)) return check;
+        }
+        return null;
     }
 
     /** Whether punishments.yml commands other than the built-in actions are withheld for {@code player}. */
@@ -410,7 +429,7 @@ public class PunishmentManager implements ConfigReloadable {
     }
 
     /** Hands {@code delivery} to the platform on the thread its commands need. */
-    private void dispatch(PunishGroup group, ParsedCommand command, Delivery delivery) {
+    private void dispatch(PunishGroup group, ParsedCommand command, Delivery delivery, Check check) {
         try {
             CultAPI.INSTANCE.getScheduler().getGlobalRegionScheduler().run(CultAPI.INSTANCE.getGrimPlugin(), () -> {
                 boolean delivered = true;
@@ -420,17 +439,17 @@ public class PunishmentManager implements ConfigReloadable {
                             server.getConsoleSender(),
                             delivery.command(),
                             player.platformPlayer,
-                            delivery.check(),
+                            check,
                             delivery.violations(),
                             delivery.verbose());
                 } catch (RuntimeException e) {
-                    logDeliveryFailure(command, delivery.check(), e);
+                    logDeliveryFailure(command, check, e);
                 }
                 settle(group, command, delivery, delivered);
             });
         } catch (RuntimeException e) {
             settle(group, command, delivery, true);
-            logDeliveryFailure(command, delivery.check(), e);
+            logDeliveryFailure(command, check, e);
         }
     }
 
@@ -571,5 +590,5 @@ class ParsedCommand {
     }
 }
 
-/** A console command as rendered for a flag of {@code check}. */
-record Delivery(String command, Check check, double violations, String verbose) {}
+/** A console command as rendered for a flag of the check with {@code checkKey}. */
+record Delivery(String command, String checkKey, double violations, String verbose) {}
