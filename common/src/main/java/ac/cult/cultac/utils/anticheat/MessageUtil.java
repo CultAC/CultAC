@@ -6,6 +6,8 @@ import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDisconnect;
 import ac.grim.grimac.api.GrimUser;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -13,8 +15,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.experimental.UtilityClass;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.TextReplacementConfig;
 import net.kyori.adventure.text.TranslatableComponent;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -27,7 +32,10 @@ public class MessageUtil {
     private static final Pattern STRIP_COLOR_PATTERN = Pattern.compile("(?i)" + '§' + "[0-9A-FK-ORX]");
     private final Pattern HEX_PATTERN = Pattern.compile("([&§]#[A-Fa-f0-9]{6})|([&§]x([&§][A-Fa-f0-9]){6})");
     private final char PLACEHOLDER_ESCAPE_CHAR = '\uFFFF'; // this specific character holds no significance
-    private final char AMPERSAND_ESCAPE_CHAR = '\uFFFE';
+    /** The characters a template gives meaning to, and the noncharacters {@link #plainText} writes in their place. */
+    private final String TEXT_CHARS = "<>\\'\":&%";
+
+    private final String TEXT_STAND_INS = "\uFDD0\uFDD1\uFDD2\uFDD3\uFDD4\uFDD5\uFDD6\uFDD7";
 
     /** Preserve Cult's existing disconnect conversion: plain text or an argument-free key. */
     public ClientboundDisconnect disconnectPacket(Component reason) {
@@ -133,10 +141,10 @@ public class MessageUtil {
 
         String cultReplaced = sb.toString();
 
-        String replaced =
-                CultAPI.INSTANCE.getMessagePlaceHolderManager().replacePlaceholders(platformPlayer, cultReplaced);
-        // miniMessage restores the escaped '%' after the template's own placeholders.
-        return clientTextAsText ? replaced : replaced.replace(PLACEHOLDER_ESCAPE_CHAR, '%');
+        return CultAPI.INSTANCE
+                .getMessagePlaceHolderManager()
+                .replacePlaceholders(platformPlayer, cultReplaced)
+                .replace(PLACEHOLDER_ESCAPE_CHAR, '%');
     }
 
     public @NotNull Component replacePlaceholders(@NotNull CultPlayer player, @NotNull Component component) {
@@ -189,11 +197,49 @@ public class MessageUtil {
                 .replace("§l", "<bold>")
                 .replace("§m", "<strikethrough>")
                 .replace("§n", "<underlined>")
-                .replace("§o", "<italic>")
-                .replace(AMPERSAND_ESCAPE_CHAR, '&')
-                .replace(PLACEHOLDER_ESCAPE_CHAR, '%');
+                .replace("§o", "<italic>");
 
-        return MiniMessage.miniMessage().deserialize(string, resolvers).compact();
+        Component component = MiniMessage.miniMessage().deserialize(string, resolvers).compact();
+        return hasStandIn(string) ? asWritten(component) : component;
+    }
+
+    private boolean hasStandIn(String string) {
+        for (int i = 0; i < string.length(); i++) {
+            if (TEXT_STAND_INS.indexOf(string.charAt(i)) >= 0) return true;
+        }
+        return false;
+    }
+
+    private String asWritten(String string) {
+        if (!hasStandIn(string)) return string;
+        char[] chars = string.toCharArray();
+        for (int i = 0; i < chars.length; i++) {
+            int standIn = TEXT_STAND_INS.indexOf(chars[i]);
+            if (standIn >= 0) chars[i] = TEXT_CHARS.charAt(standIn);
+        }
+        return new String(chars);
+    }
+
+    /** {@code component} with the characters {@link #plainText} stood in for put back wherever it shows text. */
+    @SuppressWarnings("unchecked")
+    private Component asWritten(Component component) {
+        Component written =
+                component instanceof TextComponent text ? text.content(asWritten(text.content())) : component;
+        ClickEvent<?> click = written.clickEvent();
+        if (click != null && click.payload() instanceof ClickEvent.Payload.Text payload)
+            written = written.clickEvent(ClickEvent.clickEvent(
+                    (ClickEvent.Action<ClickEvent.Payload.Text>) click.action(),
+                    ClickEvent.Payload.string(asWritten(payload.value()))));
+        HoverEvent<?> hover = written.hoverEvent();
+        if (hover != null && hover.value() instanceof Component shown)
+            written = written.hoverEvent(HoverEvent.showText(asWritten(shown)));
+        String insertion = written.insertion();
+        if (insertion != null) written = written.insertion(asWritten(insertion));
+        List<Component> children = written.children();
+        if (children.isEmpty()) return written;
+        List<Component> writtenChildren = new ArrayList<>(children.size());
+        for (Component child : children) writtenChildren.add(asWritten(child));
+        return written.children(writtenChildren);
     }
 
     @Contract("null -> !null; !null -> !null")
@@ -201,13 +247,21 @@ public class MessageUtil {
         return string == null ? "" : MiniMessage.miniMessage().escapeTags(string);
     }
 
-    /** {@code string} for a {@link #miniMessage} template, shown as written: no tags, colour codes or placeholders. */
+    /**
+     * {@code string} for a {@link #miniMessage} template, shown as written wherever the template puts it: no tag, quote,
+     * colour code or placeholder in it takes effect, alone or with the text around it.
+     */
     @Contract("null -> !null; !null -> !null")
     public @NotNull String plainText(@Nullable String string) {
         if (string == null) return "";
-        return miniMessageSafe(stripColor(string))
-                .replace('&', AMPERSAND_ESCAPE_CHAR)
-                .replace('%', PLACEHOLDER_ESCAPE_CHAR);
+        string = stripColor(string);
+        StringBuilder text = new StringBuilder(string.length());
+        for (int i = 0; i < string.length(); i++) {
+            char c = string.charAt(i);
+            int special = TEXT_CHARS.indexOf(c);
+            text.append(special >= 0 ? TEXT_STAND_INS.charAt(special) : c);
+        }
+        return text.toString();
     }
 
     public Component getParsedComponent(Sender sender, String key, String fallbackText) {
