@@ -1,5 +1,13 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.platform.api.Platform;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
+import java.nio.charset.StandardCharsets;
+
 /**
  * Whether new living entities interpolate linearly for this client: CultAC offered {@link #CHANNEL} before the
  * play login and the client declared it with minecraft:register. Both reset when the client reconfigures.
@@ -19,6 +27,20 @@ public final class ClientInterpolationOptIn {
     private boolean declared;
     private boolean ticked;
     private boolean existingEntitiesFollow;
+
+    /** Whether CultAC offers {@link #CHANNEL} before the play login it is sending this client now. */
+    public static boolean offeredAtLogin(CultPlayer player) {
+        return CultAPI.INSTANCE.getPlatform() == Platform.VELOCITY
+                && CultAPI.INSTANCE.getConfigManager().isLinearInterpolationOptIn()
+                && !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
+    }
+
+    /** CultAC's offer, written just before the play login. */
+    public static ClientboundCustomPayload offer() {
+        return new ClientboundCustomPayload(
+                ClientboundPackets.REGISTER_CHANNEL, CHANNEL.getBytes(StandardCharsets.UTF_8));
+    }
 
     /** CultAC is sending a play login preceded by its offer, or by none. */
     public void loginSent(boolean offered) {

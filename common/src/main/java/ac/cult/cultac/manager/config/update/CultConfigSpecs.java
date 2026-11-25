@@ -88,9 +88,11 @@ public final class CultConfigSpecs {
      * <p>v18 → v19: adds {@code bridge.enabled}; default rewriting adds the key.
      *
      * <p>v19 → v20: adds {@code cloud.uncaptured-servers}; default rewriting adds the key.
+     *
+     * <p>v20 → v21: adds {@code linear-interpolation-opt-in}; default rewriting adds the key.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 20, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 21, ConfigUpdater.ConfigFlavor.V2)
                 .operatorStamp(CheckNames.CONFIG_KEY, CheckNames.FIRST)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");

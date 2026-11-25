@@ -67,6 +67,12 @@ cancel-duplicate-packet: true
 # Dacă să se ignore rotația în pachetele duplicate
 ignore-duplicate-packet-rotation: false
 
+# Pe un proxy Velocity, oferă clienților interpolarea liniară a entităților în stilul 26.2, folosită de AntiStutter
+# și Interpolation Fix, prin canalul antistutter:linear_3.
+# Cult este singura componentă care o oferă: înregistrările acestui canal de către alte pluginuri nu sunt transmise.
+# O modificare se aplică de la următoarea intrare a jucătorului sau schimbare de server.
+linear-interpolation-opt-in: false
+
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
@@ -478,4 +484,4 @@ cult:
 check-name-version: 3
 
 config-flavor: V2
-config-version: 20
+config-version: 21

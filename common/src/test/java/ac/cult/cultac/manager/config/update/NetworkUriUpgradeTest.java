@@ -53,7 +53,7 @@ class NetworkUriUpgradeTest {
                 .update(file.toFile(), CultConfigSpecs.mainConfig());
         assertTrue(result.migrated);
         Map<String, Object> data = new Yaml().load(Files.readString(file));
-        assertEquals(20, data.get("config-version"));
+        assertEquals(21, data.get("config-version"));
         Map<String, Object> network = network(data);
         for (String old : new String[] {"transport", "network", "uri", "nats-credentials-file"})
             assertFalse(network.containsKey(old), old + " in " + network);
@@ -285,7 +285,7 @@ class NetworkUriUpgradeTest {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/config/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(20, data.get("config-version"));
+            assertEquals(21, data.get("config-version"));
             assertEquals(
                     Map.of(
                             "type",

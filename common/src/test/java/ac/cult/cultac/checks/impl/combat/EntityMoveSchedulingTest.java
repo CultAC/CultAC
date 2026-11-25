@@ -5,22 +5,30 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.value.EntityDelta;
+import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.lang.reflect.Field;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
@@ -88,6 +96,51 @@ class EntityMoveSchedulingTest {
         } finally {
             close(player);
         }
+    }
+
+    @Test
+    void aRotationSentBeforeTheOfferedLoginIsHandledRestartsTheLinearLerp() throws Exception {
+        CultPlayer player = trackingPlayer(ProtocolVersion.V26_3);
+        Platform platform = CultAPI.INSTANCE.getPlatform();
+        BaseConfigManager config = CultAPI.INSTANCE.getConfigManager();
+        boolean key = config.isLinearInterpolationOptIn();
+        try {
+            setField(CultAPI.class, CultAPI.INSTANCE, "platform", Platform.VELOCITY);
+            setField(BaseConfigManager.class, config, "linearInterpolationOptIn", true);
+            player.entityID = 7;
+            var login =
+                    new ClientboundLogin(7, false, new PlayerSpawnInfo(0, "minecraft:overworld", GameMode.SURVIVAL));
+            var event = new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, ClientboundPackets.LOGIN, login, false);
+            new PacketPlayerRespawn().onLogin(event, player, login);
+            event.getTasksAfterSend().forEach(Runnable::run);
+            player.sendTransaction();
+            int loginProof = player.lastTransactionSent.get();
+            FairReach fairReach = player.checkManager.getListener(FairReach.class);
+            fairReach.max_ping_compensation = 0;
+            fairReach.onAddEntity(
+                    null, player, new ClientboundAddEntity(TARGET, "minecraft:player", new Vec3d(0, 64, 0), 0, 0, 0));
+            int spawnProof = foreignPing(player);
+            player.packetEntityReplication.addEntity(
+                    TARGET, EntityTypeIds.PLAYER, new Vec3(0, 64, 0), 0, 0, 0, spawnProof);
+            send(player, turn(TARGET));
+
+            acknowledge(player, loginProof);
+            player.interpolationOptIn.declare();
+            acknowledge(player, spawnProof);
+            assertTrue(player.compensatedEntities.getEntity(TARGET).usesLinearInterpolationHandler());
+            acknowledge(player, player.lastTransactionSent.get() + 1);
+            assertEquals(3, fairReach.targetPlayers.get(TARGET).lerpTicks);
+        } finally {
+            setField(CultAPI.class, CultAPI.INSTANCE, "platform", platform);
+            setField(BaseConfigManager.class, config, "linearInterpolationOptIn", key);
+            close(player);
+        }
+    }
+
+    private static void setField(Class<?> owner, Object value, String name, Object setting) throws Exception {
+        Field field = owner.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(value, setting);
     }
 
     private static FairReach world(CultPlayer player) {
