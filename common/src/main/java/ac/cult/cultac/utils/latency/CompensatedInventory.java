@@ -943,6 +943,22 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         return hand == Hand.MAIN_HAND ? inventory.selected + Inventory.HOTBAR_OFFSET : Inventory.SLOT_OFFHAND;
     }
 
+    /**
+     * The player storage slots MultiPlayerGameMode#interact can change on the client: Player#interactOn changes the
+     * hand, and ItemUtils#createFilledResult or Allay#mobInteract hands over one item, which Inventory#add puts in the
+     * first empty slot. A spectator changes nothing.
+     */
+    public List<Integer> interactionSlots(Hand hand) {
+        if (player.gamemode == GameMode.SPECTATOR) return List.of();
+        int handSlot = handStorageSlot(hand);
+        SimItemStack held = getHandItem(hand);
+        boolean handsOver = held == null || held.isEmpty()
+                ? hand == Hand.MAIN_HAND
+                : held.getCount() > 1 || player.gamemode == GameMode.CREATIVE;
+        int free = handsOver ? inventory.getFreeSlot() : -1;
+        return free < 0 || free == handSlot ? List.of(handSlot) : List.of(handSlot, free);
+    }
+
     public void applyClientSideUseItemOnResult(Hand hand, SimItemStack handAfter, List<SimItemStack> addedItems) {
         SimItemStack before = getHandItem(hand);
         if (!sameStack(before, handAfter)) {

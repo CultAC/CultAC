@@ -211,7 +211,8 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         }
         event.setCancelled(true);
         // MultiPlayerGameMode#interact applies the interaction's item result on the client before the server judges it.
-        if (!player.isObserveOnly()) player.getInventory().resyncFromServerView();
+        if (!player.isObserveOnly())
+            player.blockActionReconciler.rejectInteract(player.getInventory().interactionSlots(packet.hand()));
     }
 
     @CultPacketHandler

@@ -99,24 +99,64 @@ class CorrectionWindowActionsTest {
     }
 
     @Test
-    void aWithheldEntityInteractionGivesBackTheItemsTheServerHolds() throws Exception {
+    void aWithheldEntityInteractionGivesBackTheSlotsTheClientCanHaveChanged() throws Exception {
         try (var s = new Setup()) {
-            s.player.compensatedEntities.addEntity(COW, EntityTypeIds.COW, new Vec3(.5, 64, -1), 0, 0, 0);
-            SimItemStack bucket = ItemUtil.modelItems().stack("minecraft:bucket", 1);
-            s.serverSlot(Inventory.HOTBAR_OFFSET, bucket);
-            s.player.getInventory().inventory.getInventoryStorage().setItem(Inventory.HOTBAR_OFFSET, bucket);
-            s.player.getInventory().selectHotbarSlot(0);
-            int hand = s.player.getInventory().inventory.menuSlotForStorage(Inventory.HOTBAR_OFFSET);
+            s.holdBuckets(2);
+            s.serverSlot(Inventory.HOTBAR_OFFSET + 1, ItemUtil.modelItems().stack("minecraft:dirt", 5));
+            s.serverSlot(Inventory.HOTBAR_OFFSET + 2, SimItemStack.EMPTY);
+            s.player
+                    .getInventory()
+                    .inventory
+                    .getInventoryStorage()
+                    .setItem(Inventory.HOTBAR_OFFSET + 1, ItemUtil.modelItems().stack("minecraft:dirt", 5));
 
             assertTrue(s.move(.5, 64, 3.5).isCancelled());
             s.output();
             assertTrue(s.interact(InteractAction.INTERACT).isCancelled());
-            assertTrue(s.output().stream()
-                    .anyMatch(packet -> packet instanceof InventoryPackets.Slot slot
-                            && slot.windowId() == 0
-                            && slot.slot() == hand
-                            && "minecraft:bucket".equals(slot.item().itemKey())));
+            List<InventoryPackets.Slot> slots = slots(s.output());
+            assertEquals(List.of(s.menuSlot(Inventory.HOTBAR_OFFSET), s.menuSlot(Inventory.HOTBAR_OFFSET + 2)),
+                    slots.stream().map(InventoryPackets.Slot::slot).toList());
+            assertEquals("minecraft:bucket", slots.get(0).item().itemKey());
+            assertEquals(2, slots.get(0).item().getCount());
+            assertTrue(slots.get(1).item().isEmpty());
         }
+    }
+
+    @Test
+    void withheldEntityInteractionsAreCorrectedOnceATick() throws Exception {
+        try (var s = new Setup()) {
+            s.holdBuckets(1);
+            assertTrue(s.move(.5, 64, 3.5).isCancelled());
+            s.output();
+            for (int i = 0; i < 4; i++) assertTrue(s.interact(InteractAction.INTERACT).isCancelled());
+            assertEquals(1, slots(s.output()).size());
+            s.player.onEndOfTickEvent();
+            assertEquals(1, slots(s.output()).size());
+            s.player.onEndOfTickEvent();
+            assertTrue(slots(s.output()).isEmpty());
+        }
+    }
+
+    @Test
+    void theInteractionCorrectionFollowsTheServersHandlingOfEarlierActions() throws Exception {
+        try (var s = new Setup()) {
+            s.holdBuckets(1);
+            assertFalse(s.dig(IN_FRONT, Direction.NORTH).isCancelled());
+            assertTrue(s.move(.5, 64, 3.5).isCancelled());
+            s.output();
+            assertTrue(s.interact(InteractAction.INTERACT).isCancelled());
+            assertTrue(slots(s.output()).isEmpty());
+            s.player.blockActionReconciler.confirmServerAck(s.sequence);
+            assertEquals(List.of(s.menuSlot(Inventory.HOTBAR_OFFSET)),
+                    slots(s.output()).stream().map(InventoryPackets.Slot::slot).toList());
+        }
+    }
+
+    private static List<InventoryPackets.Slot> slots(List<Object> packets) {
+        return packets.stream()
+                .filter(InventoryPackets.Slot.class::isInstance)
+                .map(InventoryPackets.Slot.class::cast)
+                .toList();
     }
 
     private static int state(String name) {
@@ -240,6 +280,19 @@ class CorrectionWindowActionsTest {
                 player.checkManager.dispatchReceiveHandlers(event);
             }
             return event;
+        }
+
+        // A cow behind the player, who holds buckets in the first hotbar slot.
+        void holdBuckets(int count) {
+            player.compensatedEntities.addEntity(COW, EntityTypeIds.COW, new Vec3(.5, 64, -1), 0, 0, 0);
+            SimItemStack bucket = ItemUtil.modelItems().stack("minecraft:bucket", count);
+            serverSlot(Inventory.HOTBAR_OFFSET, bucket);
+            player.getInventory().inventory.getInventoryStorage().setItem(Inventory.HOTBAR_OFFSET, bucket);
+            player.getInventory().selectHotbarSlot(0);
+        }
+
+        int menuSlot(int storageSlot) {
+            return player.getInventory().inventory.menuSlotForStorage(storageSlot);
         }
 
         // The server's value for a player storage slot, applied once the client answers its ping.

@@ -2183,12 +2183,14 @@ public class CultPlayer implements GrimUser {
     public void onEndOfTickEvent() {
         tick++;
         packetEntityReplication.onEndOfTickEvent();
+        blockActionReconciler.tickEnded();
     }
 
     /** Paper's end of server tick {@code serverTick}. Owner thread only. */
     public void onEndOfTickEvent(int serverTick) {
         tick++;
         packetEntityReplication.onEndOfTickEvent(serverTick);
+        blockActionReconciler.tickEnded();
     }
 
     @Getter

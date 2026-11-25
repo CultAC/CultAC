@@ -18,6 +18,7 @@ import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
@@ -26,6 +27,8 @@ import org.jetbrains.annotations.Nullable;
 public final class BlockActionReconciler {
     /** ServerGamePacketListenerImpl#restartClientLoadTimerAfterRespawn. */
     private static final int CLIENT_LOADED_TIMEOUT_TICKS = 60;
+    /** The sequence of a correction no client action carries, which writes no acknowledgement. */
+    private static final int NO_SEQUENCE = Integer.MIN_VALUE;
 
     private final CultPlayer player;
     private final ArrayDeque<Correction> pending = new ArrayDeque<>();
@@ -36,6 +39,8 @@ public final class BlockActionReconciler {
     private boolean serverWonGame;
     private boolean serverAwaitingLoad;
     private int loadTimerStartTick;
+    private final Set<Integer> rejectedInteractionSlots = new LinkedHashSet<>();
+    private int interactionCorrectionTick = -1;
 
     public BlockActionReconciler(CultPlayer player) {
         this.player = player;
@@ -168,6 +173,30 @@ public final class BlockActionReconciler {
         enqueue(correction(packet.sequence()), packet.hand(), prediction);
     }
 
+    /**
+     * An entity interaction withheld from the server: the player storage slots the client can have changed get the
+     * server's values once the server has handled every action forwarded before it. ServerPlayer#tick broadcasts menu
+     * changes once a tick, and these corrections are written at most once a tick; later ones wait for the tick's end.
+     */
+    public void rejectInteract(Collection<Integer> storageSlots) {
+        if (player.isBedrockMovement() || player.isObserveOnly() || storageSlots.isEmpty()) return;
+        rejectedInteractionSlots.addAll(storageSlots);
+        if (interactionCorrectionTick != player.getTick()) correctRejectedInteractions();
+    }
+
+    /** The server tick ended. */
+    public void tickEnded() {
+        if (!rejectedInteractionSlots.isEmpty()) correctRejectedInteractions();
+    }
+
+    private void correctRejectedInteractions() {
+        interactionCorrectionTick = player.getTick();
+        Correction correction = correction(NO_SEQUENCE);
+        correction.slots.addAll(rejectedInteractionSlots);
+        rejectedInteractionSlots.clear();
+        enqueue(correction);
+    }
+
     private void enqueue(Correction correction, Hand hand, ClientBlockActions.Prediction prediction) {
         correction.slots.add(
                 hand == Hand.MAIN_HAND
@@ -277,11 +306,13 @@ public final class BlockActionReconciler {
             if (menuSlot < 0 || item == null) continue;
             slots.add(new InventoryPackets.Slot(0, inventory.serverStateId(), menuSlot, item));
         }
-        BlockPredictionAckSender.sendCorrections(player, correction.sequence, true, updates, slots);
+        BlockPredictionAckSender.sendCorrections(
+                player, correction.sequence, correction.sequence != NO_SEQUENCE, updates, slots);
     }
 
     public void reset() {
         pending.clear();
+        rejectedInteractionSlots.clear();
         lastForwarded = -1;
         lastConfirmedServerAck = -1;
         serverDestroyPos = null;
