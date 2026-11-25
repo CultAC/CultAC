@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.events.packets.PacketEntityReplication;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
+import ac.cult.cultac.manager.player.CheckManager;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.PacketDispatcher;
@@ -79,6 +81,9 @@ class VelocityClientboundHandlingTest {
             setField(CompensatedEntities.class, entities, "vehicles", mock(CompensatedVehicleState.class));
             fixture.player.compensatedEntities = entities;
             fixture.player.latencyUtils = mock(LatencyUtils.class);
+            var checks = mock(CheckManager.class);
+            when(checks.getFairReach()).thenReturn(mock(FairReach.class));
+            fixture.player.checkManager = checks;
             var replication = new PacketEntityReplication(fixture.player);
             var callbackWriteCount = new AtomicInteger(-1);
             fixture.dispatcher.register(routes -> routes.send(
