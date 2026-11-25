@@ -38,8 +38,15 @@ final class VehicleColliderGather {
         SimpleCollisionBox reach = box.copy()
                 .expandToCoordinate(movements.minX, movements.minY, movements.minZ)
                 .expandToCoordinate(movements.maxX, movements.maxY, movements.maxZ);
+        boolean otherBlocks = mayHoldOtherBlocks(player, reach);
+        // Every movement's expanded box contains the box expanded by the distance all of them share on each axis.
+        double sharedX = shared(movements.minX, movements.maxX);
+        double sharedY = shared(movements.minY, movements.maxY);
+        double sharedZ = shared(movements.minZ, movements.maxZ);
+        SimpleCollisionBox certain = box.copy().expandToCoordinate(sharedX, sharedY, sharedZ);
+        if (!otherBlocks && hasBlockCollider(player, certain, start.y)) return DesyncStatus.TRUE;
         if (border == DesyncStatus.FALSE
-                && !mayHoldOtherBlocks(player, reach)
+                && !otherBlocks
                 && !hasBlockCollider(player, reach, start.y)
                 && !mayGatherEntity(player, result, reach)) {
             return DesyncStatus.FALSE;
@@ -60,6 +67,11 @@ final class VehicleColliderGather {
     /** The largest bbMax of any movement in {@code movements}. */
     private static double bbMax(SimpleCollisionBox box, SimpleCollisionBox movements) {
         return bbMax(box, movements.minX, movements.maxX, movements.minZ, movements.maxZ);
+    }
+
+    /** The distance every movement from {@code min} to {@code max} on one axis moves at least, signed; 0 if none. */
+    private static double shared(double min, double max) {
+        return min > 0.0D ? min : max < 0.0D ? max : 0.0D;
     }
 
     /** AABB#expandTowards then getXsize, or getZsize, along one horizontal axis. */
