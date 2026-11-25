@@ -39,6 +39,8 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
 
     @Getter(AccessLevel.NONE)
     private final int[] channelTypeCounts = new int[ClientClassification.Type.values().length];
+    @Getter(AccessLevel.NONE)
+    private final int[] channelFamilyCounts = new int[ClientClassification.Type.values().length];
 
     private String brand = null;
     private volatile ClientClassification.Type channelType = ClientClassification.Type.UNSET;
@@ -112,19 +114,28 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
     }
 
     private void updateChannelType(String channel, int delta) {
+        ClientClassification.Type family = ClientClassification.channelFamily(channel);
+        if (family != ClientClassification.Type.UNSET) {
+            channelFamilyCounts[family.ordinal()] += delta;
+            List<ClientClassification.Type> families = new ArrayList<>();
+            for (ClientClassification.Type candidate : ClientClassification.Type.values()) {
+                if (channelFamilyCounts[candidate.ordinal()] != 0) families.add(candidate);
+            }
+            channelTypes = List.copyOf(families);
+        }
         ClientClassification.Type type = ClientClassification.channelType(channel);
         if (type == ClientClassification.Type.UNSET) return;
         channelTypeCounts[type.ordinal()] += delta;
-        List<ClientClassification.Type> families = new ArrayList<>();
+        ClientClassification.Type result = ClientClassification.Type.UNSET;
         for (ClientClassification.Type candidate : ClientClassification.Type.values()) {
-            if (channelTypeCounts[candidate.ordinal()] != 0) families.add(candidate);
+            if (channelTypeCounts[candidate.ordinal()] == 0) continue;
+            if (result != ClientClassification.Type.UNSET) {
+                result = ClientClassification.Type.UNKNOWN;
+                break;
+            }
+            result = candidate;
         }
-        channelTypes = List.copyOf(families);
-        channelType = switch (families.size()) {
-            case 0 -> ClientClassification.Type.UNSET;
-            case 1 -> families.get(0);
-            default -> ClientClassification.Type.UNKNOWN;
-        };
+        channelType = result;
     }
 
     /** Records a channel the client sent a payload on; false when ExploitC flagged it instead. */

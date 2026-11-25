@@ -6,9 +6,10 @@ import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
- * Client identity reported by the brand, registered channels and companion. {@code channelTypes} lists every client
- * family the registered channels name, in {@link Type} order; {@code channelType} is that family when there is one,
- * {@link Type#UNKNOWN} when they name several and {@link Type#UNSET} when none.
+ * Client identity reported by the brand, registered channels and companion. {@code channelType} is the one type
+ * {@link #channelType(String)} gives the registered channels, {@link Type#UNKNOWN} when they give several and
+ * {@link Type#UNSET} when none; {@code channelTypes} lists every family {@link #channelFamily} names among them, in
+ * {@link Type} order, for staff and search.
  */
 public record ClientClassification(Type brandType, Type channelType, Type modType, List<Type> channelTypes) {
     public enum Type {
@@ -78,7 +79,7 @@ public record ClientClassification(Type brandType, Type channelType, Type modTyp
     }
 
     public static Type channelType(String channel) {
-        if (channel.startsWith("fabric:") || channel.startsWith("fabric-")) return Type.FABRIC;
+        if (channel.equals("fabric:registry/sync") || channel.equals("fabric:registry/sync/direct")) return Type.FABRIC;
         if (channel.startsWith("neoforge:")) return Type.NEOFORGE;
         if (channel.startsWith("fml:")
                 || channel.startsWith("forge:")
@@ -89,6 +90,12 @@ public record ClientClassification(Type brandType, Type channelType, Type modTyp
         if (channel.equals("badlion:mods") || channel.equals("badlion:timers")) return Type.BADLION;
         if (channel.equals("labymod3:main") || channel.equals("labymod:main")) return Type.LABYMOD;
         return Type.UNSET;
+    }
+
+    /** The client family a channel's name shows, for {@code channelTypes}; any Fabric API channel is Fabric. */
+    public static Type channelFamily(String channel) {
+        if (channel.startsWith("fabric:") || channel.startsWith("fabric-")) return Type.FABRIC;
+        return channelType(channel);
     }
 
     public boolean contradictsVanilla() {
