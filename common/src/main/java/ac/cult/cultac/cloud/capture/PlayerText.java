@@ -52,7 +52,7 @@ import javax.crypto.spec.SecretKeySpec;
  *       and author sent empty, NBT (a shoulder parrot) as an empty compound, and a profile cut to its skin;
  *   <li>from resource pack pushes, the prompt sent empty and the URL as an empty string;
  *   <li>from tab list entries, a display name sent empty, a chat session sent absent, and properties cut to one
- *       unsigned skin; from teams, text components sent empty, the name as one of the stream's own and of the entries
+ *       unsigned skin; from teams, the display name sent empty, the name as one of the stream's own and of the entries
  *       only player names and UUIDs;
  *   <li>from {@code open_screen}, the window's title, and from {@code player_combat_kill}, the death message, each
  *       sent as an empty text;
@@ -942,8 +942,8 @@ public final class PlayerText {
         }
 
         /**
-         * A team: its name sent as the stream's name for it, its mode and options kept, its display name, prefix and
-         * suffix sent empty, and of its entries only player names and UUIDs kept.
+         * A team: its name sent as the stream's name for it, its mode, options, prefix and suffix kept, its display name
+         * sent empty, and of its entries only player names and UUIDs kept.
          */
         private void team() {
             int start = in.readerIndex();
@@ -954,8 +954,8 @@ public final class PlayerText {
             if (mode == 0 || mode == 2) {
                 if (version.atLeast(ProtocolVersion.V26_2)) {
                     text(); // Display name.
-                    text(); // Prefix.
-                    text(); // Suffix.
+                    PlayerTextWire.nbt(in); // Prefix.
+                    PlayerTextWire.nbt(in); // Suffix.
                     Wire.readVarInt(in); // Name tags.
                     Wire.readVarInt(in); // Collisions.
                     if (in.readBoolean()) Wire.readVarInt(in); // Colour.
@@ -971,8 +971,8 @@ public final class PlayerText {
                         string(); // Collisions.
                     }
                     Wire.readVarInt(in); // Colour.
-                    text(); // Prefix.
-                    text(); // Suffix.
+                    PlayerTextWire.nbt(in); // Prefix.
+                    PlayerTextWire.nbt(in); // Suffix.
                 }
             }
             if (mode == 0 || mode == 3 || mode == 4) {
