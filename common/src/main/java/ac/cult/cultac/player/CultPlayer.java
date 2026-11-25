@@ -109,7 +109,6 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -151,7 +150,7 @@ public class CultPlayer implements GrimUser {
     @lombok.Getter
     @lombok.RequiredArgsConstructor
     @lombok.experimental.Accessors(fluent = true)
-    private static class SentTransaction {
+    private static class SentTransaction extends PendingTransactions.Link {
         private final int transaction;
         private final int id;
         private final long sentAt;
@@ -189,7 +188,7 @@ public class CultPlayer implements GrimUser {
     // Determining player ping
     // The difference between keepalive and transactions is that keepalive is async while transactions are sync
     /** Written pings once a native boundary exists; until then {@link #writtenPings} holds them, and this is null. */
-    private LinkedList<SentTransaction> transactionsSent;
+    private PendingTransactions<SentTransaction> transactionsSent;
 
     private final WrittenPings writtenPings = new WrittenPings();
     /** The entries of {@link #transactionsSent} by id; it never holds one id twice. */
@@ -1249,9 +1248,9 @@ public class CultPlayer implements GrimUser {
         }
     }
 
-    private LinkedList<SentTransaction> bedrockTransactions() {
+    private PendingTransactions<SentTransaction> bedrockTransactions() {
         if (transactionsSent == null) {
-            LinkedList<SentTransaction> sent = new LinkedList<>();
+            PendingTransactions<SentTransaction> sent = new PendingTransactions<>();
             while (!writtenPings.isEmpty()) {
                 var written = new SentTransaction(
                         writtenPings.headTransaction(), writtenPings.headId(), writtenPings.headSentAt());
@@ -1278,9 +1277,8 @@ public class CultPlayer implements GrimUser {
         if (previous == null || previous.acknowledged) {
             pending.addFirst(transaction);
         } else {
-            int index = pending.indexOf(previous);
-            if (index < 0) throw new IllegalStateException("Last written transaction is missing");
-            pending.add(index + 1, transaction);
+            if (!pending.contains(previous)) throw new IllegalStateException("Last written transaction is missing");
+            pending.addAfter(previous, transaction);
         }
         transactionsSentById.put(transaction.id(), transaction);
         return transaction;
