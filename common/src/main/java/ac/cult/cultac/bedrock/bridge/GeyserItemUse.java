@@ -36,8 +36,8 @@ final class GeyserItemUse {
     static boolean allow(GeyserSession session, CultPlayer player, InventoryTransactionPacket packet) {
         if (packet.getTransactionType() != InventoryTransactionType.ITEM_USE || packet.getActionType() != 0)
             return true;
-        if (!player.getSetbackTeleportUtil().isPendingSetback() && !dropsHiddenUse(session, player, packet))
-            return true;
+        boolean withheld = !player.isObserveOnly() && player.getSetbackTeleportUtil().withholdsClientActions();
+        if (!withheld && !dropsHiddenUse(session, player, packet)) return true;
         var position = packet.getBlockPosition();
         BlockUtils.restoreCorrectBlock(session, position, packet.getHotbarSlot());
         if (packet.getBlockFace() >= 0 && packet.getBlockFace() < FACES.length) {

@@ -12,6 +12,7 @@ import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
@@ -291,6 +292,25 @@ public class GeyserItemUseTest {
             receipts.removeFirst().accept(h.player);
             assertEquals(BlockIds.AIR.defaultState(), h.player.compensatedWorld.getBlockStateIdAt(placed));
             assertFalse(h.player.compensatedWorld.isBedrockClientWritten(placed.getX(), placed.getY(), placed.getZ()));
+        }
+    }
+
+    @Test
+    public void aUseOnABlockWaitsUntilThePlacementIsAccepted() {
+        try (var h = new Harness()) {
+            var support = new BlockPos(0, 64, 0);
+            h.seed(support);
+            h.player.lastTransactionReceived.set(10);
+            h.position(.5, 65, 1.5);
+            // A dropped use restores the client's view of the block through the world manager.
+            when(h.session.getGeyser().getWorldManager().blockAt(any(), eq(0), eq(64), eq(0)))
+                    .thenThrow(new IllegalStateException("restored"));
+            var restored = assertThrows(
+                    IllegalStateException.class,
+                    () -> GeyserItemUse.allow(h.session, h.player, useOn(support, 1)));
+            assertEquals("restored", restored.getMessage());
+            SetbackFixtures.setLoaded(h.player.getSetbackTeleportUtil(), true);
+            assertTrue(GeyserItemUse.allow(h.session, h.player, useOn(support, 1)));
         }
     }
 
