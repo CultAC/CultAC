@@ -1233,6 +1233,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         player.lookPlaceRecheck.tickEnded();
         player.blockActionReconciler.clientTickEnded();
         player.horseMountLook.clear();
+        player.interpolationOptIn.clientTickEnded();
         if (!event.isSynthetic()) {
             player.clientTickEndTimeout.onTickEnd(System.nanoTime());
             player.lastClientTickArrivedAt = System.nanoTime();

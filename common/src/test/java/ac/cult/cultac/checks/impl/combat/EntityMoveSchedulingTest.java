@@ -1,6 +1,8 @@
 package ac.cult.cultac.checks.impl.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
@@ -27,10 +29,11 @@ import org.mockito.Mockito;
 /** A remote player's FairReach move applies once, at whichever of its transaction or its deadline comes first. */
 class EntityMoveSchedulingTest {
     private static final int TARGET = 3000;
+    private static final int STEPPED = 3001;
 
     @Test
     void aFairReachMoveAppliesOnceAtItsTransactionOrItsDeadline() {
-        CultPlayer player = trackingPlayer();
+        CultPlayer player = trackingPlayer(ProtocolVersion.V1_21_11);
         EmbeddedChannel channel = (EmbeddedChannel) player.user.getChannel();
         try {
             FairReach fairReach = world(player);
@@ -57,6 +60,31 @@ class EntityMoveSchedulingTest {
             target.lerpTicks = 0;
             acknowledge(player, next);
             assertEquals(0, target.lerpTicks, "the transaction does not apply an applied move again");
+        } finally {
+            close(player);
+        }
+    }
+
+    @Test
+    void aRotationRestartsTheLerpOfALinear263EntityOnly() {
+        CultPlayer player = trackingPlayer(ProtocolVersion.V26_3);
+        try {
+            player.interpolationOptIn.loginSent(true);
+            player.interpolationOptIn.loginHandled(true);
+            player.interpolationOptIn.declare();
+            FairReach fairReach = world(player);
+            player.interpolationOptIn.undeclare();
+            fairReach.onAddEntity(
+                    null, player, new ClientboundAddEntity(STEPPED, "minecraft:player", new Vec3d(0, 64, 0), 0, 0, 0));
+            player.packetEntityReplication.addEntity(STEPPED, EntityTypeIds.PLAYER, new Vec3(0, 64, 0), 0, 0, 0, -1);
+            assertTrue(player.compensatedEntities.getEntity(TARGET).usesLinearInterpolationHandler());
+            assertFalse(player.compensatedEntities.getEntity(STEPPED).usesLinearInterpolationHandler());
+
+            send(player, turn(TARGET));
+            send(player, turn(STEPPED));
+            acknowledge(player, player.lastTransactionSent.get() + 1);
+            assertEquals(3, fairReach.targetPlayers.get(TARGET).lerpTicks);
+            assertEquals(0, fairReach.targetPlayers.get(STEPPED).lerpTicks);
         } finally {
             close(player);
         }
@@ -104,7 +132,11 @@ class EntityMoveSchedulingTest {
                 TARGET, new EntityDelta.Linear((short) dx, (short) 0, (short) 0), 0.0F, 0.0F, true, true, false);
     }
 
-    private static CultPlayer trackingPlayer() {
+    private static ClientboundMoveEntity turn(int entityId) {
+        return new ClientboundMoveEntity(entityId, EntityDelta.ZERO, 90.0F, 0.0F, true, false, true);
+    }
+
+    private static CultPlayer trackingPlayer(ProtocolVersion protocol) {
         OfflineCultTestBootstrap.installConfig();
         PlatformConnection platform = new PlatformConnection() {
             @Override
@@ -119,12 +151,12 @@ class EntityMoveSchedulingTest {
 
             @Override
             public ProtocolVersion getObservedProtocol() {
-                return ProtocolVersion.V1_21_11;
+                return protocol;
             }
 
             @Override
             public ProtocolVersion getClientProtocol() {
-                return ProtocolVersion.V1_21_11;
+                return protocol;
             }
 
             @Override

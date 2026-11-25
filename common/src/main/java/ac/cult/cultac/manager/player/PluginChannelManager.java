@@ -88,7 +88,9 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         boolean play = event != null && event.getPhase() == ConnectionPhase.PLAY;
         if (isRegister(channelName)) {
             for (String channel : channelList(payload)) {
-                if (play && ClientInterpolationOptIn.CHANNEL.equals(channel)) player.interpolationOptIn.declare();
+                if (play && ClientInterpolationOptIn.CHANNEL.equals(channel) && player.interpolationOptIn.declare()) {
+                    player.compensatedEntities.useLinearInterpolationHandlers();
+                }
                 handleChannelRegistered(channel);
             }
             return;

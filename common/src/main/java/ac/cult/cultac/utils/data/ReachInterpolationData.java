@@ -295,7 +295,9 @@ public class ReachInterpolationData {
 
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
             interpolationPlayer = player;
-            if (EntityTypeUtil.isLiving(entity.type) && entity.type != EntityTypeIds.SHULKER) {
+            if (EntityTypeUtil.isLiving(entity.type)
+                    && entity.type != EntityTypeIds.SHULKER
+                    && !entity.usesLinearInterpolationHandler()) {
                 interpolationSteps = EntityTypeUtil.modelType(entity.type).updateInterval();
                 interpolationQueue = new ArrayDeque<>();
                 steppedCurrent = lastStep = new Transform(feet(startingLocation), currentYaw, currentPitch);
@@ -338,6 +340,11 @@ public class ReachInterpolationData {
 
     public boolean usesSteppedInterpolation() {
         return interpolationQueue != null;
+    }
+
+    /** The end of the queued stepped path, with the rotation of the call that queued it. */
+    public Transform steppedTarget() {
+        return steppedTarget;
     }
 
     /** Whether reach judges this snapshot without the packet-position margin. */

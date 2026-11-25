@@ -2064,6 +2064,14 @@ public class CompensatedEntities {
         return moves;
     }
 
+    /** Gives every tracked living entity LinearInterpolationHandler. */
+    public void useLinearInterpolationHandlers() {
+        PacketEntity self = getSelf();
+        for (PacketEntity entity : entityMap.values()) {
+            if (entity != self) entity.useLinearInterpolationHandler(player);
+        }
+    }
+
     /** Runs legacy client entity state ticks in entity-map order; Java remote riders retain lazy position storage. */
     public void forEachTrackedEntity(Consumer<PacketEntity> tick) {
         preloadTickLines();
