@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.movement;
 
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.type.CheckListener;
-import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
@@ -191,12 +190,14 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
     }
 
     // ServerPlayerGameMode#handleBlockBreakAction judges a dig from the position the server holds for the player.
+    // BedrockBlockBreakActions withholds a Bedrock dig before Geyser translates it.
     @CultPacketHandler
     public void onPlayerAction(
             PacketReceiveEvent<ServerboundPlayerAction> event, CultPlayer player, ServerboundPlayerAction packet) {
         PlayerAction action = packet.action();
         if ((action == PlayerAction.START_DESTROY_BLOCK || action == PlayerAction.STOP_DESTROY_BLOCK)
-                && withholdsMovement()) {
+                && !player.isBedrockMovement()
+                && player.getSetbackTeleportUtil().withholdsClientActions()) {
             event.setCancelled(true);
         }
     }
@@ -205,14 +206,10 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
     @CultPacketHandler
     public void onInteract(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        if (packet.action() != InteractAction.ATTACK && withholdsMovement()) event.setCancelled(true);
-    }
-
-    // The server holds none of the positions the client sent since its movement was first withheld.
-    private boolean withholdsMovement() {
-        if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return false;
-        SetbackTeleportUtil setbacks = player.getSetbackTeleportUtil();
-        return setbacks.shouldBlockMovement() || setbacks.isPendingSetback();
+        if (packet.action() == InteractAction.ATTACK || !player.getSetbackTeleportUtil().withholdsClientActions()) {
+            return;
+        }
+        event.setCancelled(true);
     }
 
     @CultPacketHandler

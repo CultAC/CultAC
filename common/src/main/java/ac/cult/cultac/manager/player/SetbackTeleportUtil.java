@@ -317,6 +317,15 @@ public class SetbackTeleportUtil extends CultProcessor
         return corrections.isPending();
     }
 
+    /** Whether the server holds none of the positions the client sent since its movement was first withheld. */
+    public boolean withholdsClientActions() {
+        boolean enforced = !player.isDisabled() && player.shouldEnforceMovementSetbacks();
+        if (player.isBedrockMovement()) {
+            return blocksBedrockTranslatedMovement() || enforced && shouldBlockMovement(true);
+        }
+        return enforced && (shouldBlockMovement() || isPendingSetback());
+    }
+
     /** Whether the player is in an unloaded chunk far enough from the correction that it cannot be the reason. */
     public boolean tooFarFromUnloadedChunk() {
         return gate.tooFarFromUnloadedChunk();

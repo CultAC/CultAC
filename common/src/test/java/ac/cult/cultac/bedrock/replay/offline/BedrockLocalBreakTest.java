@@ -9,11 +9,16 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
+import ac.cult.cultac.manager.player.SetbackFixtures;
+import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.data.SetBackData;
+import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.util.ArrayList;
 import java.util.List;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.data.PlayerActionType;
@@ -245,6 +250,37 @@ public class BedrockLocalBreakTest {
                     List.of(action(PlayerActionType.DROP_ITEM, BlockPos.ZERO)),
                     local -> {});
             assertEquals(2, p.getInventory().getHeldItem().getCount());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(p);
+        }
+    }
+
+    @Test
+    public void breaksWaitForTheAcceptedCorrectionAndTheClientGetsTheBlockBack() {
+        OfflineCultTestBootstrap.installConfig();
+        var p = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            p.gamemode = GameMode.SURVIVAL;
+            p.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            int dirt = DataTables.defaults().registry().block("minecraft:dirt").defaultState();
+            p.compensatedWorld.updateBlock(2, 64, 0, dirt);
+            SetbackFixtures.requireCorrection(
+                    p.getSetbackTeleportUtil(),
+                    new SetBackData(
+                            new TeleportData(new Vec3(.5, 64, .5), new RelativeFlag(0), 20, 1),
+                            0,
+                            0,
+                            Vec3.ZERO,
+                            false,
+                            false));
+            var actions = new ArrayList<>(List.of(
+                    action(PlayerActionType.START_BREAK, WALL),
+                    action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL)));
+            List<Vector3i> restored = new ArrayList<>();
+            p.bedrockState.blockBreakActions.apply(p, BedrockCoordinateFrame.IDENTITY, null, actions, restored::add);
+            assertTrue(actions.isEmpty());
+            assertEquals(List.of(Vector3i.from(2, 64, 0), Vector3i.from(2, 64, 0)), restored);
+            assertEquals(dirt, p.compensatedWorld.getBlockStateIdAt(WALL));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(p);
         }

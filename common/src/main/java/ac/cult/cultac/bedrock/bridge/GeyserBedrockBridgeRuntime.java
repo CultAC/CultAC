@@ -133,7 +133,11 @@ import org.geysermc.geyser.entity.type.living.animal.horse.SkeletonHorseEntity;
 import org.geysermc.geyser.entity.type.living.animal.horse.ZombieHorseEntity;
 import org.geysermc.geyser.entity.vehicle.ClientVehicle;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.BlockBreakHandler;
 import org.geysermc.geyser.util.BlockUtils;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.PlayerAction;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundPlayerActionPacket;
 
 public final class GeyserBedrockBridgeRuntime {
     private static final Map<GeyserConnection, GeyserFloatingPointsAdapter> GFP_ADAPTERS = new ConcurrentHashMap<>();
@@ -1284,6 +1288,16 @@ public final class GeyserBedrockBridgeRuntime {
             connection.sendUpstreamPacket(packet);
         }
 
+        // BlockBreakHandler#handleAbortBreaking: the server ends the dig Geyser started for the client.
+        private void abortTranslatedDig() {
+            BlockBreakHandler breaking = connection.getBlockBreakHandler();
+            Vector3i open = breaking.getCurrentBlockPos();
+            if (open == null) return;
+            connection.sendDownstreamGamePacket(
+                    new ServerboundPlayerActionPacket(PlayerAction.CANCEL_DIGGING, open, Direction.DOWN, 0));
+            breaking.reset();
+        }
+
         private boolean processAuthInput(CultPlayer player, PlayerAuthInputPacket packet) {
             if (!hasFiniteMovement(packet)) return false;
             if (!installFloatingPoints(connection, true)) return false;
@@ -1304,6 +1318,7 @@ public final class GeyserBedrockBridgeRuntime {
                                     resolved.getPosition(),
                                     packet.getPlayerActions(),
                                     local -> {
+                                        abortTranslatedDig();
                                         BlockUtils.sendBedrockStopBlockBreak(connection, local.toFloat());
                                         BlockUtils.restoreCorrectBlock(
                                                 connection,

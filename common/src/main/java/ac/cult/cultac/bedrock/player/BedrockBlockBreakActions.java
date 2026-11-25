@@ -28,7 +28,8 @@ public final class BedrockBlockBreakActions {
      * Applies the block actions of an auth input in order, in its resolved {@code coordinates}, whose move claims the
      * feet position {@code claimed}, or null when none is judged. One BedrockBreakVisibility judges hidden is removed
      * from {@code actions}, so Geyser never translates it, and handed to {@code dropped} with its position in the
-     * client's coordinates, for the bridge to restore the block on the client.
+     * client's coordinates, for the bridge to restore the block on the client. So is one the server would judge from a
+     * position it does not hold.
      */
     public void apply(
             CultPlayer player,
@@ -37,6 +38,7 @@ public final class BedrockBlockBreakActions {
             List<PlayerBlockActionData> actions,
             Consumer<Vector3i> dropped) {
         var visibility = player.checkManager.getCheck(BedrockBreakVisibility.class);
+        boolean withheld = player.getSetbackTeleportUtil().withholdsClientActions();
         for (var iterator = actions.iterator(); iterator.hasNext(); ) {
             var action = iterator.next();
             if (action.getAction() == PlayerActionType.DROP_ITEM) {
@@ -56,7 +58,9 @@ public final class BedrockBlockBreakActions {
                 case START_BREAK, BLOCK_CONTINUE_DESTROY, BLOCK_PREDICT_DESTROY -> true;
                 default -> false;
             };
-            if (breaks && visibility.dropsAction(action.getAction().name(), pos, action.getFace(), claimed)) {
+            if (breaks
+                    && (withheld
+                            || visibility.dropsAction(action.getAction().name(), pos, action.getFace(), claimed))) {
                 iterator.remove();
                 if (pos.equals(breaking)) breaking = null;
                 dropped.accept(local);
