@@ -93,21 +93,22 @@ public class FairReach extends Check implements CheckListener {
     }
 
     public void handleEntityMove(int entityId, double x, double y, double z, PositionUpdate update) {
-        schedule(new PendingMove(entityId, x, y, z, update, false));
+        schedule(new PendingMove(entityId, x, y, z, update, false, false));
     }
 
     /**
      * A rotation-only move restarts the client's position interpolation: toward the kept target before 1.21.5, and
      * from 1.21.9 only when the rotation changed; 1.21.5 to 1.21.8 retarget it to the entity's shown position, and
-     * 26.3 appends a stationary step instead.
+     * 26.3 appends a stationary step instead. A 26.3 entity with LinearInterpolationHandler restarts as from 1.21.9.
      */
     public void handleEntityRotation(int entityId, double x, double y, double z, boolean rotationChanged) {
         ClientVersion version = player.getClientVersion();
-        if (version.isNewerThanOrEquals(ClientVersion.V_26_3)) return;
         if (version.isNewerThanOrEquals(ClientVersion.V_1_21_9) && !rotationChanged) return;
         boolean holdsShownPosition =
                 version.isNewerThanOrEquals(ClientVersion.V_1_21_5) && version.isOlderThan(ClientVersion.V_1_21_9);
-        schedule(new PendingMove(entityId, x, y, z, PositionUpdate.RELATIVE, holdsShownPosition));
+        boolean linearOnly = version.isNewerThanOrEquals(ClientVersion.V_26_3);
+        if (linearOnly && !player.interpolationOptIn.isOfferSent()) return;
+        schedule(new PendingMove(entityId, x, y, z, PositionUpdate.RELATIVE, holdsShownPosition, linearOnly));
     }
 
     private void schedule(PendingMove move) {
@@ -134,15 +135,24 @@ public class FairReach extends Check implements CheckListener {
         private final double z;
         private final PositionUpdate update;
         private final boolean holdsShownPosition;
+        // Applies only to an entity the client interpolates with LinearInterpolationHandler; unknown is stepped.
+        private final boolean linearOnly;
 
         private PendingMove(
-                int entityId, double x, double y, double z, PositionUpdate update, boolean holdsShownPosition) {
+                int entityId,
+                double x,
+                double y,
+                double z,
+                PositionUpdate update,
+                boolean holdsShownPosition,
+                boolean linearOnly) {
             this.entityId = entityId;
             this.x = x;
             this.y = y;
             this.z = z;
             this.update = update;
             this.holdsShownPosition = holdsShownPosition;
+            this.linearOnly = linearOnly;
         }
 
         @Override
@@ -150,6 +160,10 @@ public class FairReach extends Check implements CheckListener {
             Object previous = getAndSet(MOVE_APPLIED);
             if (previous == MOVE_APPLIED) return;
             if (previous instanceof ScheduledFuture<?> deadline) deadline.cancel(false);
+            if (linearOnly) {
+                PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+                if (entity == null || !entity.usesLinearInterpolationHandler()) return;
+            }
             applyChanges(entityId, x, y, z, update, holdsShownPosition);
         }
 

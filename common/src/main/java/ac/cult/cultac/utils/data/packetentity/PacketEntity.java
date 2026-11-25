@@ -75,6 +75,8 @@ public class PacketEntity {
 
     public final int type;
     private final boolean living;
+    // AntiStutter and Interpolation Fix give a living entity LinearInterpolationHandler when it is created.
+    private boolean linearInterpolationHandler;
     private final boolean boat;
     private final boolean minecart;
     private final boolean happyGhast;
@@ -184,6 +186,11 @@ public class PacketEntity {
         Vec3 spawnPosition = new Vec3(x, y, z);
         this.desyncClientPos = spawnPosition;
         this.clientPhysicalPosition = spawnPosition;
+        this.linearInterpolationHandler = living
+                && type != EntityTypeIds.SHULKER
+                && !cultPlayer.isBedrockMovement()
+                && cultPlayer.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
+                && cultPlayer.interpolationOptIn.linearForNewEntities();
         SimpleCollisionBox spawnBox = GetBoundingBox.getPacketEntityBoundingBox(cultPlayer, x, y, z, this);
         this.newPacketLocation = ReachInterpolationData.takingStart(
                 cultPlayer,
@@ -204,6 +211,60 @@ public class PacketEntity {
 
     public boolean isLivingEntity() {
         return living;
+    }
+
+    /** Whether this living entity interpolates with LinearInterpolationHandler instead of the stepped handler. */
+    public boolean usesLinearInterpolationHandler() {
+        return linearInterpolationHandler;
+    }
+
+    /**
+     * Gives this living entity LinearInterpolationHandler: its physical transform is kept, and the end of its queued
+     * stepped path, if any, becomes a fresh linear target.
+     */
+    public void useLinearInterpolationHandler(CultPlayer player) {
+        if (linearInterpolationHandler
+                || !living
+                || type == EntityTypeIds.SHULKER
+                || player.isBedrockMovement()
+                || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return;
+        linearInterpolationHandler = true;
+        restartLinearInterpolation(player);
+    }
+
+    private void restartLinearInterpolation(CultPlayer player) {
+        ReachInterpolationData stepped = newPacketLocation;
+        ReachInterpolationData.Transform target = stepped != null
+                        && stepped.usesSteppedInterpolation()
+                        && stepped.hasActiveInterpolationTarget()
+                ? stepped.steppedTarget()
+                : null;
+        Vec3 at = clientPhysicalPosition;
+        oldPacketLocation = null;
+        newPacketLocation = ReachInterpolationData.takingStart(
+                player,
+                GetBoundingBox.getPacketEntityBoundingBox(player, at.x, at.y, at.z, this),
+                at.x,
+                at.y,
+                at.z,
+                clientPhysicalYaw,
+                clientPhysicalPitch,
+                clientPhysicalYaw,
+                clientPhysicalPitch,
+                this);
+        if (target != null) {
+            newPacketLocation = nextInterpolation(
+                    player,
+                    interpolationStartingLocation(player, interpolationStart()),
+                    target.position().x,
+                    target.position().y,
+                    target.position().z,
+                    clientPhysicalYaw,
+                    clientPhysicalPitch,
+                    target.yaw(),
+                    target.pitch());
+        }
+        keepPositionCertainty();
     }
 
     public boolean isMinecart() {
@@ -516,7 +577,9 @@ public class PacketEntity {
                     interpolationTargetPitch(hasPitch, pitch));
             return;
         }
-        if (living && (newPacketLocation == null || !newPacketLocation.usesSteppedInterpolation())) {
+        if (living
+                && !linearInterpolationHandler
+                && (newPacketLocation == null || !newPacketLocation.usesSteppedInterpolation())) {
             SimpleCollisionBox start = interpolationStartingLocation(player);
             Vec3 current = positionFromCollisionBox(start);
             newPacketLocation = ReachInterpolationData.takingStart(

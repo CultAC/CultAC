@@ -975,6 +975,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     public static void processClientTickEndReceive(PacketReceiveEvent<?> event, CultPlayer player) {
         if (event.getPhase() != ConnectionPhase.PLAY) return;
         player.horseMountLook.clear();
+        player.interpolationOptIn.clientTickEnded();
         if (!event.isSynthetic()) player.clientTickEndTimeout.onTickEnd(System.nanoTime());
         breakPassengerRotationPair(event, player);
         PacketStateData state = player.packetStateData;
