@@ -71,6 +71,29 @@ class ClickOutsideMenuSlotsTest {
     }
 
     @Test
+    void aClickBelowTheNoSlotValueKeepsTheWornChestplate() throws Exception {
+        try (var f = wearingChestplateWithElytra()) {
+            var event = click(f, -2, swap());
+            assertTrue(event.isCancelled());
+            f.player.getInventory().resyncCancelledClick(event.getPacket());
+
+            assertEquals("minecraft:iron_chestplate", f.player.getInventory().getChestplate().itemKey());
+            assertTrue(startGlide(f).isCancelled());
+        }
+    }
+
+    @Test
+    void aClickBelowTheNoSlotValueForwardedInObservationDoesNotBecomeServerState() throws Exception {
+        try (var f = wearingChestplateWithElytra()) {
+            var event = click(f, -2, swap());
+            f.player.getInventory().onClickForwarded(event.getPacket());
+
+            assertEquals("minecraft:iron_chestplate", f.player.getInventory().getChestplate().itemKey());
+            assertNull(f.player.getInventory().serverViewSlot(chestStorageSlot(f)));
+        }
+    }
+
+    @Test
     void aClickOnTheLastMenuSlotIsNotCancelled() throws Exception {
         try (var f = wearingChestplateWithElytra()) {
             var event = click(f, INVENTORY_MENU_SLOTS - 1, swap());

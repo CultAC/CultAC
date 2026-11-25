@@ -230,15 +230,17 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     /**
      * ServerGamePacketListenerImpl#handleContainerClick returns without clicking or correcting anything when the
-     * slot fails AbstractContainerMenu#isValidSlotIndex for the server's open menu.
+     * slot fails AbstractContainerMenu#isValidSlotIndex for the server's open menu, and CraftBukkit also when it is
+     * below -1 and not outside the window. The vanilla client sends only a menu slot, -1 or -999.
      */
     private boolean serverIgnoresClickedSlot(InventoryClick click) {
         if (click.windowId() != observedWindowId) return false;
         int slot = click.slot();
+        if (slot == -1 || slot == -999) return false;
         int slots = click.windowId() == 0
                 ? inventory.getSlots().size()
                 : observedMenuTypeSlots > 0 ? observedMenuTypeSlots : observedMenu.getSlots().size();
-        return slot != -1 && slot != -999 && slot >= slots;
+        return slot < 0 || slot >= slots;
     }
 
     private void deferServerInventoryTask(PacketSendEvent<?> event, Runnable task) {
