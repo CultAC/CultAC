@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -227,5 +228,29 @@ class AlertPlaceholderTextTest {
         assertEquals("Steve " + brand, PlainTextComponentSerializer.plainText().serialize(shown));
         String json = GsonComponentSerializer.gson().serialize(shown);
         assertFalse(json.contains("\"obfuscated\":true") || json.contains("#00ff00"), json);
+    }
+
+    @Test
+    void aFlagRunsItsOtherCommandsWhenItsAlertCannotBeRendered() throws Exception {
+        var external = CultAPI.INSTANCE.getExternalAPI();
+        Function<GrimUser, String> registered =
+                external.getVariableReplacements().get("%render_probe%");
+        AtomicInteger renders = new AtomicInteger();
+        external.registerVariable(
+                "%render_probe%",
+                user -> {
+                    if (renders.getAndIncrement() == 0) throw new NoSuchMethodError("render_probe");
+                    return "rendered";
+                });
+        List<String> relayed;
+        try {
+            relayed = relayed("&f%render_probe%", "Steve", "vanilla", null);
+        } finally {
+            external.registerVariable("%render_probe%", registered);
+        }
+        assertEquals(1, relayed.size());
+        assertEquals(
+                "rendered",
+                PlainTextComponentSerializer.plainText().serialize(MessageUtil.miniMessage(relayed.getFirst())));
     }
 }
