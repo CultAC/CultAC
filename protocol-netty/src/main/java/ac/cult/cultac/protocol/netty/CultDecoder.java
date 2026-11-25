@@ -231,9 +231,16 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                 || connection.phase(PacketDirection.SERVERBOUND) != ConnectionPhase.PLAY;
     }
 
-    /** LocalPlayer sends the tick's movement, or else Minecraft#tick its tick end, right after the tick's input. */
+    /**
+     * LocalPlayer sends the tick's movement, or else Minecraft#tick its tick end, right after the tick's input.
+     * Observe-only forwards in the client's order, so an input kept before it started goes ahead of the next packet.
+     */
     private boolean releasesTickInput(PacketType<?> type) {
-        return endsHold(type) || type == ServerboundPackets.MOVE_PLAYER || type == ServerboundPackets.MOVE_VEHICLE;
+        var observed = connection.player();
+        return endsHold(type)
+                || type == ServerboundPackets.MOVE_PLAYER
+                || type == ServerboundPackets.MOVE_VEHICLE
+                || observed != null && observed.isObserveOnly();
     }
 
     /** Consumes the input on every path; false means it was cancelled or discarded, else {@code output} holds it. */
