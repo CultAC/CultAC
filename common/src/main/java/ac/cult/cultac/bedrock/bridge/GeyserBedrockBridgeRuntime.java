@@ -841,6 +841,9 @@ public final class GeyserBedrockBridgeRuntime {
                 if (packet instanceof PlayerAuthInputPacket authInput) {
                     long consumedInputs = player.bedrockState.authoritativeInputTick();
                     if (!processAuthInput(player, authInput)) {
+                        // ServerPlayerGameMode measures a dig the server holds open by its own ticks, these included.
+                        if (ticksWithheldDig(player, authInput))
+                            connection.getBlockBreakHandler().handlePlayerAuthInputPacket(authInput);
                         // The engine simulated this frame's actor actions; only its movement was rejected.
                         if (player.bedrockState.authoritativeInputTick() != consumedInputs) {
                             poses.observeRejected(connection, authInput);
@@ -1297,8 +1300,28 @@ public final class GeyserBedrockBridgeRuntime {
             breaking.reset();
         }
 
+        /** Whether the client's block actions in this input end or replace its dig; a drop alone does neither. */
+        private boolean actsOnBlocks(PlayerAuthInputPacket packet) {
+            if (!packet.getInputData().contains(PlayerAuthInputData.PERFORM_BLOCK_ACTIONS)) return false;
+            for (var action : packet.getPlayerActions()) {
+                if (action.getAction() != PlayerActionType.DROP_ITEM) return true;
+            }
+            return false;
+        }
+
+        /** BlockBreakHandler#handlePlayerAuthInputPacket ticks the open dig on an input without block actions. */
+        private boolean ticksWithheldDig(CultPlayer player, PlayerAuthInputPacket packet) {
+            BlockBreakHandler breaking = connection.getBlockBreakHandler();
+            return breaking.getCurrentBlockPos() != null
+                    && !player.isObserveOnly()
+                    && player.getSetbackTeleportUtil().withholdsClientActions()
+                    && !packet.getInputData().contains(PlayerAuthInputData.PERFORM_BLOCK_ACTIONS)
+                    && GeyserBlockBreaking.tickSendsNothing(connection, breaking);
+        }
+
         private boolean processAuthInput(CultPlayer player, PlayerAuthInputPacket packet) {
             if (!hasFiniteMovement(packet)) return false;
+            boolean actsOnBlocks = actsOnBlocks(packet);
             if (!installFloatingPoints(connection, true)) return false;
             initializeActor(player);
             var beforeSprint = sprintBoundary();
@@ -1328,7 +1351,11 @@ public final class GeyserBedrockBridgeRuntime {
                     });
             // BlockBreakHandler#tick continues the dig Geyser holds open on each input it handles.
             Vector3i open = connection.getBlockBreakHandler().getCurrentBlockPos();
-            if (open != null && !player.isObserveOnly() && player.getSetbackTeleportUtil().withholdsClientActions()) {
+            if (open != null
+                    && !player.isObserveOnly()
+                    && player.getSetbackTeleportUtil().withholdsClientActions()
+                    && (actsOnBlocks
+                            || !GeyserBlockBreaking.tickSendsNothing(connection, connection.getBlockBreakHandler()))) {
                 abortTranslatedDig(open);
                 BlockUtils.sendBedrockStopBlockBreak(connection, open.toFloat());
             }
