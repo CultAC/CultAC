@@ -8,6 +8,9 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.bedrock.MovementPlatform;
+import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
@@ -185,6 +188,20 @@ class CorrectionWindowActionsTest {
             s.player.z = s.player.lastZ = -17.5;
             assertTrue(s.player.getSetbackTeleportUtil().insideUnloadedChunk());
             assertTrue(s.interact(InteractAction.ATTACK).isCancelled());
+        }
+    }
+
+    @Test
+    void aBedrockAttackWaitsForThePlacementWithSetbacksOff() throws Exception {
+        try (var s = new Setup()) {
+            s.player.movementPlatform = MovementPlatform.BEDROCK;
+            s.player.bedrockState = new BedrockPlayerState(s.player.playerUUID);
+            s.player.bedrockState.setSetbacksEnabled(false);
+            s.player.compensatedEntities.addEntity(COW, EntityTypeIds.COW, new Vec3(.5, 64, -1), 0, 0, 0);
+            var reach = s.player.checkManager.getCheck(BedrockEntityReach.class);
+            assertFalse(reach.onBedrockAttack(COW, null, 0));
+            SetbackFixtures.setLoaded(s.player.getSetbackTeleportUtil(), false);
+            assertTrue(reach.onBedrockAttack(COW, null, 0));
         }
     }
 
