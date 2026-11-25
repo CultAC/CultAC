@@ -327,6 +327,57 @@ class PunishmentThresholdsTest {
         assertEquals(1, ledger.kept());
     }
 
+    @Test
+    void aPlayerWhoseFlagsFeedAConsoleCommandIsKeptBeforeOthersAtTheCap() throws Exception {
+        List<String> ran = new ArrayList<>();
+        UUID tracked = UUID.randomUUID();
+        try (var ignored = platform(ran, new AtomicBoolean(true))) {
+            when(player.getUniqueId()).thenReturn(tracked);
+            PunishmentManager first = punishments("3:0 ban probe");
+            flag(first);
+            flag(first);
+            first.release();
+            for (int i = 0; i < 3; i++) {
+                when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+                PunishmentManager other = punishments("3:0 [alert]");
+                flag(other);
+                other.release();
+            }
+            assertEquals(2, ledger.kept());
+
+            when(player.getUniqueId()).thenReturn(tracked);
+            flag(punishments("3:0 ban probe"));
+
+            assertEquals(List.of("ban probe"), ran);
+        }
+    }
+
+    @Test
+    void theCapDropsExpiredPlayersBeforeOnesWhoseWindowLasts() {
+        UUID lasting = UUID.randomUUID();
+        when(player.getUniqueId()).thenReturn(lasting);
+        PunishmentManager first = punishments(3600, "3:0 [alert]");
+        flag(first);
+        flag(first);
+        first.release();
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        PunishmentManager expiring = punishments("3:0 [alert]");
+        flag(expiring);
+        expiring.release();
+
+        now += 301_000;
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        PunishmentManager last = punishments("3:0 [alert]");
+        flag(last);
+        last.release();
+        assertEquals(2, ledger.kept());
+
+        when(player.getUniqueId()).thenReturn(lasting);
+        flag(punishments(3600, "3:0 [alert]"));
+
+        assertEquals(List.of("vl 3"), alerts());
+    }
+
     /**
      * Runs global tasks at once and dispatches punishment commands into {@code ran} while {@code reachable} says a
      * server can run them.
@@ -366,10 +417,19 @@ class PunishmentThresholdsTest {
         return () -> loader.set(CultAPI.INSTANCE, original);
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
     private PunishmentManager punishments(String... commands) {
-        when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List) List.of(
-                new LinkedHashMap<>(Map.of("checks", List.of("thresholdprobe"), "commands", List.of(commands)))));
+        return punishments(300, commands);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private PunishmentManager punishments(int windowSeconds, String... commands) {
+        when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List) List.of(new LinkedHashMap<>(Map.of(
+                "checks",
+                List.of("thresholdprobe"),
+                "commands",
+                List.of(commands),
+                "remove-violations-after",
+                windowSeconds))));
         PunishmentManager punishments = new PunishmentManager(player, () -> now, ledger);
         punishments.reload(config);
         return punishments;

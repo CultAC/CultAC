@@ -1,12 +1,14 @@
 package ac.cult.cultac.manager;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * The punishment groups' flags and used commands of each player, shared by the player's connections and kept after
@@ -17,8 +19,11 @@ final class PunishmentLedger {
 
     private final int capacity;
     private final Map<UUID, Entry> connected = new HashMap<>();
-    // Players with no connection, oldest first.
-    private final LinkedHashMap<UUID, Entry> left = new LinkedHashMap<>();
+    // Players with no connection whose kept state feeds only built-in actions, oldest first.
+    private final LinkedHashMap<UUID, Departed> left = new LinkedHashMap<>();
+    // Players with no connection whose kept state feeds a console command, oldest first; dropped last.
+    private final LinkedHashMap<UUID, Departed> leftPunishable = new LinkedHashMap<>();
+    private List<PunishmentRules.Group> sharedRules = List.of();
     private long generation;
 
     /** @param capacity the most players with no connection whose state is kept */
@@ -35,12 +40,11 @@ final class PunishmentLedger {
             UUID id, Object owner, List<PunishmentRules.Group> rules, List<GroupState> fresh, long now) {
         Entry entry = connected.get(id);
         if (entry == null) {
-            entry = left.remove(id);
-            if (entry == null || !entry.rules.equals(rules)) {
-                entry = new Entry(rules, fresh, generation);
-            } else {
-                entry.age(now);
-            }
+            Departed departed = left.remove(id);
+            if (departed == null) departed = leftPunishable.remove(id);
+            List<GroupState> state =
+                    departed != null && departed.rules.equals(rules) ? departed.restore(fresh, now) : fresh;
+            entry = new Entry(rules, state, generation);
             connected.put(id, entry);
         } else if (entry.generation != generation || !entry.rules.equals(rules)) {
             entry.start(rules, fresh, generation);
@@ -68,16 +72,44 @@ final class PunishmentLedger {
         return entry.state;
     }
 
-    /** Ends the connection {@code owner} of {@code id}; the state stays while a group's window still holds something. */
+    /**
+     * Ends the connection {@code owner} of {@code id}; the groups whose window still holds something stay. Past the
+     * capacity, the players whose state feeds only built-in actions go first, oldest first.
+     */
     synchronized void detach(UUID id, Object owner, long now) {
         Entry entry = connected.get(id);
         if (entry == null || !entry.owners.remove(owner) || !entry.owners.isEmpty()) return;
         connected.remove(id);
-        if (entry.generation == generation && entry.lasts(now)) left.put(id, entry);
-        Iterator<Entry> oldest = left.values().iterator();
+        if (entry.generation == generation) {
+            if (!entry.rules.equals(sharedRules)) sharedRules = entry.rules;
+            Departed departed = Departed.of(sharedRules, entry.state, now);
+            if (departed != null) (departed.punishable ? leftPunishable : left).put(id, departed);
+        }
+        dropExpired(left, now, true);
+        dropExpired(leftPunishable, now, true);
+        if (kept() <= capacity) return;
+        dropExpired(left, now, false);
+        dropExpired(leftPunishable, now, false);
+        dropOldest(left);
+        dropOldest(leftPunishable);
+    }
+
+    /** Drops the expired players, up to the first one that lasts when {@code headOnly}. */
+    private static void dropExpired(LinkedHashMap<UUID, Departed> players, long now, boolean headOnly) {
+        Iterator<Departed> oldest = players.values().iterator();
         while (oldest.hasNext()) {
-            Entry next = oldest.next();
-            if (left.size() <= capacity && next.lasts(now)) break;
+            if (oldest.next().lasts(now)) {
+                if (headOnly) return;
+            } else {
+                oldest.remove();
+            }
+        }
+    }
+
+    private void dropOldest(LinkedHashMap<UUID, Departed> players) {
+        Iterator<Departed> oldest = players.values().iterator();
+        while (kept() > capacity && oldest.hasNext()) {
+            oldest.next();
             oldest.remove();
         }
     }
@@ -85,12 +117,13 @@ final class PunishmentLedger {
     /** Drops the state of every player with no connection, and of each connection that has not reloaded since. */
     synchronized void clear() {
         left.clear();
+        leftPunishable.clear();
         generation++;
     }
 
     /** The players with no connection whose state is kept. */
     synchronized int kept() {
-        return left.size();
+        return left.size() + leftPunishable.size();
     }
 
     /** A group's flags and commands, apart from the checks of a connection. */
@@ -113,6 +146,48 @@ final class PunishmentLedger {
                 return holds;
             }
         }
+
+        private boolean runsConsoleCommands() {
+            for (ParsedCommand command : commands) {
+                if (!PunishmentManager.BUILTIN_ACTIONS.contains(command.action())) return true;
+            }
+            return false;
+        }
+    }
+
+    /** The groups of a player with no connection whose window still holds something, by their place in the rules. */
+    private record Departed(
+            List<PunishmentRules.Group> rules, int[] groups, GroupState[] held, boolean punishable) {
+        private static @Nullable Departed of(List<PunishmentRules.Group> rules, List<GroupState> state, long now) {
+            int[] groups = new int[state.size()];
+            GroupState[] held = new GroupState[state.size()];
+            int count = 0;
+            boolean punishable = false;
+            for (int g = 0; g < state.size(); g++) {
+                GroupState group = state.get(g);
+                if (!group.age(now)) continue;
+                groups[count] = g;
+                held[count++] = group;
+                punishable |= group.runsConsoleCommands();
+            }
+            if (count == 0) return null;
+            return new Departed(rules, Arrays.copyOf(groups, count), Arrays.copyOf(held, count), punishable);
+        }
+
+        private List<GroupState> restore(List<GroupState> fresh, long now) {
+            List<GroupState> state = new ArrayList<>(fresh);
+            for (int i = 0; i < held.length; i++) {
+                held[i].age(now);
+                state.set(groups[i], held[i]);
+            }
+            return state;
+        }
+
+        private boolean lasts(long now) {
+            boolean lasts = false;
+            for (GroupState group : held) lasts |= group.age(now);
+            return lasts;
+        }
     }
 
     private static final class Entry {
@@ -130,16 +205,6 @@ final class PunishmentLedger {
             this.rules = rules;
             this.state = state;
             this.generation = generation;
-        }
-
-        private void age(long now) {
-            for (GroupState group : state) group.age(now);
-        }
-
-        private boolean lasts(long now) {
-            boolean lasts = false;
-            for (GroupState group : state) lasts |= group.age(now);
-            return lasts;
         }
     }
 }

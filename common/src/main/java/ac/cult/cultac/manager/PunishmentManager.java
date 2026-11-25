@@ -24,7 +24,7 @@ import org.jetbrains.annotations.Nullable;
 public class PunishmentManager implements ConfigReloadable {
     private static final CommandExecuteEvent.Channel COMMAND_CHANNEL =
             CultAPI.INSTANCE.getEventBus().get(CommandExecuteEvent.class);
-    private static final Set<String> BUILTIN_ACTIONS = Set.of("[webhook]", "[log]", "[proxy]", "[alert]");
+    static final Set<String> BUILTIN_ACTIONS = Set.of("[webhook]", "[log]", "[proxy]", "[alert]");
     private final CultPlayer player;
     private final LongSupplier clock;
     private final PunishmentLedger ledger;
