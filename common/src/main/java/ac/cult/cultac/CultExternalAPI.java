@@ -255,6 +255,7 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         if (CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
             CultAPI.INSTANCE.getDataStoreLifecycle().reload();
         }
+        PunishmentManager.forgetPlayersWhoLeft();
         for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
             player.runSafely(() -> player.reload(configManager));
         }

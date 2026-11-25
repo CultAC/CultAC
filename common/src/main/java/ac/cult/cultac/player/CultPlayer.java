@@ -727,6 +727,7 @@ public class CultPlayer implements GrimUser {
     }
 
     public void onRemove() {
+        punishmentManager.release();
         Runnable cleanup = () -> user.getCultConnection().runInModel(() -> {
             nettyScheduler.removeScheduler();
             compensatedWorld.clearChunks();

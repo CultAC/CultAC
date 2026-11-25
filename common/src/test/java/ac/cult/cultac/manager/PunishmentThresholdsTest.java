@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
@@ -29,6 +30,7 @@ import org.mockito.ArgumentCaptor;
 class PunishmentThresholdsTest {
     private final ConfigManager config = mock(ConfigManager.class);
     private final CultPlayer player = mock(CultPlayer.class);
+    private final PunishmentLedger ledger = new PunishmentLedger(2);
     private final Check check;
     private long now = 1_000_000L;
 
@@ -99,6 +101,111 @@ class PunishmentThresholdsTest {
         }
     }
 
+    @Test
+    void flagsAndUsedCommandsCarryToTheNextConnectionWhileTheWindowLasts() throws Exception {
+        List<String> ran = new ArrayList<>();
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        try (var ignored = platform(ran, new AtomicBoolean(true))) {
+            PunishmentManager first = punishments("3:0 ban probe");
+            flag(first);
+            flag(first);
+            first.release();
+
+            PunishmentManager second = punishments("3:0 ban probe");
+            flag(second);
+            assertEquals(List.of("ban probe"), ran);
+            second.release();
+
+            now += 60_000;
+            PunishmentManager third = punishments("3:0 ban probe");
+            for (int i = 0; i < 3; i++) flag(third);
+
+            assertEquals(List.of("ban probe"), ran);
+        }
+    }
+
+    @Test
+    void aConnectionAfterTheWindowCountsFromNothing() throws Exception {
+        List<String> ran = new ArrayList<>();
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        try (var ignored = platform(ran, new AtomicBoolean(true))) {
+            PunishmentManager first = punishments("3:0 ban probe");
+            for (int i = 0; i < 3; i++) flag(first);
+            first.release();
+
+            now += 301_000;
+            PunishmentManager second = punishments("3:0 ban probe");
+            flag(second);
+            flag(second);
+            assertEquals(List.of("ban probe"), ran);
+            flag(second);
+
+            assertEquals(List.of("ban probe", "ban probe"), ran);
+        }
+    }
+
+    @Test
+    void overlappingConnectionsCountInOneWindowAndRunACommandOnce() throws Exception {
+        List<String> ran = new ArrayList<>();
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        try (var ignored = platform(ran, new AtomicBoolean(true))) {
+            PunishmentManager first = punishments("2:0 ban probe");
+            PunishmentManager second = punishments("2:0 ban probe");
+
+            flag(first);
+            flag(second);
+            flag(first);
+            flag(second);
+
+            assertEquals(List.of("ban probe"), ran);
+        }
+    }
+
+    @Test
+    void aReloadStartsTheCountOverForConnectedAndDepartedPlayers() throws Exception {
+        List<String> ran = new ArrayList<>();
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        try (var ignored = platform(ran, new AtomicBoolean(true))) {
+            PunishmentManager first = punishments("3:0 ban probe");
+            flag(first);
+            flag(first);
+            first.reload(config);
+            flag(first);
+            flag(first);
+            first.release();
+
+            ledger.clear();
+            PunishmentManager second = punishments("3:0 ban probe");
+            flag(second);
+            flag(second);
+
+            assertEquals(List.of(), ran);
+        }
+    }
+
+    @Test
+    void departedPlayersAreKeptOnlyWithFlagsInTheWindowAndUpToTheCap() {
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        punishments("3:0 [alert]").release();
+        assertEquals(0, ledger.kept());
+
+        for (int i = 0; i < 3; i++) {
+            when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+            PunishmentManager punishments = punishments("3:0 [alert]");
+            flag(punishments);
+            punishments.release();
+        }
+        assertEquals(2, ledger.kept());
+
+        now += 301_000;
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        PunishmentManager punishments = punishments("3:0 [alert]");
+        flag(punishments);
+        punishments.release();
+
+        assertEquals(1, ledger.kept());
+    }
+
     /**
      * Runs global tasks at once and dispatches punishment commands into {@code ran} while {@code reachable} says a
      * server can run them.
@@ -138,7 +245,7 @@ class PunishmentThresholdsTest {
     private PunishmentManager punishments(String... commands) {
         when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List) List.of(
                 new LinkedHashMap<>(Map.of("checks", List.of("thresholdprobe"), "commands", List.of(commands)))));
-        PunishmentManager punishments = new PunishmentManager(player, () -> now);
+        PunishmentManager punishments = new PunishmentManager(player, () -> now, ledger);
         punishments.reload(config);
         return punishments;
     }

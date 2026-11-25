@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
+import ac.cult.cultac.manager.PunishmentLedger.GroupState;
 import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.player.CultPlayer;
@@ -17,7 +18,6 @@ import ac.grim.grimac.api.event.events.CommandExecuteEvent;
 import java.util.*;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
-import lombok.RequiredArgsConstructor;
 import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,20 +27,54 @@ public class PunishmentManager implements ConfigReloadable {
     private static final Set<String> BUILTIN_ACTIONS = Set.of("[webhook]", "[log]", "[proxy]", "[alert]");
     private final CultPlayer player;
     private final LongSupplier clock;
+    private final PunishmentLedger ledger;
     private final List<PunishGroup> groups = new ArrayList<>();
+    private volatile @Nullable UUID ledgerId;
+    private volatile boolean released;
     private String experimentalSymbol = "*";
     private String alertString;
     private boolean testMode;
     private String proxyAlertString = "";
 
     public PunishmentManager(CultPlayer player) {
-        this(player, System::currentTimeMillis);
+        this(player, System::currentTimeMillis, PunishmentLedger.INSTANCE);
     }
 
-    /** @param clock the wall clock in milliseconds that ages the groups' flags */
-    PunishmentManager(CultPlayer player, LongSupplier clock) {
+    /**
+     * @param clock the wall clock in milliseconds that ages the groups' flags
+     * @param ledger the state the player's connections share
+     */
+    PunishmentManager(CultPlayer player, LongSupplier clock, PunishmentLedger ledger) {
         this.player = player;
         this.clock = clock;
+        this.ledger = ledger;
+    }
+
+    /** Drops the punishment state kept for players who left. */
+    public static void forgetPlayersWhoLeft() {
+        PunishmentLedger.INSTANCE.clear();
+    }
+
+    /**
+     * The state the groups count in: the first load of a connection joins the player's shared state, a later load
+     * starts it over.
+     */
+    private List<GroupState> counted(List<PunishmentRules.Group> rules, List<GroupState> fresh) {
+        UUID id = player.getUniqueId();
+        if (id == null || released) return fresh;
+        if (ledgerId == null) {
+            ledgerId = id;
+            return ledger.attach(id, rules, fresh, clock.getAsLong());
+        }
+        ledger.replace(id, rules, fresh);
+        return fresh;
+    }
+
+    /** Ends this connection's share of the player's punishment state. */
+    public void release() {
+        if (released) return;
+        released = true;
+        if (ledgerId != null) ledger.detach(ledgerId, clock.getAsLong());
     }
 
     @Override
@@ -72,13 +106,8 @@ public class PunishmentManager implements ConfigReloadable {
             names[i] = lowerCase(known[i] instanceof Check check ? check.nameIn(nameVersion) : known[i].getCheckName());
             alternativeNames[i] = lowerCase(known[i].getAlternativeName());
         }
+        List<GroupState> fresh = new ArrayList<>();
         for (PunishmentRules.Group rule : rules.groups()) {
-            List<AbstractCheck> held = new ArrayList<>();
-            for (int i = 0; i < known.length; i++) {
-                if (rule.holds(names[i], alternativeNames[i])) held.add(known[i]);
-            }
-            for (AbstractCheck check : held) check.setEnabled(true);
-
             List<ParsedCommand> parsed = new ArrayList<>();
             for (PunishmentRules.Command command : rule.commands()) {
                 parsed.add(new ParsedCommand(
@@ -87,7 +116,17 @@ public class PunishmentManager implements ConfigReloadable {
                         command.command(),
                         alertFormat(config, command.command())));
             }
-            groups.add(new PunishGroup(new HashSet<>(held), parsed, rule.removeViolationsAfter() * 1000));
+            fresh.add(new GroupState(parsed, new ViolationWindow(), rule.removeViolationsAfter() * 1000));
+        }
+        List<GroupState> states = counted(rules.groups(), fresh);
+        for (int g = 0; g < states.size(); g++) {
+            PunishmentRules.Group rule = rules.groups().get(g);
+            List<AbstractCheck> held = new ArrayList<>();
+            for (int i = 0; i < known.length; i++) {
+                if (rule.holds(names[i], alternativeNames[i])) held.add(known[i]);
+            }
+            for (AbstractCheck check : held) check.setEnabled(true);
+            groups.add(new PunishGroup(new HashSet<>(held), states.get(g)));
         }
         for (int i = 0; i < known.length; i++) {
             if (PunishmentRules.holds(rules.unreadGroupSelectors(), names[i], alternativeNames[i])) {
@@ -411,6 +450,7 @@ public class PunishmentManager implements ConfigReloadable {
             command.claimed = false;
             if (delivered) {
                 command.executeCount++;
+                command.usedAt = clock.getAsLong();
                 command.waiting = null;
                 return;
             }
@@ -471,8 +511,10 @@ public class PunishmentManager implements ConfigReloadable {
         for (PunishGroup group : groups) {
             if (group.checks.contains(check)) {
                 long currentTime = clock.getAsLong();
-                group.violations.add(currentTime, check.getStableKey());
-                group.violations.expire(currentTime, group.removeViolationsAfter);
+                synchronized (group.violations) {
+                    group.violations.add(currentTime, check.getStableKey());
+                    group.violations.expire(currentTime, group.removeViolationsAfter);
+                }
             }
         }
     }
@@ -482,12 +524,18 @@ public class PunishmentManager implements ConfigReloadable {
     }
 }
 
-@RequiredArgsConstructor
 class PunishGroup {
     public final Set<AbstractCheck> checks;
     public final List<ParsedCommand> commands;
-    public final ViolationWindow violations = new ViolationWindow();
+    public final ViolationWindow violations;
     public final int removeViolationsAfter; // time to remove violations after in milliseconds
+
+    PunishGroup(Set<AbstractCheck> checks, GroupState state) {
+        this.checks = checks;
+        this.commands = state.commands();
+        this.violations = state.violations();
+        this.removeViolationsAfter = state.removeViolationsAfter();
+    }
 }
 
 class ParsedCommand {
@@ -498,6 +546,8 @@ class ParsedCommand {
     public final @Nullable String alertFormat;
     // For M=0, a non-zero count keeps the command from running again in this loaded state.
     public int executeCount;
+    // For M=0, when the command was used.
+    public long usedAt;
     // For M=0, a run of this command is on its way to the platform.
     public boolean claimed;
     // For M=0, the window mark its last withheld run ends at; only later flags count toward it.
