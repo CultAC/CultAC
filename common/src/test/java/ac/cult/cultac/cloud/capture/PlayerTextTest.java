@@ -651,9 +651,9 @@ class PlayerTextTest {
         assertArrayEquals(blast.apply(false), strip(blast.apply(true)));
     }
 
-    /** Tab names and team presentation go empty; who is listed, their latency and a team's players stay. */
+    /** Tab names and team display names go empty; who is listed, their latency, team affixes and players stay. */
     @Test
-    void tabNamesAndTeamPresentationGoEmptyAndMembershipStays() {
+    void tabNamesAndTeamDisplayNamesGoEmptyAndAffixesAndMembershipStay() {
         int info = id(PROTOCOL, true, "player_info_update");
         Function<String, byte[]> entry = name -> bytes(out -> {
             varInt(out, info);
@@ -678,8 +678,8 @@ class PlayerTextTest {
                 out.write(0);
                 if (protocol >= 776) {
                     text(out, written ? "Red Team" : "");
-                    text(out, written ? "[R] " : "");
-                    text(out, written ? " !" : "");
+                    styled(out, "[R] ", "red");
+                    text(out, " §l!");
                     varInt(out, 0);
                     varInt(out, 1);
                     out.write(1);
@@ -696,11 +696,12 @@ class PlayerTextTest {
                         string(out, "never");
                     }
                     varInt(out, 12);
-                    text(out, written ? "[R] " : "");
-                    text(out, written ? " !" : "");
+                    styled(out, "[R] ", "red");
+                    text(out, " §l!");
                 }
-                varInt(out, 2);
+                varInt(out, written ? 3 : 2);
                 string(out, "Bob");
+                if (written) string(out, "[Owner] Bob");
                 string(out, "Alex");
             });
             assertArrayEquals(
@@ -1629,5 +1630,17 @@ class PlayerTextTest {
     private static void text(ByteArrayOutputStream out, String text) {
         out.write(8);
         name(out, text);
+    }
+
+    /** A text component as a network NBT compound of its text and color. */
+    private static void styled(ByteArrayOutputStream out, String text, String color) {
+        out.write(10);
+        out.write(8);
+        name(out, "text");
+        name(out, text);
+        out.write(8);
+        name(out, "color");
+        name(out, color);
+        out.write(0);
     }
 }

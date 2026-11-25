@@ -80,7 +80,7 @@ below):
   parrot's saved data, and a mannequin's profile but for its skin.
 - **Screens and messages:** window titles, death messages, inline dialogs, and a resource pack's prompt and address.
 - **The tab list and teams:** display names, chat session keys and their Mojang signatures, profile properties other
-  than one unsigned skin, and team display names, prefixes and suffixes. A team's name is replaced by an opaque name,
+  than one unsigned skin, and team display names. A team's name is replaced by an opaque name,
   and of its members only these are kept: names in player-name syntax (1 to 16 letters, digits and `_`), such a name
   of up to 15 behind the crossplay prefix `.`, UUIDs, and names the stream's tab list already carries, such as an NPC.
 - **Block entities** in chunks and block entity updates: their data.
