@@ -3,6 +3,7 @@ package ac.cult.cultac.bridge.protocol;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.AlertState;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.AlertToggle;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Auth;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.BackendName;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Challenge;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CheckCatalog;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CheckInfo;
@@ -140,6 +141,7 @@ public final class BridgeCodec {
                 writeSettings(out, m.settings());
             }
             case PlayerFacts m -> writeSettings(out, m.settings());
+            case BackendName m -> writeString(out, m.name());
             case Marker m -> out.writeInt(m.marker());
             case ClearActiveItem m -> {
                 writeU8(out, m.hand());
@@ -314,6 +316,7 @@ public final class BridgeCodec {
                         in.readFloat());
             case CloudFacts.TYPE -> new CloudFacts(readNonNegative(in), readSettings(in));
             case PlayerFacts.TYPE -> new PlayerFacts(readSettings(in));
+            case BackendName.TYPE -> new BackendName(readString(in));
             case Marker.TYPE -> new Marker(in.readInt());
             case ClearActiveItem.TYPE -> new ClearActiveItem(in.readUnsignedByte(), readString(in));
             case SetGameMode.TYPE -> new SetGameMode(in.readUnsignedByte());

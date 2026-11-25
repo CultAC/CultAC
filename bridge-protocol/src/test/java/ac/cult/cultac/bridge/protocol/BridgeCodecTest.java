@@ -60,6 +60,7 @@ class BridgeCodecTest {
                         50_000,
                         orderedSettings("update-equipment-on-player-actions", "true", "keepalive-interval-ms", "1000")),
                 new PlayerFacts(orderedSettings("max-no-damage-ticks", "20", "combat-mode", "1.9", "é", "")),
+                new BackendName("Vk4817"),
                 new Marker(Integer.MIN_VALUE),
                 new ClearActiveItem(ClearActiveItem.OFF_HAND, "minecraft:shield"),
                 new SetGameMode(SetGameMode.SPECTATOR),
@@ -283,6 +284,7 @@ class BridgeCodecTest {
         assertEquals(1L << 11, ServerCapability.CLOUD_FACTS.flag());
         assertEquals(1L << 12, ServerCapability.MARKER.flag());
         assertEquals(1L << 13, ServerCapability.APOLLO_MODS.flag());
+        assertEquals(1L << 14, ServerCapability.BACKEND_NAME.flag());
         long mask = ServerCapability.mask(EnumSet.of(ServerCapability.TELEPORT, ServerCapability.CLEAR_ACTIVE_ITEM));
         assertTrue(ServerCapability.has(mask, ServerCapability.TELEPORT));
         assertTrue(ServerCapability.has(mask, ServerCapability.CLEAR_ACTIVE_ITEM));

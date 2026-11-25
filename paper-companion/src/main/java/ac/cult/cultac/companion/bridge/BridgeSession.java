@@ -19,6 +19,7 @@ final class BridgeSession implements CompanionSession {
     volatile Player player;
     private int lastMaxNoDamageTicks = Integer.MIN_VALUE;
     private double lastAttackSpeedBase = Double.NaN;
+    private String lastName = "";
 
     BridgeSession(BridgeEndpoint endpoint, UUID playerId, byte[] proxyNonce, byte[] backendNonce) {
         this.endpoint = endpoint;
@@ -64,6 +65,13 @@ final class BridgeSession implements CompanionSession {
         }
         lastMaxNoDamageTicks = maxNoDamageTicks;
         lastAttackSpeedBase = attackSpeedBase;
+        return true;
+    }
+
+    /** Records the player's profile name and reports whether it differs from the last one sent; the first does. */
+    boolean backendNameChanged(String name) {
+        if (name.equals(lastName)) return false;
+        lastName = name;
         return true;
     }
 }

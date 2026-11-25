@@ -42,7 +42,7 @@ public class PacketServerRegistries {
 
     @CultPacketHandler("clientbound.start_configuration")
     public void onStartConfiguration(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        player.listed(null, null);
+        player.listed(null);
         if (player.isBedrockMovement()) {
             player.registryState = null;
             return;

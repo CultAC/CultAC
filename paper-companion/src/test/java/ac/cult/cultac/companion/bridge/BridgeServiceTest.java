@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.cultac.bridge.protocol.BridgeAuth;
 import ac.cult.cultac.bridge.protocol.BridgeMessage;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Auth;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.BackendName;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Challenge;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.ClearActiveItem;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Close;
@@ -425,6 +426,30 @@ class BridgeServiceTest {
                         .get("attack-speed-base"));
     }
 
+    @Test
+    void theBackendNameFollowsReadyAndThenOnlyItsChanges() {
+        InlinePlatform platform = new InlinePlatform();
+        platform.name = "Vk4817";
+        service = new BridgeService(SECRET, platform, Logger.getLogger("bridge-test"), false);
+        service.receive(endpoint, hello(nonce(1)));
+        service.receive(endpoint, new Auth(hmac(nonce(1), (Challenge) endpoint.sent.get(0))));
+
+        Ready ready = assertInstanceOf(Ready.class, endpoint.sent.get(1));
+        assertTrue(ServerCapability.has(ready.capabilities(), ServerCapability.BACKEND_NAME));
+        assertEquals(new BackendName("Vk4817"), endpoint.sent.get(2));
+        assertEquals(3, endpoint.sent.size());
+
+        BridgeSession session = (BridgeSession) service.session(PLAYER);
+        service.sendPlayerFacts(session);
+        service.sendPlayerFacts();
+        assertEquals(3, endpoint.sent.size());
+
+        platform.name = "HB_Evan";
+        service.sendPlayerFacts();
+        service.sendPlayerFacts();
+        assertEquals(List.of(new BackendName("Vk4817"), new BackendName("HB_Evan")), endpoint.sent.subList(2, 4));
+    }
+
     private static Hello hello(byte[] proxyNonce) {
         return new Hello(BridgeProtocol.VERSION, PLAYER, proxyNonce);
     }
@@ -471,6 +496,7 @@ class BridgeServiceTest {
         private @Nullable CloudFacts cloudFacts;
         private int maxNoDamageTicks = -1;
         private double attackSpeedBase = 4.0;
+        private @Nullable String name;
 
         @Override
         public void runMain(Runnable task) {
@@ -500,6 +526,12 @@ class BridgeServiceTest {
                     String.valueOf(maxNoDamageTicks),
                     "attack-speed-base",
                     String.valueOf(attackSpeedBase)));
+        }
+
+        @Override
+        public @Nullable BackendName backendNameChanged(BridgeSession session) {
+            if (name == null || !session.backendNameChanged(name)) return null;
+            return new BackendName(name);
         }
     }
 

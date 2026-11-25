@@ -35,6 +35,34 @@ class ShownNamesTest {
     }
 
     @Test
+    void theBackendsNameComesBeforeTheOwnEntrysProfileName() {
+        OfflinePlayers.installConfig();
+        CultPlayer player = OfflinePlayers.player();
+        try {
+            String account = player.getName();
+            player.listed(account);
+            assertNull(player.shownName);
+            player.listed("Profile");
+            assertEquals("Profile", player.shownName);
+
+            player.backendName("Vk4817");
+            assertEquals("Vk4817", player.shownName);
+            assertEquals(
+                    List.of(new ShownNames.Match(player.playerUUID, account, "Vk4817")),
+                    ShownNames.listedHere(List.of(player), "vk4817"));
+
+            player.backendName(account);
+            assertEquals("Profile", player.shownName);
+            player.backendName("Vk4817");
+            player.backendName(null);
+            player.listed(null);
+            assertNull(player.shownName);
+        } finally {
+            OfflinePlayers.close(player);
+        }
+    }
+
+    @Test
     void aListedProfileMatchesTheOnlineAccountWhenItsNameDiffers() {
         UUID uuid = UUID.randomUUID();
         NetworkPlayer online = new NetworkPlayer(uuid, "Account", "p9", "lobby");

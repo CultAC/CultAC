@@ -20,7 +20,9 @@ public enum ServerCapability {
     /** Answers MARKER frames, in order with the player's game packets. */
     MARKER(12),
     /** Answers MODS_REQUEST with the player's Lunar Client mods from Apollo. */
-    APOLLO_MODS(13);
+    APOLLO_MODS(13),
+    /** Sends BACKEND_NAME with the player's profile name on the backend, after READY and whenever it changes. */
+    BACKEND_NAME(14);
 
     private final int bit;
 

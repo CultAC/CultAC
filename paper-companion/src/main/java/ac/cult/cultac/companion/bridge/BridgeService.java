@@ -3,6 +3,7 @@ package ac.cult.cultac.companion.bridge;
 import ac.cult.cultac.bridge.protocol.BridgeAuth;
 import ac.cult.cultac.bridge.protocol.BridgeMessage;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Auth;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.BackendName;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Challenge;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Close;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CloudFacts;
@@ -41,7 +42,8 @@ final class BridgeService implements CompanionBridge {
             ServerCapability.SERVER_STATS,
             ServerCapability.CLEAR_ACTIVE_ITEM,
             ServerCapability.CLOUD_FACTS,
-            ServerCapability.MARKER));
+            ServerCapability.MARKER,
+            ServerCapability.BACKEND_NAME));
     private static final BridgeSession[] NONE = new BridgeSession[0];
     static final long AUTH_WARN_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
 
@@ -270,7 +272,10 @@ final class BridgeService implements CompanionBridge {
         debug("Bridge session READY for " + session.playerId());
     }
 
-    /** Sends the player's facts when they differ from those last sent on {@code session}. Main thread only. */
+    /**
+     * Sends each player's facts and profile name when they differ from those last sent on their session. Main thread
+     * only.
+     */
     void sendPlayerFacts() {
         for (BridgeSession session : ready) sendPlayerFacts(session);
     }
@@ -278,6 +283,8 @@ final class BridgeService implements CompanionBridge {
     void sendPlayerFacts(BridgeSession session) {
         PlayerFacts facts = platform.playerFactsChanged(session);
         if (facts != null) session.send(facts);
+        BackendName name = platform.backendNameChanged(session);
+        if (name != null) session.send(name);
     }
 
     void endpointClosed(BridgeEndpoint endpoint) {

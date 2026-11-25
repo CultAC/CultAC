@@ -24,13 +24,9 @@ public class PlayerInfoListener {
             PacketSendEvent<ClientboundPlayerInfoUpdate> event,
             CultPlayer receiver,
             ClientboundPlayerInfoUpdate packet) {
-        boolean added = packet.actions().contains(Action.ADD_PLAYER);
-        if (added || packet.actions().contains(Action.UPDATE_DISPLAY_NAME)) {
+        if (packet.actions().contains(Action.ADD_PLAYER)) {
             for (Entry entry : packet.entries()) {
-                if (receiver.playerUUID.equals(entry.profileId()))
-                    receiver.listed(
-                            added ? ClientPlayerModes.name(entry) : receiver.listedProfile,
-                            ClientPlayerModes.listedName(ClientPlayerModes.displayName(entry), receiver.getName()));
+                if (receiver.playerUUID.equals(entry.profileId())) receiver.listed(ClientPlayerModes.name(entry));
             }
         }
         if (!packet.actions().contains(Action.UPDATE_GAME_MODE)) {
@@ -92,7 +88,7 @@ public class PlayerInfoListener {
             PacketSendEvent<ClientboundPlayerInfoRemove> event,
             CultPlayer receiver,
             ClientboundPlayerInfoRemove packet) {
-        if (packet.profiles().contains(receiver.playerUUID)) receiver.listed(null, null);
+        if (packet.profiles().contains(receiver.playerUUID)) receiver.listed(null);
         if (receiver.isBedrockMovement()) return;
         if (packet.profiles().isEmpty()) return;
         prove(event, receiver, () -> receiver.compensatedEntities.clientPlayerModes.remove(packet.profiles()));

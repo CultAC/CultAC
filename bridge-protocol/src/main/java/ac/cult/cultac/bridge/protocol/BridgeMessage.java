@@ -166,6 +166,16 @@ public sealed interface BridgeMessage {
         }
     }
 
+    /** The player's profile name on the backend; sent after READY and whenever it changes. */
+    record BackendName(String name) implements BridgeMessage {
+        public static final int TYPE = 0x28;
+
+        @Override
+        public int type() {
+            return TYPE;
+        }
+    }
+
     /**
      * Sent by the proxy after game packets of the player's, and sent back with the same {@code marker} once the server
      * has handled them and the tick that handled them has ended, after every update that tick sent the player.

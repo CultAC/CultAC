@@ -66,6 +66,7 @@ it is installed on.
 | Grim API for plugins on the backend | no | yes (see below) |
 | `/cult` from the backend console, RCON and plugins dispatching as the console | no | yes |
 | Backend plugins cancelling `FlagEvent` / `CommandExecuteEvent` | no | yes |
+| Staff commands find a player by the name the backend gives them | no | yes |
 
 Block, inventory and item-use resyncs and NoSlow run on the proxy from the client's and backend's packets alone, with
 or without the companion. With it, a definite NoSlow flag also ends the item use on the backend.
