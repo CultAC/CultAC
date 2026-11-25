@@ -82,10 +82,10 @@ public class CultAlerts implements BuildableCommand {
         } else {
             source = config.getStringElse("alerts-scope-default", "default");
         }
-        return MessageUtil.getParsedComponent(
-                sender,
-                "alerts-scope",
-                "%prefix% &fAlert scope: &b%scope% &7(%source%)",
-                Map.of("scope", alerts.scope(player).id(), "source", source));
+        // The source is configured text, so its colour codes apply.
+        String message = config.getStringElse("alerts-scope", "%prefix% &fAlert scope: &b%scope% &7(%source%)")
+                .replace("%scope%", alerts.scope(player).id())
+                .replace("%source%", MessageUtil.miniMessageSafe(source));
+        return MessageUtil.miniMessage(MessageUtil.replacePlaceholders(sender, message));
     }
 }

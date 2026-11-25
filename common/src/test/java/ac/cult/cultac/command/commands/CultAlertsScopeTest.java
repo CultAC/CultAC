@@ -3,6 +3,8 @@ package ac.cult.cultac.command.commands;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -11,15 +13,18 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.manager.AlertManagerImpl;
 import ac.cult.cultac.manager.alerts.AlertScope;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.manager.MessagePlaceHolderManager;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
+import ac.grim.grimac.api.config.ConfigManager;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -89,6 +94,34 @@ class CultAlertsScopeTest {
         String shown = GsonComponentSerializer.gson().serialize(CultAlerts.scopeLine(sender, player));
         assertTrue(shown.contains("server"), shown);
         assertTrue(shown.contains("network-wide alerts are not enabled on this server"), shown);
+    }
+
+    @Test
+    void theScopeSourceShowsItsConfiguredColours() throws ReflectiveOperationException {
+        ConfigManager config = mock(
+                ConfigManager.class,
+                call -> call.getMethod().getName().endsWith("Else") ? call.getArgument(1) : null);
+        when(config.getStringElse(eq("alerts-scope-local"), anyString())).thenReturn("&anot enabled here");
+        BaseConfigManager manager = new BaseConfigManager() {
+            @Override
+            public ConfigManager getConfig() {
+                return config;
+            }
+        };
+        Field field = CultAPI.class.getDeclaredField("configManager");
+        field.setAccessible(true);
+        Object original = field.get(CultAPI.INSTANCE);
+        field.set(CultAPI.INSTANCE, manager);
+        Component shown;
+        try {
+            shown = CultAlerts.scopeLine(sender, player);
+        } finally {
+            field.set(CultAPI.INSTANCE, original);
+        }
+        assertTrue(PlainTextComponentSerializer.plainText().serialize(shown).endsWith("(not enabled here)"));
+        assertTrue(
+                GsonComponentSerializer.gson().serialize(shown).contains("\"color\":\"green\""),
+                GsonComponentSerializer.gson().serialize(shown));
     }
 
     @Test
