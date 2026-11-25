@@ -183,7 +183,7 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
                     && zeroVerticalCarryVehicle == riding
                     && zeroVerticalCarryTick + 1 == tick;
             lastOnGround = groundBelowCollisionEpsilon(lastOnGround, gather, zeroCarry, epsilonMoves);
-            // Entity#move zeroes the vertical deltaMovement after a vertical collision; a zero distance kept it 0.
+            // Entity#move zeroes the vertical deltaMovement after a vertical collision; a zero distance leaves it 0.
             if (gather == DesyncStatus.TRUE
                     && player.lastTransactionReceived.get() >= vehicleVelocitySettledTransaction
                     && !VehicleColliderGather.nearBubbleColumn(player, result)) {
@@ -365,8 +365,8 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
 
     /**
      * Entity#move's onGround for a move {@link #movementsBelowCollisionEpsilon} holds for: verticalCollisionBelow, which
-     * a distance in (-1.0E-7, 0) sets whenever Entity#collide gathers a collider. The sign is exact only from a
-     * vertical deltaMovement the last tick's collision left at 0; {@code collision} is the result without the gather.
+     * a distance in (-1.0E-7, 0) sets whenever Entity#collide gathers a collider. {@code zeroCarry}: the last tick's
+     * collision left the vertical deltaMovement at 0; {@code collision} is the result without the gather.
      */
     private static DesyncStatus groundBelowCollisionEpsilon(
             DesyncStatus collision, DesyncStatus gather, boolean zeroCarry, SimpleCollisionBox moves) {

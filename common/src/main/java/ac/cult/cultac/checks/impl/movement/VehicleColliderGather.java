@@ -25,7 +25,7 @@ final class VehicleColliderGather {
 
     /**
      * TRUE when Entity#collide gathers a collider for every pre-collision movement in {@code movements}, FALSE when it
-     * gathers none for any of them, UNKNOWN when a collider the client may hold or an entity decides it.
+     * gathers none for any of them, UNKNOWN otherwise.
      */
     static DesyncStatus gathers(CultPlayer player, PredictionResult result, SimpleCollisionBox movements) {
         Vec3 start = result.getSimulationContext().getStart();
@@ -90,7 +90,7 @@ final class VehicleColliderGather {
         return false;
     }
 
-    /** Whether the client may hold a block in {@code query} other than the one the engine holds. */
+    /** Whether a block in {@code query} has a change the client has not confirmed, or lies in an unloaded chunk. */
     private static boolean mayHoldOtherBlocks(CultPlayer player, SimpleCollisionBox query) {
         CompensatedWorld world = player.compensatedWorld;
         if (world.hasRecentClientCollisionChanges(query)) return true;

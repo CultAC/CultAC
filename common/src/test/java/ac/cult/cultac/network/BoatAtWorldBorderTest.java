@@ -14,6 +14,7 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundInitializeBorder;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderLerpSize;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderSize;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
@@ -119,7 +120,7 @@ class BoatAtWorldBorderTest {
     /**
      * WorldBorder#tick runs after ClientLevel#tickEntities, and MovingBorderExtent#getMinX(0.0F) reads the size before
      * the last update: shrinking by 0.1 a tick from 1600, the border reaches 2.75 from the boat after 10 updates and
-     * the boat first gathers it on the tick after the 11th.
+     * the boat first gathers it on the tick after the 12th.
      */
     @Test
     void aShrinkingBorderIsGatheredOnTheTickItComesWithinReach() throws Exception {
@@ -155,6 +156,52 @@ class BoatAtWorldBorderTest {
                 assertVehicleExact(f.rideTick(seat, tick % 2 == 0), tick);
                 assertEquals(0.0, groundViolations(f), "tick " + tick);
             }
+        }
+    }
+
+    /**
+     * Until the client handles a size packet it keeps updating the lerp it runs. Growing by 0.04 a tick from 1600, a
+     * boat 2.72 from the edge reads distances 2.72, 2.74 and 2.76 on the three ticks before it handles the packet, and
+     * gathers nothing on the third.
+     */
+    @Test
+    void aSizePacketHandledLaterLeavesTheRunningLerpMoving() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            initializeBorder(f, SIZE);
+            Vec3 seat = mount(f, 62, new Vec3(X, FALLING_Y, 800.0 - 2.72));
+            f.rideTick(seat, true);
+            f.rideTick(seat, true);
+            var lerp = new ClientboundSetBorderLerpSize(SIZE, SIZE + 4.0, 100L);
+            f.player
+                    .checkManager
+                    .getWorldBorder()
+                    .onSetBorderLerpSize(
+                            new PacketSendEvent<>(
+                                    f.fixture.user,
+                                    ConnectionPhase.PLAY,
+                                    ClientboundPackets.SET_BORDER_LERP_SIZE,
+                                    lerp,
+                                    false),
+                            f.player,
+                            lerp);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.sendTransaction();
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.rideTick(seat, true);
+            var size = new ClientboundSetBorderSize(SIZE);
+            f.player
+                    .checkManager
+                    .getWorldBorder()
+                    .onSetBorderSize(
+                            new PacketSendEvent<>(
+                                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_BORDER_SIZE, size, false),
+                            f.player,
+                            size);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.rideTick(seat, true);
+            f.rideTick(seat, true);
+            f.rideTick(seat, false);
+            assertEquals(0.0, groundViolations(f));
         }
     }
 

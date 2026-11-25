@@ -166,6 +166,11 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             boolean placed = placeClientBorder(true);
             double minDiameter = clientMinDiameter;
             double maxDiameter = clientMaxDiameter;
+            if (tickBasedLerp) {
+                // A client that has not handled the packet keeps updating the lerp it runs.
+                minDiameter = Math.min(minDiameter, Math.min(oldDiameter, newDiameter));
+                maxDiameter = Math.max(maxDiameter, Math.max(oldDiameter, newDiameter));
+            }
             double x = centerX;
             double z = centerZ;
             double max = absoluteMaxSize;
