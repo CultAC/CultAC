@@ -31,8 +31,10 @@ public interface PlatformServer {
     /**
      * Dispatches a punishment command {@code check} triggered for {@code subject}. A proxy may run it on the subject's
      * backend console, where backend CommandExecuteEvent listeners can still cancel it.
+     *
+     * @return false when nothing that can run {@code command} is reachable now, so it was not dispatched
      */
-    default void dispatchCommand(
+    default boolean dispatchCommand(
             Sender sender,
             String command,
             @Nullable PlatformPlayer subject,
@@ -40,6 +42,7 @@ public interface PlatformServer {
             double violations,
             String verbose) {
         dispatchCommand(sender, command);
+        return true;
     }
 
     /**

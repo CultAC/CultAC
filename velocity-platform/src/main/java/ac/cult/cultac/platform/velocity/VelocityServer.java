@@ -55,26 +55,32 @@ final class VelocityServer implements PlatformServer {
      */
     @Override
     public void dispatchCommand(Sender sender, String command, @Nullable PlatformPlayer subject) {
-        var session = subject instanceof VelocityPlayer player ? player.bridge(ServerCapability.CONSOLE_EXEC) : null;
-        if (session == null) {
-            dispatchCommand(sender, command);
-            return;
-        }
+        if (!dispatchRouted(sender, command, subject)) dispatchCommand(sender, command);
+    }
+
+    /**
+     * Runs {@code command} on the proxy when it has the command, else on the subject's backend console through a READY
+     * companion; false when neither is reachable now, so nothing was dispatched.
+     */
+    private boolean dispatchRouted(Sender sender, String command, @Nullable PlatformPlayer subject) {
         String root = root(command);
-        if (!proxy.getCommandManager().hasCommand(root)) {
-            if (BridgeFrames.fits(new ConsoleExec(BridgeFrames.WORST_CASE_REQUEST_ID, command))) {
-                reportBackend(
-                        command,
-                        session.serverName(),
-                        session.exchange(requestId -> new ConsoleExec(requestId, command), REQUEST_TIMEOUT_MILLIS),
-                        () -> LogUtil.warn("Command did not run on " + session.serverName() + ": " + command));
-                return;
-            }
-            LogUtil.error("Punishment command did not run: it is too long to forward to " + session.serverName()
-                    + " and the proxy has no /" + root + " command: " + command);
-            return;
+        if (proxy.getCommandManager().hasCommand(root)) {
+            dispatchCommand(sender, command);
+            return true;
         }
-        dispatchCommand(sender, command);
+        var session = subject instanceof VelocityPlayer player ? player.bridge(ServerCapability.CONSOLE_EXEC) : null;
+        if (session == null) return false;
+        if (BridgeFrames.fits(new ConsoleExec(BridgeFrames.WORST_CASE_REQUEST_ID, command))) {
+            reportBackend(
+                    command,
+                    session.serverName(),
+                    session.exchange(requestId -> new ConsoleExec(requestId, command), REQUEST_TIMEOUT_MILLIS),
+                    () -> LogUtil.warn("Command did not run on " + session.serverName() + ": " + command));
+            return true;
+        }
+        LogUtil.error("Punishment command did not run: it is too long to forward to " + session.serverName()
+                + " and the proxy has no /" + root + " command: " + command);
+        return true;
     }
 
     /**
@@ -105,10 +111,11 @@ final class VelocityServer implements PlatformServer {
 
     /**
      * Punishment commands bound for a backend that has CommandExecuteEvent listeners fire that event there first, so a
-     * backend plugin can cancel them; otherwise they take the {@link ConsoleExec} path.
+     * backend plugin can cancel them; otherwise they take the {@link ConsoleExec} path. A command the proxy does not
+     * have is not dispatched while the subject has no READY companion.
      */
     @Override
-    public void dispatchCommand(
+    public boolean dispatchCommand(
             Sender sender,
             String command,
             @Nullable PlatformPlayer subject,
@@ -130,14 +137,14 @@ final class VelocityServer implements PlatformServer {
                                 REQUEST_TIMEOUT_MILLIS),
                         () -> LogUtil.info("Command was cancelled by a plugin on " + session.serverName()
                                 + " or did not run there: " + command));
-                return;
+                return true;
             }
             if (checkIdx >= 0) {
                 LogUtil.warn("Command is too long for CommandExecuteEvent on " + session.serverName()
                         + "; dispatching it without the event");
             }
         }
-        dispatchCommand(sender, command, subject);
+        return dispatchRouted(sender, command, subject);
     }
 
     /** Only a backend plugin listening for CommandExecuteEvent gets a punishment command's verbose. */

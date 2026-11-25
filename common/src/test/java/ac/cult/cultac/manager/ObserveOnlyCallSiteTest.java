@@ -151,12 +151,11 @@ class ObserveOnlyCallSiteTest {
             checks/impl/badpackets/BadPacketsH.java#onUseItem(PacketReceiveEvent,CultPlayer,ServerboundUseItem) setCancelled
             [handleLegacySneak(] BadPacketsG rejects only under shouldModifyPackets()
             checks/impl/badpackets/BadPacketsG.java#onPlayerCommand(PacketReceiveEvent,CultPlayer,ServerboundPlayerCommand) setCancelled
-            [canceled] console commands are withheld in observe-only
-            manager/PunishmentManager.java#handleAlert(CultPlayer,Supplier,Supplier,Check) dispatchCommand
             [REJECT] AbstractTimerCheck rejects only under shouldModifyPackets()
             checks/impl/movement/timer/TimerCheck.java#onBedrockAuthInput(PacketReceiveEvent) setCancelled
             [] reached only from callers that return first in observe-only
             bedrock/bridge/GeyserBedrockBridgeRuntime.java#processAuthInput(CultPlayer,PlayerAuthInputPacket) abortTranslatedDig
+            manager/PunishmentManager.java#dispatch(PunishGroup,ParsedCommand,Delivery) dispatchCommand
             checks/impl/prediction/checks/NoSlow.java#clearFlaggedUse() clearActiveItem
             events/packets/patch/ResyncWorldUtil.java#resyncOnOwner(CultPlayer,int,int,int,int,int,int) sendServerStates
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData) sendSetback
@@ -348,8 +347,8 @@ class ObserveOnlyCallSiteTest {
             platform/velocity/VelocityConnectionAdapter.java#disconnect(Component) disconnect
             platform/velocity/VelocityPlayer.java#closeInventory() inject
             platform/velocity/VelocityPlayer.java#kickPlayer(String) disconnect
-            platform/velocity/VelocityServer.java#dispatchCommand(Sender,String,PlatformPlayer) dispatchCommand x2
-            platform/velocity/VelocityServer.java#dispatchCommand(Sender,String,PlatformPlayer,AbstractCheck,double,String) dispatchCommand
+            platform/velocity/VelocityServer.java#dispatchCommand(Sender,String,PlatformPlayer) dispatchCommand
+            platform/velocity/VelocityServer.java#dispatchRouted(Sender,String,PlatformPlayer) dispatchCommand
             player/CultPlayer.java#closeInventorySafely() closeInventory
             player/CultPlayer.java#disconnect(Component) closeConnection
             player/CultPlayer.java#disconnect(Component) disconnectPacket

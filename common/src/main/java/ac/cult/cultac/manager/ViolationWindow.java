@@ -6,6 +6,7 @@ import java.util.ArrayDeque;
 final class ViolationWindow {
     private final ArrayDeque<Run> runs = new ArrayDeque<>();
     private int size;
+    private long added;
 
     /** Counts one flag of the check with {@code checkKey} at {@code now}. */
     void add(long now, String checkKey) {
@@ -16,6 +17,17 @@ final class ViolationWindow {
             runs.addLast(new Run(now, checkKey));
         }
         size++;
+        added++;
+    }
+
+    /** The flags ever added, a mark for {@link #countAfter}. */
+    long added() {
+        return added;
+    }
+
+    /** The flags in the window added after {@code mark}. */
+    int countAfter(long mark) {
+        return (int) Math.min(size, added - mark);
     }
 
     /** Drops the flags more than {@code windowMillis} older than {@code now}. */

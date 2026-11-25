@@ -170,6 +170,18 @@ class VelocityServerTest {
     }
 
     @Test
+    void aPunishmentIsDispatchedOnlyOnceTheProxyOrAReadyCompanionCanRunIt() {
+        when(session.isReady()).thenReturn(false);
+        assertFalse(server.dispatchCommand(console, BAN, subject, check, 4.0, "verbose"));
+        verify(session, never()).exchange(any(), anyLong());
+
+        when(session.isReady()).thenReturn(true);
+        assertTrue(server.dispatchCommand(console, BAN, subject, check, 4.0, "verbose"));
+        assertEquals(new ConsoleExec(3, BAN), sentRequest(3));
+        verify(proxy.getCommandManager(), never()).executeAsync(any(), anyString());
+    }
+
+    @Test
     void aProxyCommandReportsWhetherVelocityKnewIt() throws Exception {
         VelocityBridge.install(BridgeSessions.NONE);
 

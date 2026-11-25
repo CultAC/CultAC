@@ -197,6 +197,8 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                 @Override
                 public void onReady(BridgeSession session) {
                     mirrorWorld(session.playerId(), session.worldUid());
+                    var player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(session.playerId());
+                    if (player != null) player.runSafely(player.punishmentManager::deliverWaiting);
                 }
 
                 @Override

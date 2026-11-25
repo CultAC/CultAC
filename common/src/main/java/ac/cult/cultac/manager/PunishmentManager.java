@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.manager.config.EnglishDefaults;
+import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -184,8 +185,12 @@ public class PunishmentManager implements ConfigReloadable {
         // Check commands
         for (PunishGroup group : groups) {
             if (group.checks.contains(check)) {
-                final int vl = getViolations(group, check);
-                final int violationCount = group.violations.size();
+                final int vl;
+                final int violationCount;
+                synchronized (group.violations) {
+                    vl = getViolations(group, check);
+                    violationCount = group.violations.size();
+                }
                 for (ParsedCommand command : group.commands) {
                     @Nullable Recipients verboseListeners = null;
                     // Verbose that prints all flags: /cult verbose subscribers get EVERY flag, not just thresholded
@@ -206,125 +211,215 @@ public class PunishmentManager implements ConfigReloadable {
                             logDeliveryFailure(command, check, e);
                         }
                     }
-                    if (violationCount >= command.threshold) {
-                        boolean shouldRun = command.interval == 0
-                                ? command.executeCount == 0
-                                : violationCount >= command.nextBoundary;
-                        if (shouldRun) {
-                            Supplier<String> text = command.command.equals("[log]") ? logVerbose : verbose;
-                            Supplier<String> shown = () -> safeGet(text);
-                            boolean builtin = BUILTIN_ACTIONS.contains(command.action());
-                            // Only console commands can reach a backend's CommandExecuteEvent listeners;
-                            // the built-in actions below are decided by this event alone.
-                            boolean withheld = (player.isObserveOnly() || player.isPunishmentsPaused()) && !builtin;
-                            // The configured line is for the event's listeners and a console command.
-                            String cmd = null;
-                            boolean canceled = withheld;
-                            if (!withheld && (!builtin || !COMMAND_CHANNEL.isEmpty())) {
-                                try {
-                                    cmd = replaceAlertPlaceholders(command, vl, check, shown, false);
-                                    canceled = COMMAND_CHANNEL.fire(
-                                            RuntimeEnvironment.outwardUser(player),
-                                            RuntimeEnvironment.outwardCheck(check),
-                                            shown,
-                                            cmd);
-                                } catch (RuntimeException | LinkageError e) {
-                                    logDeliveryFailure(command, check, e);
-                                    canceled = true;
-                                }
-                            }
-                            if (command.interval == 0) {
-                                command.executeCount++;
-                            } else {
-                                advanceBoundary(command, violationCount);
-                            }
-                            if (canceled) continue;
-
+                    if (due(group, command, violationCount)) {
+                        Supplier<String> text = command.command.equals("[log]") ? logVerbose : verbose;
+                        Supplier<String> shown = () -> safeGet(text);
+                        if (withheld(player, command)) {
+                            if (command.interval == 0) holdBack(group, command);
+                            continue;
+                        }
+                        if (command.interval == 0 && !claim(group, command)) continue;
+                        boolean builtin = BUILTIN_ACTIONS.contains(command.action());
+                        // Only console commands can reach a backend's CommandExecuteEvent listeners;
+                        // the built-in actions below are decided by this event alone.
+                        // The configured line is for the event's listeners and a console command.
+                        String cmd = null;
+                        boolean canceled = false;
+                        if (!builtin || !COMMAND_CHANNEL.isEmpty()) {
                             try {
-                                switch (command.action()) {
-                                    case "[webhook]" ->
-                                        CultAPI.INSTANCE
-                                                .getDiscordManager()
-                                                .sendAlert(player, safeGet(verbose), check.getDisplayName(), vl);
-                                    case "[log]" -> {
-                                        // Binary flags already stored a row; avoid an extra legacy text row.
-                                        if (!check.isLastFlagStoredBinaryVerbose()) {
-                                            String verboseWithoutGl =
-                                                    safeGet(logVerbose).replaceAll(" /gl .*", "");
-                                            CultAPI.INSTANCE
-                                                    .getDataStoreLifecycle()
-                                                    .liveWriteHooks()
-                                                    .recordFlagFromCheck(player, check, vl, verboseWithoutGl);
-                                        }
-                                    }
-                                    // Every version of the receiving server reads the line as MiniMessage.
-                                    case "[proxy]" ->
-                                        CultAPI.INSTANCE
-                                                .getAlertManager()
-                                                .forwardAlert(MessageUtil.relayed(MessageUtil.miniMessage(
-                                                        replaceAlertPlaceholders(command, vl, check, shown, true))));
-                                    case "[alert]" -> {
-                                        sentDebug = true;
-                                        Component message = CheckNameLink.link(
-                                                MessageUtil.miniMessage(
-                                                        replaceAlertPlaceholders(command, vl, check, shown, true)),
-                                                check);
-                                        if (testMode) { // secret test mode
-                                            if (verboseListeners == null
-                                                    || verboseListeners
-                                                            .players()
-                                                            .contains(player.platformPlayer)) {
-                                                player.sendMessage(message);
-                                            }
-                                        } else {
-                                            CultAPI.INSTANCE
-                                                    .getAlertManager()
-                                                    .sendAlert(player, message, verboseListeners);
-                                        }
-                                    }
-                                    default -> {
-                                        String line = cmd;
-                                        double violations = check.getViolations();
-                                        // Only where the platform hands it on, such as to a backend plugin.
-                                        String renderedVerbose = CultAPI.INSTANCE
-                                                        .getPlatformServer()
-                                                        .dispatchesVerbose(line, player.platformPlayer)
-                                                ? safeGet(verbose)
-                                                : "";
-                                        CultAPI.INSTANCE
-                                                .getScheduler()
-                                                .getGlobalRegionScheduler()
-                                                .run(
-                                                        CultAPI.INSTANCE.getGrimPlugin(),
-                                                        () -> CultAPI.INSTANCE
-                                                                .getPlatformServer()
-                                                                .dispatchCommand(
-                                                                        CultAPI.INSTANCE
-                                                                                .getPlatformServer()
-                                                                                .getConsoleSender(),
-                                                                        line,
-                                                                        player.platformPlayer,
-                                                                        check,
-                                                                        violations,
-                                                                        renderedVerbose));
-                                    }
-                                }
+                                cmd = replaceAlertPlaceholders(command, vl, check, shown, false);
+                                canceled = COMMAND_CHANNEL.fire(
+                                        RuntimeEnvironment.outwardUser(player),
+                                        RuntimeEnvironment.outwardCheck(check),
+                                        shown,
+                                        cmd);
                             } catch (RuntimeException | LinkageError e) {
                                 logDeliveryFailure(command, check, e);
+                                canceled = true;
                             }
                         }
+                        if (command.interval == 0 && (canceled || builtin)) settle(group, command, null, true);
+                        if (canceled) continue;
 
-                        if (command.interval > 0) command.executeCount++;
-                    } else {
-                        // Interval commands re-arm after the active rolling count
-                        // cools below their threshold.
-                        command.nextBoundary = command.threshold;
+                        try {
+                            switch (command.action()) {
+                                case "[webhook]" ->
+                                    CultAPI.INSTANCE
+                                            .getDiscordManager()
+                                            .sendAlert(player, safeGet(verbose), check.getDisplayName(), vl);
+                                case "[log]" -> {
+                                    // Binary flags already stored a row; avoid an extra legacy text row.
+                                    if (!check.isLastFlagStoredBinaryVerbose()) {
+                                        String verboseWithoutGl =
+                                                safeGet(logVerbose).replaceAll(" /gl .*", "");
+                                        CultAPI.INSTANCE
+                                                .getDataStoreLifecycle()
+                                                .liveWriteHooks()
+                                                .recordFlagFromCheck(player, check, vl, verboseWithoutGl);
+                                    }
+                                }
+                                // Every version of the receiving server reads the line as MiniMessage.
+                                case "[proxy]" ->
+                                    CultAPI.INSTANCE
+                                            .getAlertManager()
+                                            .forwardAlert(MessageUtil.relayed(MessageUtil.miniMessage(
+                                                    replaceAlertPlaceholders(command, vl, check, shown, true))));
+                                case "[alert]" -> {
+                                    sentDebug = true;
+                                    Component message = CheckNameLink.link(
+                                            MessageUtil.miniMessage(
+                                                    replaceAlertPlaceholders(command, vl, check, shown, true)),
+                                            check);
+                                    if (testMode) { // secret test mode
+                                        if (verboseListeners == null
+                                                || verboseListeners.players().contains(player.platformPlayer)) {
+                                            player.sendMessage(message);
+                                        }
+                                    } else {
+                                        CultAPI.INSTANCE.getAlertManager().sendAlert(player, message, verboseListeners);
+                                    }
+                                }
+                                default -> {
+                                    double violations = check.getViolations();
+                                    // Only where the platform hands it on, such as to a backend plugin.
+                                    String renderedVerbose = CultAPI.INSTANCE
+                                                    .getPlatformServer()
+                                                    .dispatchesVerbose(cmd, player.platformPlayer)
+                                            ? safeGet(verbose)
+                                            : "";
+                                    dispatch(group, command, new Delivery(cmd, check, violations, renderedVerbose));
+                                }
+                            }
+                        } catch (RuntimeException | LinkageError e) {
+                            logDeliveryFailure(command, check, e);
+                        }
                     }
                 }
             }
         }
 
         return sentDebug;
+    }
+
+    /**
+     * Runs the one-time console commands that wait for a server able to run them, such as a backend whose companion
+     * was not ready yet. On the player's packet owner.
+     */
+    public void deliverWaiting() {
+        for (PunishGroup group : groups) {
+            for (ParsedCommand command : group.commands) {
+                Delivery waiting;
+                synchronized (group.violations) {
+                    waiting = command.waiting;
+                    if (waiting == null || command.claimed || command.executeCount > 0) continue;
+                    if (withheld(player, command)) {
+                        command.withheldThrough = group.violations.added();
+                        command.waiting = null;
+                        continue;
+                    }
+                    command.claimed = true;
+                }
+                dispatch(group, command, waiting);
+            }
+        }
+    }
+
+    /** Whether punishments.yml commands other than the built-in actions are withheld for {@code player}. */
+    private static boolean withheld(CultPlayer player, ParsedCommand command) {
+        return (player.isObserveOnly() || player.isPunishmentsPaused()) && !BUILTIN_ACTIONS.contains(command.action());
+    }
+
+    /**
+     * Whether {@code command} runs for the flag that brought the group to {@code violationCount}. A recurring command
+     * moves to its next boundary here; a one-time command counts only the flags after its last withheld run.
+     */
+    private static boolean due(PunishGroup group, ParsedCommand command, int violationCount) {
+        synchronized (group.violations) {
+            if (command.interval == 0) {
+                return command.executeCount == 0
+                        && !command.claimed
+                        && group.violations.countAfter(command.withheldThrough) >= command.threshold;
+            }
+            if (violationCount < command.threshold) {
+                // Interval commands re-arm after the active rolling count
+                // cools below their threshold.
+                command.nextBoundary = command.threshold;
+                return false;
+            }
+            command.executeCount++;
+            if (violationCount < command.nextBoundary) return false;
+            advanceBoundary(command, violationCount);
+            return true;
+        }
+    }
+
+    /** Takes a due one-time command for this run; false when another run already took it. */
+    private static boolean claim(PunishGroup group, ParsedCommand command) {
+        synchronized (group.violations) {
+            if (command.executeCount > 0 || command.claimed) return false;
+            command.claimed = true;
+            return true;
+        }
+    }
+
+    /** A withheld one-time command stays unused; the flags that made it due no longer count toward it. */
+    private static void holdBack(PunishGroup group, ParsedCommand command) {
+        synchronized (group.violations) {
+            command.withheldThrough = group.violations.added();
+            command.waiting = null;
+        }
+    }
+
+    /** Hands {@code delivery} to the platform on the thread its commands need. */
+    private void dispatch(PunishGroup group, ParsedCommand command, Delivery delivery) {
+        try {
+            CultAPI.INSTANCE.getScheduler().getGlobalRegionScheduler().run(CultAPI.INSTANCE.getGrimPlugin(), () -> {
+                boolean delivered = true;
+                try {
+                    PlatformServer server = CultAPI.INSTANCE.getPlatformServer();
+                    delivered = server.dispatchCommand(
+                            server.getConsoleSender(),
+                            delivery.command(),
+                            player.platformPlayer,
+                            delivery.check(),
+                            delivery.violations(),
+                            delivery.verbose());
+                } catch (RuntimeException e) {
+                    logDeliveryFailure(command, delivery.check(), e);
+                }
+                settle(group, command, delivery, delivered);
+            });
+        } catch (RuntimeException e) {
+            settle(group, command, delivery, true);
+            logDeliveryFailure(command, delivery.check(), e);
+        }
+    }
+
+    /**
+     * A one-time command is used once it was handed to something that runs it, and waits for the next flag or a
+     * ready server otherwise.
+     */
+    private void settle(PunishGroup group, ParsedCommand command, @Nullable Delivery delivery, boolean delivered) {
+        if (command.interval > 0) {
+            if (!delivered) {
+                LogUtil.warn("Punishment command did not run: no server can run it now: " + delivery.command());
+            }
+            return;
+        }
+        boolean waitStarted;
+        synchronized (group.violations) {
+            command.claimed = false;
+            if (delivered) {
+                command.executeCount++;
+                command.waiting = null;
+                return;
+            }
+            waitStarted = command.waiting == null;
+            command.waiting = delivery;
+        }
+        if (waitStarted) {
+            LogUtil.warn("Punishment command waits for a server that can run it: " + delivery.command());
+        }
     }
 
     /**
@@ -337,13 +432,19 @@ public class PunishmentManager implements ConfigReloadable {
         boolean verboseListeners = CultAPI.INSTANCE.getAlertManager().hasVerboseListeners(player);
         for (PunishGroup group : groups) {
             if (!group.checks.contains(check)) continue;
-            int violationCount = group.violations.size() + pending;
-            for (ParsedCommand command : group.commands) {
-                if (command.command.equals("[log]")) continue;
-                if (verboseListeners && command.alertFormat != null) return true;
-                if (violationCount >= command.threshold
-                        && (command.interval == 0 ? command.executeCount == 0 : violationCount >= command.nextBoundary))
-                    return true;
+            synchronized (group.violations) {
+                int violationCount = group.violations.size() + pending;
+                for (ParsedCommand command : group.commands) {
+                    if (command.command.equals("[log]")) continue;
+                    if (verboseListeners && command.alertFormat != null) return true;
+                    if (command.interval == 0
+                            ? command.executeCount == 0
+                                    && !command.claimed
+                                    && group.violations.countAfter(command.withheldThrough) + pending
+                                            >= command.threshold
+                            : violationCount >= command.threshold && violationCount >= command.nextBoundary)
+                        return true;
+                }
             }
         }
         return false;
@@ -397,6 +498,12 @@ class ParsedCommand {
     public final @Nullable String alertFormat;
     // For M=0, a non-zero count keeps the command from running again in this loaded state.
     public int executeCount;
+    // For M=0, a run of this command is on its way to the platform.
+    public boolean claimed;
+    // For M=0, the window mark its last withheld run ends at; only later flags count toward it.
+    public long withheldThrough;
+    // For M=0, the run that waits for a server able to run it.
+    public @Nullable Delivery waiting;
     // For M>0, the next active violation count that should run this command.
     public int nextBoundary;
 
@@ -413,3 +520,6 @@ class ParsedCommand {
         return alertFormat != null ? "[alert]" : command;
     }
 }
+
+/** A console command as rendered for a flag of {@code check}. */
+record Delivery(String command, Check check, double violations, String verbose) {}
