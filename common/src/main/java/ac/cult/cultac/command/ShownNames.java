@@ -7,7 +7,10 @@ import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
-import ac.grim.grimac.api.storage.identity.NameResolver;
+import ac.grim.grimac.api.storage.DataStore;
+import ac.grim.grimac.api.storage.category.Categories;
+import ac.grim.grimac.api.storage.model.PlayerIdentity;
+import ac.grim.grimac.api.storage.query.Queries;
 import io.leangen.geantyref.TypeToken;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -97,16 +100,21 @@ public final class ShownNames {
                 : new Match(uuid, player.name(), shown);
     }
 
-    /** The stored account named {@code name}; empty without an identity store or when it does not answer in time. */
+    /**
+     * The stored account named {@code name}, read from the player identities alone: the name resolution chain may end in
+     * a link that derives a UUID for any name. Empty without an identity store or when it does not answer in time.
+     */
     static CompletableFuture<Optional<UUID>> known(String name) {
         DataStoreLifecycle lifecycle = CultAPI.INSTANCE.getDataStoreLifecycle();
         if (lifecycle == null || !lifecycle.isLoaded()) return CompletableFuture.completedFuture(Optional.empty());
         CompletableFuture<Optional<UUID>> known = new CompletableFuture<>();
         try {
-            NameResolver resolver = lifecycle.nameResolver();
-            if (resolver == null) return CompletableFuture.completedFuture(Optional.empty());
-            resolver.resolveByName(name).whenComplete((uuid, failure) ->
-                    known.complete(failure == null && uuid != null ? uuid : Optional.empty()));
+            DataStore store = lifecycle.dataStore();
+            if (store == null) return CompletableFuture.completedFuture(Optional.empty());
+            store.query(Categories.PLAYER_IDENTITY, Queries.getPlayerIdentityByName(name))
+                    .whenComplete((page, failure) -> known.complete(failure != null || page == null
+                            ? Optional.empty()
+                            : page.items().stream().map(PlayerIdentity::uuid).findFirst()));
         } catch (RuntimeException unavailable) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
