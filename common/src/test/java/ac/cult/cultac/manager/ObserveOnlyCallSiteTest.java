@@ -155,7 +155,7 @@ class ObserveOnlyCallSiteTest {
             checks/impl/movement/timer/TimerCheck.java#onBedrockAuthInput(PacketReceiveEvent) setCancelled
             [] reached only from callers that return first in observe-only
             bedrock/bridge/GeyserBedrockBridgeRuntime.java#processAuthInput(CultPlayer,PlayerAuthInputPacket) abortTranslatedDig
-            manager/PunishmentManager.java#dispatch(PunishGroup,ParsedCommand,Delivery) dispatchCommand
+            manager/PunishmentManager.java#dispatch(PunishGroup,ParsedCommand,Delivery,Check) dispatchCommand
             checks/impl/prediction/checks/NoSlow.java#clearFlaggedUse() clearActiveItem
             events/packets/patch/ResyncWorldUtil.java#resyncOnOwner(CultPlayer,int,int,int,int,int,int) sendServerStates
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData) sendSetback
