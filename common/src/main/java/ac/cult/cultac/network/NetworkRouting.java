@@ -31,6 +31,16 @@ public interface NetworkRouting {
     /** Every online player the network knows of, this instance's included. */
     Collection<NetworkPlayer> roster();
 
+    /**
+     * The online players on any instance whose own client lists them as {@code name} (case-insensitive) rather than
+     * their account name, one entry per player.
+     */
+    default List<NetworkPlayer> listedAs(String name) {
+        return roster().stream()
+                .filter(player -> player.shown() != null && player.shown().equalsIgnoreCase(name))
+                .toList();
+    }
+
     record SearchResult(List<NetworkPlayer> players, int total, int unavailable) {}
 
     default CompletableFuture<SearchResult> search(String query) {

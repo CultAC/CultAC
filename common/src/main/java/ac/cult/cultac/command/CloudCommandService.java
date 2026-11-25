@@ -137,7 +137,6 @@ public class CloudCommandService implements CommandService {
         final RequirementPostprocessor<Sender, SenderRequirement> senderRequirementPostprocessor =
                 RequirementPostprocessor.of(REQUIREMENT_KEY, new CultCommandFailureHandler());
         commandManager.registerCommandPostProcessor(senderRequirementPostprocessor);
-        commandManager.registerCommandPostProcessor(context -> ShownNames.tell(context.commandContext()));
         registerExceptionHandlers(commandManager);
         commandsRegistered = true;
     }

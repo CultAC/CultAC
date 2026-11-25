@@ -63,4 +63,29 @@ class ShownNamesTest {
         assertNull(ShownNames.choose(List.of(seen, other), List.of(here), "Shown", online::get));
         assertNull(ShownNames.choose(List.of(), List.of(here, alsoHere), "Shown", online::get));
     }
+
+    @Test
+    void aNameListedOnAnyInstanceMatchesOnceAndSeveralPlayersUnderItMatchNone() {
+        UUID nicked = UUID.randomUUID();
+        UUID seen = UUID.randomUUID();
+        NetworkPlayer elsewhere = new NetworkPlayer(nicked, "Account", "p9", "lobby", null, Map.of(), "Nick");
+        NetworkPlayer sameOnProxy = new NetworkPlayer(nicked, "Account", "p3", "lobby", null, Map.of(), "Nick");
+        NetworkPlayer unlisted = new NetworkPlayer(UUID.randomUUID(), "Nick", "p7", null);
+        Map<UUID, NetworkPlayer> online = Map.of(seen, new NetworkPlayer(seen, "Seen", "p3", null));
+        ShownNames.Match match = new ShownNames.Match(nicked, "Account", "Nick");
+
+        List<ShownNames.Match> listed = ShownNames.listed(List.of(), List.of(elsewhere, sameOnProxy, unlisted), "nick");
+        assertEquals(List.of(match), listed);
+        assertEquals(match, ShownNames.choose(List.of(), listed, "nick", online::get));
+        assertEquals(
+                new ShownNames.Match(seen, "Seen", "nick"),
+                ShownNames.choose(List.of(seen), listed, "nick", online::get));
+
+        NetworkPlayer another = new NetworkPlayer(UUID.randomUUID(), "Other", "p7", null, null, Map.of(), "NICK");
+        assertNull(ShownNames.choose(
+                List.of(),
+                ShownNames.listed(List.of(match), List.of(elsewhere, another), "Nick"),
+                "Nick",
+                online::get));
+    }
 }

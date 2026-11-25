@@ -44,8 +44,8 @@ import org.jetbrains.annotations.Nullable;
  * instance, to every other instance, or to this instance's engine generations over the in-process bus. Messages for
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
  * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and, at most every {@value #DELTA_PERIOD_MILLIS} ms, one delta
- * with the joins, quits, backend switches and brand changes reported since the last roster message, the last report
- * per player winning, or with a change in the servers verbose staff here cover or in this instance's state, which
+ * with the joins, quits, backend switches, brand and shown-name changes reported since the last roster message, the
+ * last report per player winning, or with a change in the servers verbose staff here cover or in this instance's state, which
  * every roster message lists with its role and build for network commands, or with records new to the shared settings
  * ({@link NetSettings}), which a full snapshot lists in full. Every generation of one host reports
  * into one shared map that only the current generation takes from, so a report made on a superseded generation rides
@@ -70,7 +70,7 @@ public final class NetworkService implements NetworkRouting {
     static final String NONCE_KEY = "cultac.network.nonce";
     /**
      * The host-shared {@code Map<UUID, String[]>} of each player reported since the last roster message: {@code {name,
-     * server, brand}} for a join, switch or brand change and an empty array for a quit. Generations load their own
+     * server, brand}} for a join, switch, brand or shown-name change and an empty array for a quit. Generations load their own
      * classes, so it holds JDK types only. Past {@value #MAX_PENDING_REPORTS} players it holds only {@link #FULL_ROSTER},
      * which the next delta turns into a full roster.
      */
@@ -125,6 +125,8 @@ public final class NetworkService implements NetworkRouting {
     private final PlayerSearchNetwork searches;
     private volatile Function<UUID, Map<String, List<String>>> searchDetails = ignored -> Map.of();
     private final Map<String, Function<UUID, Map<String, List<String>>>> searchProviders;
+    private volatile Function<UUID, @Nullable String> shownNames = ignored -> null;
+    private final Map<String, Function<UUID, @Nullable String>> shownProviders;
 
     private @Nullable InProcessBus bus;
     private volatile boolean running;
@@ -158,6 +160,7 @@ public final class NetworkService implements NetworkRouting {
         this.platform = platform;
         this.host = host;
         this.searchProviders = host == null ? new ConcurrentHashMap<>() : sharedSearchProviders(host);
+        this.shownProviders = host == null ? new ConcurrentHashMap<>() : sharedShownProviders(host);
         this.instanceId = instanceId;
         this.transport = transport;
         this.clock = clock;
@@ -339,6 +342,7 @@ public final class NetworkService implements NetworkRouting {
         netSettings.close();
         searches.close();
         if (host != null) searchProviders.remove(host.generationId(), searchDetails);
+        if (host != null) shownProviders.remove(host.generationId(), shownNames);
     }
 
     NetworkSettings settings() {
@@ -407,6 +411,20 @@ public final class NetworkService implements NetworkRouting {
         }
     }
 
+    /**
+     * Reports a change of the name {@code uuid}'s own client lists them under, which the next roster message reads
+     * from the providers, while the platform lists them online here. Any thread.
+     */
+    public void shownNameChanged(UUID uuid) {
+        if (transport == null) return;
+        for (OnlinePlayer player : platform.onlinePlayers()) {
+            if (player.uuid().equals(uuid)) {
+                report(uuid, new String[] {player.name(), player.server(), player.brand()});
+                return;
+            }
+        }
+    }
+
     /** Reports a quit here. Any thread. */
     public void playerLeft(UUID uuid) {
         report(uuid, new String[0]);
@@ -455,7 +473,7 @@ public final class NetworkService implements NetworkRouting {
                     for (Map.Entry<UUID, String[]> report : reports.entrySet()) {
                         String[] player = report.getValue();
                         if (player.length == 0) left.add(report.getKey());
-                        else changed.add(new OnlinePlayer(report.getKey(), player[0], player[1], player[2]));
+                        else changed.add(withShown(new OnlinePlayer(report.getKey(), player[0], player[1], player[2])));
                     }
                     reports.clear();
                 }
@@ -551,7 +569,8 @@ public final class NetworkService implements NetworkRouting {
             if (!running || !current()) return;
             drainReports();
             Set<String> wanted = Set.copyOf(verbose.get());
-            Collection<OnlinePlayer> players = platform.onlinePlayers();
+            List<OnlinePlayer> players = new ArrayList<>();
+            for (OnlinePlayer player : platform.onlinePlayers()) players.add(withShown(player));
             RosterCache.State state = state();
             List<NetSettings.Record> records = netSettings.records();
             verboseSent = wanted;
@@ -775,6 +794,19 @@ public final class NetworkService implements NetworkRouting {
         return List.copyOf(players.values());
     }
 
+    @Override
+    public List<NetworkPlayer> listedAs(String name) {
+        Map<UUID, NetworkPlayer> found = new LinkedHashMap<>();
+        List<NetworkPlayer> players = new ArrayList<>();
+        for (OnlinePlayer player : platform.onlinePlayers()) players.add(local(player));
+        players.addAll(roster.players(clock.getAsLong()));
+        for (NetworkPlayer player : players) {
+            if (player.shown() != null && player.shown().equalsIgnoreCase(name))
+                found.putIfAbsent(player.uuid(), player);
+        }
+        return List.copyOf(found.values());
+    }
+
     /**
      * Runs {@code line} here when this generation answers for {@code where}, else on the generation or instance that
      * does. A command forwarded here is never forwarded again.
@@ -815,6 +847,35 @@ public final class NetworkService implements NetworkRouting {
         return Map.of();
     }
 
+    /**
+     * Gives each roster message the name {@code provider} says a player here is listed under on their own client, null
+     * when it holds none; the providers of this host's other generations answer for the players they hold.
+     */
+    public void shownNames(Function<UUID, @Nullable String> provider) {
+        shownNames = provider;
+        if (host != null) shownProviders.put(host.generationId(), provider);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Function<UUID, @Nullable String>> sharedShownProviders(HostContext host) {
+        return (Map<String, Function<UUID, @Nullable String>>)
+                host.shared("cultac.network.shown-providers", ConcurrentHashMap::new);
+    }
+
+    private @Nullable String shown(UUID uuid) {
+        String found = shownNames.apply(uuid);
+        if (found != null) return found;
+        for (var provider : shownProviders.values()) {
+            found = provider.apply(uuid);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private OnlinePlayer withShown(OnlinePlayer player) {
+        return new OnlinePlayer(player.uuid(), player.name(), player.server(), player.brand(), shown(player.uuid()));
+    }
+
     List<NetworkPlayer> searchPlayers() {
         return platform.onlinePlayers().stream()
                 .map(p -> new NetworkPlayer(p.uuid(), p.name(), instanceId, p.server(), p.brand(), details(p.uuid())))
@@ -832,7 +893,14 @@ public final class NetworkService implements NetworkRouting {
     }
 
     private NetworkPlayer local(OnlinePlayer player) {
-        return new NetworkPlayer(player.uuid(), player.name(), instanceId, player.server(), player.brand());
+        return new NetworkPlayer(
+                player.uuid(),
+                player.name(),
+                instanceId,
+                player.server(),
+                player.brand(),
+                Map.of(),
+                shown(player.uuid()));
     }
 
     private static boolean matches(UUID playerUuid, String name, @Nullable UUID uuid, String query) {

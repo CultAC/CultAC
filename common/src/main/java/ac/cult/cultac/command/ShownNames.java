@@ -6,7 +6,6 @@ import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.api.storage.DataStore;
 import ac.grim.grimac.api.storage.category.Categories;
 import ac.grim.grimac.api.storage.model.PlayerIdentity;
@@ -14,6 +13,7 @@ import ac.grim.grimac.api.storage.query.Queries;
 import io.leangen.geantyref.TypeToken;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,9 +27,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Online players by the name a server lists them under, which can differ from their account name: the name the
- * sender's own client was given for a player, else the name a player here was given on their own client. A name listed
- * for several players matches none. A command argument that names a player this way takes the account, and the sender
- * is told which account matched.
+ * sender's own client was given for a player, else the name a player on any instance was given on their own client. A
+ * name listed for several players matches none. A command argument that names a player this way takes the account.
  */
 public final class ShownNames {
     /** How long the sender's connection or the identity store may take to answer. */
@@ -48,9 +47,15 @@ public final class ShownNames {
      */
     public static CompletableFuture<@Nullable Match> find(Sender sender, String name) {
         if (name.isEmpty()) return CompletableFuture.completedFuture(null);
-        List<Match> here = listedHere(CultAPI.INSTANCE.getPlayerDataManager().getEntries(), name);
-        return viewed(sender, name).thenApply(viewed -> choose(
-                viewed, here, name, id -> NetworkRouting.current().locate(id.toString()).orElse(null)));
+        NetworkRouting routing = NetworkRouting.current();
+        List<Match> listed = listed(
+                listedHere(CultAPI.INSTANCE.getPlayerDataManager().getEntries(), name), routing.listedAs(name), name);
+        return viewed(sender, name)
+                .thenApply(viewed -> choose(
+                        viewed,
+                        listed,
+                        name,
+                        id -> routing.locate(id.toString()).orElse(null)));
     }
 
     /** The profiles the sender's own client was given under {@code name}; none for a sender not connected here. */
@@ -71,7 +76,7 @@ public final class ShownNames {
 
     /**
      * The match for {@code name}: the profile the sender's client lists under it when there is one, else the one player
-     * here whose own client lists them under it; null when the source that decides names several.
+     * whose own client lists them under it; null when the source that decides names several.
      */
     static @Nullable Match choose(
             List<UUID> viewed, List<Match> here, String name, Function<UUID, @Nullable NetworkPlayer> online) {
@@ -90,6 +95,21 @@ public final class ShownNames {
                 matches.add(new Match(player.playerUUID, account, shown));
         }
         return matches;
+    }
+
+    /**
+     * The players in {@code here}, then those in {@code network} whose own client lists them as {@code name}, one match
+     * per account.
+     */
+    static List<Match> listed(List<Match> here, Collection<NetworkPlayer> network, String name) {
+        Map<UUID, Match> matches = new LinkedHashMap<>();
+        for (Match match : here) matches.putIfAbsent(match.uuid(), match);
+        for (NetworkPlayer player : network) {
+            String shown = player.shown();
+            if (shown != null && shown.equalsIgnoreCase(name))
+                matches.putIfAbsent(player.uuid(), new Match(player.uuid(), player.name(), shown));
+        }
+        return List.copyOf(matches.values());
     }
 
     /** {@code uuid}'s online account, when {@code shown} is not its name. */
@@ -121,22 +141,18 @@ public final class ShownNames {
         return known.completeOnTimeout(Optional.empty(), WAIT_MILLIS, TimeUnit.MILLISECONDS);
     }
 
-    /** Keeps {@code match} on {@code context}, to be told to the sender if the command runs. */
+    /** Keeps {@code match} on {@code context}, for a command that says which shown name it was given. */
     static void remember(CommandContext<Sender> context, Match match) {
         List<Match> matches = new ArrayList<>(context.getOrDefault(MATCHES, List.of()));
         matches.add(match);
         context.store(MATCHES, List.copyOf(matches));
     }
 
-    /** Tells the sender of a command about to run which account each shown name it typed matched. */
-    static void tell(CommandContext<Sender> context) {
-        Sender sender = context.sender();
+    /** The match kept on {@code context} for {@code account}; null when the command was given the account name. */
+    public static @Nullable Match matched(CommandContext<Sender> context, String account) {
         for (Match match : context.getOrDefault(MATCHES, List.<Match>of())) {
-            sender.sendMessage(MessageUtil.getParsedComponent(
-                    sender,
-                    "player-listed-as",
-                    "%prefix% &f%shown% &7is &f%player%",
-                    Map.of("shown", match.shown(), "player", match.account())));
+            if (match.account().equalsIgnoreCase(account)) return match;
         }
+        return null;
     }
 }

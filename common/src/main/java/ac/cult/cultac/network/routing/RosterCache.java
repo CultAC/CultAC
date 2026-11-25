@@ -21,13 +21,15 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * The other instances' players, as their {@value #TYPE} messages list them. A roster body is
- * {@code {servers:{server:{uuid:name}}, brands:{brand:[uuid]}, full, left:[u], verbose, verbose-servers:[server],
- * nonce, o}}, {@code ""} standing for no server and {@code verbose-servers} listing the servers whose players the
- * instance's verbose staff cover, {@value NetworkService#EVERY_SERVER} for all of them; {@code verbose} alone, true,
- * stands for all of them. A full one replaces the instance's list, a delta adds or updates players and removes
- * {@code left}. {@code brands} groups the listed players whose client brand is known by that brand, so a player costs
- * one UUID there however long the brand; a player it leaves out, or a body without it, has no known brand. A body too
- * large with {@code brands} goes out without them. A body whose {@code o} is not above the last one applied from its
+ * {@code {servers:{server:{uuid:name}}, brands:{brand:[uuid]}, shown:{uuid:name}, full, left:[u], verbose,
+ * verbose-servers:[server], nonce, o}}, {@code ""} standing for no server and {@code verbose-servers} listing the
+ * servers whose players the instance's verbose staff cover, {@value NetworkService#EVERY_SERVER} for all of them;
+ * {@code verbose} alone, true, stands for all of them. A full one replaces the instance's list, a delta adds or updates
+ * players and removes {@code left}. {@code brands} groups the listed players whose client brand is known by that
+ * brand, so a player costs one UUID there however long the brand; a player it leaves out, or a body without it, has no
+ * known brand. {@code shown} names each listed player whose own client lists them under a name other than their
+ * account; a player it leaves out, or a body without it, has no known shown name. A body too large with {@code brands}
+ * goes out without them. A body whose {@code o} is not above the last one applied from its
  * instance is dropped, unless nothing from it was applied for
  * {@value #EXPIRY_MILLIS} ms. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any type
  * heard from it. Builds that run network commands add {@code role} ({@value #PROXY} or {@value #SERVER}),
@@ -42,6 +44,7 @@ final class RosterCache {
     static final String ORDER = "o";
     static final String NONCE = "nonce";
     static final String BRANDS = "brands";
+    static final String SHOWN = "shown";
     static final String ROLE = "role";
     static final String BUILD = "build";
     static final String STATE = "state";
@@ -51,6 +54,7 @@ final class RosterCache {
     static final int MAX_LISTED = 512;
 
     private static final int MAX_BUILD_LENGTH = 200;
+    private static final int MAX_SHOWN_LENGTH = 64;
     private static final Pattern BACKEND_NAME = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
     /** Whether {@code name} can stand in a roster's backend list and a network command's target. */
@@ -182,6 +186,7 @@ final class RosterCache {
         Long order = order(body);
         boolean full = body.has("full") && body.get("full").getAsBoolean();
         Map<UUID, String> brands = brands(body);
+        Map<UUID, String> shown = shown(body);
         boolean described = full || body.has(ROLE);
         String role = role(body);
         String build = text(body, BUILD);
@@ -193,7 +198,7 @@ final class RosterCache {
                 if (!(server.getValue() instanceof JsonObject players)) continue;
                 String name = server.getKey().isEmpty() ? null : server.getKey();
                 for (var entry : players.entrySet()) {
-                    NetworkPlayer player = player(instance, name, entry.getKey(), entry.getValue(), brands);
+                    NetworkPlayer player = player(instance, name, entry.getKey(), entry.getValue(), brands, shown);
                     if (player != null) listed.add(player);
                 }
             }
@@ -312,13 +317,35 @@ final class RosterCache {
     }
 
     private static @Nullable NetworkPlayer player(
-            String instance, @Nullable String server, String uuid, JsonElement name, Map<UUID, String> brands) {
+            String instance,
+            @Nullable String server,
+            String uuid,
+            JsonElement name,
+            Map<UUID, String> brands,
+            Map<UUID, String> shown) {
         try {
             UUID id = UUID.fromString(uuid);
-            return new NetworkPlayer(id, name.getAsString(), instance, server, brands.get(id));
+            return new NetworkPlayer(id, name.getAsString(), instance, server, brands.get(id), Map.of(), shown.get(id));
         } catch (RuntimeException malformed) {
             return null;
         }
+    }
+
+    /** Each player's shown name from the body's {@code shown}, without the entries that are not a short name. */
+    private static Map<UUID, String> shown(JsonObject body) {
+        if (!(body.get(SHOWN) instanceof JsonObject shown)) return Map.of();
+        Map<UUID, String> parsed = new HashMap<>();
+        for (var entry : shown.entrySet()) {
+            if (!(entry.getValue() instanceof JsonPrimitive name) || !name.isString()) continue;
+            String text = name.getAsString();
+            if (text.isEmpty() || text.length() > MAX_SHOWN_LENGTH) continue;
+            try {
+                parsed.put(UUID.fromString(entry.getKey()), text);
+            } catch (IllegalArgumentException malformed) {
+                // A malformed id names no player.
+            }
+        }
+        return parsed;
     }
 
     /** Each player's brand from the body's {@code brands}, without the entries that are not a list of UUIDs. */
@@ -347,6 +374,7 @@ final class RosterCache {
             String nonce) {
         JsonObject servers = new JsonObject();
         JsonObject brands = new JsonObject();
+        JsonObject shown = new JsonObject();
         for (OnlinePlayer player : players) {
             String server = player.server() == null ? "" : player.server();
             JsonObject listed = servers.getAsJsonObject(server);
@@ -363,10 +391,12 @@ final class RosterCache {
                 }
                 branded.add(player.uuid().toString());
             }
+            if (player.shown() != null) shown.addProperty(player.uuid().toString(), player.shown());
         }
         JsonObject body = new JsonObject();
         body.add("servers", servers);
         if (!brands.isEmpty()) body.add(BRANDS, brands);
+        if (!shown.isEmpty()) body.add(SHOWN, shown);
         body.addProperty("full", full);
         if (!left.isEmpty()) {
             JsonArray gone = new JsonArray();

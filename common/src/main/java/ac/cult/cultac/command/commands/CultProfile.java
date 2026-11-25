@@ -3,6 +3,8 @@ package ac.cult.cultac.command.commands;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.NetworkPlayerArguments;
+import ac.cult.cultac.command.ShownNames;
+import ac.cult.cultac.command.ShownNames.Match;
 import ac.cult.cultac.command.render.HistoryComponentRenderer;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
@@ -49,6 +51,13 @@ public class CultProfile implements BuildableCommand {
     private CompletableFuture<Void> handleProfile(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         String target = context.get("target");
+        Match shown = ShownNames.matched(context, target);
+        if (shown != null)
+            sender.sendMessage(MessageUtil.getParsedComponent(
+                    sender,
+                    "profile-shown-as",
+                    "%prefix% &f%player% &7is shown as &f%shown%",
+                    Map.of("player", shown.account(), "shown", shown.shown())));
 
         PlatformPlayer online = CultAPI.INSTANCE.getPlatformPlayerFactory().getFromName(target);
         if (online != null) {

@@ -71,6 +71,8 @@ profile-stored:
     - "&bLast seen: &f%timeago% ago"
     - "&7======================"
 profile-unknown-player: "%prefix% &c%player% is not online on this instance and has no stored session."
+# /cult profile typed with the name a server lists the player under: %player% is the account, %shown% the typed name.
+profile-shown-as: "%prefix% &f%player% &7is shown as &f%shown%"
 # /cult debug channels <player> — %player%, %count%, %channel%
 debug-channels-header: "%prefix% &b%player% has &f%count% &bplugin channels open"
 debug-channels-entry: "&8- &f%channel%"
@@ -235,8 +237,6 @@ alerts-scope-local: "network-wide alerts are not enabled on this server"
 # A command routed to another instance or engine generation. %instance% is the instance id, %player% the player,
 # %location% the instance with its backend server, %reason% why it failed, %lines% and %kb% the output caps.
 network-command-same-server: "&c%player% is on %location%; this command only works on the same server."
-# A typed player name matched the account of a player a server lists under another name.
-player-listed-as: "%prefix% &f%shown% &7is &f%player%"
 # A typed name is both a stored account and the name a server lists another online player under.
 player-name-ambiguous: "%prefix% &c%shown% is an account (%uuid%) and also what %player% is listed as. Type %player% or the UUID instead."
 # A typed name a server lists a player under, for a command that takes only their account name.

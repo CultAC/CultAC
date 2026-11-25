@@ -6,6 +6,7 @@ import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.network.PlayerSearchSnapshot;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
@@ -81,6 +82,10 @@ public final class NetworkModule {
         if (service != null || hooks == null) return;
         NetworkService created = NetworkService.create(settings, hooks, RuntimeEnvironment.host());
         created.searchDetails(PlayerSearchSnapshot::capture);
+        created.shownNames(uuid -> {
+            CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(uuid);
+            return player == null ? null : player.shownName;
+        });
         for (Consumer<NetworkService> hook : startHooks) {
             try {
                 hook.accept(created);
@@ -268,6 +273,12 @@ public final class NetworkModule {
     public static void brandChanged(UUID uuid, @Nullable String brand) {
         NetworkService running = service;
         if (running != null) running.brandChanged(uuid, brand);
+    }
+
+    /** The name a player on this instance is listed under on their own client changed. Any thread. */
+    public static void shownNameChanged(UUID uuid) {
+        NetworkService running = service;
+        if (running != null) running.shownNameChanged(uuid);
     }
 
     /** A quit on this instance. Any thread. */
