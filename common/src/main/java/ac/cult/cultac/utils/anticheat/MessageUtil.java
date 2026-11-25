@@ -296,6 +296,17 @@ public class MessageUtil {
         return text.toString();
     }
 
+    /**
+     * {@code component} as MiniMessage for another server's {@link #miniMessage}, which shows it as here: '&' and '%'
+     * have no meaning in MiniMessage, so they travel as their stand-ins.
+     */
+    public @NotNull String relayed(@NotNull Component component) {
+        return MiniMessage.miniMessage()
+                .serialize(component)
+                .replace('&', TEXT_STAND_INS.charAt(TEXT_CHARS.indexOf('&')))
+                .replace('%', TEXT_STAND_INS.charAt(TEXT_CHARS.indexOf('%')));
+    }
+
     public Component getParsedComponent(Sender sender, String key, String fallbackText) {
         String message = CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse(key, fallbackText);
         message = MessageUtil.replacePlaceholders(sender, message);

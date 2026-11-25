@@ -19,7 +19,6 @@ import java.util.*;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.jetbrains.annotations.Nullable;
 
 public class PunishmentManager implements ConfigReloadable {
@@ -247,10 +246,8 @@ public class PunishmentManager implements ConfigReloadable {
                                     case "[proxy]" ->
                                         CultAPI.INSTANCE
                                                 .getAlertManager()
-                                                .forwardAlert(MiniMessage.miniMessage()
-                                                        .serialize(MessageUtil.miniMessage(
-                                                                replaceAlertPlaceholders(
-                                                                        command, vl, check, shown, true))));
+                                                .forwardAlert(MessageUtil.relayed(MessageUtil.miniMessage(
+                                                        replaceAlertPlaceholders(command, vl, check, shown, true))));
                                     case "[alert]" -> {
                                         sentDebug = true;
                                         Component message = CheckNameLink.link(
