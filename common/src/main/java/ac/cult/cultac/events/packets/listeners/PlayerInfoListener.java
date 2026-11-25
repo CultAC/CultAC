@@ -88,6 +88,7 @@ public class PlayerInfoListener {
             PacketSendEvent<ClientboundPlayerInfoRemove> event,
             CultPlayer receiver,
             ClientboundPlayerInfoRemove packet) {
+        if (packet.profiles().contains(receiver.playerUUID)) receiver.shownName = null;
         if (receiver.isBedrockMovement()) return;
         if (packet.profiles().isEmpty()) return;
         prove(event, receiver, () -> receiver.compensatedEntities.clientPlayerModes.remove(packet.profiles()));
