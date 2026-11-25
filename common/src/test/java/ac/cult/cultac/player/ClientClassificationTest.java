@@ -38,11 +38,16 @@ class ClientClassificationTest {
     }
 
     @Test
-    void fabricApiPlayChannelsAreFabric() {
+    void fabricApiPlayChannelsNameTheFabricFamily() {
+        assertEquals(FABRIC, ClientClassification.channelFamily("fabric-screen-handler-api-v1:open_screen"));
+        assertEquals(FABRIC, ClientClassification.channelFamily("fabric:attachment_sync_v1"));
+        assertEquals(FABRIC, ClientClassification.channelFamily("fabric:registry/sync/direct"));
+        assertEquals(LUNAR, ClientClassification.channelFamily("lunar:apollo"));
+        assertEquals(UNSET, ClientClassification.channelFamily("voicechat:state"));
         assertEquals(
-                FABRIC,
-                ClientClassification.channelType(List.of(
-                        "fabric-screen-handler-api-v1:open_screen", "fabric:attachment_sync_v1", "voicechat:state")));
+                UNSET,
+                ClientClassification.channelType(
+                        List.of("fabric-screen-handler-api-v1:open_screen", "fabric:attachment_sync_v1")));
     }
 
     @Test

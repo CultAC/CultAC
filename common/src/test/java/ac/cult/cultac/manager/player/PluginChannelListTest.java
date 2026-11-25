@@ -73,8 +73,11 @@ final class PluginChannelListTest {
         manager.handleChannelRegistered("voicechat:state");
         assertEquals(
                 List.of(ClientClassification.Type.FABRIC, ClientClassification.Type.LUNAR), manager.getChannelTypes());
+        assertEquals(ClientClassification.Type.LUNAR, manager.getChannelType());
         manager.handleChannelUnregistered("lunar:apollo");
         assertEquals(List.of(ClientClassification.Type.FABRIC), manager.getChannelTypes());
+        assertEquals(ClientClassification.Type.UNSET, manager.getChannelType());
+        manager.handleChannelRegistered("fabric:registry/sync");
         assertEquals(ClientClassification.Type.FABRIC, manager.getChannelType());
     }
 
