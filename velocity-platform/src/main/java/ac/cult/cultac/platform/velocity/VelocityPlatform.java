@@ -23,6 +23,7 @@ import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
 import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
 import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.sender.SenderFactory;
+import ac.cult.cultac.platform.velocity.bridge.BackendNames;
 import ac.cult.cultac.platform.velocity.bridge.BridgeMessageListener;
 import ac.cult.cultac.platform.velocity.bridge.BridgeService;
 import ac.cult.cultac.platform.velocity.bridge.BridgeSession;
@@ -207,6 +208,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                     }
                 }
             });
+            bridge.addListener(new BackendNames(bridge, id -> CultAPI.INSTANCE.getPlayerDataManager().getPlayer(id)));
             BridgeApiService.start();
             BridgeCommandService.start(proxy, nativePlugin, plugin.getLogger());
         } else {

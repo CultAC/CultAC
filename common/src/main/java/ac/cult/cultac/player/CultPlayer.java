@@ -170,14 +170,15 @@ public class CultPlayer implements GrimUser {
     public final @NotNull UUID playerUUID;
     public final long timeJoined;
     /**
-     * The name the server listed this player under on their own client; null until it does, and again once it removes
-     * them or the client is sent to another server.
+     * The name this player is shown under in place of their account: the one their backend gives them, else the one
+     * the server listed them under on their own client; null while there is none.
      */
     public volatile @Nullable String shownName;
     /** The profile name the server listed this player under on their own client; null while it lists none. */
-    public @Nullable String listedProfile;
-    /** The name the display name of this player's own entry lists them under; null while it lists none. */
-    public @Nullable String listedDisplay;
+    public volatile @Nullable String listedProfile;
+    /** The profile name this player's backend gives them, when it is not their account; null while there is none. */
+    public volatile @Nullable String backendName;
+    private final Object naming = new Object();
     public @NotNull MovementPlatform movementPlatform = MovementPlatform.JAVA;
     public @Nullable BedrockPlayerState bedrockState;
 
@@ -1946,15 +1947,27 @@ public class CultPlayer implements GrimUser {
         if (!Objects.equals(previous, name)) NetworkModule.shownNameChanged(playerUUID);
     }
 
-    /**
-     * Sets {@link #listedProfile} and {@link #listedDisplay}, and {@link #shownName} from them: the profile name when
-     * it is not the account, else the display's name.
-     */
-    public void listed(@Nullable String profile, @Nullable String display) {
-        listedProfile = profile;
-        listedDisplay = display;
-        String account = getName();
-        shownName(profile != null && !profile.equalsIgnoreCase(account) ? profile : display);
+    /** Sets {@link #listedProfile}, and {@link #shownName} from it while the backend gives no name. */
+    public void listed(@Nullable String profile) {
+        synchronized (naming) {
+            listedProfile = profile;
+            show();
+        }
+    }
+
+    /** Sets {@link #backendName} from the profile name the backend gives this player, null for none. */
+    public void backendName(@Nullable String name) {
+        synchronized (naming) {
+            backendName = name == null || name.equalsIgnoreCase(getName()) ? null : name;
+            show();
+        }
+    }
+
+    private void show() {
+        String backend = backendName;
+        String profile = listedProfile;
+        if (backend != null) shownName(backend);
+        else shownName(profile != null && !profile.equalsIgnoreCase(getName()) ? profile : null);
     }
 
     @Override

@@ -1,5 +1,6 @@
 package ac.cult.cultac.companion.bridge;
 
+import ac.cult.cultac.bridge.protocol.BridgeMessage.BackendName;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CloudFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Ready;
@@ -68,6 +69,14 @@ final class PaperPlatform implements BridgePlatform {
             settings.put("combat-mode", base >= LEGACY_ATTACK_SPEED ? "1.8" : "1.9");
         }
         return new PlayerFacts(settings);
+    }
+
+    @Override
+    public @Nullable BackendName backendNameChanged(BridgeSession session) {
+        Player player = session.player;
+        if (player == null) return null;
+        String name = player.getName();
+        return session.backendNameChanged(name) ? new BackendName(name) : null;
     }
 
     private static CloudFacts readCloudFacts() {

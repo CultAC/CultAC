@@ -1,5 +1,6 @@
 package ac.cult.cultac.companion.bridge;
 
+import ac.cult.cultac.bridge.protocol.BridgeMessage.BackendName;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CloudFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Ready;
@@ -30,4 +31,11 @@ interface BridgePlatform {
      */
     @Nullable
     PlayerFacts playerFactsChanged(BridgeSession session);
+
+    /**
+     * The profile name of {@code session}'s player when it differs from the one it last sent, recorded on the session;
+     * null when unchanged or unreadable. Main thread only.
+     */
+    @Nullable
+    BackendName backendNameChanged(BridgeSession session);
 }
