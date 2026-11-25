@@ -7,25 +7,36 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.anticheat.NettyScheduler.PlayerTask;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ReachInterpolationData;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
 import ac.cult.cultac.utils.latency.CompensatedVehicleState;
 import ac.cult.cultac.utils.latency.SentRidingGraph;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import io.netty.util.concurrent.ScheduledFuture;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -185,18 +196,94 @@ public class FairReach extends Check implements CheckListener {
             controlChange();
     }
 
-    /**
-     * Equipment or entity data sent for {@code entityId}. A root's saddle, harness, still timeout, health, age and
-     * tame state decide whether its first passenger controls it.
-     */
-    public void handleEntityState(int entityId) {
-        if (entityId != player.entityID
-                && player.compensatedEntities.vehicles.rootAsSent(player.entityID) == entityId) controlChange();
+    /** Equipment sent for {@code entityId}: Mob#isSaddled reads the SADDLE slot, HappyGhast#isWearingBodyArmor BODY. */
+    public void handleEquipment(int entityId, List<InventoryPackets.EquipmentEntry> slots) {
+        PacketEntity root = slotControlledRoot(entityId);
+        if (root == null) return;
+        EquipmentSlot decides = root instanceof PacketEntityHappyGhast ? EquipmentSlot.BODY : EquipmentSlot.SADDLE;
+        for (int index = 0; index < slots.size(); index++) {
+            if (InventoryPackets.Equipment.slot(slots, index) == decides) {
+                controlChange();
+                return;
+            }
+        }
+    }
+
+    /** Entity data sent for {@code entityId}. */
+    public void handleEntityData(int entityId, List<EntityMetadata.Entry> data) {
+        PacketEntity root = slotControlledRoot(entityId);
+        if (root != null && changesControl(root, data)) controlChange();
     }
 
     /** Sent entity type tags, which Mob#isSaddled reads through Equippable#canBeEquippedBy. */
     public void handleEntityTags() {
-        if (player.compensatedEntities.vehicles.rootAsSent(player.entityID) != player.entityID) controlChange();
+        if (slotControlledRoot(player.compensatedEntities.vehicles.rootAsSent(player.entityID)) != null)
+            controlChange();
+    }
+
+    /**
+     * The client's copy of {@code entityId} when it is the root the attacker rides as sent and its
+     * getControllingPassenger reads its equipment: a pig, strider, AbstractHorse, AbstractNautilus or happy ghast.
+     */
+    private PacketEntity slotControlledRoot(int entityId) {
+        if (entityId == player.entityID
+                || player.compensatedEntities.vehicles.rootAsSent(player.entityID) != entityId) return null;
+        PacketEntity root = player.compensatedEntities.getEntity(entityId);
+        return root instanceof PacketEntityRideable
+                        || root instanceof PacketEntityHorse
+                        || root instanceof PacketEntityNautilus
+                        || root instanceof PacketEntityHappyGhast
+                ? root
+                : null;
+    }
+
+    /**
+     * Whether {@code data} sets an input of the root's getControllingPassenger to other than the client holds: the
+     * saddle flag before 1.21.5, a happy ghast's DATA_STAYS_STILL, and the health, age and tame state the deciding
+     * slot's LivingEntity#canUseSlot reads.
+     */
+    private boolean changesControl(PacketEntity root, List<EntityMetadata.Entry> data) {
+        ProtocolVersion server = player.user.getCultConnection().getObservedProtocol();
+        WatchableIndexUtil.Layout layout = WatchableIndexUtil.forModel(server);
+        Object horseFlags =
+                root instanceof PacketEntityHorse ? WatchableIndexUtil.value(data, layout.horseFlags()) : null;
+        if (root instanceof PacketEntityHappyGhast ghast
+                && WatchableIndexUtil.value(data, layout.happyGhastStaysStill()) instanceof Boolean still
+                && still != ghast.staysStill) return true;
+        if (!layout.saddleEquipment()) {
+            int saddleIndex = root.type == EntityTypeIds.PIG ? layout.pigSaddle() : layout.striderSaddle();
+            if (root instanceof PacketEntityRideable rideable
+                    && WatchableIndexUtil.value(data, saddleIndex) instanceof Boolean saddle
+                    && saddle != rideable.hasSaddle) return true;
+            if (horseFlags instanceof Byte flags
+                    && ((flags & 0x04) != 0) != ((PacketEntityHorse) root).hasSaddle) return true;
+        }
+        if (!slotReadsState(root.type, server)) return false;
+        if (WatchableIndexUtil.value(data, WatchableIndexUtil.LIVING_HEALTH) instanceof Float health
+                && (health > 0.0F) != root.actionAlive) return true;
+        if (WatchableIndexUtil.value(data, WatchableIndexUtil.babyIndex(root.type)) instanceof Boolean baby
+                && baby != root.isBaby) return true;
+        // Camel#isTamed is always true.
+        if (horseFlags instanceof Byte flags
+                && !(root instanceof PacketEntityCamel)
+                && ((flags & 0x02) != 0) != ((PacketEntityHorse) root).isTame) return true;
+        return root instanceof PacketEntityNautilus nautilus
+                && WatchableIndexUtil.value(data, WatchableIndexUtil.tameableFlags(server)) instanceof Byte flags
+                && ((flags & 0x04) != 0) != nautilus.isTame;
+    }
+
+    /**
+     * Whether either side's Mob#hasValidEquippableItemForSlot, from 1.21.6, reaches a LivingEntity#canUseSlot that
+     * reads state: Horse, Llama and TraderLlama open every slot, as SkeletonHorse and ZombieHorse do from 1.21.11.
+     */
+    private boolean slotReadsState(int type, ProtocolVersion server) {
+        ClientVersion client = player.getClientVersion();
+        if (!server.atLeast(ProtocolVersion.V1_21_6) && client.isOlderThan(ClientVersion.V_1_21_6)) return false;
+        if (type == EntityTypeIds.HORSE || type == EntityTypeIds.LLAMA || EntityTypeUtil.isType(type, "trader_llama"))
+            return false;
+        return (type != EntityTypeIds.SKELETON_HORSE && type != EntityTypeIds.ZOMBIE_HORSE)
+                || !server.atLeast(ProtocolVersion.V1_21_11)
+                || client.isOlderThan(ClientVersion.V_1_21_11);
     }
 
     private void controlChange() {

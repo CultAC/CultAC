@@ -13,6 +13,7 @@ import ac.cult.cultac.network.TestProtocolRuntime;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
@@ -30,16 +31,20 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.EntityDelta;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -61,6 +66,8 @@ class FairReachRiderTest {
     private static final int OWN_BOAT = 3004;
     private static final int OWN_PIG = 3005;
     private static final int BLOCK = 4096;
+    private static final int BOAT_PADDLE_LEFT = 11;
+    private static final int HORSE_FLAGS = WatchableIndexUtil.forModel(ProtocolVersion.V1_21_11).horseFlags();
 
     @Test
     void aRiderIsJudgedWhereItsVehicleCarriedIt() {
@@ -255,21 +262,7 @@ class FairReachRiderTest {
     @Test
     void aDriverWhoseSteeringItemTheServerReplacedIsJudgedFromWhereTheServerHoldsItsVehicle() {
         try (Fixture f = new Fixture()) {
-            f.addVehicle(OWN_PIG, EntityTypeIds.PIG, 0);
-            ((PacketEntityRideable) f.player.compensatedEntities.getEntity(OWN_PIG)).hasSaddle = true;
-            f.player.getInventory()
-                    .inventory
-                    .getInventoryStorage()
-                    .setItem(Inventory.HOTBAR_OFFSET, stack("carrot_on_a_stick"));
-            f.send(new ClientboundSetPassengers(OWN_PIG, List.of(f.player.entityID)));
-            f.acknowledge();
-            f.tick(1);
-            f.addTarget(5);
-            // The client's own vehicle moves put its pig here.
-            f.player.compensatedEntities
-                    .getEntity(OWN_PIG)
-                    .setPositionRaw(new SimpleCollisionBox(2.55, 64, -0.45, 3.45, 64.9, 0.45));
-            assertFalse(f.attackCancelled(), "the pig's driver attacks from where it drove it");
+            f.drivePig();
 
             f.fairReach.max_ping_compensation = 300;
             f.setPlayerInventorySlot(0, stack("fishing_rod"));
@@ -284,8 +277,76 @@ class FairReachRiderTest {
         }
     }
 
+    @Test
+    void aDriverWhoseSaddleTheServerRemovedIsJudgedFromWhereTheServerHoldsItsVehicle() {
+        try (Fixture f = new Fixture()) {
+            f.drivePig();
+
+            f.fairReach.max_ping_compensation = 300;
+            f.send(new InventoryPackets.Equipment(
+                    OWN_PIG, List.of(new InventoryPackets.EquipmentEntry(EquipmentSlot.SADDLE, SimItemStack.EMPTY))));
+            assertFalse(f.attackCancelled(), "the client may not have the saddle change yet");
+
+            f.tick(7);
+            assertTrue(f.attackCancelled(), "the saddle change is due, so the server moves the pig");
+        }
+    }
+
+    @Test
+    void aDriverWhoseVehicleTheServerMadeABabyIsJudgedFromWhereTheServerHoldsIt() {
+        try (Fixture f = new Fixture()) {
+            f.drivePig();
+
+            f.fairReach.max_ping_compensation = 300;
+            f.send(data(OWN_PIG, WatchableIndexUtil.AGEABLE_BABY, true));
+            assertFalse(f.attackCancelled(), "the client may not have the age change yet");
+
+            f.tick(7);
+            assertTrue(f.attackCancelled(), "the age change is due, so the server moves the pig");
+        }
+    }
+
+    @Test
+    void entityDataThatDecidesNoControlLeavesTheDriverOnTheVehicleItDrives() {
+        try (Fixture f = new Fixture()) {
+            f.addVehicle(OWN_BOAT, EntityTypeIds.OAK_BOAT, 0);
+            f.drive(OWN_BOAT);
+            f.fairReach.max_ping_compensation = 300;
+            for (int stroke = 0; stroke < 3; stroke++) {
+                // AbstractBoat#setPaddleState, from the driver's input.
+                f.send(data(OWN_BOAT, BOAT_PADDLE_LEFT, stroke % 2 == 0));
+                f.tick(7);
+                assertFalse(f.attackCancelled(), "the boat's driver attacks from where it drove it");
+            }
+        }
+        try (Fixture f = new Fixture()) {
+            f.addVehicle(OWN_HORSE, EntityTypeIds.HORSE, 0);
+            PacketEntityHorse horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(OWN_HORSE);
+            horse.hasSaddle = true;
+            horse.isTame = true;
+            f.drive(OWN_HORSE);
+            f.fairReach.max_ping_compensation = 300;
+            // AbstractHorse#setEating keeps the tame flag.
+            f.send(data(OWN_HORSE, HORSE_FLAGS, (byte) 0x12));
+            f.tick(7);
+            assertFalse(f.attackCancelled(), "the horse's driver attacks from where it drove it");
+        }
+    }
+
     private static SimItemStack stack(String item) {
         return ItemUtil.modelItems().stack("minecraft:" + item, 1);
+    }
+
+    private static EntityMetadata data(int entityId, int index, Object value) {
+        return new EntityMetadata(entityId, List.of(new EntityMetadata.Entry(index, value, ByteBuffer.allocate(0))));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> PacketType<T> type(Class<T> packet) {
+        return (PacketType<T>) TestProtocolRuntime.catalog().stream()
+                .filter(each -> each.recordClass() == packet)
+                .findFirst()
+                .orElseThrow();
     }
 
     private static ClientboundMoveEntity move(int entityId, int blocks) {
@@ -379,15 +440,49 @@ class FairReachRiderTest {
         }
 
         /** A set_player_inventory for Inventory's {@code slot}. */
-        @SuppressWarnings("unchecked")
         void setPlayerInventorySlot(int slot, SimItemStack item) {
             var packet = new InventoryPackets.PlayerInventory(slot, item);
-            var type = (PacketType<InventoryPackets.PlayerInventory>) TestProtocolRuntime.catalog().stream()
-                    .filter(each -> each.recordClass() == InventoryPackets.PlayerInventory.class)
-                    .findFirst()
-                    .orElseThrow();
-            var event = new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, type, packet, false);
+            var event = new PacketSendEvent<>(
+                    player.user, ConnectionPhase.PLAY, type(InventoryPackets.PlayerInventory.class), packet, false);
             player.getInventory().onSetPlayerInventory(event, player, packet);
+        }
+
+        void send(InventoryPackets.Equipment packet) {
+            var event = new PacketSendEvent<>(
+                    player.user, ConnectionPhase.PLAY, type(InventoryPackets.Equipment.class), packet, false);
+            player.packetEntityReplication.onSetEquipment(event, player, packet);
+        }
+
+        void send(EntityMetadata packet) {
+            var event =
+                    new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, type(EntityMetadata.class), packet, false);
+            player.packetEntityReplication.onSetEntityData(event, player, packet);
+        }
+
+        /** A saddled pig the attacker steers with a carrot on a stick; see {@link #drive}. */
+        void drivePig() {
+            addVehicle(OWN_PIG, EntityTypeIds.PIG, 0);
+            ((PacketEntityRideable) player.compensatedEntities.getEntity(OWN_PIG)).hasSaddle = true;
+            player.getInventory()
+                    .inventory
+                    .getInventoryStorage()
+                    .setItem(Inventory.HOTBAR_OFFSET, stack("carrot_on_a_stick"));
+            drive(OWN_PIG);
+        }
+
+        /**
+         * The attacker mounts {@code vehicleId}, which the server holds at 0, and drives it to 3, with the target at 5.
+         */
+        void drive(int vehicleId) {
+            send(new ClientboundSetPassengers(vehicleId, List.of(player.entityID)));
+            acknowledge();
+            tick(1);
+            addTarget(5);
+            // The client's own vehicle moves put its vehicle here.
+            player.compensatedEntities
+                    .getEntity(vehicleId)
+                    .setPositionRaw(new SimpleCollisionBox(2.55, 64, -0.45, 3.45, 64.9, 0.45));
+            assertFalse(attackCancelled(), "the driver attacks from where it drove its vehicle");
         }
 
         /** LivingEntity#dismountVehicle: the server teleports the player to {@code x} with an absolute position. */
