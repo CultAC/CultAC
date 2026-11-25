@@ -249,15 +249,16 @@ public class MessageUtil {
 
     /**
      * {@code string} for a {@link #miniMessage} template, shown as written wherever the template puts it: no tag, quote,
-     * colour code or placeholder in it takes effect, alone or with the text around it.
+     * colour code or placeholder in it takes effect, alone or with the text around it. Section signs are dropped, since
+     * the client formats them even in plain text.
      */
     @Contract("null -> !null; !null -> !null")
     public @NotNull String plainText(@Nullable String string) {
         if (string == null) return "";
-        string = stripColor(string);
         StringBuilder text = new StringBuilder(string.length());
         for (int i = 0; i < string.length(); i++) {
             char c = string.charAt(i);
+            if (c == '§') continue;
             int special = TEXT_CHARS.indexOf(c);
             text.append(special >= 0 ? TEXT_STAND_INS.charAt(special) : c);
         }

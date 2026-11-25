@@ -107,6 +107,13 @@ class CultDebugModsTest {
     }
 
     @Test
+    void aBrandWithSectionSignCodesIsShownInWhite() throws Exception {
+        Component line = brandLine(components(null, false, "§§ccvanilla §#00FF00vanilla §§§kkvanilla"));
+        assertFalse(PlainTextComponentSerializer.plainText().serialize(line).contains("§"));
+        assertEquals(List.of(), styled(line));
+    }
+
+    @Test
     void missingApolloExplainsScopeAndShowsObservedClientData() throws Exception {
         var lines = output(null);
         assertTrue(lines.stream().anyMatch(s -> s.contains("Apollo reports mods only for Lunar Client")));
