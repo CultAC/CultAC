@@ -145,11 +145,13 @@ public class PunishmentManager implements ConfigReloadable {
                 .replace("%vl%", Integer.toString(vl))
                 .replace("%description%", check.getDescription())
                 .replace("%stable_key%", check.getStableKey());
-        String replaced = command.action().equals("[alert]") || command.action().equals("[proxy]")
+        boolean shown = command.action().equals("[alert]") || command.action().equals("[proxy]");
+        String replaced = shown
                 ? MessageUtil.replacePlaceholdersForMiniMessage(player, filled)
                 : MessageUtil.replacePlaceholders(player, filled);
         if (!replaced.contains("%verbose%")) return replaced;
-        return replaced.replace("%verbose%", MessageUtil.miniMessageSafe(safeGet(verbose)));
+        String text = safeGet(verbose);
+        return replaced.replace("%verbose%", shown ? MessageUtil.plainText(text) : MessageUtil.miniMessageSafe(text));
     }
 
     public boolean handleAlert(CultPlayer player, String verbose, Check check) {

@@ -44,8 +44,14 @@ class AlertPlaceholderTextTest {
     }
 
     /** The alert the staff see for one flag of {@code name} using {@code brand}. */
-    @SuppressWarnings({"rawtypes", "unchecked"})
     private Component alert(String name, String brand) throws ReflectiveOperationException {
+        return alert(FORMAT, name, brand, "verbose");
+    }
+
+    /** The alert {@code format} renders for one flag of {@code name} using {@code brand} with {@code verbose}. */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private Component alert(String format, String name, String brand, String verbose)
+            throws ReflectiveOperationException {
         clearInvocations(player);
         when(player.getName()).thenReturn(name);
         when(player.getBrand()).thenReturn(brand);
@@ -57,7 +63,7 @@ class AlertPlaceholderTextTest {
                         .build()) {};
         doReturn(List.of(check)).when(player).getChecks();
         when(config.getBooleanElse("test-mode", false)).thenReturn(true);
-        when(config.getStringElse(eq("alerts-format"), anyString())).thenReturn(FORMAT);
+        when(config.getStringElse(eq("alerts-format"), anyString())).thenReturn(format);
         when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List) List.of(
                 new LinkedHashMap<>(Map.of("checks", List.of("alerttextprobe"), "commands", List.of("1:0 [alert]")))));
 
@@ -71,7 +77,7 @@ class AlertPlaceholderTextTest {
             PunishmentManager punishments = new PunishmentManager(player);
             punishments.reload(config);
             punishments.handleViolation(check);
-            punishments.handleAlert(player, "verbose", check);
+            punishments.handleAlert(player, verbose, check);
         } finally {
             registered.forEach(external::registerVariable);
         }
@@ -86,6 +92,14 @@ class AlertPlaceholderTextTest {
         if (component.hoverEvent() != null && component.hoverEvent().value() instanceof Component hover)
             collect(hover, clicks, insertions);
         for (Component child : component.children()) collect(child, clicks, insertions);
+    }
+
+    private static List<String> hoverTexts(Component component) {
+        List<String> texts = new ArrayList<>();
+        if (component.hoverEvent() != null && component.hoverEvent().value() instanceof Component hover)
+            texts.add(PlainTextComponentSerializer.plainText().serialize(hover));
+        for (Component child : component.children()) texts.addAll(hoverTexts(child));
+        return texts;
     }
 
     private static List<ClickEvent> clicks(Component component) {
@@ -114,5 +128,28 @@ class AlertPlaceholderTextTest {
         assertTrue(clicks(alert).stream()
                 .anyMatch(click -> click.action() == ClickEvent.Action.RUN_COMMAND
                         && click.toString().contains("spectate Steve_01")));
+    }
+
+    @Test
+    void aBrandInsideAQuotedHoverArgumentStaysInsideIt() throws ReflectiveOperationException {
+        String brand = "'><click:run_command:'/cult observe on";
+        Component alert = alert("&f<hover:show_text:'Brand: %brand%'>%player%</hover>", "Steve", brand, "verbose");
+        List<String> insertions = new ArrayList<>();
+        List<ClickEvent> clicks = new ArrayList<>();
+        collect(alert, clicks, insertions);
+        assertEquals(List.of(), clicks);
+        assertEquals(List.of(), insertions);
+        assertEquals("Steve", PlainTextComponentSerializer.plainText().serialize(alert));
+        assertEquals(List.of("Brand: " + brand), hoverTexts(alert));
+    }
+
+    @Test
+    void aBrandAndVerboseTogetherAreShownAsWritten() throws ReflectiveOperationException {
+        String brand = "<click:run_command:'/x";
+        String verbose = "'>v";
+        Component alert = alert("&f%brand% %verbose%", "Steve", brand, verbose);
+        assertEquals(List.of(), clicks(alert));
+        assertEquals(
+                brand + " " + verbose, PlainTextComponentSerializer.plainText().serialize(alert));
     }
 }
