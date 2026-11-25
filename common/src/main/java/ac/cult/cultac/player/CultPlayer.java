@@ -174,6 +174,10 @@ public class CultPlayer implements GrimUser {
      * them or the client is sent to another server.
      */
     public volatile @Nullable String shownName;
+    /** The profile name the server listed this player under on their own client; null while it lists none. */
+    public @Nullable String listedProfile;
+    /** The name the display name of this player's own entry lists them under; null while it lists none. */
+    public @Nullable String listedDisplay;
     public @NotNull MovementPlatform movementPlatform = MovementPlatform.JAVA;
     public @Nullable BedrockPlayerState bedrockState;
 
@@ -1872,6 +1876,17 @@ public class CultPlayer implements GrimUser {
         String previous = shownName;
         shownName = name;
         if (!Objects.equals(previous, name)) NetworkModule.shownNameChanged(playerUUID);
+    }
+
+    /**
+     * Sets {@link #listedProfile} and {@link #listedDisplay}, and {@link #shownName} from them: the profile name when
+     * it is not the account, else the display's name.
+     */
+    public void listed(@Nullable String profile, @Nullable String display) {
+        listedProfile = profile;
+        listedDisplay = display;
+        String account = getName();
+        shownName(profile != null && !profile.equalsIgnoreCase(account) ? profile : display);
     }
 
     @Override

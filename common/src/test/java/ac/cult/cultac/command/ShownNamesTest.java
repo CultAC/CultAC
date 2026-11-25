@@ -65,6 +65,16 @@ class ShownNamesTest {
     }
 
     @Test
+    void aViewedProfileOfNoOnlineAccountLeavesTheChoiceToTheListedPlayers() {
+        UUID unknown = UUID.randomUUID();
+        ShownNames.Match here = new ShownNames.Match(UUID.randomUUID(), "Here", "Shown");
+        ShownNames.Match alsoHere = new ShownNames.Match(UUID.randomUUID(), "AlsoHere", "Shown");
+
+        assertEquals(here, ShownNames.choose(List.of(unknown), List.of(here), "Shown", id -> null));
+        assertNull(ShownNames.choose(List.of(unknown), List.of(here, alsoHere), "Shown", id -> null));
+    }
+
+    @Test
     void aNameListedOnAnyInstanceMatchesOnceAndSeveralPlayersUnderItMatchNone() {
         UUID nicked = UUID.randomUUID();
         UUID seen = UUID.randomUUID();

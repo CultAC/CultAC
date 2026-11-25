@@ -83,13 +83,17 @@ public final class ShownNames {
     }
 
     /**
-     * The match for {@code name}: the profile the sender's client lists under it when there is one, else the one player
-     * whose own client lists them under it; null when the source that decides names several.
+     * The match for {@code name}: the online account the sender's client lists under it when there is one, else the one
+     * player whose own client lists them under it; null when the source that decides names several.
      */
     static @Nullable Match choose(
             List<UUID> viewed, List<Match> here, String name, Function<UUID, @Nullable NetworkPlayer> online) {
-        if (viewed.size() > 1) return null;
-        if (viewed.size() == 1) return account(viewed.get(0), name, online);
+        List<UUID> accounts = new ArrayList<>(1);
+        for (UUID uuid : viewed) {
+            if (online.apply(uuid) != null) accounts.add(uuid);
+        }
+        if (accounts.size() > 1) return null;
+        if (accounts.size() == 1) return account(accounts.get(0), name, online);
         return here.size() == 1 ? here.get(0) : null;
     }
 
