@@ -275,7 +275,7 @@ class ObserveOnlyCallSiteTest {
             bedrock/bridge/GeyserBedrockBridgeRuntime.java#releaseSession(Object) disconnect
             bedrock/bridge/GeyserBedrockBridgeRuntime.java#stop() disconnect
             bedrock/logging/BedrockPacketLogger.java#close() shutdown
-            cloud/CloudModule.java#shutdown() shutdown
+            cloud/CloudModule.java#shutdown() shutdown x2
             cloud/transport/SharedTransport.java#stopIfDone() shutdown x2
             manager/InitManager.java#<init>(Initable[]) shutdown
             manager/datastore/SharedDataStoreLifecycle.java#close() shutdown

@@ -1,7 +1,7 @@
 package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.cloud.settings.CloudStaffSettings;
+import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.manager.alerts.AlertKind;
 import ac.cult.cultac.manager.alerts.AlertNetwork;
 import ac.cult.cultac.manager.alerts.AlertPairs;
@@ -387,7 +387,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     /** Sets and persists {@code player}'s alert scope. */
     public void chooseScope(@NotNull PlatformPlayer player, @NotNull AlertScope scope) {
         scopes.choose(player, scope);
-        CloudStaffSettings.send(player.getUniqueId(), Map.of(AlertScopes.SETTING_KEY, scope.id()));
+        CloudModule.staffSettingsChanged(player.getUniqueId(), Map.of(AlertScopes.SETTING_KEY, scope.id()));
     }
 
     /** Takes {@code scope}, chosen on another server, as {@code player}'s choice while they are here. */

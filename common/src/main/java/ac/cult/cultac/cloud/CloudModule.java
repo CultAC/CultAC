@@ -2,11 +2,17 @@ package ac.cult.cultac.cloud;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.cloud.diag.PredictionDiagnostics;
+import ac.cult.cultac.cloud.settings.CloudStaffSettings;
+import ac.cult.cultac.manager.datastore.PlayerToggleStore;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -70,6 +76,51 @@ public final class CloudModule {
     /** {@code player}'s connection moves to a newer runtime; on the connection's packet owner. */
     public static void released(CultPlayer player) {
         if (loaded) CloudCapture.release(player);
+    }
+
+    /** Staff member {@code player} joined: their staff settings in the cloud apply once read. */
+    public static void staffJoined(PlatformPlayer player) {
+        if (loaded) CloudStaffSettings.join(player);
+    }
+
+    /** Saves {@code changes} to staff member {@code player}'s settings in the cloud. Any thread. */
+    public static void staffSettingsChanged(UUID player, Map<String, String> changes) {
+        if (loaded) CloudStaffSettings.send(player, changes);
+    }
+
+    /** {@code local}, each user toggle also saved to the cloud. */
+    public static PlayerToggleStore staffToggles(PlayerToggleStore local) {
+        return staffToggles(local, CloudModule::staffSettingsChanged);
+    }
+
+    static PlayerToggleStore staffToggles(PlayerToggleStore local, BiConsumer<UUID, Map<String, String>> save) {
+        return new PlayerToggleStore() {
+            @Override
+            public void prefetch(@NotNull UUID uuid, @NotNull UUID connectionId) {
+                local.prefetch(uuid, connectionId);
+            }
+
+            @Override
+            public @Nullable Boolean current(@NotNull UUID uuid, @NotNull String key) {
+                return local.current(uuid, key);
+            }
+
+            @Override
+            public void applyUserToggle(@NotNull UUID uuid, @NotNull String key, boolean value) {
+                local.applyUserToggle(uuid, key, value);
+                save.accept(uuid, Map.of(key, Boolean.toString(value)));
+            }
+
+            @Override
+            public void evict(@NotNull UUID uuid, @NotNull UUID connectionId) {
+                local.evict(uuid, connectionId);
+            }
+
+            @Override
+            public void shutdown() {
+                local.shutdown();
+            }
+        };
     }
 
     /** Plugin disable. */
