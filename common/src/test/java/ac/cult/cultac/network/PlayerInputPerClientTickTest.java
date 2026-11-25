@@ -176,8 +176,8 @@ class PlayerInputPerClientTickTest {
         try (var f = connect(new JavaTickFixture())) {
             TimerCheck timer = f.player.checkManager.getCheck(TimerCheck.class);
             JavaTickFixture.setField(Check.class, timer, "isEnabled", true);
-            JavaTickFixture.setField(
-                    AbstractTimerCheck.class, timer, "timerBalanceRealTime", System.nanoTime() + 1_000_000_000L);
+            // Far ahead of any System#nanoTime reading, so the timer rejects the tick end however late it runs.
+            JavaTickFixture.setField(AbstractTimerCheck.class, timer, "timerBalanceRealTime", Long.MAX_VALUE / 2);
             read(f, inputFrame(f, SNEAK), tickEndFrame(f));
             assertEquals(List.of("player_input shift"), forwarded(f), "the timer accepted the tick end");
 
