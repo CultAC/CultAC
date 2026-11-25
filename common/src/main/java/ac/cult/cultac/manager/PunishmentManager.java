@@ -258,6 +258,7 @@ public class PunishmentManager implements ConfigReloadable {
                             continue;
                         }
                         if (command.interval == 0 && !claim(group, command)) continue;
+                        boolean handedOver = command.interval > 0;
                         boolean builtin = BUILTIN_ACTIONS.contains(command.action());
                         // Only console commands can reach a backend's CommandExecuteEvent listeners;
                         // the built-in actions below are decided by this event alone.
@@ -273,11 +274,15 @@ public class PunishmentManager implements ConfigReloadable {
                                         shown,
                                         cmd);
                             } catch (RuntimeException | LinkageError e) {
+                                if (!handedOver) unclaim(group, command);
                                 logDeliveryFailure(command, check, e);
-                                canceled = true;
+                                continue;
                             }
                         }
-                        if (command.interval == 0 && (canceled || builtin)) settle(group, command, null, true);
+                        if (!handedOver && (canceled || builtin)) {
+                            handedOver = true;
+                            settle(group, command, null, true);
+                        }
                         if (canceled) continue;
 
                         try {
@@ -326,6 +331,7 @@ public class PunishmentManager implements ConfigReloadable {
                                                     .dispatchesVerbose(cmd, player.platformPlayer)
                                             ? safeGet(verbose)
                                             : "";
+                                    handedOver = true;
                                     dispatch(
                                             group,
                                             command,
@@ -334,6 +340,7 @@ public class PunishmentManager implements ConfigReloadable {
                                 }
                             }
                         } catch (RuntimeException | LinkageError e) {
+                            if (!handedOver) unclaim(group, command);
                             logDeliveryFailure(command, check, e);
                         }
                     }
@@ -417,6 +424,13 @@ public class PunishmentManager implements ConfigReloadable {
             if (command.executeCount > 0 || command.claimed) return false;
             command.claimed = true;
             return true;
+        }
+    }
+
+    /** Gives back a one-time command taken for a run that never reached the platform. */
+    private static void unclaim(PunishGroup group, ParsedCommand command) {
+        synchronized (group.violations) {
+            command.claimed = false;
         }
     }
 

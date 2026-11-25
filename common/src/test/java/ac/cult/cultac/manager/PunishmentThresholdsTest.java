@@ -35,6 +35,7 @@ class PunishmentThresholdsTest {
     private long now = 1_000_000L;
     // Global tasks held back until the test runs them; null runs them at once.
     private List<Runnable> deferred;
+    private PlatformServer server;
 
     PunishmentThresholdsTest() {
         when(config.getBooleanElse(anyString(), anyBoolean())).thenAnswer(invocation -> invocation.getArgument(1));
@@ -122,6 +123,25 @@ class PunishmentThresholdsTest {
             second.deliverWaiting();
 
             assertEquals(List.of(), ran);
+        }
+    }
+
+    @Test
+    void aOneTimeCommandWhoseRunFailedBeforeDispatchRunsOnTheNextFlag() throws Exception {
+        List<String> ran = new ArrayList<>();
+        try (var ignored = platform(ran, new AtomicBoolean(true))) {
+            doThrow(new IllegalStateException("probe"))
+                    .doReturn(false)
+                    .when(server)
+                    .dispatchesVerbose(anyString(), any());
+            PunishmentManager punishments = punishments("2:0 ban probe");
+            flag(punishments);
+            flag(punishments);
+            assertEquals(List.of(), ran);
+
+            flag(punishments);
+
+            assertEquals(List.of("ban probe"), ran);
         }
     }
 
@@ -276,7 +296,7 @@ class PunishmentThresholdsTest {
      * server can run them.
      */
     private AutoCloseable platform(List<String> ran, AtomicBoolean reachable) throws ReflectiveOperationException {
-        PlatformServer server = mock(PlatformServer.class);
+        server = mock(PlatformServer.class);
         when(server.dispatchCommand(any(), anyString(), any(), any(), anyDouble(), anyString()))
                 .thenAnswer(invocation -> {
                     if (reachable.get()) ran.add(invocation.getArgument(1));
