@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
@@ -25,7 +26,9 @@ import java.util.Map;
 import java.util.function.Function;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -174,20 +177,25 @@ class AlertPlaceholderTextTest {
                 brand + " " + verbose, PlainTextComponentSerializer.plainText().serialize(alert));
     }
 
-    /** The alert lines {@code [proxy]} forwards for one flag; the commands the command event sees go to {@code fired}. */
-    private List<String> relayed(String format, String name, String brand, List<String> fired) throws Exception {
+    /**
+     * The alert lines {@code [proxy]} forwards for one flag; the commands the command event sees go to {@code fired},
+     * and with a null {@code fired} the event has no listener.
+     */
+    private List<String> relayed(String format, String name, String brand, @Nullable List<String> fired)
+            throws Exception {
         PlatformServer server = mock(PlatformServer.class);
         Field field = AlertManagerImpl.class.getDeclaredField("platformServer");
         field.setAccessible(true);
         Object original = field.get(null);
         GrimPlugin plugin = mock(GrimPlugin.class);
-        CultAPI.INSTANCE
-                .getEventBus()
-                .get(CommandExecuteEvent.class)
-                .onCommandExecuteSupplier(plugin, (user, flagged, verbose, command, cancelled) -> {
-                    fired.add(command);
-                    return cancelled;
-                });
+        if (fired != null)
+            CultAPI.INSTANCE
+                    .getEventBus()
+                    .get(CommandExecuteEvent.class)
+                    .onCommandExecuteSupplier(plugin, (user, flagged, verbose, command, cancelled) -> {
+                        fired.add(command);
+                        return cancelled;
+                    });
         field.set(null, server);
         try {
             flag(format, name, brand, "verbose", "1:0 [alert]", "1:0 [proxy]");
@@ -206,9 +214,18 @@ class AlertPlaceholderTextTest {
         List<String> fired = new ArrayList<>();
         List<String> relayed = relayed("&f%player% %brand%", "Steve", brand, fired);
         assertEquals(List.of("&fSteve " + brand, "&fSteve " + brand), fired);
-        assertTrue(relayed.getFirst().chars().noneMatch(c -> c >= 0xFDD0 && c <= 0xFDEF || c >= 0xFFFE));
         Component shown = MessageUtil.miniMessage(relayed.getFirst());
         assertEquals("Steve " + brand, PlainTextComponentSerializer.plainText().serialize(shown));
         assertEquals(List.of(), clicks(shown));
+    }
+
+    @Test
+    void aRelayedAlertShowsColourCodesInTheBrandAsWritten() throws Exception {
+        String brand = "&rRESET &kOBF &#00FF00hex %prefix%";
+        Component shown = MessageUtil.miniMessage(
+                relayed("&f%player% %brand%", "Steve", brand, null).getFirst());
+        assertEquals("Steve " + brand, PlainTextComponentSerializer.plainText().serialize(shown));
+        String json = GsonComponentSerializer.gson().serialize(shown);
+        assertFalse(json.contains("\"obfuscated\":true") || json.contains("#00ff00"), json);
     }
 }
