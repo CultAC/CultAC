@@ -1158,7 +1158,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             if (!player.isObserveOnly()
                     && (blockPlace.isCancelled()
                             || event.isCancelled()
-                            || player.getSetbackTeleportUtil().isPendingSetback())) {
+                            || player.getSetbackTeleportUtil().withholdsClientActions())) {
                 // Invalid block place due to placing on a ghost block
                 blockPlace.resync();
 

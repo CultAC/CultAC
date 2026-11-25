@@ -11,6 +11,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
 import ac.cult.cultac.events.packets.worldreader.BasePacketWorldReader;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.packet.WorldPackets.BlockUpdate;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -295,6 +296,7 @@ class GhostBlockAckTest {
             player.packetStateData.clientSidePosition = new Vec3(.5, 64, -1.5);
             player.boundingBox = new SimpleCollisionBox(.2, 64, -1.8, .8, 65.8, -1.2);
             player.registryState = new ClientComponentRegistries();
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             var world = player.compensatedWorld;
             var dimension = player.getWorldRegistries().dimension("minecraft:overworld");
             world.setLastClientboundDimension("minecraft:overworld", dimension.dimension());

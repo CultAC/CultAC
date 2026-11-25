@@ -21,6 +21,7 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
@@ -32,6 +33,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -40,6 +42,7 @@ import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.inventory.Inventory;
@@ -152,6 +155,38 @@ class CorrectionWindowActionsTest {
         }
     }
 
+    @Test
+    void aBlockUseWaitsWhileMovementIsWithheld() throws Exception {
+        try (var s = new Setup()) {
+            SetbackFixtures.setBlockOffsets(s.player.getSetbackTeleportUtil(), true);
+            assertTrue(s.useItemOn(IN_FRONT).isCancelled());
+        }
+    }
+
+    @Test
+    void anAttackWaitsForTheCorrectionNextToAnUnloadedChunk() throws Exception {
+        try (var s = new Setup()) {
+            s.player.compensatedEntities.addEntity(COW, EntityTypeIds.COW, new Vec3(.5, 64, -18.5), 0, 0, 0);
+            SetbackFixtures.requireCorrection(s.player.getSetbackTeleportUtil(), correction(new Vec3(.5, 64, -15)));
+            s.player.z = s.player.lastZ = -17.5;
+            assertTrue(s.player.getSetbackTeleportUtil().insideUnloadedChunk());
+            assertTrue(s.interact(InteractAction.ATTACK).isCancelled());
+        }
+    }
+
+    @Test
+    void aDisabledPlayersDigWaitsForTheCorrectionItsMovementWaitsFor() throws Exception {
+        try (var s = new Setup()) {
+            setField(CultPlayer.class, s.player, "disabled", true);
+            SetbackFixtures.requireCorrection(s.player.getSetbackTeleportUtil(), correction(new Vec3(.5, 64, .5)));
+            assertTrue(s.dig(IN_FRONT, Direction.NORTH).isCancelled());
+        }
+    }
+
+    private static SetBackData correction(Vec3 at) {
+        return new SetBackData(new TeleportData(at, new RelativeFlag(0), 20, 1), 0, 0, Vec3.ZERO, false, false);
+    }
+
     private static List<InventoryPackets.Slot> slots(List<Object> packets) {
         return packets.stream()
                 .filter(InventoryPackets.Slot.class::isInstance)
@@ -261,6 +296,14 @@ class CorrectionWindowActionsTest {
             var packet = new ServerboundPlayerAction(PlayerAction.START_DESTROY_BLOCK, pos, face, ++sequence);
             var event = route(ServerboundPackets.PLAYER_ACTION, packet);
             if (!event.isCancelled()) listener.onPlayerAction(event, player, packet);
+            return event;
+        }
+
+        PacketReceiveEvent<ServerboundUseItemOn> useItemOn(BlockPos pos) {
+            var packet = new ServerboundUseItemOn(
+                    Hand.MAIN_HAND, pos, Direction.SOUTH, new Vec3d(.5, .5, 0), false, false, ++sequence);
+            var event = route(ServerboundPackets.USE_ITEM_ON, packet);
+            if (!event.isCancelled()) listener.onUseItemOn(event, player, packet);
             return event;
         }
 

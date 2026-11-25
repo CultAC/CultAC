@@ -323,7 +323,7 @@ public class SetbackTeleportUtil extends CultProcessor
         if (player.isBedrockMovement()) {
             return blocksBedrockTranslatedMovement() || enforced && shouldBlockMovement(true);
         }
-        return enforced && (shouldBlockMovement() || isPendingSetback());
+        return isPendingSetback() || enforced && shouldBlockMovement();
     }
 
     /** Whether the player is in an unloaded chunk far enough from the correction that it cannot be the reason. */

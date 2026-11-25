@@ -709,6 +709,7 @@ class ReachInteractionRangeTest {
     @Test
     void aTargetMovingAwayPastTheMinimumReachIsJudgedAtItsFarthestPosition() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             setup.hold(0, null);
             setup.hold(1, "{\"min_reach\":2,\"max_reach\":4.5,\"hitbox_margin\":0.125}");
             setup.rotate(90);
@@ -722,6 +723,7 @@ class ReachInteractionRangeTest {
     @Test
     void aMarginOnlyHitIsJudgedAtTheFarthestCornerOfTheTargetBoxes() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             setup.hold(0, "{\"max_reach\":4.5,\"hitbox_margin\":0.125}");
             setup.hold(1, "{\"min_reach\":2,\"max_reach\":4.5,\"hitbox_margin\":0.125}");
             setup.rotate(0);
@@ -736,6 +738,7 @@ class ReachInteractionRangeTest {
     @Test
     void aMarginHitOnATargetMovingAwayIsBoundedByItsNearestPointForTheMaximum() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             setup.hold(0, "{\"max_reach\":3,\"hitbox_margin\":0.3}");
             setup.rotate(0);
             setup.tickEnd();
@@ -791,6 +794,7 @@ class ReachInteractionRangeTest {
     @Test
     void aMarginHitFromInsideTheGrownTargetBoxesIsJudgedAtItsFarthestProjection() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             setup.hold(0, "{\"min_reach\":2,\"max_reach\":4.5,\"hitbox_margin\":1}");
             setup.hold(1, "{\"min_reach\":4.3,\"max_reach\":4.5,\"hitbox_margin\":1}");
             setup.rotate(0);
@@ -802,6 +806,7 @@ class ReachInteractionRangeTest {
     @Test
     void aMarginHitFromInsideTheGrownTargetBoxesThatMissesTheirUnionIsJudgedAtItsFarthestProjection() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             setup.hold(0, "{\"min_reach\":2,\"max_reach\":4.5,\"hitbox_margin\":1}");
             setup.hold(1, "{\"min_reach\":4.3,\"max_reach\":4.5,\"hitbox_margin\":1}");
             setup.rotate(0);
@@ -920,6 +925,7 @@ class ReachInteractionRangeTest {
     @Test
     void aTargetMovedOnlyByBundledMovementsIsJudgedWithoutAMargin() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             assertFalse(setup.attack(2.99));
             assertTrue(setup.attack(3.01));
             assertEquals(List.of(), setup.attackAfter(2.99, entity -> setup.moveAwayAndBack(entity, 4)));
@@ -931,6 +937,7 @@ class ReachInteractionRangeTest {
     @Test
     void aTargetWhoseQueueFoldedKeepsTheMargin() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             assertEquals(List.of(), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 200)));
             assertEquals(List.of("EntityReach"), setup.attackAfter(3.10, entity -> setup.moveAwayAndBack(entity, 200)));
         }
@@ -1298,6 +1305,7 @@ class ReachInteractionRangeTest {
     @Test
     void boatsAreBoundedByTheEntityInteractionRange() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             for (String key : List.of("oak_boat", "oak_chest_boat", "bamboo_raft", "bamboo_chest_raft")) {
                 int type = EntityTypes.defaults().byKey(key).id();
                 assertEquals(List.of(), setup.attackBoat(type, 2.9, 0), key);
@@ -1311,6 +1319,7 @@ class ReachInteractionRangeTest {
     @Test
     void aMovingBoatIsJudgedWhereverItsInterpolationMayHaveIt() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             assertEquals(List.of(), setup.attackBoat(EntityTypeIds.OAK_BOAT, 3.5, -1));
             assertEquals(List.of(), setup.attackBoat(EntityTypeIds.OAK_BOAT, 2.9, 1));
             assertEquals(List.of("EntityReach"), setup.attackBoat(EntityTypeIds.OAK_BOAT, 3.1, 1));

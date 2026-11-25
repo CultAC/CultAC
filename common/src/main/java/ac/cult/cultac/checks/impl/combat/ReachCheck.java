@@ -190,7 +190,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         if (!owns(targetType(entityId, entity))) return false;
 
         // Don't let the player teleport to bypass reach
-        if (player.getSetbackTeleportUtil().shouldBlockMovement()) {
+        if (player.getSetbackTeleportUtil().withholdsClientActions()) {
             debug(() -> {
                 return "cancelled = teleport";
             });
