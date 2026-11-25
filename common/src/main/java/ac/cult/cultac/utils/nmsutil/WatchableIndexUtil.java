@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -16,6 +17,9 @@ public final class WatchableIndexUtil {
     public static final int LIVING_SLEEPING_POS = 14;
     public static final int MOB_FLAGS = 15;
     public static final int AGEABLE_BABY = 16;
+    public static final int ZOMBIE_BABY = 16;
+    public static final int ZOGLIN_BABY = 16;
+    public static final int PIGLIN_BABY = 17;
     public static final int PHANTOM_SIZE = 16;
     public static final int SHULKER_ATTACH_FACE = 16;
     public static final int SHULKER_PEEK = 17;
@@ -24,6 +28,22 @@ public final class WatchableIndexUtil {
     public static final int DISPLAY_POS_ROT_INTERPOLATION_DURATION = 10;
 
     private WatchableIndexUtil() {}
+
+    /**
+     * The index of the type's DATA_BABY_ID, or -1 without one. AgeableMob defines it for its subclasses; Zombie,
+     * Zoglin and Piglin each define their own, Piglin after AbstractPiglin's DATA_IMMUNE_TO_ZOMBIFICATION.
+     */
+    public static int babyIndex(int type) {
+        if (EntityTypeUtil.isAgeable(type)) return AGEABLE_BABY;
+        if (type == EntityTypeIds.ZOMBIE
+                || type == EntityTypeIds.HUSK
+                || type == EntityTypeIds.DROWNED
+                || type == EntityTypeIds.ZOMBIE_VILLAGER
+                || type == EntityTypeIds.ZOMBIFIED_PIGLIN) return ZOMBIE_BABY;
+        if (type == EntityTypeIds.ZOGLIN) return ZOGLIN_BABY;
+        if (type == EntityTypeIds.PIGLIN) return PIGLIN_BABY;
+        return -1;
+    }
 
     /** Fields whose native inheritance or representation changed within protocols 768–777. */
     public record Layout(

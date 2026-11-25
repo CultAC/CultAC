@@ -4,25 +4,24 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
 
 /**
- * VanillaStepProof's collisions within one Java prediction, keyed on the raw bits of every argument that varies inside
- * it. A hit is exact only while the unkeyed inputs (carry, step height, sneaking, border, world) stay fixed; the
- * prediction writes profileCarry before the memo's first entry and none of them after it.
+ * NoFall's collisions directly below a destination and HorizontalAnalyzer's block-only scans within one Java prediction,
+ * keyed on the raw bits of every argument that varies inside them. A hit is exact only while the unkeyed inputs (carry,
+ * step height, sneaking, held item, border, world) stay fixed; the prediction writes profileCarry before the memo's
+ * first entry and none of them after it.
  */
 public final class StepCollisionMemo {
     private static final int KEY_LONGS = 10;
-    private static final long STEP = 1L;
     private static final long BELOW = 2L;
-    private static final long Z_FIRST = 4L;
     private static final long ON_GROUND = 8L;
     private static final long FULL_BLOCK = 16L;
+    private static final long EMPTY = 32L;
 
     private final long[] pending = new long[KEY_LONGS];
     private long[] keys = new long[KEY_LONGS * 32];
     private Object[] values = new Object[32];
+    private boolean[] empties = new boolean[32];
     private int[] table = new int[64];
     private int size;
     private boolean open;
@@ -37,34 +36,26 @@ public final class StepCollisionMemo {
         open = false;
     }
 
-    Collisions.SteppedCollision steppedCollision(
-            CultPlayer player,
-            SimpleCollisionBox box,
-            double desiredX,
-            double desiredY,
-            double desiredZ,
-            List<Collisions.Axis> order,
-            boolean onGroundForStep) {
-        if (!open) {
-            return Collisions.collideWithStepComparison(
-                    player, box, desiredX, desiredY, desiredZ, order, Collections.emptyList(), onGroundForStep);
-        }
-        long tag = STEP | (order.get(1) == Collisions.Axis.Z ? Z_FIRST : 0L) | (onGroundForStep ? ON_GROUND : 0L);
-        int found = find(tag, box, desiredX, desiredY, desiredZ);
-        if (found >= 0) return (Collisions.SteppedCollision) values[found];
-        Collisions.SteppedCollision collision = Collisions.collideWithStepComparison(
-                player, box, desiredX, desiredY, desiredZ, order, Collections.emptyList(), onGroundForStep);
-        insert(-found - 1, collision);
-        return collision;
-    }
-
     boolean collidesDirectlyBelow(CultPlayer player, SimpleCollisionBox box) {
         if (!open) return collidesDirectlyBelowUncached(player, box);
         int found = find(BELOW | (player.lastOnGround ? ON_GROUND : 0L), box, 0.0D, 0.0D, 0.0D);
         if (found >= 0) return (Boolean) values[found];
         boolean below = collidesDirectlyBelowUncached(player, box);
-        insert(-found - 1, below);
+        int entry = insert(-found - 1);
+        values[entry] = below;
         return below;
+    }
+
+    /** {@link Collisions#isEmpty(CultPlayer, SimpleCollisionBox)}: the block-only scan with the player's y as bottom. */
+    boolean isEmpty(CultPlayer player, SimpleCollisionBox box) {
+        double bottom = player.y;
+        if (!open) return Collisions.isEmpty(player, box, bottom);
+        int found = find(EMPTY, box, bottom, 0.0D, 0.0D);
+        if (found >= 0) return empties[found];
+        boolean empty = Collisions.isEmpty(player, box, bottom);
+        int entry = insert(-found - 1);
+        empties[entry] = empty;
+        return empty;
     }
 
     static boolean collidesDirectlyBelowUncached(CultPlayer player, SimpleCollisionBox box) {
@@ -94,15 +85,18 @@ public final class StepCollisionMemo {
         }
     }
 
-    private void insert(int slot, Object value) {
+    /** Adds the pending key at {@code slot} and returns its entry; the caller reads the value array after this grows it. */
+    private int insert(int slot) {
         if (size == values.length) {
             keys = Arrays.copyOf(keys, keys.length * 2);
             values = Arrays.copyOf(values, values.length * 2);
+            empties = Arrays.copyOf(empties, empties.length * 2);
         }
         System.arraycopy(pending, 0, keys, size * KEY_LONGS, KEY_LONGS);
-        values[size] = value;
+        int entry = size;
         table[slot] = ++size;
         if (size * 2 > table.length) rehash(table.length * 2);
+        return entry;
     }
 
     private void rehash(int length) {

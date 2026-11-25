@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction.checks;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.BedrockSupported;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
@@ -14,6 +15,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.nmsutil.Collisions;
@@ -39,12 +41,12 @@ public class Phase extends Check implements PostPredictionListener {
     }
 
     SimpleCollisionBox oldBox = null;
+    /** The scale of the box the last Java prediction travelled with; NaN once its move is checked. */
+    float travelScale = Float.NaN;
     // Read only within one checkMovement call; never stored.
     private final SimpleCollisionBox newBoxScratch = new SimpleCollisionBox();
-    // The ride-tick seat oldBox last started from or a teleport replaced; each seat is a fresh Vec3.
+    // The ride-tick seat oldBox last started from or an accepted teleport replaced; each seat is a fresh Vec3.
     private Vec3 seatTaken;
-    // LivingEntity#tick refreshes a scale attribute's dimensions after travel; the prediction travels with the box.
-    float travelScale = Float.NaN;
 
     private void handleMovePlayer(ServerboundMovePlayer packet, boolean teleport) {
         // Geyser projections must neither check movement nor replace auth-input history.
@@ -64,19 +66,31 @@ public class Phase extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(PredictionComplete complete) {
+        travelScale = Float.NaN;
         var result = complete.getPredictionResult();
         if (result == null) return;
-        if (!player.isBedrockMovement() && result.getSimulationContext() != null) {
-            travelScale = result.getSimulationContext().getScale();
-        }
         if (result.isTeleport()) {
+            // ClientPacketListener#handleMovePlayer moves the client off the seat its last ride tick gave it. From
+            // 26.3 the answer is ServerboundAcceptTeleportationPacket, which reaches no move handler.
+            if (!player.isBedrockMovement()) seatTaken = player.compensatedEntities.lastRideTickSeat();
             if (result.getSetBackData() != null) {
                 oldBox = boxAt(result.getSetBackData().getLocation(), 1.8f, player.isBedrockMovement());
             }
             return;
         }
-        if (!player.isBedrockMovement()) return;
         var context = result.getSimulationContext();
+        if (!player.isBedrockMovement()) {
+            // Before 26.3, pistons and later-ticking shulkers move the player after its report.
+            // The runner carries those moves into this travel's physical start. The previous
+            // report can still be outside a block the player already overlaps after that pass.
+            // LivingEntity#tick runs aiStep before refreshDirtyAttributes: a changed scale attribute resizes the box
+            // only after this travel, which moved the box of the scale before it.
+            if (context != null) {
+                travelScale = context.getScale();
+                oldBox = boxAt(new SimpleCollisionBox(), context.getStart(), 1.8f, false, travelScale);
+            }
+            return;
+        }
         if (context == null || !context.hasTrustedAuthoredInput() || context.getBedrockInput() == null) return;
 
         checkMovement(
@@ -87,6 +101,8 @@ public class Phase extends Check implements PostPredictionListener {
 
     private void checkMovement(Vec3 location, boolean bedrock, boolean teleportOrExempt) {
         SimpleCollisionBox historyBox = boxAt(location, 1.8f, bedrock);
+        float travelled = travelScale;
+        travelScale = Float.NaN;
         if (bedrock && oldBox == null) {
             oldBox = historyBox;
             return;
@@ -100,15 +116,20 @@ public class Phase extends Check implements PostPredictionListener {
             return;
         }
 
-        // Entity.refreshDimensions resizes the client box in place before travel.
-        // Compare movement against that resized history, including after shrinking.
-        if (!bedrock && oldBox != null) {
+        // A prediction already left the box its travel started with. Without one, the client has resized the last
+        // checked box in place, Entity#refreshDimensions on Java and a received scale on Bedrock: compare against
+        // that resized history, including after shrinking.
+        boolean predicted = !Float.isNaN(travelled);
+        if (!predicted && oldBox != null) {
+            double feetY = bedrock ? oldBox.minY + BEDROCK_PENETRATION_INSET : oldBox.minY;
             oldBox = boxAt(
-                    new Vec3((oldBox.minX + oldBox.maxX) / 2.0, oldBox.minY, (oldBox.minZ + oldBox.maxZ) / 2.0),
+                    new Vec3((oldBox.minX + oldBox.maxX) / 2.0, feetY, (oldBox.minZ + oldBox.maxZ) / 2.0),
                     1.8f,
-                    false);
+                    bedrock);
         }
-        SimpleCollisionBox newBox = boxAt(newBoxScratch, location, 0.6f, bedrock);
+        SimpleCollisionBox newBox = predicted
+                ? boxAt(newBoxScratch, location, 0.6f, false, travelled)
+                : boxAt(newBoxScratch, location, 0.6f, bedrock);
 
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         SimpleCollisionBox savedBox = player.boundingBox;
@@ -123,8 +144,10 @@ public class Phase extends Check implements PostPredictionListener {
         Map<BlockPos, GhostBlockMitigator.GhostData> ghostDataMap = player.getGhostBlockMitigator().unknownStuff;
         boolean hasGhostBlocks = !ghostDataMap.isEmpty();
 
-        for (SimpleCollisionBox box : boxes) {
+        for (int i = 0, size = boxes.size(); i < size; i++) {
+            SimpleCollisionBox box = boxes.get(i);
             if (intersects(newBox, box, bedrock) && !intersects(oldBox, box, bedrock)) {
+                if (!bedrock && isMovingBlock(player, box)) continue;
                 BlockPos blockPos = BlockPos.containing(
                         (box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, (box.minZ + box.maxZ) / 2);
                 int state = player.compensatedWorld.getBlockStateIdAt(blockPos);
@@ -150,14 +173,28 @@ public class Phase extends Check implements PostPredictionListener {
         oldBox = historyBox;
     }
 
+    /**
+     * Whether {@code box} is the collision of a block a piston is moving: the block the scan took it from is a
+     * MOVING_PISTON. PistonMovingBlockEntity#moveEntityByPiston moves entities with NOCLIP for blocks moving the same way,
+     * as fixEntityWithinPistonBase does pushing an entity out of a retracting base into the blocks it pulls, so a piston
+     * can leave the player inside one. Simulation checks movement against them; every other block stays Phase's.
+     */
+    public static boolean isMovingBlock(CultPlayer player, SimpleCollisionBox box) {
+        if (!(box instanceof VoxelShapeCollisionBox collider) || !collider.isTranslated()) return false;
+        BlockPos source = new BlockPos((int) collider.offsetX(), (int) collider.offsetY(), (int) collider.offsetZ());
+        return BlockIds.is(player.compensatedWorld.getBlockStateIdAt(source), BlockIds.MOVING_PISTON);
+    }
+
     private SimpleCollisionBox boxAt(Vec3 location, float height, boolean bedrock) {
         return boxAt(new SimpleCollisionBox(), location, height, bedrock);
     }
 
     private SimpleCollisionBox boxAt(SimpleCollisionBox out, Vec3 location, float height, boolean bedrock) {
-        float scale = player.isBedrockMovement()
-                ? 1.0f
-                : Float.isNaN(travelScale) ? player.dimensionScale : travelScale;
+        return boxAt(out, location, height, bedrock, player.dimensionScale);
+    }
+
+    private SimpleCollisionBox boxAt(
+            SimpleCollisionBox out, Vec3 location, float height, boolean bedrock, float scale) {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
                 out, location.x, location.y, location.z, 0.6f * scale, height * scale);
         return bedrock ? box.expand(-BEDROCK_PENETRATION_INSET) : box;

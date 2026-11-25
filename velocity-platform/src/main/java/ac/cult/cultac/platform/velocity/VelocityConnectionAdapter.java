@@ -31,6 +31,7 @@ final class VelocityConnectionAdapter implements PlatformConnection {
     private Channel observedBackend;
     private boolean backendTicksClosed;
     private final InlineBurstEnd inlineBurstEnd = new InlineBurstEnd();
+    private CompressedForwarder compressedForwarder;
 
     VelocityConnectionAdapter(ProxyServer proxy, Player nativePlayer, VelocityPlayer player, EventExecutor eventLoop) {
         this(proxy, nativePlayer, player, eventLoop, null, null);
@@ -54,6 +55,10 @@ final class VelocityConnectionAdapter implements PlatformConnection {
 
     EventExecutor owner() {
         return owner;
+    }
+
+    Player nativePlayer() {
+        return nativePlayer;
     }
 
     Object bedrockBridge() {
@@ -156,6 +161,21 @@ final class VelocityConnectionAdapter implements PlatformConnection {
         backendTicksClosed = true;
         removeBackendObserver();
         if (backendTicks != null) backendTicks.close();
+    }
+
+    void compressedForwarder(CompressedForwarder forwarder) {
+        compressedForwarder = forwarder;
+    }
+
+    /** Read on the connection owner, which is the forwarder's event loop. */
+    @Override
+    public String compressedForwardStats() {
+        return compressedForwarder == null ? null : compressedForwarder.stats();
+    }
+
+    @Override
+    public void resetCompressedForwardStats() {
+        if (compressedForwarder != null) compressedForwarder.resetStats();
     }
 
     void bindProtocols(VelocityProtocols.Versions protocols) {

@@ -33,11 +33,6 @@ While the upload is on, each player's session is streamed from the moment they r
   version, brand and ping, the server software, and the version of any enabled plugin known to rewrite movement or
   packets, such as ViaVersion or ProtocolLib) and uploads a window of it when the service asks for one. Nothing is kept or sent for
   unwatched players.
-- **Performance profiles, only with `cloud.perf` and on request.** Off by default. When on, the intake service may ask
-  for a short JFR profile of the whole server process: CPU and allocation stack samples (class and method names),
-  the bytes CultAC's own code allocated by class, garbage-collection pauses, tick times, the online player count, and
-  the JVM's name, version and flags, and on Linux the CPU time of the process and of the JVM's own GC, compiler, VM
-  and JFR threads, read from `/proc`. It is recorded off the main thread and skipped while the server lags.
 - **Staff portal roles, only with `cloud.team-sync`.** Off by default. When on, the UUID, name and portal role of
   players holding a `cult.portal.*` permission, and of synced players who lost it, are sent to the intake service so
   its portal lists them in your organization. See [Team sync](#team-sync).
@@ -107,15 +102,15 @@ The `cloud:` block in `plugins/CultAC/config.yml` (`plugins/cultac/config.yml` o
 | Key | Default | Meaning |
 |---|---|---|
 | `cloud.url` | `""` | The intake service's address. Must be `https`, or `http` to a loopback host. |
-| `cloud.api-key` | `""` | The key your intake service issued. |
+| `cloud.api-key` | `""` | The key your intake service issued. The `CULTAC_CLOUD_API_KEY` environment variable, when set and not blank, wins over it. |
 | `cloud.server-id` | `""` | Each upload socket's server id. Empty picks the platform's default, below. |
 | `cloud.proxy-id` | `""` | On Velocity, this proxy's name. On Paper, this server's own name. |
-| `cloud.perf` | `false` | Lets the intake service ask for performance profiles, below. `CULTAC_CLOUD_PERF` (`true`/`1`/`yes`, `false`/`0`/`no`) overrides it when set. |
-| `cloud.team-sync` | `false` | Reports staff portal roles to the intake service, below. `CULTAC_CLOUD_TEAM_SYNC` (`true`/`1`/`yes`, `false`/`0`/`no`) overrides it when set. |
+| `cloud.uncaptured-servers` | `[]` | Backends whose players are not captured while they are on them, below. |
+| `cloud.team-sync` | `false` | Reports staff portal roles to the intake service, below. |
 
-Empty means off: the upload stays off while `url` or `api-key` is empty. It also stays off, with one warning, while
-`proxy-id` is empty on Paper, or on Velocity while `server-id` uses `{proxy}`, and while `api-key` holds anything but
-visible ASCII characters (a space, line break or invisible character inside it); that warning does not show the key.
+Empty means off: the upload stays off while `url` is empty, or while both `api-key` and `CULTAC_CLOUD_API_KEY` are. It
+also stays off, with one warning, while `proxy-id` is empty on Paper, or on Velocity while `server-id` uses `{proxy}`,
+and while the key holds anything but visible ASCII characters (a space, line break or invisible character inside it); that warning does not show the key.
 The key is checked after surrounding whitespace is stripped, so `" key "` or a key with a pasted trailing line break
 is used as `key`. Apply changes with `/cult reload`.
 
@@ -148,6 +143,33 @@ Every writer sharing one API key needs distinct ids:
 - Upload from the proxy or from its backends, not both. A backend that uploads on its own while its proxy also uploads
   sends every player twice.
 
+### Backends left uncaptured
+
+`cloud.uncaptured-servers` lists backends, such as lobbies, whose players CultAC does not capture while they are on
+them. Each entry is a backend name as `velocity.toml` gives it, matched whole and ignoring case; `*` stands for any
+run of characters, so `hub-*` matches `hub-1` and `HUB-EU`. The list is empty by default, which captures every
+backend.
+
+```yaml
+cloud:
+  uncaptured-servers:
+    - lobby
+    - hub-*
+```
+
+- It follows each player: a switch onto a listed backend ends the player's capture there, as any switch does, and
+  a switch off it starts a new one at the next backend's login. Each player is decided on their own, by the backend
+  they are on.
+- While a player is on a listed backend nothing of their play is uploaded, so the intake service holds nothing of
+  that time.
+- CultAC's own checks, alerts, punishments and flag history run there as everywhere else, and cloud flags and staff
+  bans the service sends still reach the player.
+- Bedrock players are announced as before.
+- `/cult reload` applies a changed list to players already on a backend: a player on a backend just listed stops
+  being captured, and one on a backend just removed starts again, marked as resumed.
+- On Paper the server's own name is `proxy-id`, so the list either matches it and stops the capture on the whole
+  server, or does nothing.
+
 ### Team sync
 
 With `cloud.team-sync: true`, players holding `cult.portal.viewer`, `cult.portal.moderator` or `cult.portal.admin` are
@@ -168,7 +190,7 @@ implicitly, but a LuckPerms `*` grants admin.
   nothing is sent and what was queued is dropped; when one turns it on, every checked player online is reported again.
 - It needs the upload configured: nothing is sent while the upload is off (`url`, `api-key` or a required `proxy-id`
   missing), or while no player keeps a socket open. Observe-only does not change it. Turning `cloud.team-sync` on or
-  off and running `/cult reload` reconnects the sockets, as `cloud.perf` does.
+  off and running `/cult reload` reconnects the sockets.
 
 On Velocity the online check asks the proxy's permission provider (LuckPerms-Velocity answers it), and the LuckPerms
 change listener and offline sweep run when LuckPerms is installed on the proxy. On Paper they use Paper's permissions
@@ -365,8 +387,8 @@ CultAC speaks intake protocol 5 only, and offers nothing else.
 
 ## Cost
 
-- **While off:** nothing. With neither `cloud.url` nor `cloud.api-key` set, CultAC loads none of the upload's code,
-  registers no listener and keeps nothing per player. Behind Velocity, each backend's Companion still sends its server
+- **While off:** nothing. With `cloud.url`, `cloud.api-key` and `CULTAC_CLOUD_API_KEY` all empty, CultAC loads none
+  of the upload's code, registers no listener and keeps nothing per player. Behind Velocity, each backend's Companion still sends its server
   facts once when a player's bridge session becomes ready, and that player's combat settings then and whenever a
   once-a-second check on its main thread finds them changed; with the upload off the proxy keeps nothing of them.
 - **Bandwidth:** each streamed player's packets and terrain, compressed with zstd, and a burst of terrain at each

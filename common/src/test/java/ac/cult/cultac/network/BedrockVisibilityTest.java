@@ -11,7 +11,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
 import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
-import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
@@ -37,11 +37,12 @@ class BedrockVisibilityTest {
     private static final Vec3 LOW_ZOMBIE_HIT = new Vec3(0.5, 64.6, 0.35);
     private static final BlockPos TARGET = new BlockPos(0, 64, 2);
     private static final int NORTH = 2;
+    private static final int SOUTH = 3;
 
     @Test
     void anAttackThroughAWallIsFlaggedAndOneInTheOpenIsNot() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
 
@@ -57,7 +58,7 @@ class BedrockVisibilityTest {
     @Test
     void anOlderClientsAttackThroughAWallIsJudgedOnPlayers() throws Exception {
         try (var setup = new Setup(OLDER_CLIENT)) {
-            var mob = setup.check(BedrockAttackMobVisibility.class);
+            var mob = setup.check(BedrockAttackEntityVisibility.class);
             var avatar = setup.check(BedrockAttackPlayerVisibility.class);
             var mobReach = setup.check(BedrockEntityReach.class);
             var playerReach = setup.check(BedrockPlayerReach.class);
@@ -80,7 +81,7 @@ class BedrockVisibilityTest {
     @Test
     void aStairBlocksOnlyWithItsSlabHalf() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
             // Only a stair's slab half is certain to block a Bedrock pick.
@@ -97,7 +98,7 @@ class BedrockVisibilityTest {
     @Test
     void aClosedDoorBlocksWithItsThinnerBedrockPlateAndAnOpenOneDoesNot() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
             setup.row(64, "oak_door[facing=north,half=lower,open=false,hinge=left]");
@@ -115,7 +116,7 @@ class BedrockVisibilityTest {
     @Test
     void blocksTheClientMayNotHoldDoNotBlock() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
             var world = setup.player().compensatedWorld;
@@ -147,7 +148,7 @@ class BedrockVisibilityTest {
     @Test
     void anEyeInsideABlockIsNotJudged() throws Exception {
         try (var setup = new Setup()) {
-            var visibility = setup.check(BedrockAttackMobVisibility.class);
+            var visibility = setup.check(BedrockAttackEntityVisibility.class);
             var reach = setup.check(BedrockEntityReach.class);
             setup.zombie();
             setup.wall("stone");
@@ -174,6 +175,28 @@ class BedrockVisibilityTest {
             assertEquals(1, visibility.violations, "a use the client's tick made waits for the tick end");
             setup.tick();
             assertEquals(2, visibility.violations);
+        }
+    }
+
+    @Test
+    void aZeroPointOnAUseTheClientsTickMadeNamesNoPoint() throws Exception {
+        try (var setup = new Setup()) {
+            var visibility = setup.check(BedrockPlaceVisibility.class);
+            // The stone's top shows over the block north of it, but the blocks around its corner at 0, 64, 2 hide it.
+            for (int y = 63; y <= 64; y++) {
+                setup.block(0, y, 1, "stone");
+                setup.block(-1, y, 1, "stone");
+                setup.block(-1, y, 2, "stone");
+            }
+            setup.block(0, 63, 2, "stone");
+            Vec3 zero = new Vec3(0, 0, 0);
+
+            visibility.dropsUse(TARGET, SOUTH, zero, false);
+            setup.tick();
+            assertEquals(0, visibility.violations, "the client's tick built on the stone, which is in plain view");
+
+            visibility.dropsUse(TARGET, SOUTH, zero, true);
+            assertEquals(1, visibility.violations, "the player's input picked the hidden corner");
         }
     }
 

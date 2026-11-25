@@ -8,20 +8,29 @@ import java.net.InetSocketAddress;
 import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import static ac.cultac.bedrockreplay.regression.JsonFields.*;
 
 /** Uses recorded gameplay and real live responses; never runs a client physics approximation. */
 public final class LiveHandoffReplay {
     private LiveHandoffReplay() { }
     public static void main(String[] args) throws Exception {
-        if (args.length != 7) throw new IllegalArgumentException("scenario plugin output port fixture-a fixture-b rounds");
+        if ((args.length != 7 && args.length != 8) || (args.length == 8 && !args[7].equals("dormant")))
+            throw new IllegalArgumentException("scenario plugin output port fixture-a fixture-b rounds [dormant]");
         run(MovementScenario.load(Path.of(args[0])), Path.of(args[1]), Path.of(args[2]),
-                Integer.parseInt(args[3]), new Path[]{Path.of(args[4]), Path.of(args[5])}, Integer.parseInt(args[6]));
+                Integer.parseInt(args[3]), new Path[]{Path.of(args[4]), Path.of(args[5])}, Integer.parseInt(args[6]),
+                args.length == 8);
+    }
+
+    public static void run(MovementScenario scenario, Path plugin, Path output, int port, Path[] fixtures, int rounds) throws Exception {
+        run(scenario, plugin, output, port, fixtures, rounds, false);
     }
 
     // The movement assertions below are the existing LiveMovementReplay assertions. Each round
     // replays the entire immutable tape; only live server switching and observer segmentation are added.
-    public static void run(MovementScenario scenario, Path plugin, Path output, int port, Path[] fixtures, int rounds) throws Exception {
+    // With dormant, every round after the first replays while CultAC does not check the client.
+    public static void run(MovementScenario scenario, Path plugin, Path output, int port, Path[] fixtures, int rounds,
+            boolean dormant) throws Exception {
         String host = "127.0.0.1", usernamePrefix = "";
         boolean mutated = false;
         long seed = 42;
@@ -48,14 +57,15 @@ public final class LiveHandoffReplay {
                 for (int round=0; round<rounds; round++) {
                     Path roundOutput = output.resolve("round-"+round);
                     Files.createDirectories(roundOutput);
-                    mutated = round == rounds-1 && rounds>2;
+                    mutated = !dormant && round == rounds-1 && rounds>2;
+                    boolean unchecked = dormant && round>0;
                     semantic.clear(); controlTicks.clear();
                     plan = mutated ? MutationPlanner.plan(scenario, seed) : List.of();
                     write(roundOutput.resolve("mutation-plan.json"), MutationPlanner.evidence(scenario,seed,plan));
                     int moveStart = 0;
                     if (round>0) {
                         String nextRun = run.substring(0, 28) + String.format("%04d", round);
-                        suspend(plugin, round==1?run:run.substring(0,28)+String.format("%04d",round-1));
+                        if (prepared) suspend(plugin, round==1?run:run.substring(0,28)+String.format("%04d",round-1));
                         prepared=false;
                         new LiveControl(fixtures[round%2], output.resolve("fixture-"+round), nextRun).prepare(scenario,bedrockName);
                         moveStart = session.serverMovePositions().size();
@@ -76,6 +86,10 @@ public final class LiveHandoffReplay {
                         }
                         if (session.packetEvents().stream().filter(e -> e.startsWith("recv:START_GAME:")).count()!=1)
                             throw new IllegalStateException("StartGame was resent; physical Bedrock connection did not survive");
+                        if (unchecked) {
+                            nextTick = replayUnchecked(session,scenario,nextTick,join.runtimeEntityId(),moveStart,roundOutput,round);
+                            continue;
+                        }
                         control = new LiveControl(plugin,roundOutput,nextRun);
                         control.prepare(scenario,bedrockName);
                         prepared=true;
@@ -130,7 +144,7 @@ public final class LiveHandoffReplay {
                     BedrockPacket packet=MovementPackets.decode(row,shift,join.runtimeEntityId());
                     if(!(packet instanceof PlayerAuthInputPacket auth)){pendingPackets.add(packet);continue;}
                     frame++;boolean measured=frame>=scenario.warmupFrames();boolean injected=mutations.containsKey(frame);
-                    long delay=50_000_000L-(System.nanoTime()-lastSend);if(delay>0)java.util.concurrent.TimeUnit.NANOSECONDS.sleep(delay);
+                    long delay=50_000_000L-(System.nanoTime()-lastSend);if(delay>0)TimeUnit.NANOSECONDS.sleep(delay);
                     session.requireHealthyTransport();session.processServerTickBoundary();
                     for(BedrockPacket side:pendingPackets)session.sendCapturedPacket(side);
                     pendingPackets.clear();
@@ -225,6 +239,55 @@ public final class LiveHandoffReplay {
             }
         }
     }
+    /**
+     * Replays the whole tape on a connection CultAC does not check: the backend takes every frame with no correction,
+     * setback or external movement. Returns the tick the next round starts at.
+     */
+    private static long replayUnchecked(BedrockProtocolClient.LiveBedrockSession session,MovementScenario scenario,long nextTick,
+            long runtimeEntityId,int moveStart,Path roundOutput,int round) throws Exception {
+        long shift=Math.subtractExact(nextTick,scenario.firstTick());
+        PlayerAuthInputPacket first=(PlayerAuthInputPacket)MovementPackets.decode(scenario.frames().getFirst(),shift,runtimeEntityId);
+        long spawnDeadline=System.nanoTime()+10_000_000_000L;boolean spawnObserved=false;
+        while(!spawnObserved && System.nanoTime()<spawnDeadline) {
+            session.requireHealthyTransport();session.processServerTickBoundary();
+            spawnObserved=session.serverMovePositions().subList(moveStart,session.serverMovePositions().size()).stream().anyMatch(m -> m.mode().equals("TELEPORT")
+                && Math.sqrt(sq(m.x()-first.getPosition().getX())+sq(m.y()-first.getPosition().getY())+sq(m.z()-first.getPosition().getZ()))<=.001);
+            Thread.sleep(50);
+        }
+        if(!spawnObserved)throw new IllegalStateException("Real spawn teleport never matched the captured initial position");
+        // No engine reports the client's chunk acknowledgements here, so the restored terrain gets a fixed settle.
+        long settle=System.nanoTime()+2_000_000_000L;
+        while(System.nanoTime()<settle){session.requireHealthyTransport();session.processServerTickBoundary();Thread.sleep(50);}
+        session.sendCapturedAuthInput(teleportAcknowledgement(first,first.getTick()-1,first.getPosition()));
+        int corrections=session.corrections().size(),moves=session.serverMovePositions().size();
+        int effects=session.movementEffects().size(),motions=session.entityMotionEvents().size();
+        int frame=-1;long lastSend=0;List<BedrockPacket> pendingPackets=new ArrayList<>();
+        for(JsonObject row:scenario.packets()) {
+            BedrockPacket packet=MovementPackets.decode(row,shift,runtimeEntityId);
+            if(!(packet instanceof PlayerAuthInputPacket auth)){pendingPackets.add(packet);continue;}
+            frame++;
+            long delay=50_000_000L-(System.nanoTime()-lastSend);if(delay>0)TimeUnit.NANOSECONDS.sleep(delay);
+            session.requireHealthyTransport();session.processServerTickBoundary();
+            for(BedrockPacket side:pendingPackets)session.sendCapturedPacket(side);
+            pendingPackets.clear();
+            session.sendCapturedAuthInput(auth);lastSend=System.nanoTime();
+            if(session.corrections().size()!=corrections)
+                throw new IllegalStateException("Correction on unchecked frame "+frame+": "+session.corrections().getLast());
+            if(!transportTeleports(session.serverMovePositions(),moves).isEmpty())
+                throw new IllegalStateException("Transport teleport on unchecked frame "+frame);
+            if(session.movementEffects().size()!=effects || session.entityMotionEvents().size()!=motions)
+                throw new IllegalStateException("External effect/velocity on unchecked frame "+frame);
+        }
+        session.processServerTickBoundary();
+        for(BedrockPacket side:pendingPackets)session.sendCapturedPacket(side);
+        Thread.sleep(100);session.processServerTickBoundary();
+        if(session.corrections().size()!=corrections)throw new IllegalStateException("Correction after the unchecked tape");
+        if(session.packetEvents().stream().anyMatch(e -> e.startsWith("decode-error:")))throw new IllegalStateException("Transport decode failure");
+        write(roundOutput.resolve("wire-events.json"),session.packetEvents());
+        write(roundOutput.resolve("result.json"),Map.of("passed",true,"round",round,"mode","unchecked","replayedFrames",frame+1));
+        return scenario.firstTick()+shift+scenario.frames().size()-1+3;
+    }
+
     private static List<BedrockServerMoveEvent> transportTeleports(List<BedrockServerMoveEvent> moves,int cursor) {
         return moves.subList(cursor,moves.size()).stream().filter(m -> m.mode().equals("TELEPORT") || m.mode().equals("RESET")).toList();
     }

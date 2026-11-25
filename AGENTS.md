@@ -16,12 +16,12 @@ layout and the build/test commands are adapted to this tree.
   with `asComponent()`, never `build()`, which throws `NoSuchMethodError` there.
 - `bukkit/` — the Bukkit/Paper platform module. Bukkit/Paper-only; the Fabric
   modules were removed in the port. The distributable jar is built here.
-- `placement-api/` — JDK-only inputs and results shared with the isolated runtime.
-- `placement-runtime/` — the isolated original vanilla Java 26.3 action and geometry runtime.
 - Full build: `./gradlew build` (output at `bukkit/build/libs/`)
 - Unit tests: `./gradlew :common:test`
 - Offline Bedrock replay tests: `./gradlew :common:offlineBedrockReplayTest`
 - Live smoketests (real Paper server + real client): `scripts/run-local-all-smoketests.sh`
+- Benchmarks and profiling harnesses are not committed to this repository; measure in a scratch copy outside it, and
+  keep benchmark results out of commits, PRs and comments.
 
 ## Rules applicable to both the Java and Bedrock simulation engine
 
@@ -38,7 +38,7 @@ When validating anticheat fixes, continue running the relevant smoke tests after
 
 The Bedrock engine is a machine-written port of the Java simulation engine for Bedrock clients. It is required to be architected at the same high level as the Java engine:
 - All Bedrock small-scenario fixes must validate to <= 0.001 block offset unless a tighter source-proven bound is required.
-- Java engine architecture must be followed. The Bedrock engine should follow the Java engine's high-level runner architecture. The shared runner uncertainty handlers `PistonShulkerPush`, `CollisionModifier`, `StepTransform`, `Fireworks`, and `InsideBlock` are explicitly allowed for Bedrock, provided they operate on compensated state and exact Bedrock simulation/collision candidates. Other Java uncertainty classes must not be applied to Bedrock unless explicitly requested. The Java simulation engine is your source of truth for how to structure a simulation engine because it is carefully architected, while the Bedrock engine was machine-written.
+- Java engine architecture must be followed. The Bedrock engine should follow the Java engine's high-level runner architecture. The shared runner uncertainty handlers `PistonShulkerPush`, `CollisionModifier`, `StepTransform`, and `InsideBlock` are explicitly allowed for Bedrock, provided they operate on compensated state and exact Bedrock simulation/collision candidates. Other Java uncertainty classes must not be applied to Bedrock unless explicitly requested. The Java simulation engine is your source of truth for how to structure a simulation engine because it is carefully architected, while the Bedrock engine was machine-written.
 - Stepping must be architecturally integrated with the Java runner, but the Bedrock engine must supply its own semantics.
 - Collisions must create the same CollideAxisData and run NO FURTHER COLLISIONS within the engine other than for stepping, or Java-equivalent collision checking such as with sneaking. For example, running a collision downwards as the post position the player is at is not allowed.
 - Do not use authored/provided client inputs as truth. The engine should derive possible movement first, then evaluate whether required input is legal at the post-prediction stage, similar to Java Grim.
@@ -75,11 +75,13 @@ For every anticheat change:
 
 ## Entity tracking
 
-- Only the local player's own riding tree is positioned and ticked: the tree under the root of its riding chain, plus the tree of the vehicle the server last put it on. This is Grim's model and an owner decision, not an optimisation to revisit.
-- Riders on any other entity (name tags, model parts on other players) are untracked: never positioned or ticked, and re-anchored at their current seat when they dismount or lose their vehicle.
-- Every reader of another entity's position or boxes (checks, collision, block placement, visibility, debug) skips entities for which `CompensatedEntities#isUntrackedRider` is true. An event-driven reader that needs such a rider's position uses `CompensatedEntities#currentMovementBox`.
-- Entity pushes are the one per-tick exception: a living untracked rider pushes the Java player from its seat (`CompensatedEntities#untrackedRiderPushBox`, widened over its root's possible positions) once `CompensatedEntities#untrackedRiderMayReach`, which allocates nothing, finds it can reach.
-- `RiderAllocationTest` guards it: cosmetic riders on other players allocate nothing per passenger sweep or client tick, and far living riders nothing in push collection.
+- The local player's riding trees retain their committed position pass. Other Java riders use lazy position boxes; the retained `isUntrackedRider` name identifies that storage policy, not an exemption from readers or ticks. Bedrock keeps its existing own-tree policy.
+- Java `ClientLevel#tickPassenger` runs each eligible rider's state tick after its parent, then seats it. Store the committed and pre-tick seat in reusable boxes (`ClientRiderPosition`), and derive the next seat only for a movement reader on the side after the rider's tick. A passenger packet links the tree; it does not itself call `positionRider`.
+- Reach, placement, visibility, debug and other Java entity readers include remote riders through the normal `PacketEntity` box APIs. Position boxes precede shulker peek geometry, so attachment math never derives a position from a shifted collision shape. Cosmetic rider ticks need no new vectors or interpolation snapshots.
+- Entity pushes happen before the rider is reseated. Active packet interpolation is replayed by `ClientRiderInterpolation` before that push; otherwise read the saved pre-tick seat or the preceding block-entity shove. Keep the detached interpolation path and ordinary position readers separate while replaying.
+- Pistons and shulker boxes move each rider independently of its parent. `JavaRemoteBlockEntityPass` records the resulting rider boxes only when the pass can reach the tree; readers retain that position until the next rider tick. Do not reseat a rider merely because its root was shoved.
+- Preserve client entity ticking membership and frozen-tick rules. A rider whose own chunk does not tick retains its last position. Re-anchor ordinary interpolation on dismount or vehicle removal.
+- `RiderAllocationTest` guards passenger sweeps, loaded cosmetic rider ticks, far pushes/collisions and lazy box reads. Reuse attachment working space, and never sweep every remote tree after each entity movement packet.
 
 ## Rules for using smoketests to validate logic
 

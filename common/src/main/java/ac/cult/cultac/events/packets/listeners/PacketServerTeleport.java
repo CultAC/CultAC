@@ -1,25 +1,28 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerLookAt;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
+import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
+import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 
 public class PacketServerTeleport {
-    private static final double MOVE_VEHICLE_SNAP_EPSILON = 1.0E-5D;
+    private static final double MOVE_VEHICLE_SNAP_EPSILON = 1.0E-5F;
 
     // LOW
 
@@ -32,6 +35,8 @@ public class PacketServerTeleport {
             // Geyser's Java acknowledgement does not prove Bedrock processed the teleport.
             return;
         }
+        event.setAuthoredTeleportResponse(
+                player.getSetbackTeleportUtil().javaTeleports().takeAuthoredTeleportAcknowledgment(ack.id()));
         player.getSetbackTeleportUtil().javaTeleports().teleportAnswered(ack.id(), ack.position() != null);
         // The wire packet is ID-only through 26.2 and carries position in
         // 26.3. The transport preserves the intercepted endpoint's wire format.
@@ -75,10 +80,90 @@ public class PacketServerTeleport {
     }
 
     @CultPacketHandler
+    public void onPlayerLookAt(
+            PacketSendEvent<ClientboundPlayerLookAt> event, CultPlayer player, ClientboundPlayerLookAt packet) {
+        if (player.isBedrockMovement()) return;
+        CultPlayer.TrackedTransaction proof = player.appendTrailingProofTransaction(event);
+        int transaction = proof == null ? player.lastTransactionSent.get() : proof.transaction();
+        // The next Rot carries the look only if no client tick runs between the packet and its proof.
+        if (proof != null && !event.isInsideBundle()) event.bundle();
+        player.latencyUtils.addRealTimeTask(transaction, () -> applyLookAt(player, packet));
+    }
+
+    /**
+     * ClientPacketListener#handleLookAt turns the player with Entity#lookAt from where it stands, and sends nothing:
+     * LocalPlayer#sendPosition reports the new look on the next tick. A look at an entity aims at the client's own copy
+     * of it, and at the sent point when the client has none.
+     */
+    private static void applyLookAt(CultPlayer player, ClientboundPlayerLookAt packet) {
+        player.horseMountLook.clear();
+        double targetX = packet.x();
+        double targetY = packet.y();
+        double targetZ = packet.z();
+        if (packet.atEntity()) {
+            if (packet.entityId() == player.entityID) {
+                targetX = player.x;
+                targetY = player.y + (packet.toEyes() ? player.getEyeHeight() : 0.0);
+                targetZ = player.z;
+            } else if (player.compensatedEntities.getEntity(packet.entityId()) != null) {
+                return;
+            }
+        }
+        double xd = targetX - player.x;
+        double yd = targetY - (player.y + (packet.fromEyes() ? player.getEyeHeight() : 0.0));
+        double zd = targetZ - player.z;
+        double sd = Math.sqrt(xd * xd + zd * zd);
+        float pitch = CultMath.wrapDegrees((float) (-(VanillaMath.atan2(yd, sd) * 180.0F / (float) Math.PI)));
+        float yaw = CultMath.wrapDegrees((float) (VanillaMath.atan2(zd, xd) * 180.0F / (float) Math.PI) - 90.0F);
+        // Entity#setYRot and Entity#setXRot discard a rotation that is not finite.
+        if (Float.isFinite(yaw)) {
+            player.xRot = yaw;
+            player.lastTickXRot = yaw;
+            player.headYaw = yaw;
+            player.unclampedHeadYaw = Float.NaN;
+            player.headArcFrom = Float.NaN;
+            player.mountYaw = Float.NaN;
+        }
+        if (Float.isFinite(pitch)) {
+            player.yRot = clamp(pitch % 360.0F, -90.0F, 90.0F);
+            player.lastTickYRot = player.yRot;
+        }
+    }
+
+    @CultPacketHandler
     public void onMoveVehicle(
             PacketSendEvent<ClientboundMoveVehicle> event, CultPlayer player, ClientboundMoveVehicle packet) {
-        if (player.isBedrockMovement()) return;
+        if (player.isBedrockMovement()) {
+            handleBedrockMoveVehicle(event, player, packet);
+            return;
+        }
         handleMoveVehicle(event, player, packet);
+    }
+
+    /**
+     * ServerGamePacketListenerImpl#handleMoveVehicle keeps the vehicle where it was when it rejects a move, and answers
+     * with that position. Geyser relays the answer as a teleporting actor move, which a Bedrock client does not snap
+     * its predicted vehicle to: a capture shows it close a third of the distance on each tick an answer arrives. A
+     * prediction correction places a predicted vehicle, as for a teleport of it, so the answer becomes one.
+     */
+    private void handleBedrockMoveVehicle(
+            PacketSendEvent<ClientboundMoveVehicle> event, CultPlayer player, ClientboundMoveVehicle vehicleMove) {
+        PacketEntity vehicle = BedrockVehicleControl.controlledVehicle(player);
+        Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
+        if (vehicle == null || serverVehicle == null || serverVehicle != vehicle.getEntityId() || event.isCancelled())
+            return;
+        // Observing sends no correction of its own, so the server's answer goes to the client as it is.
+        if (player.isObserveOnly()) return;
+        event.setCancelled(true);
+        int vehicleId = vehicle.getEntityId();
+        Vec3 position = new Vec3(
+                vehicleMove.position().x(),
+                vehicleMove.position().y(),
+                vehicleMove.position().z());
+        // Only the position is the server's: it took its rotation from the move it rejected.
+        int transaction = player.lastTransactionSent.get();
+        player.runSafely(() -> player.bedrockState.movementCorrections.requestServerPosition(
+                player, vehicleId, position, transaction));
     }
 
     private void handlePlayerPosition(
@@ -90,11 +175,12 @@ public class PacketServerTeleport {
         Vec3 deltaMovement = new Vec3(
                 teleport.delta().x(), teleport.delta().y(), teleport.delta().z());
         RelativeFlag flags = new RelativeFlag(Relative.pack(teleport.relatives()));
+        // The rotation reported so far; the acceptance resolves the one the client handles the packet with.
         float sourceYaw = player.xRot;
         float sourcePitch = player.yRot;
         float finalYaw = calculateRotation(sourceYaw, teleport.yaw(), flags, RelativeFlag.Y_ROT);
-        float finalPitch =
-                clamp(calculateRotation(sourcePitch, teleport.pitch(), flags, RelativeFlag.X_ROT), -90.0F, 90.0F);
+        float absolutePitch = calculateRotation(sourcePitch, teleport.pitch(), flags, RelativeFlag.X_ROT);
+        float finalPitch = TeleportData.clientPitch(player.getClientVersion(), absolutePitch);
         boolean initialSpawnTeleport = player.getSetbackTeleportUtil().getRequiredSetBack() == null;
 
         // This is the first packet sent to the client which we need to track
@@ -103,6 +189,7 @@ public class PacketServerTeleport {
             player.x = pos.x;
             player.y = pos.y;
             player.z = pos.z;
+            player.compensatedEntities.observeLocalPlayerPosition(pos);
             player.xRot = finalYaw;
             player.yRot = finalPitch;
 
@@ -138,7 +225,10 @@ public class PacketServerTeleport {
                         sourceYaw,
                         sourcePitch,
                         finalYaw,
-                        finalPitch);
+                        absolutePitch,
+                        event.isAuthored(),
+                        teleport.yaw(),
+                        teleport.pitch());
     }
 
     private void handlePlayerRotation(
@@ -172,7 +262,7 @@ public class PacketServerTeleport {
 
     private void handleMoveVehicle(
             PacketSendEvent<ClientboundMoveVehicle> event, CultPlayer player, ClientboundMoveVehicle vehicleMove) {
-        PacketEntity controlledRoot = clientVisibleLocalAuthoritativeVehicleRoot(player);
+        PacketEntity controlledRoot = clientVisibleVehicleCorrectionRoot(player);
         if (controlledRoot == null) return;
 
         Vec3 finalPos = new Vec3(
@@ -219,49 +309,31 @@ public class PacketServerTeleport {
             float finalPitch,
             int proofTransaction,
             boolean snaps) {
-        player.latencyUtils.addRealTimeTask(proofTransaction, () -> {
-            Integer currentServerVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
-            if (currentServerVehicle == null || currentServerVehicle != rootVehicleId) {
-                return;
-            }
-
-            PacketEntity controlledRoot = player.compensatedEntities.getEntity(rootVehicleId);
-            if (controlledRoot != null) {
-                if (snaps) {
-                    controlledRoot.setPositionRaw(
-                            GetBoundingBox.getPacketEntityBoundingBox(
-                                    player, finalPos.x, finalPos.y, finalPos.z, controlledRoot),
-                            finalYaw,
-                            finalPitch);
-                    if (controlledRoot instanceof PacketEntityTrackXRot yawTrackedRoot) {
-                        // ClientPacketListener#handleMoveVehicle snaps rotation with position.
-                        yawTrackedRoot.packetYaw = finalYaw;
-                        yawTrackedRoot.interpYaw = finalYaw;
-                        yawTrackedRoot.steps = 0;
-                    }
-                    // The snapped yaw is the one AbstractBoat#controlBoat turns in the client's next tick.
-                    PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
-                    if (controlledRoot.isBoat() && controlledRoot == riding) player.boatYawBeforeTurn = finalYaw;
-                }
-            }
-        });
-        // An unsnapped response serializes the current physical position.
+        // Authority can change before the next carried-slot claim. Only the handler's non-tick echo proves that
+        // this correction was applied; a passive root ignores it even when the following ping is answered.
         player.getSetbackTeleportUtil()
                 .vehicleTeleports()
                 .addVehicleTeleport(
-                        rootVehicleId, proofTransaction, expectedResponsePosition, MOVE_VEHICLE_SNAP_EPSILON);
-        player.getSetbackTeleportUtil()
-                .updateSafeVehiclePosition(rootVehicleId, proofTransaction, expectedResponsePosition);
+                        rootVehicleId,
+                        proofTransaction,
+                        expectedResponsePosition,
+                        // Entity#absSnapRotationTo keeps the yaw within one turn.
+                        VehicleTeleportData.correction(
+                                rootVehicleId, finalPos, finalYaw % 360.0F, finalPitch, snaps));
     }
 
-    private PacketEntity clientVisibleLocalAuthoritativeVehicleRoot(CultPlayer player) {
-        PacketEntity root = player.compensatedEntities.getSelf().getRiding();
-        if (root == null && player.compensatedEntities.vehicles.serverPlayerVehicle != null) {
-            root = player.compensatedEntities.getEntity(player.compensatedEntities.vehicles.serverPlayerVehicle);
-        }
+    private PacketEntity clientVisibleVehicleCorrectionRoot(CultPlayer player) {
+        // ClientPacketListener#handleMoveVehicle moves the client's Entity#getRootVehicle as it handles the packet,
+        // after every set_passengers sent before it: a boat the server moved the player to is already that root.
+        var vehicles = player.compensatedEntities.vehicles;
+        PacketEntity root = vehicles.rootVehicleAsSent();
+        if (root == null) return null;
 
-        // ClientPacketListener#handleMoveVehicle uses the client's root vehicle.
-        return player.compensatedEntities.vehicles.canClientEchoLocalAuthoritativeMoveVehiclePacket(root) ? root : null;
+        // The packet handler can already see a different held item before MultiPlayerGameMode claims its slot.
+        // This only queues a possible response; tick travel and passenger geometry still require proven control.
+        return vehicles.mayLocalPlayerControl(root) || vehicles.canClientEchoLocalAuthoritativeMoveVehiclePacket(root)
+                ? root
+                : null;
     }
 
     private static boolean clientboundMoveVehicleSnaps(Vec3 currentSerializedPosition, Vec3 packetPosition) {
@@ -271,15 +343,9 @@ public class PacketServerTeleport {
 
     private static Vec3 currentSerializedVehiclePosition(PacketEntity vehicle) {
         if (vehicle.newPacketLocation != null && vehicle.newPacketLocation.hasActiveInterpolationTarget()) {
-            SimpleCollisionBox exactCurrent = vehicle.newPacketLocation.getExactMovementLocation();
-            return positionFromPacketEntityBox(
-                    exactCurrent == null ? vehicle.newPacketLocation.getTargetLocation() : exactCurrent);
+            return vehicle.newPacketLocation.targetPosition();
         }
         return vehicle.clientPhysicalPosition != null ? vehicle.clientPhysicalPosition : vehicle.desyncClientPos;
-    }
-
-    private static Vec3 positionFromPacketEntityBox(SimpleCollisionBox box) {
-        return new Vec3((box.maxX - box.minX) / 2.0D + box.minX, box.minY, (box.maxZ - box.minZ) / 2.0D + box.minZ);
     }
 
     private static float calculateRotation(float current, float change, RelativeFlag flags, RelativeFlag relativeFlag) {

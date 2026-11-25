@@ -9,6 +9,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.*;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsG;
@@ -16,33 +17,46 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
+import ac.cult.cultac.events.packets.PacketServerRegistries;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.Opaque;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.data.ItemUseBurstBalance;
 import ac.cult.cultac.utils.data.KnownInput;
+import ac.cult.cultac.utils.data.ServerItemUseView;
 import ac.cult.cultac.utils.data.TrackerData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.Test;
 
@@ -55,37 +69,30 @@ public final class PacketPlayerRespawnLifecycleTest {
             player.packetStateData.javaLocalPlayerPresent = true;
             player.onGround = player.lastOnGround = player.packetStateData.packetPlayerOnGround = true;
             player.isSneaking = player.isGliding = player.isInBed = true;
-            player.clientItemUse.start(
-                    ac.cult.cultac.protocol.value.Hand.MAIN_HAND,
-                    OfflineCultTestBootstrap.item("minecraft:shield"),
-                    72000,
-                    true);
+            player.clientItemUse.start(Hand.MAIN_HAND, OfflineCultTestBootstrap.item("minecraft:shield"), 72000, true);
             player.packetStateData.setSlowedByUsingItem(true);
             var history = player.getItemUseDesync().history();
             history.add(true);
             history.add(false);
             Field balanceField = player.itemUseBurst.getClass().getDeclaredField("balance");
             balanceField.setAccessible(true);
-            var balance = (ac.cult.cultac.utils.data.ItemUseBurstBalance) balanceField.get(player.itemUseBurst);
+            var balance = (ItemUseBurstBalance) balanceField.get(player.itemUseBurst);
             assertFalse(balance.add(5));
             Field viewField = player.itemUseBurst.getClass().getDeclaredField("view");
             viewField.setAccessible(true);
-            var view = (ac.cult.cultac.utils.data.ServerItemUseView) viewField.get(player.itemUseBurst);
+            var view = (ServerItemUseView) viewField.get(player.itemUseBurst);
             long start = System.nanoTime();
-            view.use(false, 1, start, java.util.List.of(OfflineCultTestBootstrap.item("minecraft:shield")));
+            view.use(false, 1, start, List.of(OfflineCultTestBootstrap.item("minecraft:shield")));
             view.serverFlags(true, false, 1, start);
             assertTrue(view.tracking());
-            player.compensatedEntities.entityMap.put(
-                    99, mock(ac.cult.cultac.utils.data.packetentity.PacketEntity.class));
+            player.compensatedEntities.entityMap.put(99, mock(PacketEntity.class));
             player.compensatedEntities.serverPositionsMap.put(
-                    99,
-                    new ac.cult.cultac.utils.data.TrackerData(
-                            0, 64, 0, 0, 0, ac.cult.blocksim.entity.EntityTypeIds.PLAYER, 0));
+                    99, new TrackerData(0, 64, 0, 0, 0, EntityTypeIds.PLAYER, 0));
 
             var type = ClientboundPackets.FINISH_CONFIGURATION;
-            var terminal = new ac.cult.cultac.protocol.packet.Opaque(type);
+            var terminal = new Opaque(type);
             var finish = new PacketSendEvent<>(player.user, ConnectionPhase.CONFIGURATION, type, terminal, false);
-            var registries = new ac.cult.cultac.events.packets.PacketServerRegistries();
+            var registries = new PacketServerRegistries();
             registries.onFinishConfiguration(finish, player, terminal);
             assertTrue(
                     "Unwritten server packets cannot authorize replacement",
@@ -132,13 +139,13 @@ public final class PacketPlayerRespawnLifecycleTest {
         try {
             Field viewField = player.itemUseBurst.getClass().getDeclaredField("view");
             viewField.setAccessible(true);
-            var view = (ac.cult.cultac.utils.data.ServerItemUseView) viewField.get(player.itemUseBurst);
+            var view = (ServerItemUseView) viewField.get(player.itemUseBurst);
             var login = loginPacket(true);
             var event = sendEvent(player, ClientboundPackets.LOGIN, login);
             new PacketPlayerRespawn().onLogin(event, player, login);
             event.tasksAfter().forEach(Runnable::run);
             long start = System.nanoTime();
-            view.use(false, 1, start, java.util.List.of(OfflineCultTestBootstrap.item("minecraft:shield")));
+            view.use(false, 1, start, List.of(OfflineCultTestBootstrap.item("minecraft:shield")));
             view.serverFlags(true, false, 2, start);
             assertTrue(view.tracking());
             player.lastTransactionReceived.set(1);
@@ -157,9 +164,8 @@ public final class PacketPlayerRespawnLifecycleTest {
             player.packetStateData.javaLocalPlayerPresent = true;
             var connection = player.user.getCultConnection();
             for (int i = 0; i < 3; i++) {
-                connection.forwarded(
-                        ac.cult.cultac.protocol.packet.ServerboundPackets.CONFIGURATION_ACKNOWLEDGED, null);
-                connection.forwarded(ac.cult.cultac.protocol.packet.ServerboundPackets.FINISH_CONFIGURATION, null);
+                connection.forwarded(ServerboundPackets.CONFIGURATION_ACKNOWLEDGED, null);
+                connection.forwarded(ServerboundPackets.FINISH_CONFIGURATION, null);
             }
             assertTrue(player.packetStateData.javaLocalPlayerPresent);
         } finally {
@@ -262,6 +268,42 @@ public final class PacketPlayerRespawnLifecycleTest {
                         player.packetStateData.knownInput);
             } finally {
                 OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+            }
+        }
+    }
+
+    /**
+     * ClientPacketListener#handleRespawn copies a dead Java player's zero health to the new LocalPlayer only with
+     * KEEP_ENTITY_DATA. Geyser's JavaRespawnTranslator restores a Bedrock player's health on every respawn.
+     */
+    @Test
+    public void onlyAJavaRespawnKeepingEntityDataKeepsTheDeadPlayersHealth() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        for (boolean bedrock : new boolean[] {false, true}) {
+            for (byte kept = 0; kept < 4; kept++) {
+                CultPlayer player = offlinePlayer(bedrock);
+                String label = (bedrock ? "bedrock" : "java") + " kept " + kept;
+                try {
+                    PacketPlayerRespawn listener = new PacketPlayerRespawn();
+                    ClientboundSetHealth lethal = new ClientboundSetHealth(0.0F, 20, 5.0F);
+                    listener.onSetHealth(sendEvent(player, ClientboundPackets.SET_HEALTH, lethal), player, lethal);
+                    player.lastTransactionReceived.set(1);
+                    player.latencyUtils.handleNettySyncTransaction(1);
+                    assertFalse(label, player.compensatedEntities.getSelf().actionAlive);
+
+                    ClientboundRespawn respawn = respawnPacket(kept);
+                    listener.onRespawn(sendEvent(player, ClientboundPackets.RESPAWN, respawn), player, respawn);
+                    player.lastTransactionReceived.set(2);
+                    player.latencyUtils.handleNettySyncTransaction(2);
+
+                    boolean dead = !bedrock && (kept & ClientboundRespawn.KEEP_ENTITY_DATA) != 0;
+                    var self = player.compensatedEntities.getSelf();
+                    assertEquals(label, !dead, self.actionAlive);
+                    assertEquals(label, dead, self.isDead);
+                    assertFalse(label, self.isRemovedFromLevel());
+                } finally {
+                    OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+                }
             }
         }
     }
@@ -409,20 +451,21 @@ public final class PacketPlayerRespawnLifecycleTest {
         }
     }
 
-    /** ClientPacketListener#handleRespawn copies the boosted delta movement into the new level with KEEP_ENTITY_DATA. */
+    /**
+     * ClientPacketListener#handleRespawn copies the delta movement, which holds the boost FireworkRocketEntity#tick
+     * last gave, into the new level only with KEEP_ENTITY_DATA. The new ClientLevel holds none of the old level's
+     * rockets.
+     */
     @Test
     public void aDimensionChangeKeepsTheLastBoostOnlyWithKeptEntityData() throws Exception {
         OfflineCultTestBootstrap.installConfig();
+        Vec3 boosted = new Vec3(0.4, 0.1, 1.2);
         for (byte kept : new byte[] {ClientboundRespawn.KEEP_ENTITY_DATA, 0}) {
             CultPlayer player = offlineJavaPlayer();
             try {
-                player.compensatedFireworks.attachmentChanged(
-                        7, OptionalInt.of(player.entityID), player.lastTransactionSent.get() + 1);
-                SimulationContext gliding = mock(SimulationContext.class);
-                when(gliding.isGliding()).thenReturn(true);
-                PredictionResult tick = mock(PredictionResult.class);
-                when(tick.getSimulationContext()).thenReturn(gliding);
-                player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
+                player.compensatedFireworks.addNewFirework(7);
+                SimulationProcessor simulation = player.checkManager.getListener(SimulationProcessor.class);
+                simulation.seedStartingVelocity(boosted);
                 assertEquals(1, player.compensatedFireworks.getMaxFireworksAppliedPossible());
 
                 var nether = new ClientboundRespawn(
@@ -437,12 +480,11 @@ public final class PacketPlayerRespawnLifecycleTest {
                 player.lastTransactionReceived.set(1);
                 player.latencyUtils.handleNettySyncTransaction(1);
 
+                assertEquals("kept " + kept, 0, player.compensatedFireworks.getMaxFireworksAppliedPossible());
                 assertEquals(
                         "kept " + kept,
-                        kept != 0 ? 1 : 0,
-                        player.compensatedFireworks.getMaxFireworksAppliedPossible());
-                player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
-                assertEquals(0, player.compensatedFireworks.getMaxFireworksAppliedPossible());
+                        Set.of(kept != 0 ? boosted : Vec3.ZERO),
+                        simulation.getValidPlayerStartingVels());
             } finally {
                 OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
             }
@@ -455,14 +497,15 @@ public final class PacketPlayerRespawnLifecycleTest {
         CultPlayer player = offlineJavaPlayer();
         try {
             int attachedAt = player.lastTransactionSent.get() + 1;
-            player.compensatedFireworks.attachmentChanged(7, OptionalInt.of(player.entityID), attachedAt);
-            player.compensatedFireworks.attachmentChanged(8, OptionalInt.of(player.entityID), attachedAt);
+            player.compensatedFireworks.addNewFirework(7);
+            player.compensatedFireworks.addNewFirework(8);
             SimulationContext gliding = mock(SimulationContext.class);
             when(gliding.isGliding()).thenReturn(true);
             PredictionResult tick = mock(PredictionResult.class);
             when(tick.getSimulationContext()).thenReturn(gliding);
             player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
-            player.compensatedFireworks.removalHandled(List.of(8), player.lastTransactionSent.get() + 1);
+            player.latencyUtils.addRealTimeTask(
+                    player.lastTransactionSent.get() + 1, () -> player.compensatedFireworks.removeFirework(8));
             ClientboundLogin login = loginPacket(true);
             var loginEvent = sendEvent(player, ClientboundPackets.LOGIN, login);
             int receipt = player.lastTransactionSent.get() + 1;
@@ -503,6 +546,7 @@ public final class PacketPlayerRespawnLifecycleTest {
         for (boolean bedrock : new boolean[] {false, true}) {
             CultPlayer player = offlinePlayer(bedrock);
             try {
+                player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
                 var entities = player.compensatedEntities;
                 entities.addEntity(7, EntityTypeIds.ZOMBIE, new Vec3(1, 64, 1), 0, 0, 0);
                 ClientboundRespawn respawn = respawnPacket();
@@ -585,8 +629,8 @@ public final class PacketPlayerRespawnLifecycleTest {
         return new ClientboundLogin(1, showDeathScreen, respawnPacket().spawnInfo());
     }
 
-    private static <R extends ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket>
-            PacketSendEvent<R> sendEvent(CultPlayer player, PacketType<R> type, R packet) {
+    private static <R extends ClientboundPacket> PacketSendEvent<R> sendEvent(
+            CultPlayer player, PacketType<R> type, R packet) {
         return new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, type, packet, false);
     }
 
@@ -621,16 +665,14 @@ public final class PacketPlayerRespawnLifecycleTest {
 
     private static CultPlayer offlinePlayer(boolean bedrock) {
         UUID playerId = UUID.fromString("9c5e440b-265d-435f-98f1-1f539659c002");
-        var platform = mock(ac.cult.cultac.network.PlatformConnection.class);
-        when(platform.initialWorldData())
-                .thenReturn(ac.cult.cultac.utils.latency.ClientWorldRegistries.modelDefaults());
-        var connection = new ac.cult.cultac.network.CultConnection(
+        var platform = mock(PlatformConnection.class);
+        when(platform.initialWorldData()).thenReturn(ClientWorldRegistries.modelDefaults());
+        var connection = new CultConnection(
                 platform,
                 new EmbeddedChannel(),
-                ac.cult.cultac.CultAPI.INSTANCE.getNetworkManager().dispatcher(),
+                CultAPI.INSTANCE.getNetworkManager().dispatcher(),
                 ignored -> null);
-        for (var direction : ac.cult.cultac.protocol.PacketDirection.values())
-            connection.phase(direction, ConnectionPhase.PLAY);
+        for (var direction : PacketDirection.values()) connection.phase(direction, ConnectionPhase.PLAY);
         User user = new User(new User.Profile(playerId, ".Respawn_Test"), connection);
         return bedrock
                 ? new CultPlayer(user, MovementPlatform.BEDROCK, new BedrockPlayerState(playerId))

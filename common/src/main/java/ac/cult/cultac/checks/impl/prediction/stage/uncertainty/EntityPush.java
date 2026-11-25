@@ -6,12 +6,8 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import java.util.ArrayList;
-import java.util.List;
 
 public class EntityPush implements UncertaintyHandler {
     private static final double MAX_HORIZONTAL_IMPULSE_PER_ENTITY = Math.sqrt(2.0D) * 0.05D;
@@ -34,6 +30,8 @@ public class EntityPush implements UncertaintyHandler {
                     CultMath.clamp(end.z, start.z + loading.minZ, start.z + loading.maxZ),
                     "loading level pushes");
         }
+        // Java entity ticks already wrote their concrete impulses into the starting or carried velocity.
+        if (!player.isBedrockMovement()) return start;
         int carried = world.getNumCarriedPushing();
         // ClientPacketListener#handleSetEntityMotion replaces the delta movement that carries last tick's push.
         CarriedPush carriedPush = world.getCarriedPush();
@@ -43,41 +41,6 @@ public class EntityPush implements UncertaintyHandler {
         PredVector pushed =
                 start.isEntityMotion() ? start : carriedPush.push(start, end, maxHorizontalImpulse(carried));
         return handleEntityPush(pushed, end, world.getNumPushing() - carried);
-    }
-
-    @Override
-    public void positionInto(
-            double[] xyz,
-            CultPlayer player,
-            ValidMovements valid,
-            PredictionResult result,
-            SimulationContext context,
-            PredictionResult lastContext,
-            PredVector carrier,
-            Vec3 end) {
-        WorldData world = context.getWorldData();
-        SimpleCollisionBox loading = world.getLoadingLevelPushes();
-        if (loading != null) {
-            double x = CultMath.clamp(end.x, xyz[0] + loading.minX, xyz[0] + loading.maxX);
-            double z = CultMath.clamp(end.z, xyz[2] + loading.minZ, xyz[2] + loading.maxZ);
-            xyz[0] = x;
-            xyz[2] = z;
-        }
-        int carried = world.getNumCarriedPushing();
-        CarriedPush carriedPush = world.getCarriedPush();
-        if (carried == 0 || carriedPush.isIdentity() && !carrier.isEntityMotion()) {
-            UncertaintyHelper.circularInto(xyz, end, maxHorizontalImpulse(world.getNumPushing()));
-            return;
-        }
-        if (!carrier.isEntityMotion()) {
-            // CarriedPush#push reads only the start's coordinates.
-            PredVector pushed = carriedPush.push(
-                    carrier.withXYZ(xyz[0], xyz[1], xyz[2], "carried push start"), end, maxHorizontalImpulse(carried));
-            xyz[0] = pushed.x;
-            xyz[1] = pushed.y;
-            xyz[2] = pushed.z;
-        }
-        UncertaintyHelper.circularInto(xyz, end, maxHorizontalImpulse(world.getNumPushing() - carried));
     }
 
     /**
@@ -127,97 +90,17 @@ public class EntityPush implements UncertaintyHandler {
         return collidingEntities * MAX_HORIZONTAL_IMPULSE_PER_ENTITY;
     }
 
-    public static void addVehiclePushCandidates(
-            CultPlayer player, List<PredVector> start, SimulationContext state, PredictionResult lastResult) {
-        if (lastResult == null
-                || lastResult.getSimulationContext() == null
-                || state.getVehicle() != null
-                || start.isEmpty()) {
-            return;
-        }
-
-        List<Vec3> pushCandidates = new ArrayList<>();
-        double startX = state.getStart().x, startY = state.getStart().y, startZ = state.getStart().z;
-        SimpleCollisionBox playerBox = null;
-        long localPlayerTickOrder = player.compensatedEntities.getSelf().getClientTickOrder();
-        boolean pushableLastTick = lastResult.getSimulationContext().getVehicle() == null
-                && lastResult.getSimulationContext().getWorldData().isPushable();
-        boolean pushableThisTick = state.getWorldData().isPushable();
-
-        // ClientLevel#tickEntities iterates client tick-list order. A remote boat that
-        // ticks before LocalPlayer can push the player before LocalPlayer#sendPosition
-        // in the same tick; a later-ticking remote boat pushes after sendPosition and
-        // is carried into the following player-body tick.
-        for (PacketEntity entity : state.getEntities().boats()) {
-            if (!entity.isBoat()
-                    || entity.isDead
-                    || entity.hasPassenger(player.compensatedEntities.getSelf())
-                    || state.getEntities().isUntrackedRider(entity)) {
-                continue;
-            }
-
-            boolean pushesBeforeCurrentPlayerTick =
-                    pushableThisTick && entity.getClientTickOrder() < localPlayerTickOrder;
-            boolean pushedAfterPreviousPlayerTick =
-                    pushableLastTick && entity.getClientTickOrder() > localPlayerTickOrder;
-            if (!pushesBeforeCurrentPlayerTick && !pushedAfterPreviousPlayerTick) {
-                continue;
-            }
-
-            if (playerBox == null) {
-                playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(startX, startY, startZ, 0.6f, 1.8f);
-            }
-            addPossibleBoatPushes(
-                    pushCandidates, getBoatPushCollisionCandidatesForNextTick(entity), playerBox, state.getStart());
-        }
-
-        if (pushCandidates.isEmpty()) {
-            return;
-        }
-
-        List<PredVector> transformed = new ArrayList<>(start.size() * (pushCandidates.size() + 1));
-        transformed.addAll(start);
-        for (PredVector vector : start) {
-            for (Vec3 push : pushCandidates) {
-                transformed.add(vector.add(push, "vehicle push"));
-            }
-        }
-        start.clear();
-        start.addAll(transformed);
+    /** Java carries late entity ticks before the next tick's packet handlers, on every protocol. */
+    public static boolean carriesBoatPushAtReport(CultPlayer player, SimulationContext context) {
+        return !player.isBedrockMovement() && context.getVehicle() == null;
     }
 
-    private static List<SimpleCollisionBox> getBoatPushCollisionCandidatesForNextTick(PacketEntity boat) {
-        return boat.getPossibleMovementCollisionBoxCandidatesAfterClientTick(true);
-    }
-
-    // TODO: Convert to more pure uncertainty
-    private static void addPossibleBoatPushes(
-            List<Vec3> pushCandidates,
-            List<SimpleCollisionBox> boatBoxes,
-            SimpleCollisionBox playerBox,
-            Vec3 pushedPosition) {
-        SimpleCollisionBox pushBox = new SimpleCollisionBox();
-        for (int i = 0; i < boatBoxes.size(); i++) {
-            SimpleCollisionBox boatBox = boatBoxes.get(i);
-            pushBox.set(boatBox).expand(0.2D, -0.01D, 0.2D);
-            if (!vanillaIntersects(pushBox, playerBox) || playerBox.minY > boatBox.minY) {
-                continue;
-            }
-
-            Vec3 impulse = getBoatPushImpulse(boatBox, pushedPosition);
-            if (impulse != null) {
-                addDistinctPush(pushCandidates, impulse);
-            }
-        }
-    }
-
-    private static void addDistinctPush(List<Vec3> pushes, Vec3 impulse) {
-        for (Vec3 existing : pushes) {
-            if (existing.distanceToSqr(impulse) <= 1.0E-12D) {
-                return;
-            }
-        }
-        pushes.add(impulse);
+    /** The impulse a boat whose box is {@code boatBox} gives the player at {@code pushedPosition}, or zero. */
+    public static Vec3 boatPush(SimpleCollisionBox boatBox, SimpleCollisionBox playerBox, Vec3 pushedPosition) {
+        SimpleCollisionBox pushBox = boatBox.copy().expand(0.2F, -0.01F, 0.2F);
+        if (!vanillaIntersects(pushBox, playerBox) || playerBox.minY > boatBox.minY) return Vec3.ZERO;
+        Vec3 impulse = getBoatPushImpulse(boatBox, pushedPosition);
+        return impulse == null ? Vec3.ZERO : impulse;
     }
 
     private static boolean vanillaIntersects(SimpleCollisionBox one, SimpleCollisionBox two) {

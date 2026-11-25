@@ -1,6 +1,7 @@
 package ac.cult.cultac.network;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
@@ -106,11 +107,11 @@ final class PacketConnections {
     }
 
     /** The brand packet can pass before Cult's decoder is installed; the platform then still holds what it read. */
-    private static void observePlatformBrand(CultConnection session) {
+    static void observePlatformBrand(CultConnection session) {
         var player = session.player();
         var platform = session.platform();
         if (player == null || platform == null) return;
-        var brand = player.checkManager.getCheck(ac.cult.cultac.checks.impl.misc.ClientBrand.class);
+        var brand = player.checkManager.getCheck(ClientBrand.class);
         if (brand != null) brand.observe(platform.clientBrand());
     }
 

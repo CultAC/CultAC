@@ -10,7 +10,6 @@ import ac.cult.cultac.cloud.intake.v3.IntakeMessage;
 import ac.cult.cultac.cloud.intake.v3.Join;
 import ac.cult.cultac.cloud.intake.v3.Leave;
 import ac.cult.cultac.cloud.intake.v3.Meta;
-import ac.cult.cultac.cloud.intake.v3.PerfLimits;
 import ac.cult.cultac.cloud.intake.v3.PortalRole;
 import ac.cult.cultac.cloud.intake.v3.Registry;
 import ac.cult.cultac.cloud.intake.v3.Replies;
@@ -116,6 +115,7 @@ public final class IntakeWire {
     public static final int CONTEXT = 14;
     public static final int USING_ITEM = 15;
     public static final int INPUT = 16;
+    public static final int SETBACKS = 17;
     // CONDITIONS bits, Condition's order in the schema.
     public static final int TELEPORTED = 0;
     public static final int IN_VEHICLE = 1;
@@ -162,6 +162,18 @@ public final class IntakeWire {
     public static final int MAX_DETAIL_BYTES = 512;
     /** Flags one VERDICT carries at most; later ones in the tick are left out. */
     public static final int MAX_FLAGS = 32;
+    /** Flags of one VERDICT that carry their verbose at most, and the most UTF-8 bytes each keeps. */
+    public static final int MAX_VERBOSE_FLAGS = 4;
+
+    public static final int MAX_VERBOSE_BYTES = 64;
+    /** Setbacks one VERDICT carries at most; later ones in the tick are left out. */
+    public static final int MAX_SETBACKS = 4;
+    // SetbackKind's values.
+    public static final int SETBACK_VIOLATION = 1;
+    public static final int SETBACK_NON_SIMULATING = 2;
+    public static final int SETBACK_RESYNC = 3;
+    public static final int SETBACK_LATENCY = 4;
+    public static final int SETBACK_RESEND = 5;
     /** Replies one service message carries at most; past it the message is unreadable. */
     static final int MAX_REPLIES = 4096;
     /** The largest encoded reply: a capture of three full id lists, five bytes an id, with room to spare. */
@@ -360,6 +372,66 @@ public final class IntakeWire {
         return out;
     }
 
+    /** The length of {@link #section(int, int, int, byte[])}'s body for block states of {@code blocks} bytes. */
+    public static int sectionLength(int x, int y, int z, int blocks) {
+        return positionSize(x, y, z)
+                + CodedOutputStream.computeTagSize(4)
+                + CodedOutputStream.computeUInt32SizeNoTag(blocks)
+                + blocks;
+    }
+
+    /**
+     * Writes the start of {@link #section(int, int, int, byte[])}'s body for block states of {@code blocks} bytes into
+     * {@code out} from {@code offset}: every field up to the block states. Returns the index the block states go at.
+     */
+    public static int sectionHead(int x, int y, int z, int blocks, byte[] out, int offset) {
+        int at = putPosition(out, offset, x, y, z);
+        out[at++] = (byte) (4 << 3 | WireFormat.WIRETYPE_LENGTH_DELIMITED);
+        return putUInt32(out, at, blocks);
+    }
+
+    /** As {@link #block}, the {@link #blockLength} bytes into {@code out} from {@code offset}. */
+    public static void block(int x, int y, int z, int state, byte[] out, int offset) {
+        int at = putPosition(out, offset, x, y, z);
+        out[at++] = (byte) (4 << 3 | WireFormat.WIRETYPE_VARINT);
+        putUInt32(out, at, state);
+    }
+
+    /** The length of {@link #block}'s body. */
+    public static int blockLength(int x, int y, int z, int state) {
+        return positionSize(x, y, z) + CodedOutputStream.computeUInt32Size(4, state);
+    }
+
+    /** As {@link #sectionGone}, the {@link #sectionGoneLength} bytes into {@code out} from {@code offset}. */
+    public static void sectionGone(int x, int y, int z, byte[] out, int offset) {
+        putPosition(out, offset, x, y, z);
+    }
+
+    /** The length of {@link #sectionGone}'s body. */
+    public static int sectionGoneLength(int x, int y, int z) {
+        return positionSize(x, y, z);
+    }
+
+    /** {@link #writePosition} into {@code out} from {@code at}; returns the index past it. */
+    private static int putPosition(byte[] out, int at, int x, int y, int z) {
+        out[at++] = (byte) (1 << 3 | WireFormat.WIRETYPE_VARINT);
+        at = putUInt32(out, at, CodedOutputStream.encodeZigZag32(x));
+        out[at++] = (byte) (2 << 3 | WireFormat.WIRETYPE_VARINT);
+        at = putUInt32(out, at, CodedOutputStream.encodeZigZag32(y));
+        out[at++] = (byte) (3 << 3 | WireFormat.WIRETYPE_VARINT);
+        return putUInt32(out, at, CodedOutputStream.encodeZigZag32(z));
+    }
+
+    /** {@code value} as an unsigned varint, as {@link CodedOutputStream#writeUInt32NoTag} writes it. */
+    private static int putUInt32(byte[] out, int at, int value) {
+        while ((value & ~0x7F) != 0) {
+            out[at++] = (byte) (value & 0x7F | 0x80);
+            value >>>= 7;
+        }
+        out[at++] = (byte) value;
+        return at;
+    }
+
     /** A {@code BLOCK} record's body: the block's x, y and z, then its block-state id in the server's registry. */
     public static byte[] block(int x, int y, int z, int state) {
         byte[] out = new byte[positionSize(x, y, z) + CodedOutputStream.computeUInt32Size(4, state)];
@@ -390,12 +462,33 @@ public final class IntakeWire {
         stream.writeSInt32(3, z);
     }
 
-    /** A check that flagged, and its violation level after the flag in hundredths; the wire caps it at an int. */
-    public record Flag(String check, long hundredths) {
+    /**
+     * A check that flagged, its violation level after the flag in hundredths (the wire caps it at an int), and its
+     * verbose cut to {@link #MAX_VERBOSE_BYTES}, null when the flag carries none.
+     */
+    public record Flag(String check, long hundredths, String verbose) {
+        public Flag {
+            verbose = verbose == null || verbose.isEmpty() ? null : truncate(verbose, MAX_VERBOSE_BYTES);
+        }
+
+        public Flag(String check, long hundredths) {
+            this(check, hundredths, null);
+        }
+
         public static Flag of(String check, double violations) {
-            return new Flag(check, Math.round(violations * 100));
+            return new Flag(check, Math.round(violations * 100), null);
+        }
+
+        public static Flag of(String check, double violations, String verbose) {
+            return new Flag(check, Math.round(violations * 100), verbose);
         }
     }
+
+    /**
+     * A setback sent during the tick: its {@code kind} ({@link #SETBACK_VIOLATION} and on), the reason a resync, latency
+     * or resend setback gives, and for a violation the check its caller named. Either string may be null.
+     */
+    public record Setback(int kind, String cause, String check) {}
 
     /** The crosshair on the last attacked target: {@code reach} to it, null when the crosshair is off it. */
     public record Target(int entityId, Double reach) {}
@@ -453,7 +546,37 @@ public final class IntakeWire {
                 long velocityPing,
                 long frameSeq,
                 List<byte[]> outcomes) {
+            return write(
+                    bits,
+                    tickEndSeq,
+                    missing,
+                    flags,
+                    target,
+                    geometries,
+                    engine,
+                    last,
+                    velocityPing,
+                    frameSeq,
+                    outcomes,
+                    List.of());
+        }
+
+        /** As the other {@code write}, with the tick's {@code setbacks}, at most {@link #MAX_SETBACKS} of them. */
+        public int write(
+                long bits,
+                long tickEndSeq,
+                boolean missing,
+                List<Flag> flags,
+                Target target,
+                List<Geometry> geometries,
+                Engine engine,
+                Engine last,
+                long velocityPing,
+                long frameSeq,
+                List<byte[]> outcomes,
+                List<Setback> setbacks) {
             int flagCount = Math.min(flags.size(), MAX_FLAGS);
+            int setbackCount = missing ? 0 : Math.min(setbacks.size(), MAX_SETBACKS);
             int geometryCount = Math.min(geometries.size(), MAX_GEOMETRIES);
             int size = outcomesSize(frameSeq, outcomes);
             size += missing
@@ -469,6 +592,7 @@ public final class IntakeWire {
                             engine,
                             last,
                             velocityPing);
+            for (int i = 0; i < setbackCount; i++) size += nested(SETBACKS, setbackSize(setbacks.get(i)));
             if (size > buffer.length) buffer = new byte[Math.max(size, buffer.length * 2)];
             CodedOutputStream out = CodedOutputStream.newInstance(buffer, 0, size);
             try {
@@ -498,6 +622,12 @@ public final class IntakeWire {
                     }
                     writeOutcomes(out, frameSeq, outcomes);
                     if (engine != null) writeEngine(out, engine, last, velocityPing);
+                    for (int i = 0; i < setbackCount; i++) {
+                        Setback setback = setbacks.get(i);
+                        out.writeTag(SETBACKS, 2);
+                        out.writeUInt32NoTag(setbackSize(setback));
+                        writeSetback(out, setback);
+                    }
                 }
                 out.checkNoSpaceLeft();
             } catch (IOException impossible) {
@@ -590,13 +720,36 @@ public final class IntakeWire {
     private static int flagSize(Flag flag) {
         int size = CodedOutputStream.computeStringSize(1, truncate(flag.check(), MAX_KEY_BYTES));
         int hundredths = hundredths(flag);
-        return hundredths != 0 ? size + CodedOutputStream.computeUInt32Size(2, hundredths) : size;
+        if (hundredths != 0) size += CodedOutputStream.computeUInt32Size(2, hundredths);
+        return flag.verbose() != null ? size + CodedOutputStream.computeStringSize(3, flag.verbose()) : size;
     }
 
     private static void writeFlag(CodedOutputStream out, Flag flag) throws IOException {
         out.writeString(1, truncate(flag.check(), MAX_KEY_BYTES));
         int hundredths = hundredths(flag);
         if (hundredths != 0) out.writeUInt32(2, hundredths);
+        if (flag.verbose() != null) out.writeString(3, flag.verbose());
+    }
+
+    private static boolean present(String text) {
+        return text != null && !text.isEmpty();
+    }
+
+    private static int setbackSize(Setback setback) {
+        int size = setback.kind() != 0 ? CodedOutputStream.computeEnumSize(1, setback.kind()) : 0;
+        if (present(setback.cause())) {
+            size += CodedOutputStream.computeStringSize(2, truncate(setback.cause(), MAX_KEY_BYTES));
+        }
+        if (present(setback.check())) {
+            size += CodedOutputStream.computeStringSize(3, truncate(setback.check(), MAX_KEY_BYTES));
+        }
+        return size;
+    }
+
+    private static void writeSetback(CodedOutputStream out, Setback setback) throws IOException {
+        if (setback.kind() != 0) out.writeEnum(1, setback.kind());
+        if (present(setback.cause())) out.writeString(2, truncate(setback.cause(), MAX_KEY_BYTES));
+        if (present(setback.check())) out.writeString(3, truncate(setback.check(), MAX_KEY_BYTES));
     }
 
     private static int outcomesSize(long frameSeq, List<byte[]> outcomes) {
@@ -724,25 +877,19 @@ public final class IntakeWire {
     }
 
     /**
-     * The id of a probe whose body is a 4-byte id alone, {@code id} being its packet id; {@code absent} for any other
-     * packet. Only such a probe goes out as a marker.
+     * The id of a probe whose body is a 4-byte id alone, {@code id} being its packet id and the packet the
+     * {@code length} bytes from {@code offset}; {@code absent} for any other packet. Only such a probe goes out as a
+     * marker.
      */
-    public static long bareId(byte[] packet, int id, long absent) {
-        return bareId(packet, 0, packet.length, id, absent);
-    }
-
-    /** As {@link #bareId(byte[], int, long)}, for the packet the {@code length} bytes from {@code offset}. */
     public static long bareId(byte[] packet, int offset, int length, int id, long absent) {
         if (!bare(length, id)) return absent;
         return pingId(packet, offset, length, id, absent);
     }
 
-    /** Whether a probe's packet is as long as its id and a 4-byte body, {@code id} being its packet id. */
-    public static boolean bare(byte[] packet, int id) {
-        return bare(packet.length, id);
-    }
-
-    /** As {@link #bare(byte[], int)}, for a packet of {@code length} bytes. */
+    /**
+     * Whether a probe's packet of {@code length} bytes is as long as its id and a 4-byte body, {@code id} being its
+     * packet id.
+     */
     public static boolean bare(int length, int id) {
         return id >= 0 && length == varLongBytes(id) + 4;
     }
@@ -954,20 +1101,23 @@ public final class IntakeWire {
     }
 
     /**
-     * Writes protocol 5 messages as one socket's zstd frame: one compression context at {@link #LEVEL} and window log
-     * {@link #WINDOW_LOG} kept across messages, each message ending at a flush so it decompresses on arrival. The frame
-     * is never ended. The receiver decompresses the messages in the order written, so each must be sent, in that order,
-     * or the socket closed. One per socket, used by one thread at a time; a message stays valid until the next. Needs
-     * {@link #zstdUnavailable} to be null.
+     * Writes protocol 5 messages as one socket's zstd frame: one compression context at {@link #LEVEL}, window log
+     * {@link #WINDOW_LOG} and hash log {@link #HASH_LOG} kept across messages, each message ending at a flush so it
+     * decompresses on arrival. The frame is never ended. The receiver decompresses the messages in the order written, so
+     * each must be sent, in that order, or the socket closed. One per socket, used by one thread at a time; a message
+     * stays valid until the next. Needs {@link #zstdUnavailable} to be null.
      */
     public static final class StreamWriter implements AutoCloseable {
         public static final int LEVEL = 1;
-        /** The receiver's window limit (2 MiB); the frame header declares it. */
-        public static final int WINDOW_LOG = 21;
+        /** 128 KiB, within the receiver's window limit (2 MiB); the frame header declares it. */
+        public static final int WINDOW_LOG = 17;
+        /** The match finder's table, 8192 entries; decoders never see it. */
+        public static final int HASH_LOG = 13;
 
         private final ZstdCompressCtx stream = new ZstdCompressCtx()
                 .setLevel(LEVEL)
                 .setWindowLog(WINDOW_LOG)
+                .setHashLog(HASH_LOG)
                 .setChecksum(false)
                 .setContentSize(false);
         /**
@@ -1096,8 +1246,6 @@ public final class IntakeWire {
                     DiagLimitsReply,
                     DiagWatchReply,
                     DiagCutReply,
-                    PerfLimitsReply,
-                    PerfStartReply,
                     TeamStateReply,
                     TeamSweepReply {
         /** The player it is for; null for a reply to the whole socket. */
@@ -1124,22 +1272,6 @@ public final class IntakeWire {
 
     /** Diagnostics: send the player's SuperDebug of a range. */
     public record DiagCutReply(UUID player, Cut cut) implements Reply {}
-
-    /** Perf: the socket's new limits. */
-    public record PerfLimitsReply(PerfLimits limits) implements Reply {
-        @Override
-        public UUID player() {
-            return null;
-        }
-    }
-
-    /** Perf: record a profile of {@code seconds} under {@code profile}. */
-    public record PerfStartReply(UUID profile, int seconds) implements Reply {
-        @Override
-        public UUID player() {
-            return null;
-        }
-    }
 
     /** Team sync: whether the organization takes portal roles now; replaces the last state. */
     public record TeamStateReply(boolean enabled) implements Reply {
@@ -1226,15 +1358,8 @@ public final class IntakeWire {
                                         cut.getFullToSeq())));
                     }
                 }
-                case PERF_LIMITS -> replies.add(new PerfLimitsReply(reply.getPerfLimits()));
-                case PERF_START -> {
-                    var start = reply.getPerfStart();
-                    if (start.getProfile().size() == 16) {
-                        replies.add(new PerfStartReply(uuid(start.getProfile()), (int)
-                                Math.min(Integer.MAX_VALUE, Integer.toUnsignedLong(start.getSeconds()))));
-                    }
-                }
-                case TEAM_STATE -> replies.add(new TeamStateReply(reply.getTeamState().getEnabled()));
+                case TEAM_STATE ->
+                    replies.add(new TeamStateReply(reply.getTeamState().getEnabled()));
                 case TEAM_SWEEP -> {
                     List<UUID> players = new ArrayList<>(reply.getTeamSweep().getPlayersCount());
                     for (ByteString player : reply.getTeamSweep().getPlayersList()) {

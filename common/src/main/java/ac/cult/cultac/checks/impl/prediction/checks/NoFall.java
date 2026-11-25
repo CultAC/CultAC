@@ -4,17 +4,17 @@ import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockVerticalCollisionVerdict;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRootGround;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
-import ac.cult.cultac.utils.data.PistonPushes;
-import ac.cult.cultac.utils.data.ShulkerBoxShoveResult;
 
 public class NoFall implements EngineCheck {
-    private static final VanillaStepProof STEP_PROOF = new VanillaStepProof();
-
     @Override
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         BedrockPredictionResult bedrockResult = result.getProfileResult(BedrockPredictionResult.class);
@@ -26,22 +26,24 @@ public class NoFall implements EngineCheck {
         CollideAxisData.CollideResult downCollide = result.getCollideAxisData().getYNeg();
         boolean canCollideDown = downCollide != null && downCollide.isLikelyCollide();
 
-        if (result.getSimulationContext().getVehicle() != null) return;
+        if (result.getSimulationContext().getVehicle() != null) {
+            handleVehicleResult(player, result);
+            return;
+        }
 
         boolean flaggedNoFall = false;
         final NoFallPseudo noFallPseudo = player.checkManager.getNoFallPseudo();
 
-        PistonPushes pushes = result.getSimulationContext().getWorldData().getPistonPushes();
-        // From 26.3 the shulker box block shoves are the packet's last Entity#move calls, and the last sets onGround.
-        boolean shoveMayEndMove =
-                pushes != null && !pushes.getShulkerBoxPush().isEmpty() && !pushes.isShulkerBoxShoveBeforeTravel();
-        ShulkerBoxShoveResult shoveEndsMove = null;
-        if (shoveMayEndMove && pushes.getShulkerBoxShovesAfterTravel() != null) {
-            // The prediction's trace holds what the shoves left, or nothing when none reached the player.
-            MovementTrace trace = result.getValidMovements().getClosestTrace();
-            shoveEndsMove = trace == null ? null : trace.shulkerBoxShove();
-            shoveMayEndMove = shoveEndsMove != null;
-        }
+        // From 26.3 the block-entity pass after the travel can hold the packet's last Entity#move, which sets onGround.
+        JavaPassAfterTravel pass = JavaMovementEngine.passAfterTravel(result);
+        boolean passEndsMove = pass != null && pass.result().moved();
+
+        // A forward move's Entity#move set onGround to its own verticalCollisionBelow (1.21.11 Entity.java:739-741),
+        // and sendPosition reports it. Before 1.21.2 the packet can close several unsent ticks.
+        JavaMoveCollision forward = result.getCollideAxisData() instanceof JavaMoveCollision move
+                        && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                ? move
+                : null;
 
         SimpleCollisionBox valid = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
         double stuckSpeedY = result.getSimulationContext().getLastStuckSpeed().y;
@@ -50,15 +52,30 @@ public class NoFall implements EngineCheck {
         double travelY = result.getTarget().y - result.getPositionOnlyDelta().y / stuckSpeedY;
         boolean desiredOnGround = canCollideDown;
 
-        if (shoveEndsMove != null) {
+        if (passEndsMove) {
             boolean reported = result.getSimulationContext().isOnGround();
-            if (reported != shoveEndsMove.onGround()) {
+            if (reported != pass.result().state().onGround()) {
                 result.addFlag(noFallPseudo, () -> String.valueOf(reported), 0.1);
                 flaggedNoFall = true;
             }
+        } else if (forward != null) {
+            boolean reported = result.getSimulationContext().isOnGround();
+            desiredOnGround = forward.verticalCollisionBelow();
+            if (reported != desiredOnGround) {
+                result.addFlag(noFallPseudo, () -> String.valueOf(reported), 0.1);
+                flaggedNoFall = true;
+            } else if (reported
+                    && !endsOnFloor(downCollide, travelY, stuckSpeedY)
+                    && !canStandAtDestination(player, result)) {
+                // The move that collided below ended on the floor it hit. A claim sent from above that floor is not
+                // that move's, and Entity#checkFallDamage would clear the server's fall distance for it.
+                result.addFlag(noFallPseudo, () -> "true", 0.1);
+                flaggedNoFall = true;
+                desiredOnGround = false;
+            }
         } else if (result.getSimulationContext().isOnGround()
                 && !endsOnFloor(downCollide, travelY, stuckSpeedY)
-                && !STEP_PROOF.canStandAtDestination(player, result)) {
+                && !canStandAtDestination(player, result)) {
             result.addFlag(noFallPseudo, () -> "true", 0.1);
             flaggedNoFall = true;
             desiredOnGround = false;
@@ -66,11 +83,11 @@ public class NoFall implements EngineCheck {
 
         // The player is off the ground and can collide to the ground
         if (!result.getSimulationContext().isOnGround()
-                && !shoveMayEndMove
+                && !passEndsMove
+                && forward == null
                 && canCollideDown
                 && valid.maxY + 0.001 < travelY // And their valid Y is below their actual movement
-                && (downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY // And they recovered by colliding
-                        || stepsUpFromDownwardMove(result, valid))) {
+                && downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY) { // And they recovered by colliding
             result.addFlag(noFallPseudo, () -> "false", 0.1);
             flaggedNoFall = true;
         }
@@ -88,18 +105,22 @@ public class NoFall implements EngineCheck {
         }
 
         if (flaggedNoFall) {
-            result.setDesiredOnGround(desiredOnGround);
+            result.setDesiredOnGround(passEndsMove ? pass.result().state().onGround() : desiredOnGround);
         }
     }
 
     /**
-     * A travel above the floor it could land on, and above every Y the player requested, that only Entity#collide's
-     * step-up explains. Every requested Y is downward, so the step follows a collision that stopped the downward move:
-     * Entity#move sets verticalCollisionBelow, then onGround, and Entity#checkFallDamage lands the fall. A client that
-     * reports this move airborne skips that landing on the server, which then resets the fall for the upward move.
+     * From 1.21.4 ServerboundMoveVehiclePacket#fromEntity reports the root's Entity#onGround after its tick, and
+     * ServerGamePacketListenerImpl#handleMoveVehicle applies it to the root's ground and fall damage.
      */
-    private static boolean stepsUpFromDownwardMove(PredictionResult result, SimpleCollisionBox valid) {
-        return result.getValidMovements().isCanStep() && valid.maxY < 0.0D;
+    private static void handleVehicleResult(CultPlayer player, PredictionResult result) {
+        if (!player.packetStateData.vehicleMovementOnGroundPresent) return;
+        Boolean moved = JavaRootGround.after(player, result);
+        if (moved == null) return;
+        boolean reported = player.packetStateData.vehicleMovementReportedOnGround;
+        if (reported == moved) return;
+        result.addFlag(player.checkManager.getListener(NoFallPseudo.class), () -> String.valueOf(reported), 0.1);
+        result.setDesiredOnGround(moved);
     }
 
     /**
@@ -123,5 +144,14 @@ public class NoFall implements EngineCheck {
             result.addFlag(
                     player.checkManager.getListener(NoFallPseudo.class), () -> "manufactured_non_collision", 0.1D);
         }
+    }
+
+    /** A block, or an entity at any position the client may hold it, directly under the destination box. */
+    private static boolean canStandAtDestination(CultPlayer player, PredictionResult result) {
+        SimpleCollisionBox destination = result.getSimulationContext().getToCubeCollision();
+        return player.checkManager
+                .getSimulationProcessor()
+                .getStepCollisionMemo()
+                .collidesDirectlyBelow(player, destination);
     }
 }

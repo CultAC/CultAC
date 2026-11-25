@@ -206,10 +206,6 @@ class ClientEntityQueryCandidateTest {
         return f;
     }
 
-    static Vec3 position(double x, double y, double z) {
-        return new Vec3(x, y, z);
-    }
-
     /** Adds an entity and applies {@code moves} relative moves whose old locations stay possible. */
     static PacketEntity moving(JavaTickFixture f, int id, int type, Vec3 at, int moves) {
         var entities = f.player.compensatedEntities;
@@ -358,8 +354,9 @@ class ClientEntityQueryCandidateTest {
     }
 
     private static boolean present(CultPlayer player, PacketEntity entity) {
+        // Level#getEntities returns a passenger where its vehicle seats it; only a Bedrock rider has no seat here.
         return (!(entity instanceof PacketEntityPlayer remote) || remote.actionPresent)
-                && !player.compensatedEntities.isUntrackedRider(entity);
+                && (!player.isBedrockMovement() || !player.compensatedEntities.isUntrackedRider(entity));
     }
 
     private static boolean spectator(CultPlayer player, PacketEntity entity) {

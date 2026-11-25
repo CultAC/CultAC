@@ -2,9 +2,11 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.data.FluidTags;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.Vec3;
 
 public final class WaterCurrent {
@@ -12,7 +14,8 @@ public final class WaterCurrent {
 
     public static Vec3 calculateWaterCurrent(
             CultPlayer player, SimulationContext context, Vec3 position, Vec3 velocityBeforeCurrent) {
-        SimpleCollisionBox fluidInteractionBox = getWaterCurrentInteractionBox(player, context, position);
+        SimpleCollisionBox fluidInteractionBox =
+                getWaterCurrentInteractionBox(scratchBox(player), player, context, position);
         PacketEntity vehicle = context.getVehicle();
         if (vehicle != null) {
             if (EntityTypeUtil.isBoat(vehicle.type)) {
@@ -34,12 +37,12 @@ public final class WaterCurrent {
     public static Vec3 calculateLavaCurrent(
             CultPlayer player, SimulationContext context, Vec3 position, Vec3 velocityBeforeCurrent) {
         PacketEntity vehicle = context.getVehicle();
-        if (vehicle instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus) {
+        if (vehicle instanceof PacketEntityNautilus) {
             return null;
         }
-        SimpleCollisionBox entityBox = getWaterCurrentInteractionBox(player, context, position);
-        double scale = player.compensatedWorld.hasFastLava() ? 0.007D : 0.0023333333333333335D;
-        return calculateFluidCurrent(player, entityBox, vehicle == null, velocityBeforeCurrent, FluidTags.LAVA, scale);
+        SimpleCollisionBox entityBox = getWaterCurrentInteractionBox(scratchBox(player), player, context, position);
+        return calculateFluidCurrent(
+                player, entityBox, vehicle == null, velocityBeforeCurrent, FluidTags.LAVA, lavaCurrentScale(player));
     }
 
     public static Vec3 calculateNonPlayerWaterCurrent(
@@ -47,11 +50,33 @@ public final class WaterCurrent {
         return calculateWaterCurrent(player, entityBox, false, velocityBeforeCurrent);
     }
 
+    public static Vec3 calculateNonPlayerLavaCurrent(
+            CultPlayer player, SimpleCollisionBox entityBox, Vec3 velocityBeforeCurrent) {
+        return calculateFluidCurrent(
+                player, entityBox, false, velocityBeforeCurrent, FluidTags.LAVA, lavaCurrentScale(player));
+    }
+
+    private static double lavaCurrentScale(CultPlayer player) {
+        return player.compensatedWorld.hasFastLava() ? 0.007D : 0.0023333333333333335D;
+    }
+
     public static SimpleCollisionBox getWaterCurrentInteractionBox(
             CultPlayer player, SimulationContext context, Vec3 position) {
+        return getWaterCurrentInteractionBox(new SimpleCollisionBox(), player, context, position);
+    }
+
+    /** The player's scratch box, read only within one current computation, or a fresh box without one. */
+    private static SimpleCollisionBox scratchBox(CultPlayer player) {
+        PredictionScratch scratch = PredictionScratch.of(player);
+        return scratch == null ? new SimpleCollisionBox() : scratch.fluidBox;
+    }
+
+    /** {@link #getWaterCurrentInteractionBox(CultPlayer, SimulationContext, Vec3)} written into {@code out}. */
+    public static SimpleCollisionBox getWaterCurrentInteractionBox(
+            SimpleCollisionBox out, CultPlayer player, SimulationContext context, Vec3 position) {
         PacketEntity vehicle = context.getVehicle();
         if (vehicle != null) {
-            return GetBoundingBox.getPacketEntityBoundingBox(player, position.x, position.y, position.z, vehicle);
+            return GetBoundingBox.getPacketEntityBoundingBox(out, player, position.x, position.y, position.z, vehicle);
         }
 
         // MCP-Reborn Entity#getFluidInteractionBox deflates the entity's
@@ -60,6 +85,7 @@ public final class WaterCurrent {
         // interaction, so water current must sample the frozen simulation pose
         // rather than the mutable live CultPlayer pose.
         return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                out,
                 position.x,
                 position.y,
                 position.z,

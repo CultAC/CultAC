@@ -8,20 +8,12 @@ import ac.cult.cultac.cloud.diag.DiagWire;
 import ac.cult.cultac.cloud.diag.Diagnostics;
 import ac.cult.cultac.cloud.diag.Limits;
 import ac.cult.cultac.cloud.findings.FindingsLog;
-import ac.cult.cultac.cloud.intake.v3.PerfLimits;
-import ac.cult.cultac.cloud.perf.AgentInfo;
-import ac.cult.cultac.cloud.perf.Perf;
-import ac.cult.cultac.cloud.perf.PerfRecorder;
-import ac.cult.cultac.cloud.perf.PerfSettings;
-import ac.cult.cultac.cloud.perf.PerfWire;
 import ac.cult.cultac.cloud.wire.IntakeWire;
-import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.common.PropertiesUtil;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -38,7 +30,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -63,7 +54,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
-import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
@@ -160,10 +150,7 @@ public final class CloudConnection {
     private static final Duration BACKOFF_SPREAD = Duration.ofSeconds(5);
     /** A socket quiet this long is pinged; quiet as long again after the ping, it is given up. */
     private static final long QUIET_NANOS = TimeUnit.SECONDS.toNanos(30);
-    /**
-     * Diagnostic and perf parts wait while more than this many record bytes, two messages' worth, are queued for the
-     * socket.
-     */
+    /** Diagnostic parts wait while more than this many record bytes, two messages' worth, are queued for the socket. */
     static final long DIAG_LOW_WATERMARK = 2L * MAX_WRITE_BYTES;
     /**
      * The most bytes one reply message may gather across its fragments; past it the socket is dropped. A full message of
@@ -178,7 +165,7 @@ public final class CloudConnection {
     private static final LogThrottle REPLY_FAILURES = new LogThrottle();
     private static final AtomicBoolean RADIUS_WARNED = new AtomicBoolean();
     /** The config files that decide what CultAC does, hashed for the service's record of each session. */
-    private static final List<String> CONFIG_FILES = List.of("config.yml", "cult.yml", "punishments.yml");
+    private static final List<String> CONFIG_FILES = List.of("config.yml", "punishments.yml");
     /** The config keys that hold credentials, which the config hash leaves out. */
     private static final List<List<String>> SECRET_KEYS = List.of(
             List.of("bridge", "secret"),
@@ -219,11 +206,6 @@ public final class CloudConnection {
     private final Thread sender;
     private final DiagUpload diagUpload = new DiagUpload();
     private final Diagnostics diagnostics;
-    /** Whether connect offers perf profiles ({@code cloud.perf}). */
-    private final boolean offerPerf;
-
-    private final DiagUpload perfUpload = new DiagUpload();
-    private final Perf perf;
     /** Whether connect offers team sync ({@code cloud.team-sync}). */
     private final boolean offerTeam;
     /** The open socket, while its connect answered {@code team}. */
@@ -425,7 +407,6 @@ public final class CloudConnection {
             String apiKey,
             String serverId,
             List<Integer> protocols,
-            boolean offerPerf,
             boolean offerTeam,
             SharedTransport shared,
             Owner owner,
@@ -434,7 +415,6 @@ public final class CloudConnection {
         this.apiKey = apiKey;
         this.serverId = serverId;
         this.protocols = List.copyOf(protocols);
-        this.offerPerf = offerPerf;
         this.offerTeam = offerTeam;
         this.shared = shared;
         this.owner = owner;
@@ -450,7 +430,6 @@ public final class CloudConnection {
         int number = NUMBER.incrementAndGet();
         pipeline = new CompressionPipeline(shared.pool, shared.threads, queuedBytes);
         diagnostics = new Diagnostics(diagUpload, serverId);
-        perf = new Perf(perfUpload, this::recordPerf);
         sender = Thread.ofVirtual().name("cult-cloud-" + number).unstarted(this::run);
         sender.start();
     }
@@ -496,7 +475,6 @@ public final class CloudConnection {
     void close() {
         closed = true;
         diagnostics.close();
-        perf.close();
         WebSocket open = socket;
         if (open != null) lost(open, null);
         sender.interrupt();
@@ -709,7 +687,6 @@ public final class CloudConnection {
                         checkAgent();
                         checkText();
                         pump(diagUpload);
-                        pump(perfUpload);
                         flush(queue);
                         logRefused();
                         if (retiring && (queue.isEmpty() && !pipeline.open() || overdue())) {
@@ -738,7 +715,6 @@ public final class CloudConnection {
     private void closeNormally() {
         closed = true;
         diagnostics.close();
-        perf.close();
         WebSocket open = socket;
         long left = retireByNanos - clock.getAsLong();
         if (open == null || left <= 0) return;
@@ -863,7 +839,6 @@ public final class CloudConnection {
             boolean textStripped = PlayerText.stripsEvery();
             body.addProperty("textStripped", textStripped);
             body.addProperty("diag", DiagWire.VERSION);
-            if (offerPerf) body.addProperty("perf", PerfWire.VERSION);
             if (offerTeam) body.addProperty("team", TeamSocket.VERSION);
             JsonObject agent = agent();
             body.add("agent", agent);
@@ -915,7 +890,6 @@ public final class CloudConnection {
             if (webSocket == null) return;
             dropQueued();
             diagnostics.connected(opened, connected.diagLimits());
-            perf.connected(opened, offerPerf ? connected.perfLimits() : null);
             pipeline.stream();
             batch.clear();
             agreed = new Agreed(opened, terms, textStripped);
@@ -1107,33 +1081,8 @@ public final class CloudConnection {
         Integer sectionRadius;
         /** Present when the service takes the diagnostics offered: its limits. */
         DiagLimitsJson diag;
-        /** Present when the service takes the perf offered: its limits. */
-        PerfLimitsJson perf;
         /** Present when the service takes the team sync offered: the organization's state. */
         TeamStateJson team;
-
-        /** The perf limits answered; null when the service took none. */
-        PerfLimits perfLimits() {
-            PerfLimitsJson limits = perf;
-            if (limits == null) return null;
-            return PerfLimits.newBuilder()
-                    .setEnabled(limits.enabled)
-                    .setMaxSeconds(uint32(limits.maxSeconds))
-                    .setExecutionPeriodMs(uint32(limits.executionPeriodMs))
-                    .setNativePeriodMs(uint32(limits.nativePeriodMs))
-                    .setAllocationSamplesPerSecond(uint32(limits.allocationSamplesPerSecond))
-                    .setPartBytes(uint32(limits.partBytes))
-                    .setProfileBytes(uint32(limits.profileBytes))
-                    .setUploadBytesPerSecond(uint32(limits.uploadBytesPerSecond))
-                    .setWholeJvm(limits.wholeJvm)
-                    .setSkipMsptMicros(uint32(limits.skipMsptMicros))
-                    .build();
-        }
-
-        /** A JSON number as a proto uint32: a negative int is the same bits, anything out of range clamps. */
-        private static int uint32(long value) {
-            return (int) Math.clamp(value, Integer.MIN_VALUE, 0xFFFFFFFFL);
-        }
 
         /** The diagnostics limits answered, clamped; null when the service took none. */
         Limits diagLimits() {
@@ -1183,20 +1132,6 @@ public final class CloudConnection {
         long bundlesPerHour;
     }
 
-    /** {@code ConnectResponse.perf} in connect's JSON. */
-    static final class PerfLimitsJson {
-        boolean enabled;
-        long maxSeconds;
-        long executionPeriodMs;
-        long nativePeriodMs;
-        long allocationSamplesPerSecond;
-        long partBytes;
-        long profileBytes;
-        long uploadBytesPerSecond;
-        boolean wholeJvm;
-        long skipMsptMicros;
-    }
-
     /** {@code ConnectResponse.team} in connect's JSON; {@code {}} is disabled. */
     static final class TeamStateJson {
         boolean enabled;
@@ -1212,29 +1147,6 @@ public final class CloudConnection {
         agent.addProperty("configHash", configHash());
         agent.addProperty("mode", CultAPI.INSTANCE.getConfigManager().isObserveOnly() ? "observe-only" : "enforcing");
         return agent;
-    }
-
-    /**
-     * One perf window on the perf thread, with the agent the open socket announced. The recorder is made here, so a JVM
-     * without {@code jdk.jfr} fails the profile, never this connection.
-     */
-    private PerfRecorder.Result recordPerf(PerfSettings settings, BooleanSupplier cancelled) {
-        JsonObject agent = announced;
-        if (agent == null) agent = agent();
-        AgentInfo info = new AgentInfo(
-                CultAPI.INSTANCE.getPlatform() == Platform.VELOCITY ? "velocity" : "paper",
-                serverId,
-                string(agent, "commit"),
-                string(agent, "version"),
-                string(agent, "configHash"),
-                string(agent, "mode"));
-        return new PerfRecorder(CultAPI.INSTANCE.getPlatformServer(), info, Clock.systemUTC())
-                .record(settings, cancelled);
-    }
-
-    private static String string(JsonObject object, String key) {
-        JsonElement value = object.get(key);
-        return value == null || value.isJsonNull() ? null : value.getAsString();
     }
 
     /** A property the build filled in; null when it was left as its placeholder. */
@@ -1297,7 +1209,7 @@ public final class CloudConnection {
     }
 
     private static byte[] bundledDefault(String name, String language) throws IOException {
-        String directory = name.equals("cult.yml") ? "/cult/" : "/" + name.substring(0, name.length() - 4) + "/";
+        String directory = "/" + name.substring(0, name.length() - 4) + "/";
         String path = directory + language + ".yml";
         if (CultAPI.class.getResource(path) == null) path = directory + "en.yml";
         try (InputStream in = CultAPI.class.getResourceAsStream(path)) {
@@ -1421,8 +1333,7 @@ public final class CloudConnection {
 
     /**
      * Moves an upload's parts onto the socket's queue while it is nearly drained and the upload bucket allows, so they
-     * never hold up a frame. A part the queue refuses is lost: the service seals a bundle without it and refuses a
-     * profile with a gap.
+     * never hold up a frame. A part the queue refuses is lost: the service seals a bundle without it.
      */
     private void pump(DiagUpload upload) {
         if (!upload.pending()) return;
@@ -1524,7 +1435,6 @@ public final class CloudConnection {
         else LogUtil.warn("Cloud socket closed: " + redacted(why) + " (server id " + serverId + ")");
         gone.abort();
         diagnostics.socketClosed(ended);
-        perf.socketClosed(ended);
         Team team = teamSocket;
         teamSocket = null;
         if (team != null) {
@@ -1618,14 +1528,6 @@ public final class CloudConnection {
                         }
                         if (reply instanceof IntakeWire.DiagLimitsReply limits) {
                             diagnostics.limits(generation, limits.limits());
-                            continue;
-                        }
-                        if (reply instanceof IntakeWire.PerfLimitsReply limits) {
-                            perf.limits(generation, limits.limits());
-                            continue;
-                        }
-                        if (reply instanceof IntakeWire.PerfStartReply start) {
-                            perf.start(generation, start.profile(), start.seconds());
                             continue;
                         }
                         if (reply instanceof IntakeWire.TeamStateReply state) {

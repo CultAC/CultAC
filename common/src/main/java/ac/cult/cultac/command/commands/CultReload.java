@@ -36,7 +36,7 @@ public class CultReload implements BuildableCommand {
     }
 
     /** Re-reads the on-disk config into every live generation. */
-    static CompletableFuture<Boolean> reloadAsync() {
+    public static CompletableFuture<Boolean> reloadAsync() {
         var host = RuntimeEnvironment.host();
         return (host == null ? CultAPI.INSTANCE.getExternalAPI() : (GrimAbstractAPI) host.publicApi()).reloadAsync();
     }

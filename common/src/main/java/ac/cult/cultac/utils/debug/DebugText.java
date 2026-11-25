@@ -1,9 +1,15 @@
 package ac.cult.cultac.utils.debug;
 
 import ac.cult.cultac.utils.math.Vec3;
+import com.sun.management.HotSpotDiagnosticMXBean;
+import java.lang.management.ManagementFactory;
+import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * Text kept as the values it prints and printed only when read. A {@link Builder} records what it is given: strings and
@@ -15,6 +21,13 @@ public final class DebugText {
     /** An immutable value holding no live state. A text keeps it and prints it when read. */
     public interface Part {
         void appendTo(StringBuilder sb);
+
+        /** The most heap this value holds that nothing else does; by default its printed text's, twice over. */
+        default long retainedBytes() {
+            StringBuilder sb = new StringBuilder();
+            appendTo(sb);
+            return 2 * (STRING_BYTES + 2L * sb.length());
+        }
     }
 
     /** A mutable value that appends its current state, as its toString prints it. */
@@ -50,6 +63,40 @@ public final class DebugText {
         }
     };
 
+    /** A string, its array and their headers, less two bytes a char; a reference is counted where it is held. */
+    private static final long STRING_BYTES = 64;
+    /** A held value that is neither a string, a record nor a {@link Part}: a vector or a box. */
+    private static final long VALUE_BYTES = 64;
+    /** The longest string {@link #SHARED} keeps. */
+    private static final int SHARED_CHARS = 48;
+
+    private static final int SHARED_PROBES = 8;
+    /**
+     * Strings met twice, kept for good so no text holds them alone: at most its length times a reference and a
+     * {@link #SHARED_CHARS} string. A slot is only ever filled, so a racing writer loses no more than the share.
+     */
+    private static final AtomicReferenceArray<String> SHARED = new AtomicReferenceArray<>(2048);
+    /** The string last met at each slot, to tell a second meeting from a first; bounded as {@link #SHARED}. */
+    private static final String[] MET = new String[1024];
+
+    /** A record's own bytes with every component boxed, and the accessors of its string components. */
+    private record RecordLayout(long bytes, Method[] strings) {}
+
+    private static final ClassValue<RecordLayout> RECORD_LAYOUTS = new ClassValue<>() {
+        @Override
+        protected RecordLayout computeValue(Class<?> type) {
+            RecordComponent[] components = type.getRecordComponents();
+            List<Method> strings = new ArrayList<>();
+            for (RecordComponent component : components) {
+                if (component.getType() != String.class) continue;
+                Method accessor = component.getAccessor();
+                accessor.setAccessible(true);
+                strings.add(accessor);
+            }
+            return new RecordLayout(24 + 32L * components.length, strings.toArray(Method[]::new));
+        }
+    };
+
     private static final Object[] NO_PARTS = {};
     private static final long[] NO_NUMBERS = {};
 
@@ -79,6 +126,84 @@ public final class DebugText {
         StringBuilder sb = new StringBuilder(size * 16);
         appendTo(sb);
         return sb.toString();
+    }
+
+    /**
+     * The most heap this text holds that nothing else does: its arrays, every string it keeps but the shared ones, and
+     * the values it keeps, counted with 16-byte headers and two bytes a char. A string measured twice is shared from
+     * then on.
+     */
+    public long retainedBytes() {
+        int reference = References.BYTES;
+        long bytes = 24 + 2L * reference + 24 + (long) reference * parts.length + 24 + 8L * numbers.length;
+        for (int i = 0; i < size; i++) {
+            Object part = parts[i];
+            if (part instanceof Kind) continue;
+            if (part instanceof String text) {
+                bytes += stringBytes(text);
+            } else if (part instanceof Part value) {
+                bytes += value.retainedBytes();
+            } else if (part instanceof Enum<?>) {
+                continue;
+            } else if (part instanceof Record record) {
+                bytes += recordBytes(record);
+            } else {
+                bytes += VALUE_BYTES;
+            }
+        }
+        return bytes;
+    }
+
+    /** A kept record: its header, each component as a boxed value, and its strings. */
+    private static long recordBytes(Record record) {
+        RecordLayout layout = RECORD_LAYOUTS.get(record.getClass());
+        long bytes = layout.bytes();
+        for (Method accessor : layout.strings()) {
+            try {
+                if (accessor.invoke(record) instanceof String text) bytes += stringBytes(text);
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException(failure);
+            }
+        }
+        return bytes;
+    }
+
+    /** A kept string's heap, or none when it is a shared one-char string or {@link #SHARED} holds it. */
+    private static long stringBytes(String text) {
+        int length = text.length();
+        if (length == 1 && text.charAt(0) < ASCII.length && ASCII[text.charAt(0)] == text) return 0;
+        long bytes = STRING_BYTES + 2L * length;
+        if (length > SHARED_CHARS) return bytes;
+        int hash = System.identityHashCode(text);
+        int mask = SHARED.length() - 1;
+        for (int probe = 0; probe < SHARED_PROBES; probe++) {
+            String shared = SHARED.get((hash + probe) & mask);
+            if (shared == text) return 0;
+            if (shared == null) break;
+        }
+        int met = hash & (MET.length - 1);
+        if (MET[met] != text) {
+            MET[met] = text;
+            return bytes;
+        }
+        for (int probe = 0; probe < SHARED_PROBES; probe++) {
+            if (SHARED.compareAndSet((hash + probe) & mask, null, text)) return 0;
+        }
+        return bytes;
+    }
+
+    /** The heap's reference width, read when a text is first measured. */
+    private static final class References {
+        static final int BYTES = read();
+
+        private static int read() {
+            try {
+                HotSpotDiagnosticMXBean vm = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
+                return Boolean.parseBoolean(vm.getVMOption("UseCompressedOops").getValue()) ? 4 : 8;
+            } catch (RuntimeException | LinkageError unknown) {
+                return 8;
+            }
+        }
     }
 
     private static void print(StringBuilder sb, Object[] parts, int size, long[] numbers) {

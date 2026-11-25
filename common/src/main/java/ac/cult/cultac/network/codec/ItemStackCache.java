@@ -24,7 +24,8 @@ final class ItemStackCache {
     private final long[] heads = new long[ENTRIES];
 
     private final byte[][] keys = new byte[ENTRIES][];
-    private final SimItemStack[] stacks = new SimItemStack[ENTRIES];
+    /** A held stack, or a supplier of it, which converts it once and is replaced by it on the first read. */
+    private final Object[] stacks = new Object[ENTRIES];
     private final long[] used = new long[ENTRIES];
     private final int[] sizes = new int[ENTRIES];
     private long clock;
@@ -118,7 +119,17 @@ final class ItemStackCache {
     }
 
     /** The stack held in a slot {@link #find} returned. */
+    @SuppressWarnings("unchecked")
     SimItemStack stack(int slot) {
+        Object held = stacks[slot];
+        if (held instanceof SimItemStack stack) return stack;
+        var stack = ((Supplier<SimItemStack>) held).get();
+        stacks[slot] = stack;
+        return stack;
+    }
+
+    /** What a slot {@link #find} returned holds: its stack, or the supplier of a stack not read yet. */
+    Object held(int slot) {
         return stacks[slot];
     }
 
@@ -132,6 +143,15 @@ final class ItemStackCache {
      * least recently used stacks until it fits.
      */
     void put(ByteBuf input, int start, int end, SimItemStack stack, int size) {
+        hold(input, start, end, stack, size);
+    }
+
+    /** As {@link #put}, for a stack {@code supplier} converts when the slot is first read. */
+    void put(ByteBuf input, int start, int end, Supplier<SimItemStack> supplier, int size) {
+        hold(input, start, end, supplier, size);
+    }
+
+    private void hold(ByteBuf input, int start, int end, Object stack, int size) {
         int length = end - start;
         if (length > MAX_BYTES || size > BUDGET) return;
         int slot;

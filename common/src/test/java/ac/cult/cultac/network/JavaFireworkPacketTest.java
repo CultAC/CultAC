@@ -41,8 +41,11 @@ class JavaFireworkPacketTest {
     private static final double GRAVITY = 0.08;
     private static final float YAW = 30.0F, PITCH = -20.0F;
     private static final Vec3 FROM = new Vec3(8.5, JavaTickFixture.FLOOR_Y + 40, 8.5);
-    /** Gliding south from here crosses into chunk (0, 2) in tick 1. */
-    private static final Vec3 BORDER = new Vec3(8.5, JavaTickFixture.FLOOR_Y + 40, 30.5);
+    /**
+     * Gliding south from here crosses into chunk (0, 2) in tick 1, far enough to take along the rocket, which
+     * Entity#getHandHoldingItemAngle holds half a block behind and beside the player.
+     */
+    private static final Vec3 BORDER = new Vec3(8.5, JavaTickFixture.FLOOR_Y + 40, 30.9);
 
     private static final Vec3 DEEP = new Vec3(8.5, -200, 8.5);
     private static final int OTHER = 777;
@@ -388,7 +391,7 @@ class JavaFireworkPacketTest {
 
     private static void assertCounts(JavaTickFixture f, int possible, int certain) {
         assertEquals(possible, f.player.compensatedFireworks.getMaxFireworksAppliedPossible(), "possible");
-        assertEquals(certain, f.player.compensatedFireworks.getCertainFireworksApplied(), "certain");
+        assertEquals(certain, f.player.compensatedFireworks.tickingRockets(false), "certain");
     }
 
     private static void assertExact(PredictionResult result) {

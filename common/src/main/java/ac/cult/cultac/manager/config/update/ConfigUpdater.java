@@ -3,6 +3,7 @@ package ac.cult.cultac.manager.config.update;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -87,6 +88,9 @@ public final class ConfigUpdater {
         public final boolean inPlace;
         /** Whether keys the operator added, absent from the bundled default, survive an upgrade. */
         public final boolean keepsOperatorKeys;
+        /** Keys only the operator moves, each with the value a file without the key stands for. */
+        public final @NotNull Map<String, Object> operatorStamps;
+
         public final @NotNull ConfigFlavor flavor;
         /** Keyed by the version this migration upgrades TO. */
         public final @NotNull Map<Integer, Migration> migrations;
@@ -98,13 +102,15 @@ public final class ConfigUpdater {
                 @NotNull Map<Integer, Migration> migrations,
                 String versionKey,
                 boolean inPlace,
-                boolean keepsOperatorKeys) {
+                boolean keepsOperatorKeys,
+                @NotNull Map<String, Object> operatorStamps) {
             Objects.requireNonNull(resourceDirectory, "resourceDirectory");
             this.resourceDirectory = resourceDirectory.endsWith("/") ? resourceDirectory : resourceDirectory + "/";
             this.latestVersion = latestVersion;
             this.versionKey = versionKey;
             this.inPlace = inPlace;
             this.keepsOperatorKeys = keepsOperatorKeys;
+            this.operatorStamps = Map.copyOf(operatorStamps);
             this.flavor = Objects.requireNonNull(flavor, "flavor");
             this.migrations = Map.copyOf(migrations);
         }
@@ -122,6 +128,7 @@ public final class ConfigUpdater {
             private String versionKey = "config-version";
             private boolean inPlace;
             private boolean keepsOperatorKeys;
+            private final Map<String, Object> operatorStamps = new LinkedHashMap<>();
 
             private Builder(String resourceDirectory, int latestVersion, ConfigFlavor flavor) {
                 this.resourceDirectory = resourceDirectory;
@@ -148,9 +155,26 @@ public final class ConfigUpdater {
                 return this;
             }
 
+            /**
+             * {@code key} stamps the file with something only its operator moves. A file without the key stands for
+             * {@code absent}, so an upgrade that copies the bundled default writes {@code absent}, not the default's
+             * value.
+             */
+            public @NotNull Builder operatorStamp(@NotNull String key, @NotNull Object absent) {
+                operatorStamps.put(key, absent);
+                return this;
+            }
+
             public @NotNull Spec build() {
                 return new Spec(
-                        resourceDirectory, latestVersion, flavor, migrations, versionKey, inPlace, keepsOperatorKeys);
+                        resourceDirectory,
+                        latestVersion,
+                        flavor,
+                        migrations,
+                        versionKey,
+                        inPlace,
+                        keepsOperatorKeys,
+                        operatorStamps);
             }
         }
     }
@@ -168,6 +192,12 @@ public final class ConfigUpdater {
             this.warning = warning;
         }
     }
+
+    /** The file whose {@code cult} section {@link #foldLegacyCultFile} moves into config.yml. */
+    public static final String LEGACY_CULT_FILE = "cult.yml";
+
+    /** config.yml as it was before {@link #foldLegacyCultFile} wrote to it; it also marks that a fold completed. */
+    public static final String CULT_MERGE_BACKUP = "config.yml.pre-cult-merge.bak";
 
     private final Class<?> resourceAnchor;
     private final Logger logger;
@@ -315,8 +345,8 @@ public final class ConfigUpdater {
         // Auto-lift trivially-matching user values into outputView. The diff
         // walk records each lift in ownLog so it goes through the same
         // patcher pass as migration writes.
-        autoLift("", oldData, newData, outputView);
-        if (spec.keepsOperatorKeys) keepOperatorKeys("", oldData, newData, outputView);
+        autoLift(List.of(), oldData, newData, outputView);
+        if (spec.keepsOperatorKeys) keepOperatorKeys(List.of(), oldData, newData, outputView);
 
         // Run each version-gated migration in order.
         for (int v = oldVersion + 1; v <= spec.latestVersion; v++) {
@@ -350,6 +380,12 @@ public final class ConfigUpdater {
                 outputView.put("cult-config-version", parseVersion(oldData.get("cult-config-version")));
             }
         }
+        // Copying today's defaults must not stamp a file its operator never stamped.
+        for (Map.Entry<String, Object> stamp : spec.operatorStamps.entrySet()) {
+            if (newData.containsKey(stamp.getKey()) && !oldData.containsKey(stamp.getKey())) {
+                outputView.put(stamp.getKey(), stamp.getValue());
+            }
+        }
 
         applyEntries(
                 configFile,
@@ -364,11 +400,196 @@ public final class ConfigUpdater {
         return new Result(true, oldVersion, spec.latestVersion, null);
     }
 
+    /**
+     * Moves the settings of a {@code cult.yml} beside {@code configFile} into its {@code cult} section, then renames
+     * cult.yml to {@code cult.yml.migrated}. Run it before {@link #updateAll}, which lifts the section into a newer
+     * default. A section that {@link #ownsCultSection owns} its settings wins key by key and cult.yml fills the keys it
+     * lacks; any other section takes cult.yml's values. When config.yml has no section, the bundled default's section,
+     * comments included, is added first. {@code configFresh} marks a config.yml just written from the bundled default.
+     * cult.yml stays when an owned section disagrees with it, and when a file cannot be read or patched.
+     */
+    public void foldLegacyCultFile(@NotNull File configFile, boolean configFresh, @NotNull String langCode)
+            throws IOException {
+        File legacy = new File(configFile.getParentFile(), LEGACY_CULT_FILE);
+        if (!legacy.isFile()) return;
+        Map<String, Object> legacyData = readYaml(legacy.toPath());
+        Map<String, Object> configData = readYaml(configFile.toPath());
+        if (legacyData == null || configData == null) {
+            logger.warning("[cult-config-updater] " + (legacyData == null ? legacy : configFile).getName()
+                    + " cannot be read, so cult.yml stays and its settings are not in config.yml yet");
+            return;
+        }
+        boolean operatorSection = ownsCultSection(configFile.toPath(), configData, configFresh);
+        Map<List<String>, Object> leaves = legacyLeaves(legacyData);
+        List<WriteLog.Entry> writes = new ArrayList<>();
+        List<String> differing = new ArrayList<>();
+        for (Map.Entry<List<String>, Object> leaf : leaves.entrySet()) {
+            if (operatorSection && holds(configData, leaf.getKey())) {
+                if (!sameValue(valueAt(configData, leaf.getKey()), leaf.getValue())) {
+                    differing.add(String.join(".", leaf.getKey()));
+                }
+                continue;
+            }
+            writes.add(new WriteLog.Entry(WriteLog.Op.PUT, leaf.getKey(), leaf.getValue()));
+        }
+
+        if (!writes.isEmpty() || !configData.containsKey("cult")) {
+            List<String> lines = new ArrayList<>(Files.readAllLines(configFile.toPath(), StandardCharsets.UTF_8));
+            if (!configData.containsKey("cult")) {
+                List<String> section;
+                try (InputStream in =
+                        openResource(resolveBundledDefaultPath(CultConfigSpecs.mainConfig(), langCode))) {
+                    String bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                    section = topLevelSection(bundled.lines().toList(), "cult");
+                }
+                if (!lines.isEmpty() && !lines.get(lines.size() - 1).isBlank()) lines.add("");
+                lines.addAll(section);
+            }
+            Path target = configFile.toPath().toAbsolutePath();
+            Path staged = Files.createTempFile(target.getParent(), ".cult-config-", ".tmp");
+            try {
+                Files.write(staged, lines, StandardCharsets.UTF_8);
+                applyEntries(staged.toFile(), writes);
+                Path backup = target.resolveSibling(CULT_MERGE_BACKUP);
+                if (!Files.exists(backup)) Files.copy(target, backup);
+                Files.move(staged, target, StandardCopyOption.REPLACE_EXISTING);
+            } finally {
+                Files.deleteIfExists(staged);
+            }
+        }
+
+        if (!differing.isEmpty()) {
+            logger.warning("[cult-config-updater] config.yml's cult section and cult.yml disagree on "
+                    + String.join(", ", differing) + "; config.yml's values are used and cult.yml stays. Copy the"
+                    + " cult.yml values you want into config.yml, then delete cult.yml");
+            return;
+        }
+        Path renamed = retire(legacy.toPath());
+        logger.info("[cult-config-updater] moved " + writes.size() + " cult.yml setting(s) into config.yml's cult"
+                + " section; cult.yml renamed to " + renamed.getFileName());
+    }
+
+    /**
+     * Whether the {@code cult} section of {@code configFile} holds its operator's settings, so a cult.yml beside it
+     * no longer counts: the section differs from the bundled default's, or a fold already completed beside it.
+     * {@code configFresh} marks a config.yml just written from the bundled default, which holds none.
+     */
+    public boolean ownsCultSection(@NotNull File configFile, boolean configFresh) throws IOException {
+        Map<String, Object> configData = readYaml(configFile.toPath());
+        return configData != null && ownsCultSection(configFile.toPath(), configData, configFresh);
+    }
+
+    private boolean ownsCultSection(Path configFile, Map<String, Object> configData, boolean configFresh)
+            throws IOException {
+        if (configFresh || !(configData.get("cult") instanceof Map<?, ?> section)) return false;
+        if (Files.exists(configFile.toAbsolutePath().resolveSibling(CULT_MERGE_BACKUP))) return true;
+        Map<?, ?> bundled;
+        try (InputStream in = openResource(resolveBundledDefaultPath(CultConfigSpecs.mainConfig(), "en"))) {
+            bundled = new Yaml().load(in);
+        }
+        return !section.equals(bundled.get("cult"));
+    }
+
+    /** The leaves of a cult.yml's {@code cult} section under the paths config.yml holds them at. */
+    @SuppressWarnings("unchecked")
+    private static Map<List<String>, Object> legacyLeaves(Map<String, Object> legacyData) {
+        Map<String, Object> settings = legacyData.get("cult") instanceof Map<?, ?> section
+                ? new LinkedHashMap<>((Map<String, Object>) section)
+                : new LinkedHashMap<>();
+        if (parseVersion(legacyData.get("config-version")) < 3) liftMaxReach(settings);
+        Map<List<String>, Object> leaves = new LinkedHashMap<>();
+        collectLeaves(List.of("cult"), settings, leaves);
+        return leaves;
+    }
+
+    private static Path retire(Path legacy) throws IOException {
+        Path renamed = legacy.resolveSibling(LEGACY_CULT_FILE + ".migrated");
+        for (int n = 1; Files.exists(renamed); n++) {
+            renamed = legacy.resolveSibling(LEGACY_CULT_FILE + ".migrated." + n);
+        }
+        Files.move(legacy, renamed);
+        return renamed;
+    }
+
+    private static boolean holds(Map<?, ?> map, List<String> path) {
+        Object node = map;
+        for (String key : path) {
+            if (!(node instanceof Map<?, ?> level) || !level.containsKey(key)) return false;
+            node = level.get(key);
+        }
+        return true;
+    }
+
+    private static @Nullable Object valueAt(Map<?, ?> map, List<String> path) {
+        Object node = map;
+        for (String key : path) {
+            if (!(node instanceof Map<?, ?> level)) return null;
+            node = level.get(key);
+        }
+        return node;
+    }
+
+    private static boolean sameValue(@Nullable Object a, @Nullable Object b) {
+        if (a instanceof Number x && b instanceof Number y) return Double.compare(x.doubleValue(), y.doubleValue()) == 0;
+        return Objects.equals(a, b);
+    }
+
+    /** A pre-v3 cult.yml's absolute FairReach {@code max-reach} as its distance past the 3-block default. */
+    @SuppressWarnings("unchecked")
+    private static void liftMaxReach(Map<String, Object> settings) {
+        if (!(settings.get("checks") instanceof Map<?, ?> checks)
+                || !(checks.get("fair-reach") instanceof Map<?, ?> fairReach)
+                || !(fairReach.get("max-reach") instanceof Number maxReach)) return;
+        Map<String, Object> lifted = new LinkedHashMap<>((Map<String, Object>) fairReach);
+        lifted.remove("max-reach");
+        lifted.put(
+                "reach-leniency",
+                new BigDecimal(maxReach.toString())
+                        .subtract(BigDecimal.valueOf(3))
+                        .doubleValue());
+        Map<String, Object> liftedChecks = new LinkedHashMap<>((Map<String, Object>) checks);
+        liftedChecks.put("fair-reach", lifted);
+        settings.put("checks", liftedChecks);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void collectLeaves(List<String> prefix, Map<String, Object> map, Map<List<String>, Object> out) {
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
+            List<String> path = new ArrayList<>(prefix);
+            path.add(String.valueOf(entry.getKey()));
+            if (entry.getValue() instanceof Map<?, ?> child && !child.isEmpty()) {
+                collectLeaves(path, (Map<String, Object>) child, out);
+            } else {
+                out.put(List.copyOf(path), entry.getValue());
+            }
+        }
+    }
+
+    /** The lines of top-level {@code key}'s block, from the comment lines right above it to its last indented line. */
+    private static List<String> topLevelSection(List<String> lines, String key) {
+        int start = -1;
+        for (int i = 0; i < lines.size() && start < 0; i++) {
+            if (lines.get(i).startsWith(key + ":")) start = i;
+        }
+        if (start < 0) throw new IllegalStateException("bundled config has no " + key + " section");
+        int first = start;
+        while (first > 0 && lines.get(first - 1).startsWith("#")) first--;
+        int last = start;
+        for (int i = start + 1; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (line.isBlank()) continue;
+            if (!Character.isWhitespace(line.charAt(0))) break;
+            last = i;
+        }
+        return lines.subList(first, last + 1);
+    }
+
     @SuppressWarnings("unchecked")
     private static void keepOperatorKeys(
-            String pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
+            List<String> pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
         for (Map.Entry<String, Object> entry : oldData.entrySet()) {
-            String currentPath = pathPrefix.isEmpty() ? entry.getKey() : pathPrefix + "." + entry.getKey();
+            List<String> currentPath = new ArrayList<>(pathPrefix);
+            currentPath.add(entry.getKey());
             Object newValue = newData.get(entry.getKey());
             if (!newData.containsKey(entry.getKey())) {
                 output.put(currentPath, entry.getValue());
@@ -381,11 +602,12 @@ public final class ConfigUpdater {
 
     @SuppressWarnings("unchecked")
     private static void autoLift(
-            String pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
+            List<String> pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
         for (Map.Entry<String, Object> entry : oldData.entrySet()) {
             String key = entry.getKey();
             if (!newData.containsKey(key)) continue;
-            String currentPath = pathPrefix.isEmpty() ? key : pathPrefix + "." + key;
+            List<String> currentPath = new ArrayList<>(pathPrefix);
+            currentPath.add(key);
             Object oldValue = entry.getValue();
             Object newValue = newData.get(key);
             if (oldValue instanceof Map && newValue instanceof Map) {
@@ -406,11 +628,13 @@ public final class ConfigUpdater {
                 logger.log(
                         Level.FINE,
                         "[cult-config-updater] REMOVE op for '"
-                                + e.path() + "' on " + configFile.getName()
+                                + String.join(".", e.path()) + "' on " + configFile.getName()
                                 + " is not yet supported; expected the bundled default to drop the key");
                 continue;
             }
-            ConfigPatcher.NodePosition pos = patcher.getNodePosition(e.path());
+            // A flow collection ({checks: [a]}) has no block lines to replace or insert below.
+            ConfigPatcher.NodePosition pos =
+                    patcher.inFlowCollection(e.path()) ? null : patcher.getNodePosition(e.path());
             if (pos == null) {
                 additions.add(e);
                 continue;
@@ -421,13 +645,19 @@ public final class ConfigUpdater {
         for (ConfigPatcher.PendingChange c : pending) {
             patcher.applyChange(c);
         }
-        patcher.save();
         // List replacements can shift parents; rebuild positions before inserting new paths.
         if (!additions.isEmpty()) {
-            patcher = new ConfigPatcher(configFile);
-            for (WriteLog.Entry addition : additions) patcher.addMissingValue(addition.path(), addition.value());
-            patcher.save();
+            patcher.remap();
+            for (WriteLog.Entry addition : additions) {
+                if (patcher.inFlowCollection(addition.path())) {
+                    patcher.replaceInFlowCollection(addition.path(), addition.value());
+                } else {
+                    patcher.addMissingValue(addition.path(), addition.value());
+                }
+            }
         }
+        // One write once every change applied: a failed one leaves the old file, version included, to retry.
+        patcher.save();
     }
 
     @SuppressWarnings("unchecked")

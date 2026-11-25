@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -127,7 +128,7 @@ public final class StorageWriteHooksImpl implements StorageWriteHooks {
             // the legacy map, and warn exactly once per display so the
             // missing declaration surfaces without spamming the log.
             if (missingStableKeyLogged.add(key)) {
-                java.util.logging.Logger.getLogger("cult-datastore")
+                Logger.getLogger("cult-datastore")
                         .warning("[cult-history] check " + display
                                 + " has no stableKey declared; falling back to StableKeyMapping. "
                                 + "Populate the @CheckData.stableKey / CheckInfo.stableKey field.");

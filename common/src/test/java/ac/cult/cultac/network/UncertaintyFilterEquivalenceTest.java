@@ -18,7 +18,6 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BubbleColumnData;
-import ac.cult.cultac.utils.data.PistonPushes;
 import ac.cult.cultac.utils.data.StuckEdgeData;
 import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -27,7 +26,6 @@ import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,15 +61,15 @@ class UncertaintyFilterEquivalenceTest {
         UncertaintyHandler[] modifiers = modifiers();
         UncertaintyHandler[] original = modifiers.clone();
         for (long seed = 0; seed < SCENARIOS; seed++) {
-            String filtered = PredictionDigestTest.dump(
-                    seed, new TreeMap<>(), UncertaintyFilterEquivalenceTest::holdWorldResync);
+            String filtered =
+                    PredictionDigestTest.dump(seed, new TreeMap<>(), UncertaintyFilterEquivalenceTest::holdWorldResync);
             String whole;
             try {
                 wrap(modifiers, i -> new Kept(original[i]));
                 whole = PredictionDigestTest.dump(
                         seed, new TreeMap<>(), UncertaintyFilterEquivalenceTest::holdWorldResync);
             } finally {
-                restore(modifiers, original);
+                System.arraycopy(original, 0, modifiers, 0, original.length);
             }
             assertEquals(whole, filtered, "scenario " + seed);
         }
@@ -95,7 +93,7 @@ class UncertaintyFilterEquivalenceTest {
                 }
             }
         } finally {
-            restore(modifiers, original);
+            System.arraycopy(original, 0, modifiers, 0, original.length);
         }
         assertEquals(List.of(), mismatches.stream().limit(20).toList());
         for (UncertaintyHandler handler : original) {
@@ -147,24 +145,8 @@ class UncertaintyFilterEquivalenceTest {
         return (UncertaintyHandler[]) field.get(null);
     }
 
-    /** Wrappers override handleMovementTrace, so none of them runs on the position alone. */
-    private static void wrap(UncertaintyHandler[] modifiers, IntFunction<UncertaintyHandler> wrapper) throws Exception {
+    private static void wrap(UncertaintyHandler[] modifiers, IntFunction<UncertaintyHandler> wrapper) {
         for (int i = 0; i < modifiers.length; i++) modifiers[i] = wrapper.apply(i);
-        Arrays.fill(positionOnly(), false);
-    }
-
-    private static void restore(UncertaintyHandler[] modifiers, UncertaintyHandler[] original) throws Exception {
-        System.arraycopy(original, 0, modifiers, 0, original.length);
-        Method derive = ValidMovements.class.getDeclaredMethod("positionOnly", UncertaintyHandler[].class);
-        derive.setAccessible(true);
-        boolean[] flags = positionOnly();
-        System.arraycopy((boolean[]) derive.invoke(null, (Object) original), 0, flags, 0, flags.length);
-    }
-
-    private static boolean[] positionOnly() throws Exception {
-        Field field = ValidMovements.class.getDeclaredField("MODIFIER_POSITION_ONLY");
-        field.setAccessible(true);
-        return (boolean[]) field.get(null);
     }
 
     private static final int SLIME_STATE = 14379;
@@ -174,39 +156,35 @@ class UncertaintyFilterEquivalenceTest {
     private static final Set<String> MUST_ACT = Set.of("BoatTransform", "Honey", "StuckSpeed");
 
     private static final List<Variant> VARIANTS = List.of(
-            Variant.of(Owner.WORLD, "inWater", () -> DesyncStatus.TRUE),
-            Variant.of(Owner.WORLD, "inLava", () -> DesyncStatus.TRUE),
-            Variant.of(Owner.WORLD, "inFlowingLiquid", () -> DesyncStatus.TRUE),
+            Variant.of(Owner.WORLD, "inWater", () -> true),
+            Variant.of(Owner.WORLD, "inLava", () -> true),
+            Variant.of(Owner.WORLD, "inFlowingLiquid", () -> true),
             Variant.of(Owner.WORLD, "mightBeInBlock", () -> true),
             Variant.of(Owner.WORLD, "climbingAtStart", () -> DesyncStatus.TRUE),
-            Variant.of(Owner.WORLD, "fishingRodPulls", UncertaintyFilterEquivalenceTest::box),
             Variant.of(Owner.WORLD, "sneak", () -> new StuckEdgeData(true, false, false, true, false)),
-            Variant.of(Owner.WORLD, "pistonPushes", () -> new PistonPushes(box(), Set.of())),
             Variant.of(Owner.LAST_WORLD, "climbing", () -> DesyncStatus.TRUE),
             Variant.of(Owner.LAST_WORLD, "onBlock", () -> SLIME_STATE),
             Variant.of(Owner.LAST_WORLD, "onBlock", () -> BED_STATE),
             Variant.of(Owner.LAST_WORLD, "honeySlide", () -> DesyncStatus.TRUE),
             Variant.of(Owner.LAST_WORLD, "bubbleColumn", () -> new BubbleColumnData(1, 1, 1, 1)),
             Variant.of(Owner.LAST_WORLD, "stuckSpeed", UncertaintyFilterEquivalenceTest::cobweb),
-            Variant.of(Owner.LAST_WORLD, "pistonPushes", () -> new PistonPushes(box(), Set.of())),
             Variant.of(Owner.LAST_WORLD, "sneak", () -> new StuckEdgeData(false, true, true, false, true)),
             Variant.of(Owner.CONTEXT, "riptideLevel", () -> 3),
-            Variant.of(Owner.CONTEXT, "isTestingPointThree", () -> true),
+            Variant.of(Owner.CONTEXT, "withheldPosition", () -> true),
             Variant.of(Owner.CONTEXT, "gliding", () -> true),
             Variant.of(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21_4),
             Variant.of(Owner.CONTEXT, "vehicle", UncertaintyFilterEquivalenceTest::boat),
             Variant.of(Owner.LAST_CONTEXT, "riptideLevel", () -> 3),
             Variant.of(Owner.LAST_CONTEXT, "gliding", () -> true),
-            Variant.of(Owner.FIREWORKS, "boostsNextTick", () -> 1),
             new Variant(
-                    "honey before 1.21.11",
+                    "honey before 1.21.2",
                     List.of(
-                            new Edit(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21_4),
+                            new Edit(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21),
                             new Edit(Owner.LAST_WORLD, "honeySlide", () -> DesyncStatus.TRUE))),
             new Variant(
-                    "stuck speed before 1.21.11",
+                    "stuck speed before 1.21.2",
                     List.of(
-                            new Edit(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21_4),
+                            new Edit(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21),
                             new Edit(Owner.LAST_WORLD, "stuckSpeed", UncertaintyFilterEquivalenceTest::cobweb))),
             new Variant(
                     "boat ticked by the client",
@@ -250,8 +228,7 @@ class UncertaintyFilterEquivalenceTest {
         LAST_WORLD,
         CONTEXT,
         LAST_CONTEXT,
-        PACKET_STATE,
-        FIREWORKS
+        PACKET_STATE
     }
 
     /** One field of the player, the context, the last context or either's world. */
@@ -264,7 +241,6 @@ class UncertaintyFilterEquivalenceTest {
                 case CONTEXT -> context;
                 case LAST_CONTEXT -> last;
                 case PACKET_STATE -> player.packetStateData;
-                case FIREWORKS -> player.compensatedFireworks;
             };
         }
 

@@ -560,8 +560,7 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
         this.violationSink = violationRouted ? new ViolationSinkImpl(dataStore) : null;
         this.retentionSweeper = new RetentionSweeper(dataStore, config.retention(), logger);
         if (sessionRouted) {
-            this.sessionTracker = new SessionTrackerImpl(
-                    dataStore, config.serverName(), config.session().heartbeatIntervalMs(), startupId);
+            this.sessionTracker = new SessionTrackerImpl(dataStore, config.session().heartbeatIntervalMs(), startupId);
         } else {
             this.sessionTracker = SessionTracker.NOOP;
             logger.warning("[cult-datastore] session tracking disabled; missing session route");

@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.info;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
+import ac.cult.cultac.checks.CheckNames;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -16,11 +17,25 @@ class CheckTextsTest {
     private static final Pattern DIGIT = Pattern.compile("\\d");
     private static final CheckTexts TEXTS = CheckTexts.load();
 
+    /** A check merged into another keeps its explanation under each older name of its own. */
     @Test
     void theTextsCoverExactlyTheCatalog() {
         Set<String> catalog = new TreeSet<>();
-        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) catalog.add(entry.name());
+        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
+            catalog.add(entry.name());
+            boolean merged = CheckCatalog.ENTRIES.stream()
+                    .anyMatch(other -> other != entry && other.name().equals(entry.name()));
+            if (!merged) continue;
+            for (int version = CheckNames.FIRST; version < CheckNames.LATEST; version++) {
+                catalog.add(entry.name(version));
+            }
+        }
         assertEquals(catalog, new TreeSet<>(TEXTS.names()));
+
+        CheckCatalog.Entry use = CheckCatalog.find("MultiActionsJ", 2);
+        assertEquals("Used an item with an inventory open", TEXTS.text(use, 2).summary());
+        assertEquals(TEXTS.text("InventoryD"), TEXTS.text(use, 3));
+        assertEquals(TEXTS.text("InventoryA"), TEXTS.text(CheckCatalog.find("MultiActionsC", 2), 2));
     }
 
     @Test

@@ -11,12 +11,14 @@ import ac.cult.cultac.protocol.ProtocolContext;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
+import java.util.ArrayList;
+import java.util.UUID;
 
 public final class PlayerInfoRemoveCodec implements PacketCodec<ClientboundPlayerInfoRemove> {
     @Override
     public ClientboundPlayerInfoRemove read(ByteBuf input, ProtocolContext context) {
         int count = Wire.readLength(input, input.readableBytes() / 16);
-        var profiles = new java.util.ArrayList<java.util.UUID>(count);
+        var profiles = new ArrayList<UUID>(count);
         for (int i = 0; i < count; i++) profiles.add(Wire.readUuid(input));
         return new ClientboundPlayerInfoRemove(profiles);
     }

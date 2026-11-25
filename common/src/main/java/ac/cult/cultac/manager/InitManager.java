@@ -9,8 +9,13 @@ import ac.cult.cultac.manager.init.start.*;
 import ac.cult.cultac.manager.init.stop.StoppableInitable;
 import ac.cult.cultac.manager.init.stop.TerminateGeyserBedrockBridge;
 import ac.cult.cultac.manager.init.stop.TerminateNetworkManager;
+import ac.cult.cultac.manager.player.PlayerNetworkSettings;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.routing.NetworkModule;
+import ac.cult.cultac.protocol.ProtocolCodecs;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.latency.SectionStore;
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import lombok.Getter;
@@ -66,6 +71,8 @@ public class InitManager {
                 .add(new ViaVersion())
                 .add(new NetworkManagerStart())
                 .addAll(extraStartableInitables)
+                .add(PlayerNetworkSettings::start)
+                .add(DormancyController::start)
                 .add(NetworkModule::start)
                 .build();
 
@@ -75,9 +82,10 @@ public class InitManager {
                 // Detach the Geyser session taps before Cult's own networking tears down.
                 .add(new TerminateGeyserBedrockBridge())
                 .add(new TerminateNetworkManager())
+                .add(SectionStore::clear)
                 .add(CultAPI.INSTANCE.getDiscordManager())
                 .add(() -> CultAPI.INSTANCE.getEventBus().unregisterAllListeners(CultAPI.INSTANCE.getGrimPlugin()))
-                .add(ac.cult.cultac.protocol.ProtocolCodecs::close)
+                .add(ProtocolCodecs::close)
                 .add(CultAPI.INSTANCE.getDataStoreLifecycle())
                 .add(CultAPI.INSTANCE.getPortalSync())
                 .add(CloudModule::shutdown)
@@ -130,7 +138,7 @@ public class InitManager {
             if (failure != null) error.addSuppressed(failure);
             throw error;
         }
-        if (failure != null && ac.cult.cultac.runtime.RuntimeEnvironment.host() != null) throw failure;
+        if (failure != null && RuntimeEnvironment.host() != null) throw failure;
         stopped = true;
     }
 }

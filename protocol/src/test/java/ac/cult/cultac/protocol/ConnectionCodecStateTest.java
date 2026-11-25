@@ -3,6 +3,7 @@ package ac.cult.cultac.protocol;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.protocol.data.ProtocolData;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -10,7 +11,7 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 
 class ConnectionCodecStateTest {
-    private record Value(int value) implements ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket {}
+    private record Value(int value) implements ClientboundPacket {}
 
     @Test
     void sharedRuntimeKeepsConcurrentConnectionStateOutOfItsBindings() throws Exception {

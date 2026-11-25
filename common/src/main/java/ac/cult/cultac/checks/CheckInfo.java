@@ -14,6 +14,8 @@ public final class CheckInfo {
     private static final String FALLBACK_DESCRIPTION = "No description provided";
 
     private final String name;
+    /** {@link #getName()} with the names the check had in older name versions. */
+    private final CheckNames names;
     /** Display alias, or {@code null} when the check has no alternate name. */
     private final String altName;
     /** Config section key; {@code null} means "derive it from {@link #getName()}". */
@@ -32,6 +34,7 @@ public final class CheckInfo {
             throw new IllegalArgumentException("CheckInfo requires a non-empty name");
         }
         this.name = builder.name;
+        this.names = CheckNames.of(builder.name);
         this.altName = builder.altName;
         this.configName = builder.configName;
         this.stableKey = builder.stableKey;

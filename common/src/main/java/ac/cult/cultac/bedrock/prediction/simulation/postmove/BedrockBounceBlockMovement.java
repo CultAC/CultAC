@@ -12,6 +12,7 @@ public final class BedrockBounceBlockMovement {
 
     public static Result applyAfterVerticalReset(
             Vec3d currentFeetPosition,
+            Vec3d landedFeetPosition,
             Vec3d resetVelocity,
             double fallingVelocityY,
             BedrockInputFrame frame,
@@ -34,7 +35,9 @@ public final class BedrockBounceBlockMovement {
                     true);
         }
 
-        double collisionTravelY = bounceBlockState.surfaceY() - currentFeetPosition.y();
+        // The client corrects the rebound by the fall the move made before it collided, onto whatever it stands
+        // on: a carpet over slime stops the fall at the carpet.
+        double collisionTravelY = landedFeetPosition.y() - currentFeetPosition.y();
         double correctedVelocityY =
                 bounceGravityCorrectedVelocityY(restitution.restitutionVelocityY(), fallingVelocityY, collisionTravelY);
         double postMoveDraggedY = BedrockAerialMovement.airDraggedVelocityWithoutGravity(correctedVelocityY);

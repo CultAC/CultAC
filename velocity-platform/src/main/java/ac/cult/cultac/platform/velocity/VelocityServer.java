@@ -19,7 +19,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.AbstractCheck;
 import com.velocitypowered.api.proxy.ProxyServer;
-import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -43,11 +42,6 @@ final class VelocityServer implements PlatformServer {
     @Override
     public String getPlatformImplementationString() {
         return proxy.getVersion().getName() + " " + proxy.getVersion().getVersion();
-    }
-
-    @Override
-    public int onlinePlayers() {
-        return proxy.getPlayerCount();
     }
 
     @Override
@@ -190,11 +184,6 @@ final class VelocityServer implements PlatformServer {
     }
 
     @Override
-    public void registerOutgoingPluginChannel(String name) {
-        proxy.getChannelRegistrar().register(MinecraftChannelIdentifier.from(name));
-    }
-
-    @Override
     public boolean isProxyForwardingEnabled() {
         return true;
     }
@@ -209,8 +198,7 @@ final class VelocityServer implements PlatformServer {
     public double getTPS() {
         double total = 0;
         int measured = 0;
-        for (var connection :
-                ac.cult.cultac.CultAPI.INSTANCE.getNetworkManager().connections()) {
+        for (var connection : CultAPI.INSTANCE.getNetworkManager().connections()) {
             var ticks = connection.platform().backendTicks();
             double rate = ticks == null ? Double.NaN : ticks.ticksPerSecond();
             if (!Double.isNaN(rate)) {

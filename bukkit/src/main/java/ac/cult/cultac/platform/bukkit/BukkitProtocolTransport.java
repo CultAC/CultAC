@@ -1,10 +1,14 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.network.CultNetworkManager;
+import ac.cult.cultac.network.DormancyController;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
+import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ProtocolData;
+import ac.cult.cultac.protocol.data.RegistryNames;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import net.minecraft.SharedConstants;
 import net.minecraft.network.protocol.game.ServerboundChatCommandPacket;
 import org.bukkit.event.HandlerList;
@@ -18,24 +22,26 @@ final class BukkitProtocolTransport {
         var version = ProtocolVersion.of(SharedConstants.getProtocolVersion());
         // The dispatcher speaks the 26.3 model; an older host's wire is projected per connection.
         // Every connection's value codecs load here rather than on the first event loop.
-        ac.cult.cultac.protocol.ProtocolCodecs.decoder();
+        ProtocolCodecs.decoder();
         var runtime = ProtocolRuntime.create(
                 ProtocolData.load(ProtocolVersion.V26_3),
                 ClientPacketCodecs.catalog(
-                        context -> context.state().require(ac.cult.cultac.protocol.data.RegistryNames.class),
-                        context -> context.state().require(ac.cult.cultac.utils.latency.ClientWorldRegistries.class)),
+                        context -> context.state().require(RegistryNames.class),
+                        context -> context.state().require(ClientWorldRegistries.class)),
                 commandInputLimit(version));
-        var injector = new PaperInjector(manager);
-        var listener = new BukkitConnectionListener(manager);
+        var dormancy = new PaperDormancy();
+        DormancyController.platform(dormancy);
+        var injector = new PaperInjector(manager, dormancy);
+        var listener = new BukkitConnectionListener(manager, dormancy);
         manager.configureTransport(
                 runtime,
                 injector::enable,
                 () -> {
-                    ac.cult.cultac.platform.bukkit.BukkitRuntimeRegistrations.registerEvents(listener, plugin);
+                    BukkitRuntimeRegistrations.registerEvents(listener, plugin);
                 },
                 () -> {
                     HandlerList.unregisterAll(listener);
-                    return injector.unregister();
+                    return injector.unregister().thenCompose(ignored -> dormancy.remove());
                 });
         return injector;
     }

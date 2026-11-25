@@ -160,7 +160,7 @@ class SetbackCorrectionTickTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(1, y, z), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 start = new Vec3(.5, FLOOR_Y + 12, .5);
             f.place(start, new Vec3(.15, 0, 0));
             proveChunk(f);

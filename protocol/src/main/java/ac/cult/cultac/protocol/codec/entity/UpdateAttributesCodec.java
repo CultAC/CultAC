@@ -15,20 +15,23 @@ import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
-import java.util.ArrayList;
+import java.util.List;
 
 public final class UpdateAttributesCodec implements PacketCodec<ClientboundUpdateAttributes> {
+    private static final AttributeSnapshot[] NO_ATTRIBUTES = {};
+    private static final AttributeModifier[] NO_MODIFIERS = {};
+
     @Override
     public ClientboundUpdateAttributes read(ByteBuf input, ProtocolContext context) {
         int entityId = Wire.readVarInt(input);
         // The reviewed 26.2/26.3 codecs limit this list to 128; both 1.21 bundles are unbounded.
         int count = readCount(input, context.version().atLeast(ProtocolVersion.V26_2) ? 128 : Integer.MAX_VALUE);
-        var attributes = new ArrayList<AttributeSnapshot>(count);
+        var attributes = count == 0 ? NO_ATTRIBUTES : new AttributeSnapshot[count];
         for (int i = 0; i < count; i++) {
             String attribute = context.data().registry("minecraft:attribute").name(Wire.readVarInt(input));
             double base = input.readDouble();
             int modifiersCount = readCount(input, Integer.MAX_VALUE);
-            var modifiers = new ArrayList<AttributeModifier>(modifiersCount);
+            var modifiers = modifiersCount == 0 ? NO_MODIFIERS : new AttributeModifier[modifiersCount];
             for (int j = 0; j < modifiersCount; j++) {
                 String id = Wire.readIdentifier(input);
                 double amount = input.readDouble();
@@ -38,11 +41,11 @@ public final class UpdateAttributesCodec implements PacketCodec<ClientboundUpdat
                     case 2 -> AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL;
                     default -> AttributeModifier.Operation.ADD_VALUE;
                 };
-                modifiers.add(new AttributeModifier(id, amount, operation));
+                modifiers[j] = new AttributeModifier(id, amount, operation);
             }
-            attributes.add(new AttributeSnapshot(attribute, base, modifiers));
+            attributes[i] = new AttributeSnapshot(attribute, base, List.of(modifiers));
         }
-        return new ClientboundUpdateAttributes(entityId, attributes);
+        return new ClientboundUpdateAttributes(entityId, List.of(attributes));
     }
 
     private static int readCount(ByteBuf input, int max) {

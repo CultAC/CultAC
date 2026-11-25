@@ -237,6 +237,58 @@ class CanonicalSectionReadTest {
     }
 
     @Test
+    void aTakenSnapshotSectionReceivesAndWritesAsItsCopy() {
+        var air = SectionPool.canonicalAir();
+        byte[] airBefore = written(air.states());
+        IntUnaryOperator states = id -> id % STATES, biomes = id -> id % 64;
+        var random = new SplittableRandom(0x7A4EL);
+        int canonical = 0, receivedAir = 0;
+        for (int round = 0; round < 3000; round++) {
+            var version = VERSIONS[random.nextInt(VERSIONS.length)];
+            boolean wireFluids = version.atLeast(ProtocolVersion.V26_1);
+            byte[] blocks = round % 3 == 0
+                    ? version.atLeast(ProtocolVersion.V1_21_5) ? new byte[] {0, 0} : new byte[] {0, 0, 0}
+                    : container(random, version, true, SOURCE, false);
+            ByteBuf output = Unpooled.buffer();
+            output.writeShort(round % 4 == 0 ? random.nextInt(4097) : 0);
+            if (wireFluids) output.writeShort(round % 5 == 0 ? random.nextInt(3) : 0);
+            output.writeBytes(blocks);
+            output.writeBytes(container(random, version, false, BIOMES, false));
+            byte[] wire = drained(output);
+            SectionPool pool = null;
+            if (round % 2 == 1) {
+                pool = new SectionPool();
+                ByteBuf held = Unpooled.wrappedBuffer(blocks);
+                pool.internRetained(
+                        new CachedSection(PalettedSection.readBlocks(held, version, SOURCE, states, STATES)));
+            }
+            var copied = SectionSnapshot.read(
+                    Unpooled.wrappedBuffer(wire), version, SOURCE, STATES, BIOMES, 64, states, biomes, pool);
+            var taken = SectionSnapshot.read(
+                    Unpooled.wrappedBuffer(wire), version, SOURCE, STATES, BIOMES, 64, states, biomes, pool);
+            byte[] takenBefore = bytes(SectionSnapshot.encode(List.of(taken)));
+            var expected =
+                    CachedSection.received(copied.copyBlocks(), copied.nonEmptyBlockCount(), copied.knownFluidCount());
+            var takenBlocks = taken.takeBlocks();
+            if (takenBlocks.isCanonical()) canonical++;
+            var actual = CachedSection.received(takenBlocks, taken.nonEmptyBlockCount(), taken.knownFluidCount());
+            assertEquals(expected == air, actual == air, "round " + round);
+            if (actual == air) receivedAir++;
+            assertEquals(expected.isShared(), actual.isShared(), "round " + round);
+            assertEquals(state(expected), state(actual), "round " + round);
+            long seed = random.nextLong();
+            assertEquals(
+                    writes(expected, new SplittableRandom(seed)),
+                    writes(actual, new SplittableRandom(seed)),
+                    "round " + round);
+            assertArrayEquals(takenBefore, bytes(SectionSnapshot.encode(List.of(taken))), "round " + round);
+            assertArrayEquals(written(copied.copyBlocks()), written(taken.takeBlocks()), "round " + round);
+            assertArrayEquals(airBefore, written(air.states()), "round " + round);
+        }
+        assertTrue(canonical > 1000 && receivedAir > 500, "canonical " + canonical + " air " + receivedAir);
+    }
+
+    @Test
     void aCanonicalSectionIsSharedAndNeverWritten() {
         byte[] stone = {0, 1};
         var first = canonicalBlocks(stone);

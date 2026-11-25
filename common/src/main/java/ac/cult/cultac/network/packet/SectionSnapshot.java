@@ -9,18 +9,24 @@ import io.netty.buffer.Unpooled;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.function.IntUnaryOperator;
+import org.jetbrains.annotations.ApiStatus;
 
 /**
- * Immutable palettes; a section pool may share their block storage across connections, copy-on-write, and a
- * single-entry palette is a canonical section that every thread shares. Mutable consumers copy storage; no frame or
- * encoded copy is retained.
+ * Decoded palettes; a section pool may share their block storage across connections, copy-on-write, and a
+ * single-entry palette is a canonical section that every thread shares. Mutable consumers copy storage, except the world
+ * reader, which {@link #takeBlocks} hands a {@link #readModel} section's own storage, whose later writes this snapshot
+ * then shows; no frame or encoded copy is retained.
  */
 public final class SectionSnapshot {
+    private static final int COPIES = -1;
+
     private final short nonEmpty, fluids;
     /** The fluid count when the wire (26.1+) or a pooled section with these contents supplied it; -1 otherwise. */
     private final int knownFluids;
 
     private final PalettedSection blocks, biomes;
+    /** Counts the next {@link #takeBlocks} adds as it hands over {@link #blocks}, else COPIES; owner thread only. */
+    private int heldCounts = COPIES;
 
     private SectionSnapshot(
             short nonEmpty, short fluids, int knownFluids, PalettedSection blocks, PalettedSection biomes) {
@@ -79,8 +85,39 @@ public final class SectionSnapshot {
                 PalettedSection.readCanonicalBiomes(input, version, sourceBiomes, biomes, modelBiomes));
     }
 
+    /**
+     * For the chunk codec only: a pinned 26.3 section as the model world reads it, block states as
+     * {@link PalettedSection#readCanonicalBlocks} with {@code pool}, both counts from the wire, biomes in their wire
+     * registry of {@code biomeRegistrySize}; {@code counts} holds its pool counts until {@link #takeBlocks}.
+     */
+    @ApiStatus.Internal
+    public static SectionSnapshot readModel(
+            ByteBuf input, int biomeRegistrySize, SectionPool pool, SectionPool.ReadCounts counts) {
+        short nonEmpty = input.readShort();
+        short fluids = input.readShort();
+        var blocks = PalettedSection.readCanonicalBlocks(input, pool, counts);
+        var snapshot = new SectionSnapshot(
+                nonEmpty, fluids, fluids, blocks, PalettedSection.readCanonicalBiomes(input, biomeRegistrySize));
+        snapshot.heldCounts = counts.take();
+        return snapshot;
+    }
+
     public PalettedSection copyBlocks() {
         return blocks.copyOnWrite();
+    }
+
+    /**
+     * For the world reader only; a listener that runs before it uses {@link #copyBlocks}. For a {@link #readModel}
+     * section the first call adds its pool counts and gives its own storage, whose later writes this snapshot shows;
+     * otherwise, and on later calls, a canonical section itself, which nothing writes, else {@link #copyBlocks}.
+     */
+    @ApiStatus.Internal
+    public PalettedSection takeBlocks() {
+        int counts = heldCounts;
+        if (counts == COPIES) return blocks.isCanonical() ? blocks : copyBlocks();
+        heldCounts = COPIES;
+        SectionPool.ReadCounts.add(counts);
+        return blocks;
     }
 
     /** The non-air block count the wire carried. */
@@ -96,6 +133,12 @@ public final class SectionSnapshot {
     /** The biome of every cell when the palette holds a single entry; -1 otherwise. */
     public int uniformBiome() {
         return biomes.singleValue();
+    }
+
+    /** The biome of every cell in {@link PalettedSection#sharedValues}' array, which no caller may write. */
+    @ApiStatus.Internal
+    public int[] biomeValues() {
+        return biomes.sharedValues();
     }
 
     public int[] copyBiomes() {

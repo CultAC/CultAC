@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.math;
 
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.value.Direction;
 
 /**
@@ -93,6 +94,17 @@ public class Vec3 {
 
     public Vec3 yRot(float radians) {
         float cos = CultMath.cos(radians), sin = CultMath.sin(radians);
+        return new Vec3(x * cos + z * sin, y, z * cos - x * sin);
+    }
+
+    /** Vec3's Mth rotations use the receiving Java client's lookup table. */
+    public Vec3 xRot(ClientVersion version, float radians) {
+        float cos = VanillaMath.cos(version, radians), sin = VanillaMath.sin(version, radians);
+        return new Vec3(x, y * cos + z * sin, z * cos - y * sin);
+    }
+
+    public Vec3 yRot(ClientVersion version, float radians) {
+        float cos = VanillaMath.cos(version, radians), sin = VanillaMath.sin(version, radians);
         return new Vec3(x * cos + z * sin, y, z * cos - x * sin);
     }
 

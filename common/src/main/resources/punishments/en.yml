@@ -22,6 +22,7 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
+      - "Phase"
     # Threshold:Interval Command
     #
     # N is the active violation count required to run the command.
@@ -96,6 +97,7 @@ Punishments:
       - "NoSneakSlow"
       - "Sprint"
       - "MultiActions"
+      - "Inventory"
       - "Place"
       - "Baritone"
       - "Break"
@@ -115,7 +117,7 @@ Punishments:
     checks:
       - "Interact"
       - "AttackPlayerVisibility"
-      - "AttackMobVisibility"
+      - "AttackEntityVisibility"
       - "Aim"
     commands:
       - "20:40 [alert]"
@@ -139,4 +141,16 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 5
+# The version of the check names this file's "checks" lists are written in.
+# Cult never changes it. Raise it yourself, after you have rewritten every name a newer version changed:
+#   1: AttackMobVisibility, bAttackMobVisibility. InteractEntityVisibility covers players too.
+#   2: AttackEntityVisibility, bAttackEntityVisibility. InteractPlayerVisibility covers players,
+#      InteractEntityVisibility everything else.
+#   3: MultiActionsC, D and H are InventoryA, B and C. MultiActionsI, J, K, L and S are one
+#      check, InventoryD, whose verbose names the action. MultiActionsM, N, O, P, Q, R and T
+#      are InventoryE to K. MultiActionsE, F and G are MultiActionsC, D and E.
+#      "MultiActions" selects MultiActionsA to E, and "Inventory" selects the Inventory checks.
+# A file without this line is read as version 1.
+punishment-check-name-version: 3
+
+cult-config-version: 6

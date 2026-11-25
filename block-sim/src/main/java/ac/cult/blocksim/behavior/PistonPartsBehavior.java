@@ -3,6 +3,7 @@ package ac.cult.blocksim.behavior;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimLevel;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 
 /** Head support and the moving part's ordered base removal share one piston mechanic. */
 public final class PistonPartsBehavior extends BlockBehavior {
@@ -11,8 +12,14 @@ public final class PistonPartsBehavior extends BlockBehavior {
     public PistonPartsBehavior(Part part) { this.part = part; }
 
     @Override
-    public ac.cult.blocksim.engine.shapes.VoxelShape collisionShape(SimLevel level, int state, BlockPos pos) {
+    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos) {
         return part == Part.MOVING ? level.movingPistonCollisionAt(pos) : super.collisionShape(level, state, pos);
+    }
+
+    /** MovingPistonBlock keeps BlockBehaviour#getBlockSupportShape: its block entity's empty-context collision. */
+    @Override
+    public VoxelShape supportShape(SimLevel level, int state, BlockPos pos) {
+        return part == Part.MOVING ? collisionShape(level, state, pos) : super.supportShape(level, state, pos);
     }
 
     @Override

@@ -90,7 +90,7 @@ class DeadLocalPlayerTravelTest {
     private static JavaTickFixture dyingInAVine() throws Exception {
         JavaTickFixture f = new JavaTickFixture();
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.VINE.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.xRot = YAW;
         f.player.yRot = PITCH;
         f.teleport(f.player.sendTrailingTransaction(), at(SLIDE[0]), new RelativeFlag(0), YAW, PITCH, YAW, PITCH);

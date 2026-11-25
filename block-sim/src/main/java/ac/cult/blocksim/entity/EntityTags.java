@@ -1,6 +1,7 @@
 package ac.cult.blocksim.entity;
 
 import ac.cult.blocksim.data.DataTables;
+import java.util.Set;
 
 /** Default model memberships for the entity tags used by movement geometry. */
 public enum EntityTags {
@@ -19,7 +20,7 @@ public enum EntityTags {
         int[] result = new int[types.size()];
         var defaults = DataTables.defaults().tags();
         for (var tag : values()) {
-            var members = defaults.getOrDefault(tag.key, java.util.Set.of());
+            var members = defaults.getOrDefault(tag.key, Set.of());
             for (var type : types)
                 if (members.contains(type.key())) result[type.id()] |= 1 << tag.ordinal();
         }

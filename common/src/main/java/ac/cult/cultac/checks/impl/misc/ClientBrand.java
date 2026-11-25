@@ -10,6 +10,7 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.Platform;
+import ac.cult.cultac.player.ClientClassification;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
@@ -29,6 +30,19 @@ public class ClientBrand extends Check implements CheckListener {
 
     @Getter
     private boolean hasBrand = false;
+
+    private record Classified(String brand, ClientClassification.Type type) {}
+
+    private volatile @Nullable Classified classified;
+
+    /** The loader or client {@link #brand} names, classified once for each brand. */
+    public ClientClassification.Type getBrandType() {
+        String brand = this.brand;
+        Classified cached = classified;
+        if (cached == null || !cached.brand.equals(brand))
+            classified = cached = new Classified(brand, ClientClassification.brandType(brand));
+        return cached.type;
+    }
 
     /** On a proxy, the brand message waits for the player's first backend, whose staff it is for. */
     private final AtomicReference<Component> heldAnnouncement = new AtomicReference<>();

@@ -63,7 +63,7 @@ public final class BackendTickEstimator implements AutoCloseable {
     private final Runnable sourceCheck;
     private final IntOpenHashSet wave = new IntOpenHashSet();
     // Unlike wave (which measures burst merging), this survives a burst that emits no tick end.
-    private final IntOpenHashSet unendedTrackingWave = new IntOpenHashSet();
+    private final GenerationIntSet unendedTrackingWave = new GenerationIntSet();
     private long tickEndHits;
     private long tickEndMisses;
     private long emittedTickEnds;

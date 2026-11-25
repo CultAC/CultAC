@@ -1,5 +1,6 @@
 package ac.cult.blocksim.engine;
 
+import ac.cult.blocksim.data.ItemComponents;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -12,7 +13,7 @@ public final class SimCooldowns {
         this.tickCount = tickCount; this.cooldowns = new HashMap<>(cooldowns);
     }
     public String group(SimItemStack stack) {
-        var component = ac.cult.blocksim.data.ItemComponents.useCooldown(stack.components());
+        var component = ItemComponents.useCooldown(stack.components());
         return component == null || component.group() == null ? stack.itemKey() : component.group();
     }
     public float percent(SimItemStack stack, float partialTick) {

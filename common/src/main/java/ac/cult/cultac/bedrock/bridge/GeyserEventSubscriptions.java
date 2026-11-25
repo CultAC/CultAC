@@ -1,14 +1,19 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.reload.host.NativeEventHub;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
+import org.geysermc.geyser.api.event.EventRegistrar;
 
 /** Keeps Geyser's event types in its own loader and retires cached callbacks on stop. */
 final class GeyserEventSubscriptions implements AutoCloseable {
     private final Object bus;
     private final Object owner;
     private volatile boolean active = true;
-    private final java.util.List<AutoCloseable> scoped = new java.util.ArrayList<>();
+    private final List<AutoCloseable> scoped = new ArrayList<>();
 
     GeyserEventSubscriptions(Object bus, Object owner) {
         this.bus = bus;
@@ -27,12 +32,10 @@ final class GeyserEventSubscriptions implements AutoCloseable {
         Consumer<T> guarded = value -> {
             if (active) listener.accept(value);
         };
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host != null) {
-            var hub = (ac.cult.reload.host.NativeEventHub) host.shared(
-                    "geyser-events",
-                    () -> new ac.cult.reload.host.NativeEventHub(
-                            bus, org.geysermc.geyser.api.event.EventRegistrar.of(host.plugin())));
+            var hub = (NativeEventHub)
+                    host.shared("geyser-events", () -> new NativeEventHub(bus, EventRegistrar.of(host.plugin())));
             scoped.add(hub.subscribe(host, event, last, value -> guarded.accept(event.cast(value))));
             return;
         }
@@ -59,7 +62,7 @@ final class GeyserEventSubscriptions implements AutoCloseable {
     @Override
     public void close() {
         active = false;
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() != null) {
+        if (RuntimeEnvironment.host() != null) {
             for (var subscription : scoped) {
                 try {
                     subscription.close();

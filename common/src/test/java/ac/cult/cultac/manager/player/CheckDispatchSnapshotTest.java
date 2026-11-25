@@ -73,7 +73,16 @@ class CheckDispatchSnapshotTest {
                         Set.of(PostPredictionListener.class))) predictions.add(check);
             }
             assertEquals(predictions, array(manager, "predictionListeners"));
-            assertEquals(new ArrayList<>(manager.pseudoCheck.values()), array(manager, "pseudoListeners"));
+            List<Object> pseudos = new ArrayList<>();
+            for (Object check : manager.pseudoCheck.values()) {
+                if (declaresCallback(
+                        check.getClass(),
+                        "onPredictionComplete",
+                        PredictionComplete.class,
+                        Set.of(PostPredictionListener.class))) pseudos.add(check);
+            }
+            assertEquals(pseudos, array(manager, "pseudoListeners"));
+            assertTrue(pseudos.size() < manager.pseudoCheck.size(), "pseudo cull removed nothing");
 
             for (var entry : manager.allCheckListeners.entrySet()) {
                 assertSame(entry.getValue(), manager.getListener(entry.getKey()));

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.utils.inventory.ItemUtil;
+import com.google.gson.JsonPrimitive;
 import org.junit.jupiter.api.Test;
 
 class ClientAttackStrengthTest {
@@ -38,6 +39,38 @@ class ClientAttackStrengthTest {
         ClientAttackStrength strength = holding(sword, 20);
         strength.onPossibleReset();
         assertTrue(strength.canBeFullStrength(SWORD_DELAY));
+        assertFalse(strength.isFullStrength(SWORD_DELAY));
+    }
+
+    @Test
+    void aSwingInATickWithoutAnAttackMayBeAMissAtItsEnd() {
+        SimItemStack sword = item("minecraft:diamond_sword");
+        ClientAttackStrength strength = holding(sword, 20);
+        strength.onPossibleMiss();
+        strength.onClientTickEnd();
+        strength.onClientTick(sword, false);
+        assertTrue(strength.canBeFullStrength(SWORD_DELAY));
+        assertFalse(strength.isFullStrength(SWORD_DELAY));
+    }
+
+    @Test
+    void aSwingInATickThatAttacksIsNoMiss() {
+        SimItemStack sword = item("minecraft:diamond_sword");
+        ClientAttackStrength strength = holding(sword, 20);
+        strength.onPossibleMiss();
+        strength.onEntityAttack();
+        assertTrue(strength.isFullStrength(SWORD_DELAY));
+        strength.onClientTickEnd();
+        strength.onClientTick(sword, false);
+        assertTrue(strength.isFullStrength(SWORD_DELAY));
+    }
+
+    @Test
+    void aSwingBeforeATickEndTheModelDidNotSeeStillMayBeAMiss() {
+        SimItemStack sword = item("minecraft:diamond_sword");
+        ClientAttackStrength strength = holding(sword, 20);
+        strength.onPossibleMiss();
+        strength.onClientTick(sword, false);
         assertFalse(strength.isFullStrength(SWORD_DELAY));
     }
 
@@ -111,8 +144,8 @@ class ClientAttackStrengthTest {
         assertFalse(ClientAttackStrength.changesItemOnUseCompletion(honey, true));
         assertFalse(ClientAttackStrength.changesItemOnUseCompletion(item("minecraft:bow"), false));
         assertFalse(ClientAttackStrength.changesItemOnUseCompletion(SimItemStack.EMPTY, false));
-        honey.components(honey.components()
-                .with("minecraft:use_remainder", new com.google.gson.JsonPrimitive("minecraft:honey_bottle")));
+        honey.components(
+                honey.components().with("minecraft:use_remainder", new JsonPrimitive("minecraft:honey_bottle")));
         assertFalse(ClientAttackStrength.changesItemOnUseCompletion(honey, false));
     }
 }

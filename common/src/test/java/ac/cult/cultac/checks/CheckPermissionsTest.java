@@ -67,7 +67,11 @@ class CheckPermissionsTest {
         try {
             Set<String> ids = new TreeSet<>();
             for (Check check : player.checkManager.allChecks.values()) {
-                if (check.getConfigName() != null) ids.add(Check.permissionId(check.getConfigName()));
+                if (check.getConfigName() == null) continue;
+                // A reload may move config.yml to any name version, so the nodes of each are registered.
+                for (int version = CheckNames.FIRST; version <= CheckNames.LATEST; version++) {
+                    ids.add(Check.permissionId(check.configNameIn(version)));
+                }
             }
             return ids;
         } finally {

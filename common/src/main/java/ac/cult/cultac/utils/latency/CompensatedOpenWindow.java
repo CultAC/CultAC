@@ -7,7 +7,9 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import lombok.Getter;
 import org.jetbrains.annotations.Nullable;
@@ -17,8 +19,14 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     private static final Window PLAYER_INVENTORY = new Window(0, Long.MIN_VALUE, null);
     private final CultPlayer player;
     private final Set<@Nullable Window> possibleOpenWindows = new HashSet<>(2);
+    // Server windows sent without proofs, by id: the newest transaction written before each.
+    private final Map<Integer, Integer> untrackedServerWindows = new HashMap<>(2);
     private long openPlayerInventoryTransaction = Long.MIN_VALUE;
     private long closeTransaction = Long.MIN_VALUE;
+    private int newestServerWindow = Integer.MIN_VALUE;
+    // A show_dialog that may cover a container screen, and the newest transaction written before it.
+    private boolean dialogMayCover;
+    private int dialogTransaction;
     // An acknowledged open_sign_editor whose editor has not yet sent its sign_update.
     private boolean signEditorOpen;
     private int signEditorTransaction;
@@ -32,6 +40,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     }
 
     public void onClientOpenOrCloseWindow(boolean open) {
+        onClientContainerScreen();
         int transaction = player.lastTransactionReceived.get();
         possibleOpenWindows.removeIf(
                 window -> window == null || window == PLAYER_INVENTORY || window.transaction < transaction);
@@ -42,14 +51,19 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
             onClose();
             closeTransaction = transaction;
         }
+        untrackedServerWindows.values().removeIf(sent -> sent < transaction);
     }
 
     public void onServerWindow(PacketSendEvent<?> event, int id, @Nullable MenuType type) {
         CultPlayer.TrackedTransaction before =
                 player.createTrackedTransactionPacketForDeferredSend(CultPlayer.PING_LEADING);
         CultPlayer.TrackedTransaction after = player.createTrackedTransactionPacketForDeferredSend();
-        if (before == null || after == null) return;
+        if (before == null || after == null) {
+            if (type != null) onUntrackedServerWindow(id);
+            return;
+        }
         Window window = type == null ? null : new Window(id, before.transaction(), type);
+        if (window != null) newestServerWindow = before.transaction();
         // Both proofs stay inside the outbound group. Vanilla processes bundles
         // before a client tick, so no ping is inserted midway through a bundle.
         event.getWritesBeforeSend().add(before.packet());
@@ -64,8 +78,41 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
             // A vanilla editor sends its sign_update between these proofs when this window replaces it.
             if (signEditorTransaction < before.transaction()) signEditorOpen = false;
             closeBefore(before.transaction(), window != null);
+            closeDialogBefore(before.transaction());
             if (window != null) player.serverOpenedInventoryThisTick = true;
         });
+    }
+
+    /** An open_screen or a mount screen this model cannot follow, for a window the client may show. */
+    public void onUntrackedServerWindow(int id) {
+        untrackedServerWindows.put(id, player.lastTransactionSent.get());
+    }
+
+    /**
+     * Whether the client may have handled a server window {@code id} after a container_close it sent once it had
+     * answered {@code closeTransaction}: a possible window, kept by that close for being handled after it, or an
+     * untracked one written after the last ping answered by then.
+     */
+    public boolean mayHaveOpenedSince(int id, int closeTransaction) {
+        for (Window window : possibleOpenWindows) {
+            if (window != null && window.type() != null && window.id() == id) return true;
+        }
+        Integer sent = untrackedServerWindows.get(id);
+        return sent != null && sent >= closeTransaction;
+    }
+
+    /**
+     * Whether window {@code id} may be a {@code type} menu: one possible window is, or none the model knows has its id
+     * and it is not 0, the player inventory menu's.
+     */
+    public boolean mayBe(int id, MenuType type) {
+        boolean known = false;
+        for (Window window : possibleOpenWindows) {
+            if (window == null || window.id() != id) continue;
+            if (window.type() == type) return true;
+            known = true;
+        }
+        return !known && id != 0;
     }
 
     private void closeBefore(int transaction, boolean closeEmpty) {
@@ -75,9 +122,15 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         }
         boolean shouldCloseEmpty = closeEmpty && closeTransaction <= transaction;
         boolean shouldClosePlayer = openPlayerInventoryTransaction <= transaction;
+        // ClientPacketListener#handleContainerClose closes the client's screen whatever its id. A window-0 click sent
+        // between this close's pings came before it, leaving no screen, or after it, from an inventory opened since.
+        boolean playerMayFollowClose = !closeEmpty
+                && openPlayerInventoryTransaction == transaction
+                && possibleOpenWindows.contains(PLAYER_INVENTORY);
         possibleOpenWindows.removeIf(window -> window == PLAYER_INVENTORY
-                ? shouldClosePlayer
+                ? shouldClosePlayer && !playerMayFollowClose
                 : window == null ? shouldCloseEmpty : window.transaction < transaction);
+        if (playerMayFollowClose) possibleOpenWindows.add(null);
     }
 
     /**
@@ -86,7 +139,6 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
      * when the editor leaves the screen.
      */
     public void onServerSignEditor(PacketSendEvent<?> event) {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_11)) return;
         CultPlayer.TrackedTransaction proof = player.appendTrailingProofTransaction(event);
         if (proof == null) return;
         player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {
@@ -101,9 +153,77 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         onClientOpenOrCloseWindow(false);
     }
 
+    /**
+     * LocalPlayer#handlePortalTransitionEffect sets no screen in place of a LecternScreen, which is no
+     * AbstractContainerScreen: the client sends no container_close for it. A lectern window the client has handled
+     * closes; one whose open_screen it may not have handled yet stays possible. A dialog that is no pause screen is
+     * not allowed in a portal either, so a container screen it covers is gone with no container_close.
+     */
+    public void onPortalClosedScreen() {
+        int transaction = player.lastTransactionReceived.get();
+        boolean closed = possibleOpenWindows.removeIf(
+                window -> window != null && window.type() == MenuType.LECTERN && window.transaction() < transaction);
+        if (dialogMayCover && dialogTransaction < transaction) closed = possibleOpenWindows.add(null) || closed;
+        if (!closed) return;
+        possibleOpenWindows.add(null);
+        onClose();
+        closeTransaction = transaction;
+    }
+
+    /**
+     * ClientPacketListener#handleOpenBook sets a BookViewScreen, and the WIN_GAME game event a WinScreen, in place of
+     * any container screen, whose AbstractContainerScreen#removed sends no container_close. Leaving the book sends
+     * nothing, and the credits leave no screen until the respawn they ask for arrives. The client handles the packet
+     * between the two pings, so a container click it sends between them does not prove the container stayed.
+     */
+    public void onServerScreenOverContainer(PacketSendEvent<?> event) {
+        screenOverContainer(event, this::maybeClose);
+    }
+
+    /**
+     * ClientPacketListener#handlePlayerCombatKill sets a DeathScreen in place of any container screen while the death
+     * screen shows, and otherwise respawns with the screen kept. The DeathScreen's title screen confirmation can respawn
+     * and set no screen while the player lives.
+     */
+    public void onServerDeathScreen(PacketSendEvent<?> event) {
+        screenOverContainer(event, () -> {
+            if (player.packetStateData.showsDeathScreen) maybeClose();
+        });
+    }
+
+    /**
+     * ClientPacketListener#handleConfigurationStart clears the level behind a ServerReconfigScreen, whose replacement
+     * of a container screen sends no container_close, and the client sends no play packet until it handles the LOGIN
+     * that ends the configuration. That LOGIN leaves no container screen.
+     */
+    public void onLoginSent() {
+        possibleOpenWindows.clear();
+        possibleOpenWindows.add(null);
+        closeTransaction = player.lastTransactionReceived.get();
+        dialogMayCover = false;
+        signEditorOpen = false;
+        onClose();
+    }
+
+    private void screenOverContainer(PacketSendEvent<?> event, Runnable close) {
+        CultPlayer.TrackedTransaction before =
+                player.createTrackedTransactionPacketForDeferredSend(CultPlayer.PING_LEADING);
+        CultPlayer.TrackedTransaction after = player.createTrackedTransactionPacketForDeferredSend();
+        if (before == null || after == null) return;
+        event.getWritesBeforeSend().add(before.packet());
+        event.getWritesAfterSend().add(after.packet());
+        event.getTasksAfterSend().add(() -> {
+            player.markTrackedTransactionPacketSent(before);
+            player.markTrackedTransactionPacketSent(after);
+        });
+        player.latencyUtils.addRealTimeTask(before.transaction(), close);
+        player.latencyUtils.addRealTimeTask(after.transaction(), close);
+    }
+
     public void maybeClose() {
         possibleOpenWindows.add(null);
         closeTransaction = player.lastTransactionReceived.get();
+        closeDialogBefore(player.lastTransactionReceived.get());
         onClose();
     }
 
@@ -133,10 +253,76 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     }
 
     public boolean mustBeOpen() {
+        return !possibleOpenWindows.contains(null) && !debugOptionsKeyMayReplaceCoveredContainer();
+    }
+
+    /**
+     * KeyboardHandler's debug options key (1.21.9+) runs a handled dialog's Screen#onClose, which sets the covered
+     * container screen back, then sets a DebugOptionsScreen in its place: Minecraft#setScreen only calls
+     * AbstractContainerScreen#removed, which sends no container_close. A container click or close after the dialog
+     * proves the container screen is back on top.
+     */
+    private boolean debugOptionsKeyMayReplaceCoveredContainer() {
+        return dialogMayCover
+                && player.lastTransactionReceived.get() > dialogTransaction
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_9);
+    }
+
+    /**
+     * LecternScreen is a BookViewScreen: Screen#defaultHandleGameClickEvent opens a page's show_dialog over it, and
+     * the dialog's run_command action reaches ClientPacketListener#sendUnattendedCommand without closing the lectern.
+     */
+    public boolean mayShowBookDialog() {
         for (Window window : possibleOpenWindows) {
-            if (window == null) return false;
+            if (window != null && window.type() == MenuType.LECTERN) return true;
         }
-        return true;
+        return false;
+    }
+
+    /**
+     * ClientCommonPacketListenerImpl#showDialog sets the dialog in place of the current screen and keeps that screen
+     * as its previous screen; a container screen it covers sends no container_close, and the dialog's run_command
+     * reaches ClientPacketListener#sendUnattendedCommand.
+     */
+    public void onServerDialog() {
+        if (!containerMayShow()) return;
+        dialogMayCover = true;
+        dialogTransaction = player.lastTransactionSent.get();
+    }
+
+    /** ClientCommonPacketListenerImpl#clearDialog sets the dialog's previous screen back on top. */
+    public void onServerClearDialog(PacketSendEvent<?> event) {
+        if (!dialogMayCover) return;
+        CultPlayer.TrackedTransaction proof = player.appendTrailingProofTransaction(event);
+        if (proof == null) return;
+        player.latencyUtils.addRealTimeTask(proof.transaction(), () -> closeDialogBefore(proof.transaction()));
+    }
+
+    /** Only a container screen on top sends container_click and container_close. */
+    public void onClientContainerScreen() {
+        closeDialogBefore(player.lastTransactionReceived.get());
+    }
+
+    // The client has handled every show_dialog written before this transaction.
+    private void closeDialogBefore(int transaction) {
+        if (dialogTransaction < transaction) dialogMayCover = false;
+    }
+
+    public boolean mayShowServerDialog() {
+        return dialogMayCover;
+    }
+
+    /**
+     * Whether a container screen may be shown, or set by an open_screen the client has not handled yet. Without one, a
+     * dialog never covers a container: ClientPacketListener#handleOpenScreen and #handleMountScreenOpen set the next
+     * container screen in place of the dialog.
+     */
+    private boolean containerMayShow() {
+        if (player.lastTransactionReceived.get() < newestServerWindow) return true;
+        for (Window window : possibleOpenWindows) {
+            if (window != null) return true;
+        }
+        return false;
     }
 
     public Set<@Nullable Window> getPossibilities() {

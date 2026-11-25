@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -11,7 +12,8 @@ import ac.cult.cultac.protocol.value.*;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 @CheckData(
-        name = "MultiActionsM",
+        name = "InventoryE",
+        formerNames = @FormerName(name = "MultiActionsM", until = 2),
         stableKey = "cult.multiactions.inventory_sneak",
         description = "Pressed or released sneak in an inventory",
         experimental = true)

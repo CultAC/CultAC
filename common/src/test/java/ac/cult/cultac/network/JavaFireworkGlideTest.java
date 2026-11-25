@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
@@ -13,7 +14,6 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
-import java.util.OptionalInt;
 import java.util.function.BiFunction;
 import org.junit.jupiter.api.Test;
 
@@ -60,6 +60,30 @@ class JavaFireworkGlideTest {
             attachRocket(f);
             Vec3 boosted = glide(f, boost(f, first));
             assertNotVanilla(f.tick(FROM.add(first).add(boosted), false));
+        }
+    }
+
+    /**
+     * The client attaches the rocket after twenty gliding ticks: FireworkRocketEntity#tick boosts after that tick's
+     * travel and after each later one.
+     */
+    @Test
+    void aRocketAppliedLateBoostsEachLaterGlide() throws Exception {
+        try (var f = gliding()) {
+            // The boosted glide leaves the fixture's chunks, and a rocket ticks only in a chunk the client has loaded.
+            for (int x = -4; x <= 1; x++) {
+                for (int z = -1; z <= 5; z++) f.player.compensatedWorld.ensureValidationChunkLoaded(x, z);
+            }
+            Vec3 velocity = CARRIED;
+            Vec3 position = FROM;
+            for (int tick = 0; tick < 40; tick++) {
+                if (tick == 20) attachRocket(f);
+                // LivingEntity#aiStep zeroes a vertical speed under 0.003 before travel.
+                Vec3 move = glide(f, Math.abs(velocity.y) < 0.003 ? velocity.multiply(1, 0, 1) : velocity);
+                position = position.add(move);
+                assertExact(f.tick(position, false));
+                velocity = tick >= 20 ? boost(f, move) : move;
+            }
         }
     }
 
@@ -165,23 +189,22 @@ class JavaFireworkGlideTest {
             Vec3 first = glide(f, CARRIED);
             assertExact(f.tick(FROM.add(first), false));
             fillWater(f);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 water = boost(f, first);
             PredictionResult result = f.tick(FROM.add(first).add(water), false);
-            assertTrue(result.getSimulationContext().getWorldData().mustBeInLiquid());
+            assertTrue(result.getSimulationContext().getWorldData().isInLiquid());
             assertExact(result);
         }
     }
 
-    /** The client may already hold a water block whose placement is still in flight. */
+    /** Water the client set since its last tick holds the glider in its next travel, with no tick between. */
     @Test
-    void aGliderThatMayHaveEnteredWaterStartsItsWaterTravelFromTheBoost() throws Exception {
+    void aGliderInWaterSetSinceItsLastTickStartsItsWaterTravelFromTheBoost() throws Exception {
         try (var f = boostedGlider()) {
             Vec3 first = glide(f, CARRIED);
             fillWater(f);
             PredictionResult result = f.tick(FROM.add(first).add(boost(f, first)), false);
-            assertTrue(result.getSimulationContext().getWorldData().maybeInLiquid());
-            assertFalse(result.getSimulationContext().getWorldData().mustBeInLiquid());
+            assertTrue(result.getSimulationContext().getWorldData().isInLiquid());
             assertExact(result);
         }
         try (var f = boostedGlider()) {
@@ -193,8 +216,11 @@ class JavaFireworkGlideTest {
 
     /** The rocket's attachment, which the client may apply before any tick until the next ping proves it. */
     private static void attachRocket(JavaTickFixture f) {
-        f.player.compensatedFireworks.attachmentChanged(
-                ROCKET, OptionalInt.of(f.player.entityID), f.player.lastTransactionSent.get() + 1);
+        var entities = f.player.compensatedEntities;
+        entities.addEntity(ROCKET, EntityTypeIds.FIREWORK_ROCKET, new Vec3(f.player.x, f.player.y, f.player.z), 0, 0, 0);
+        var rocket = (ac.cult.cultac.utils.data.packetentity.PacketEntityFirework) entities.getEntity(ROCKET);
+        rocket.attachment = f.player.entityID;
+        f.player.compensatedFireworks.addNewFirework(ROCKET);
     }
 
     /** A glider whose first tick the attached rocket boosted. */

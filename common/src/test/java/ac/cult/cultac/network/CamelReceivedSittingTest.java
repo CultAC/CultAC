@@ -8,11 +8,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck.MeasuredAttack;
-import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset;
 import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.network.codec.ObservedPacketValues;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -68,7 +69,6 @@ class CamelReceivedSittingTest {
     private static final float CAMEL_YAW = -56.25F;
 
     private static final float RIDER_YAW = -37.5F;
-    private static final double GROUNDED_Y = -0.0784000015258789;
     /** Camel#getRiddenSpeed: movement_speed 0.09 plus 0.1 for a sprinting controller with no dash cooldown. */
     private static final float SPEED = 0.09F + 0.1F;
     /** LivingEntity#moveRelative for the ridden input's 0.98F on 0.6-friction ground. */
@@ -79,14 +79,19 @@ class CamelReceivedSittingTest {
     private static final ServerboundPlayerInput FORWARD_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
 
-    /** The camel's onGround in the capture's moves from the tick after the mount to the end of the stand-up. */
-    private static final String IDLE_GROUND = "FTFTTTTTTTTTTTT";
-
-    private static final String STAND_UP_GROUND = "TTTTFFFTTTTTFFFFFFFFF" + "T".repeat(31);
+    /** The delta LivingEntity#travelInAir leaves a standing camel: one tick of gravity, 0.08, and its 0.98 drag. */
+    private static final Vec3 RESTING = new Vec3(0, -0.0783739241897089, 0);
 
     /**
-     * The capture's ticks after the mount: forward and sprint are pressed fifteen ticks in, and the camel stands up the
-     * next tick and stays in place, on the ground and off it, through the 52 ticks of the stand-up.
+     * The capture's ticks after the mount. The camel's own Entity#move reports the ground only when it moved down into
+     * it, and LivingEntity#travelInAir moves before its gravity: the camel mounts with no velocity and is off the ground
+     * for that tick, and again for the tick after each set_entity_motion of none, which ClientPacketListener
+     * #handleSetEntityMotion stores in the camel through Entity#lerpMotion. The server sends one such motion for its own
+     * camel, whose LivingEntity#travelRidden keeps no delta under a client's rider, and one with most of the vehicle
+     * corrections of the stand-up. ClientPacketListener#handleMoveVehicle answers each correction at once with the
+     * camel as it is, with no tick and without turning a camel that is within 1.0E-5F of the correction. Forward and
+     * sprint are pressed fifteen ticks in, the camel stands up the next tick, and it stays in place through the 52
+     * ticks of the stand-up.
      */
     @Test
     void aReceivedSeatedCamelStandsUpBeforeItWalks() throws Exception {
@@ -103,22 +108,34 @@ class CamelReceivedSittingTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             f.input(IDLE);
             f.tickEnd();
-            f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0, GROUNDED_Y, 0));
-            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
 
-            for (char ground : IDLE_GROUND.toCharArray())
-                assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, ground == 'T'));
+            assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, false));
+            assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, true));
+            f.entityMotion(CAMEL, Vec3.ZERO);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, false));
+            for (int tick = 0; tick < 12; tick++) assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, true));
             f.input(FORWARD_SPRINT);
             f.command(PlayerCommandAction.START_SPRINTING);
             // The root ticked on the idle keys before LocalPlayer#aiStep read the pressed ones.
             assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, true));
-            for (int tick = 0; tick < STAND_UP_GROUND.length(); tick++) {
-                if (tick == 18) {
-                    f.input(IDLE);
-                    f.command(PlayerCommandAction.STOP_SPRINTING);
-                }
-                assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, STAND_UP_GROUND.charAt(tick) == 'T'));
-            }
+
+            int standUp = 0;
+            standUp += correctedTick(f, true, RESTING, true);
+            standUp += correctedTick(f, true, Vec3.ZERO, true);
+            standUp += correctedTick(f, false, Vec3.ZERO, false);
+            standUp += tick(f, false);
+            standUp += tick(f, true);
+            standUp += correctedTick(f, true, RESTING, true);
+            standUp += correctedTick(f, true, Vec3.ZERO, true);
+            standUp += correctedTick(f, false, Vec3.ZERO, false);
+            standUp += correctedTick(f, false, Vec3.ZERO, false);
+            standUp += correctedTick(f, false, Vec3.ZERO, false);
+            f.input(IDLE);
+            f.command(PlayerCommandAction.STOP_SPRINTING);
+            standUp += correctedTick(f, false, Vec3.ZERO, false);
+            standUp += tick(f, false);
+            while (standUp < 52) standUp += tick(f, true);
 
             f.input(FORWARD_SPRINT);
             f.command(PlayerCommandAction.START_SPRINTING);
@@ -126,6 +143,9 @@ class CamelReceivedSittingTest {
             assertExact(ride(f, new Vec3(START.x, START.y, START.z + GROUND_INPUT), 0F, 0F, true));
             assertEquals(0.0, f.player.checkManager.getCheck(VehicleGround.class).violations,
                     "the captured seated-camel ground sequence was flagged");
+            assertEquals(0.0, f.player.checkManager.getCheck(VehicleOffset.class).violations);
+            assertEquals(0.0, f.player.checkManager.getCheck(BadPacketsVehicle.class).violations);
+            assertEquals(0, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
         }
     }
 
@@ -219,6 +239,34 @@ class CamelReceivedSittingTest {
 
     private static Vec3 onFloor(double x, double z, double originX, double originZ) {
         return new Vec3(x - originX, FLOOR_Y, z - originZ);
+    }
+
+    /** One client tick of the camel in place; 1, the tick it counts. */
+    private static int tick(JavaTickFixture f, boolean onGround) {
+        assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, onGround));
+        return 1;
+    }
+
+    /**
+     * One client tick of the camel in place that the server answers before the tick's end with a vehicle correction
+     * at the camel's position, turned to the rider, and a set_entity_motion of {@code motion}. The client handles
+     * both after its tick and answers the correction with the unturned camel and {@code answerOnGround}, the ground
+     * of the move it just made.
+     */
+    private static int correctedTick(JavaTickFixture f, boolean onGround, Vec3 motion, boolean answerOnGround) {
+        PredictionResult before = f.player.checkManager.getSimulationProcessor().getLastPrediction();
+        var rot = new ServerboundMovePlayer(0, 0, 0, RIDER_YAW, 0F, false, false, false, true);
+        f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
+        f.moveVehicle(START, CAMEL_YAW, 0F, onGround);
+        f.serverMoveVehicle(START, RIDER_YAW, 0F);
+        f.entityMotion(CAMEL, motion);
+        f.tickEnd();
+        PredictionResult result = f.player.checkManager.getSimulationProcessor().getLastPrediction();
+        assertTrue(result != null && result != before, "the vehicle move was not predicted");
+        assertExact(result);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        f.moveVehicle(START, CAMEL_YAW, 0F, answerOnGround);
+        return 1;
     }
 
     /** One client tick: the rider's Rot, the camel's move and the tick end. */

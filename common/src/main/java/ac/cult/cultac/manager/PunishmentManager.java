@@ -2,9 +2,11 @@ package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.api.AbstractCheck;
@@ -57,8 +59,10 @@ public class PunishmentManager implements ConfigReloadable {
         AbstractCheck[] known = player.getChecks().toArray(new AbstractCheck[0]);
         String[] names = new String[known.length];
         String[] alternativeNames = new String[known.length];
+        // The groups name checks as the name version of punishments.yml has them.
+        int nameVersion = CheckNames.version(config, CheckNames.PUNISHMENTS_KEY);
         for (int i = 0; i < known.length; i++) {
-            names[i] = lowerCase(known[i].getCheckName());
+            names[i] = lowerCase(known[i] instanceof Check check ? check.nameIn(nameVersion) : known[i].getCheckName());
             alternativeNames[i] = lowerCase(known[i].getAlternativeName());
         }
         for (PunishmentRules.Group rule : rules.groups()) {
@@ -76,7 +80,7 @@ public class PunishmentManager implements ConfigReloadable {
                         command.command(),
                         alertFormat(config, command.command())));
             }
-            groups.add(new PunishGroup(held, parsed, rule.removeViolationsAfter() * 1000));
+            groups.add(new PunishGroup(new HashSet<>(held), parsed, rule.removeViolationsAfter() * 1000));
         }
         for (int i = 0; i < known.length; i++) {
             if (PunishmentRules.holds(rules.unreadGroupSelectors(), names[i], alternativeNames[i])) {
@@ -200,13 +204,12 @@ public class PunishmentManager implements ConfigReloadable {
                             String cmd = replaceAlertPlaceholders(command, vl, check, shown);
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
-                            boolean withheld =
-                                    CultAPI.INSTANCE.getConfigManager().isObserveOnly()
-                                            && !BUILTIN_ACTIONS.contains(command.action());
+                            boolean withheld = (player.isObserveOnly() || player.isPunishmentsPaused())
+                                    && !BUILTIN_ACTIONS.contains(command.action());
                             boolean canceled = withheld
                                     || COMMAND_CHANNEL.fire(
-                                            ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
-                                            ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(check),
+                                            RuntimeEnvironment.outwardUser(player),
+                                            RuntimeEnvironment.outwardCheck(check),
                                             shown,
                                             cmd);
                             if (command.interval == 0) {
@@ -359,7 +362,7 @@ public class PunishmentManager implements ConfigReloadable {
 
 @RequiredArgsConstructor
 class PunishGroup {
-    public final List<AbstractCheck> checks;
+    public final Set<AbstractCheck> checks;
     public final List<ParsedCommand> commands;
     public final Long2ObjectMap<Check> violations = new Long2ObjectOpenHashMap<>();
     public final int removeViolationsAfter; // time to remove violations after in milliseconds

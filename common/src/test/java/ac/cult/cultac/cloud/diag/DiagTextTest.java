@@ -9,26 +9,21 @@ import ac.cult.cultac.checks.impl.prediction.BlockGrid;
 import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.math.Vec3;
 import com.github.luben.zstd.ZstdCompressCtx;
-import com.sun.management.ThreadMXBean;
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
 import java.lang.reflect.Constructor;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.Random;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
  * A tick's frame is the Zstandard frame of its text's UTF-8 bytes, whatever the text holds and whatever came before.
- * With {@code CULTAC_DIAG_TEXTS} naming a directory, every {@code .txt} under it is checked as a state too; with
- * {@code CULTAC_DIAG_TEXT_BENCH} naming a file, the bytes and cpu per frame against a string per text are appended.
+ * With {@code CULTAC_DIAG_TEXTS} naming a directory, every {@code .txt} under it is checked as a state too.
  */
 class DiagTextTest {
     private static final int LEVEL = 1;
@@ -133,61 +128,6 @@ class DiagTextTest {
                 }
             }
         }
-    }
-
-    @Test
-    void costPerFrame() throws IOException, ReflectiveOperationException {
-        String out = System.getenv("CULTAC_DIAG_TEXT_BENCH");
-        assumeTrue(out != null && !out.isEmpty());
-        List<String> texts = recorded();
-        if (texts.isEmpty()) {
-            Random random = new Random(4);
-            for (int i = 0; i < 200; i++) texts.add(superDebug(random, 12_000 + random.nextInt(30_000)));
-        }
-        BlockGrid grid = grid(new Random(5), -3, 60, -3, 2, 66, 2);
-        ThreadMXBean threads = (ThreadMXBean) ManagementFactory.getThreadMXBean();
-        long thread = Thread.currentThread().threadId();
-        int reps = 15;
-        double[][] alloc = new double[2][reps];
-        double[][] cpu = new double[2][reps];
-        long sink = 0;
-        try (DiagText text = new DiagText(LEVEL);
-                ZstdCompressCtx zstd = new ZstdCompressCtx().setLevel(LEVEL)) {
-            for (int rep = -5; rep < reps; rep++) {
-                for (int path = 0; path < 2; path++) {
-                    int way = (rep & 1) == 0 ? path : 1 - path;
-                    long bytes = threads.getThreadAllocatedBytes(thread);
-                    long time = threads.getCurrentThreadCpuTime();
-                    for (String state : texts) {
-                        byte[] frame = way == 0
-                                ? zstd.compress(text(state, grid).getBytes(StandardCharsets.UTF_8))
-                                : text.compress(kept(state), grid);
-                        sink += frame.length;
-                    }
-                    if (rep < 0) continue;
-                    alloc[way][rep] = (threads.getThreadAllocatedBytes(thread) - bytes) / (double) texts.size();
-                    cpu[way][rep] = (threads.getCurrentThreadCpuTime() - time) / (double) texts.size();
-                }
-            }
-        }
-        StringBuilder line = new StringBuilder();
-        line.append(String.format(Locale.ROOT, "diag frame, %d texts (sink %d):", texts.size(), sink));
-        for (int way = 0; way < 2; way++) {
-            Arrays.sort(alloc[way]);
-            Arrays.sort(cpu[way]);
-            line.append(String.format(
-                    Locale.ROOT,
-                    " %s alloc median %.0f B (min %.0f, max %.0f), cpu median %.0f ns (min %.0f, max %.0f);",
-                    way == 0 ? "string" : "kept",
-                    alloc[way][reps / 2],
-                    alloc[way][0],
-                    alloc[way][reps - 1],
-                    cpu[way][reps / 2],
-                    cpu[way][0],
-                    cpu[way][reps - 1]));
-        }
-        Files.writeString(
-                Path.of(out), line.append('\n').toString(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }
 
     /** {@code state} as a text kept as its string, as a watch keeps a printed state. */

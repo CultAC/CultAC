@@ -1,13 +1,11 @@
 package ac.cult.cultac.cloud;
 
 import ac.cult.cultac.cloud.labels.LabelClient;
-import ac.cult.cultac.cloud.transport.CloudConnection.CappedBody;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
-import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.time.Duration;
@@ -50,7 +48,6 @@ public abstract class LeasedJobs<J> {
     /** The most jobs one round claims; the rest wait for the next. */
     public static final int MAX_CLAIMS_PER_ROUND = 400;
 
-    public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     public static final int MAX_BODY = 256 << 10;
     public static final int MAX_HANDLED = 1000;
 
@@ -370,17 +367,11 @@ public abstract class LeasedJobs<J> {
     }
 
     private HttpRequest.Builder request(String path) {
-        return HttpRequest.newBuilder(URI.create(base + path))
-                .timeout(REQUEST_TIMEOUT)
-                .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json");
+        return CloudHttp.request(base, path, apiKey);
     }
 
     private CompletableFuture<LabelClient.Reply> send(HttpRequest.Builder request) {
-        return CompletableFuture.supplyAsync(
-                        () -> http.sendAsync(request.build(), info -> new CappedBody(MAX_BODY)), executor)
-                .thenCompose(Function.identity())
+        return CloudHttp.send(http, executor, request, MAX_BODY)
                 .thenApply(response -> new LabelClient.Reply(response.statusCode(), response.body()));
     }
 

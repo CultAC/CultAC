@@ -21,8 +21,6 @@ alerts:
 verbose:
     print-to-console: false
 
-check-for-updates: true
-
 client-brand:
     # Cela signifie qu'il n'enverra pas la nature du client aux opérateurs si il correspond aux clients suivants
     ignored-clients:
@@ -54,29 +52,23 @@ launch-safety:
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
-# Le gestionnaire de resynchronisation des blocs par défaut doit-il être désactivé ?
-# Par défaut, Cult lit les blocs du monde serveur et les envoie au client pour corriger la désynchronisation.
-# Si vous utilisez des plugins créant de faux blocs via paquets (qui n'existent pas dans le monde serveur),
-# vous devez régler ceci sur true pour empêcher Cult de les écraser avec de l'air ou des blocs réels.
-# Cela force l'utilisation d'un gestionnaire "NoOp" (Aucune Opération) sauf si un personnalisé est fourni via l'API.
-disable-default-resync-handler: false
-
-# Should the duplicate movement packet be cancelled?
-# Mojang has fixed this issue in 1.21. This was their attempt to fix the "bucket desync". https://bugs.mojang.com/browse/MC-12363
-# This setting only applies to 1.17-1.20.5 clients on 1.8 servers.
-cancel-duplicate-packet: true
-
-# Whether or not to ignore the rotation in duplicate packets
-ignore-duplicate-packet-rotation: false
-
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
 max-clicks-per-tick: 3
 
 # Flag and alert without acting: no punishment commands, setbacks, packet cancels or kicks. Client packets reach the server as sent.
-# CULTAC_OBSERVE_ONLY wins over this key when it is true, 1 or yes, or false, 0 or no. /cult reload applies a change.
+# /cult reload applies a change.
 observe-only: false
+
+# CultAC checks no one and frees the memory checking uses.
+dormant: false
+
+# Checks that neither flag nor set back, by name.
+checks-off: []
+
+# Withhold the punishment commands of punishments.yml; flags, alerts and setbacks keep running.
+pause-punishments: false
 
 Simulation:
     # De combien devons-nous multiplier l'avantage total lorsque le joueur est légitime ?
@@ -97,9 +89,6 @@ Simulation:
     # Cela vise à empêcher le joueur d'accumuler trop de violations et de ne jamais pouvoir toutes les réinitialiser.
     # Plafond d'avantage par défaut (l"axe x = secondes, l'axe y = 1/1000 de bloc)) : https://www.desmos.com/calculator/4lovswdarj
     max-ceiling: 4
-    # Seuil du niveau de violation pour le setback
-    # 1 pour le comportement ancien
-    setback-violation-threshold: 1
 
 # Vérifications pour voir si un joueur est entré dans un bloc pendant un mouvement.
 Phase:
@@ -154,24 +143,11 @@ Explosion:
 TimerA:
     setbackvl: 10
     # Le nombre de millisecondes que le joueur peut accumuler pour une utilisation ultérieure lorsqu'il prend du retard.
-    # Si la valeur est trop élevée, cela pourrait potentiellement permettre de contourner les mécaniques 1.8, comme l'utilisation rapide, la guérison rapide et le tir à l'arc rapide. Une valeur de 120 ms semble être un bon équilibre.
     drift: 120
-
-# This check limits abuse of the TimerA balance by preventing the player's movement falling too far behind realtime
-TimerLimit:
-    # Ping at which the check will start to limit timer balance, to prevent abuse.
-    # Can cause some setbacks for legitimate players but only if they are over this ping threshold.
-    # -1 to disable
-    ping-abuse-limit-threshold: 1000
 
 NegativeTimer:
     # Le nombre de millisecondes perdus pendant le déplacement avant de commencer à signaler des infractions.
     drift: 1200
-
-# Même méthode de vérification que TimerA, mais pour les véhicules.
-VehicleTimer:
-    # Cibler un chronomètre de 1,005.
-    setbackvl: 10
 
 PacketOrderI:
     # Activer si les joueurs sont signalés pour l'utilisation de mods d'animation 1.7
@@ -186,14 +162,6 @@ Reach:
     # Devons-nous annuler les coups que nous savons impossibles ?
     # Les coups entre 3,00 et 3,03 peuvent passer mais seront quand même signalés en raison des limitations de l'ordre des paquets.
     block-impossible-hits: true
-    # Cela enverra un paquet supplémentaire à la fin de chaque tick pour augmenter les chances de détecter les triches.
-    # Cela s'injecte dans la liste de connexions du serveur pour envoyer un dernier paquet juste avant que le serveur ne le vide.
-    # Activer cette fonctionnalité augmentera l'utilisation de la bande passante pour tous les joueurs.
-    # Cela n'entraînera pas de diminution des performances globales du serveur.
-    # Activer cette fonctionnalité permettra de détecter davantage de tricheurs.
-    # Laisser cette fonctionnalité désactivée permettra tout de même de détecter les tricheurs et n'entraînera pas de faux positifs.
-    # À moins d'être un serveur axé sur le PvP en 1.8, l'envoi de ce paquet supplémentaire n'est pas recommandé.
-    enable-post-packet: false
 
 exploit:
     allow-sprint-jumping-when-using-elytra: true
@@ -201,32 +169,18 @@ exploit:
     allow-building-on-ghostblocks: true
     distance-to-check-if-ghostblocks: 2
 
-# Activer l'enregistrement des plugins ayant injecté dans Netty lors de la connexion pour déboguer les problèmes de compatibilité
-debug-pipeline-on-join: false
-
 # Active les vérifications expérimentales
 experimental-checks: false
-
-reset-item-usage-on-item-update: true
-reset-item-usage-on-attack: true
-reset-item-usage-on-slot-change: true
-reset-item-usage-on-item-use: true
 
 # Cult annule parfois des paquets illégaux, comme ceux liés au chronomètre, après avoir annulé X paquets en une seconde,
 # à partir de combien de paquets annulés devrions-nous simplement expulser le joueur ?
 # Cela est nécessaire car certains limiteurs de paquets ne comptent pas les paquets annulés par Cult.
 packet-spam-threshold: 100
-# Activez ceci pour afficher une trace de pile lorsqu’un joueur est expulsé à cause du packet-spam-threshold
-debug-packet-cancel: false
 
 # Cult peut faire en sorte qu’un joueur sorti de l’état de vol n’ait pas plus de X ms de ping
 # Cela est dû au fait que Cult ne vérifie pas encore les joueurs en vol
 # Pour désactiver, utilisez -1
 max-ping-out-of-flying: 1000
-
-# Ping maximal lorsque la propulsion de feu d’artifice est retirée du joueur.
-# Cela empêche les joueurs à forte latence d’utiliser indéfiniment un seul boost de feu d’artifice avec une élytra.
-max-ping-firework-boost: 1000
 
 # Marqueurs de schéma — ne modifier qu'en sachant ce que l'on fait.
 #   config-flavor:  V2 = build Cult 2.x, V3 = Cult 3.x. Le plugin refuse de
@@ -251,15 +205,16 @@ update-permission-ticks: -1
 # Velocity only: shared secret for the bridge to the CultAC companion on backend servers.
 # Leave empty to use Velocity's modern-forwarding secret; the companion must use the same value.
 # Use a long random value (at least 32 characters): a short one can be guessed offline.
+# Set enabled to false to open no bridge and send backend servers nothing on its channel; a change needs a proxy restart.
 bridge:
+  enabled: true
   secret: ""
 
 # Upload of captured play to an intake service, which analyses it. Off while url or api-key is empty;
-# your intake service provides both. CULTAC_CLOUD_URL and CULTAC_CLOUD_API_KEY win over url and api-key when
-# set and not blank, and an empty proxy-id takes CULTAC_PROXY_ID. docs/cloud-upload.md in CultAC's source says
-# what is uploaded.
+# your intake service provides both. CULTAC_CLOUD_API_KEY wins over api-key when set and not blank.
+# docs/cloud-upload.md in CultAC's source says what is uploaded.
 cloud:
-  # false stops the upload, whatever CULTAC_CLOUD_* says; /cult reload applies it.
+  # false stops the upload, whatever CULTAC_CLOUD_API_KEY says; /cult reload applies it.
   enabled: true
   url: ""
   api-key: ""
@@ -270,15 +225,15 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
-  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
-  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
-  perf: false
-  # The most minutes of perf recording a socket runs an hour.
-  perf-max-minutes-per-hour: 45
+  # Backends whose players are not captured for the intake service while they are on them, such as lobbies: names
+  # as velocity.toml gives them, ignoring case, where * stands for any characters (hub-*). Local checks, alerts and
+  # punishments run there as everywhere else. On a server, a name matching proxy-id stops the capture on the whole
+  # server. Empty captures every backend.
+  uncaptured-servers: []
   # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
   # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
   # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
-  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  # sync on. Off by default.
   team-sync: false
   # Panel bans: staff ban a player from the cloud panel, and the one server that claims the ban runs it once, as
   # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %reason_label% (the reason as staff
@@ -302,7 +257,10 @@ cloud:
 
 # Permet aux commandes du staff, à l'autocomplétion et aux alertes de fonctionner sur tous vos proxys et serveurs.
 # Guide d'installation : docs/network.md dans le code source de CultAC. /cult reload applique les changements.
-# Chaque réglage ici peut aussi être défini par une variable d'environnement CULTAC_NETWORK_*, qui est prioritaire.
+# Ces variables d'environnement sont prioritaires sur leurs clés lorsqu'elles sont définies et non vides :
+#   CULTAC_NETWORK_TYPE, CULTAC_NETWORK_SECRET
+#   CULTAC_NETWORK_REDIS_ADDRESS, _USERNAME, _PASSWORD, _SSL
+#   CULTAC_NETWORK_NATS_ADDRESS, _USERNAME, _PASSWORD, _TOKEN, _CREDENTIALS_FILE, _SSL
 network:
   # Comment vos serveurs communiquent entre eux :
   #   none         Désactivé. Les commandes et les alertes n'atteignent que les joueurs de ce serveur.
@@ -327,25 +285,164 @@ network:
   # Le nom de ce serveur sur le réseau. Chaque serveur a besoin du sien.
   # Laissez vide pour utiliser l'id de proxy RedisBungee, sinon cloud.proxy-id, sinon l'IP et le port de ce serveur.
   instance-id: ""
+  # /cult net <target> <command> runs a command on several servers at once.
+  commands:
+    # Whether this server runs network commands sent from other servers.
+    enabled: true
+    # The network commands this server runs; it refuses the others.
+    accept: [status, reload, observe, toggle, check, punish, update]
+    # What goes to update.webhook: summary (the sending server posts each command and its summary), every (each
+    # server posts the command it ran) or none.
+    webhook: summary
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
-# /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
+# /cult update builds [branch]. CULTAC_UPDATE_TOKEN wins over token when set and not blank.
 update:
-  # owner/repo whose GitHub releases hold the builds. Empty is the repository this jar was built from.
-  # CULTAC_UPDATE_REPOSITORY.
-  repository: ""
-  # X.509 base64 Ed25519 key that build manifests must be signed with. Empty is CultAC's own build key.
-  # CULTAC_UPDATE_PUBKEY.
-  public-key: ""
   # File remembering the installed build, which the next start fetches again. Relative to this folder; empty is
-  # update-state.json. CULTAC_UPDATE_STATE.
+  # update-state.json.
   state-file: ""
-  # Build to start on while no build is remembered. Empty starts the bundled jar. CULTAC_UPDATE_BUILD.
+  # Build to start on while no build is remembered. Empty starts the bundled jar.
   build: ""
-  # Sent to api.github.com only, raising the hourly limit for latest and builds. CULTAC_UPDATE_TOKEN.
+  # Sent to api.github.com only, raising the hourly limit for latest and builds.
   token: ""
-  # URL that receives each update result line. CULTAC_UPDATE_WEBHOOK.
+  # URL that receives each update result line.
   webhook: ""
 
+# Configuration propre à CultAC.
+cult:
+  # Ignore toutes les vérifications pour les joueurs Bedrock (Geyser/Floodgate) ou Java.
+  # Les deux éditions sont vérifiées par défaut.
+  exempt-bedrock-players: false
+  exempt-java-players: false
+
+  checks:
+    bedrock-movement:
+      # Signale une infraction lorsque l'écart de validation Bedrock atteint cette valeur.
+      # Inclut l'erreur de déplacement vertical et l'excès d'entrée horizontale.
+      position-flag-threshold: 0.001
+
+      # Rapproche la position simulée du tick suivant de la position déclarée par le client,
+      # jusqu'à cette distance par tick de déplacement. 0 désactive cette option.
+      position-reconciliation-step: 0.0005
+
+      # Actuellement affiché uniquement dans les diagnostics ; cette valeur ne déclenche aucune infraction.
+      velocity-flag-threshold: 0.001
+
+      # Autorise les corrections de position des joueurs Bedrock.
+      # Actuellement appliqué à la connexion ; les changements nécessitent une reconnexion.
+      enable-setbacks: true
+
+    fair-reach:
+      # Variation temporelle autour de l'intervalle de suivi de 50 ms de FairReach.
+      # En millisecondes ; 15 donne une fenêtre de 35–65 ms.
+      max-position-packet-jitter-ms: 15
+
+      # Attente maximale avant d'appliquer une mise à jour de position de la cible, en millisecondes.
+      # Les mises à jour confirmées par le client sont appliquées plus tôt.
+      max-ping-compensation-ms: 300
+
+      # Annule les attaques contre les joueurs dont la hitbox la plus proche possible est plus loin que
+      # la portée vanilla de l'attaquant (entity_interaction_range) plus cette distance, en blocs.
+      reach-leniency: 0.1
+
+    autoclicker-limit:
+      # Moyenne de clics par seconde au-dessus de laquelle le compteur d'autoclic augmente.
+      # Calculée sur des groupes de 50 mouvements de bras pris en compte.
+      max-cps: 25
+
+    explosion:
+      # Les corrections de position liées aux explosions exigent aussi de dépasser
+      # le niveau d'infractions défini pour les corrections de ce contrôle.
+
+      # Erreur de déplacement cumulée liée aux explosions requise pour tenter une correction de position.
+      max-advantage: 1
+
+      # Erreur d'une seule explosion requise pour tenter une correction de position
+      # sans attendre que l'erreur cumulée atteigne max-advantage.
+      immediate-setback-threshold: 0.01
+
+      # Multiplie l'erreur cumulée par cette valeur lorsque l'écart de réponse à une explosion
+      # passe sous Explosion.threshold. Les valeurs proches de 1 la réduisent plus lentement.
+      setback-decay-multiplier: 0.98
+
+      # Erreur cumulée maximale liée aux explosions conservée par le contrôle.
+      max-ceiling: 2
+
+  prediction:
+    # Ne régit que les corrections de déplacement ; dépasser ce pourcentage ne compte jamais comme une triche.
+    # L'historique est conservé lors de l'arrêt ou de la reprise de l'utilisation d'un objet,
+    # ainsi que lors des corrections de position.
+    item-use-desync:
+      max-percent: 20
+      history-ticks: 100
+
+    # Compare le temps réel pendant lequel le serveur utilise un objet (manger, boire,
+    # charger) aux ticks ralentis déclarés par le client pendant ce temps. Une dette
+    # supérieure à max-debt-ticks signale ItemUseBurst ; la valeur par défaut couvre une
+    # image client tardive (10 ticks) plus l'arrondi. Le crédit ne vient que de ticks ralentis supplémentaires.
+    item-use-burst:
+      max-debt-ticks: 11
+      max-credit-ticks: 2
+      # Pourcentage de chaque tick d'utilisation attendu qui doit être payé par un tick ralenti.
+      charge-percent: 95
+
+    # Ping de transaction ou durée maximale sans paquet de déplacement tolérés
+    # lorsqu'un recul est en attente, en millisecondes.
+    # Une marge fixe de 50 ms est ajoutée avant une correction liée à la latence.
+    max-knockback-ping-ms: 1000
+
+    # Durée sans paquet de déplacement avant d'envisager une correction liée à la latence,
+    # en millisecondes. La simulation doit montrer que rester immobile était invalide
+    # pour qu'une correction soit appliquée.
+    max-freeze-time-ms: 5000
+
+  networking:
+    # Remplace la santé transmise des autres entités vivantes par 1 point de vie.
+    # Préserve la santé du joueur observateur, celle de sa monture actuelle et les entités mortes.
+    # Les observateurs ayant cult.showhealth reçoivent les valeurs de santé réelles.
+    spoof-health: false
+
+  client-brand:
+    # Supprime la première correspondance de cette expression régulière dans les marques de client reçues.
+    # Par défaut, supprime le suffixe final " (Velocity)".
+    # Utiliser une chaîne vide pour désactiver.
+    strip-pattern: ' \(Velocity\)$'
+
+  diagnostics:
+
+    # Écrit dans la console les diagnostics de téléportation, de correction de position et de resynchronisation.
+    teleports: false
+
+    bedrock-movement:
+      # Active les rapports détaillés de déplacement Bedrock et les journaux de prédiction associés,
+      # selon les filtres et le délai minimal ci-dessous.
+      enabled: false
+
+      # Inclut aussi les déplacements sans infraction dont l'écart de validation
+      # atteint min-offset.
+      log-clean-offsets: false
+
+      # Écart de validation minimal pour signaler les déplacements sans infraction.
+      # Utilisé uniquement si log-clean-offsets vaut true.
+      min-offset: 1.0e-7
+
+      # Intervalle minimal entre les rapports de déplacement Bedrock de chaque joueur, en secondes.
+      # Mettre 0 pour supprimer ce délai.
+      cooldown-seconds: 10
+
+# The version of the check names this server uses outside punishments.yml: the names each check's
+# own settings are written under in this file (AttackEntityVisibility.setbackvl), the names in its
+# permission nodes (cult.exempt.attackentityvisibility), and the names alerts, logs, placeholders
+# and the API show.
+# Cult never changes it. Raise it yourself, after you have renamed those settings and permission nodes:
+#   1: AttackMobVisibility, bAttackMobVisibility. InteractEntityVisibility covers players too.
+#   2: AttackEntityVisibility, bAttackEntityVisibility. InteractPlayerVisibility covers players,
+#      InteractEntityVisibility everything else.
+#   3: MultiActionsC, D and H are InventoryA, B and C. MultiActionsI, J, K, L and S are one
+#      check, InventoryD, whose verbose names the action. MultiActionsM, N, O, P, Q, R and T
+#      are InventoryE to K. MultiActionsE, F and G are MultiActionsC, D and E.
+# A file without this line is read as version 1.
+check-name-version: 3
+
 config-flavor: V2
-config-version: 18
+config-version: 20

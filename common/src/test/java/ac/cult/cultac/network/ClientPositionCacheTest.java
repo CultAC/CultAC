@@ -9,6 +9,7 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
 
 class ClientPositionCacheTest {
@@ -24,18 +25,18 @@ class ClientPositionCacheTest {
             f.player.lastZ = 0.5;
             var packet = new ServerboundMovePlayer(0.5, 64.0, 0.5, 0, 0, true, false, true, false);
             var event = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet);
+            var sent = f.player.packetStateData.sentPositionCache;
             event.setAnswersTeleport(true);
             check.onMovePlayer(event, f.player, packet);
             event.setAnswersTeleport(false);
-            f.player.lastInstanceManager.onPredictionComplete(null);
-            f.player.lastInstanceManager.onPredictionComplete(null);
+            sent.onTickMovement(true, new Vec3(0.5, 64.0, 0.5));
             check.onMovePlayer(event, f.player, packet);
             assertEquals(0, check.getViolations());
-            f.player.lastInstanceManager.onPredictionComplete(null);
-            f.player.lastInstanceManager.onPredictionComplete(null);
+            sent.onTickMovement(true, new Vec3(0.5, 64.0, 0.5));
             check.onMovePlayer(event, f.player, packet);
             assertEquals(1, check.getViolations());
-            check.onNewLocalPlayer();
+            sent.onNewLocalPlayer();
+            sent.onTickMovement(true, new Vec3(0.5, 64.0, 0.5));
             check.onMovePlayer(event, f.player, packet);
             assertEquals(1, check.getViolations());
         }

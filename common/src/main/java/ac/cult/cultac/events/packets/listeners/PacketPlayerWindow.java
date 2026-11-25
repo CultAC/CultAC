@@ -7,11 +7,15 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerCombatKill;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.protocol.value.GameEventType;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
@@ -38,6 +42,18 @@ public class PacketPlayerWindow {
     public void onContainerClick(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
         if (player.isBedrockMovement()) handleInventory(player, true);
         else if (packet.windowId() == 0 && !event.isCancelled()) player.openWindow.onClientOpenOrCloseWindow(true);
+        else player.openWindow.onClientContainerScreen();
+    }
+
+    @CultPacketHandler
+    public void onShowDialog(
+            PacketSendEvent<ClientboundShowDialog> event, CultPlayer player, ClientboundShowDialog packet) {
+        if (!player.isBedrockMovement()) player.openWindow.onServerDialog();
+    }
+
+    @CultPacketHandler("clientbound.clear_dialog")
+    public void onClearDialog(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (!player.isBedrockMovement()) player.openWindow.onServerClearDialog(event);
     }
 
     @CultPacketHandler
@@ -52,9 +68,34 @@ public class PacketPlayerWindow {
         if (!player.isBedrockMovement()) player.openWindow.onServerSignEditor(event);
     }
 
+    @CultPacketHandler("clientbound.open_book")
+    public void onOpenBook(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (!player.isBedrockMovement()) player.openWindow.onServerScreenOverContainer(event);
+    }
+
+    @CultPacketHandler
+    public void onGameEvent(
+            PacketSendEvent<ClientboundGameEvent> event, CultPlayer player, ClientboundGameEvent packet) {
+        // The DEMO_EVENT with value 0 sets the demo intro screen, which sends nothing when it closes.
+        boolean screen = packet.event() == GameEventType.WIN_GAME
+                || packet.event() == GameEventType.DEMO_EVENT && packet.param() == 0;
+        if (screen && !player.isBedrockMovement()) {
+            player.openWindow.onServerScreenOverContainer(event);
+        }
+    }
+
+    @CultPacketHandler
+    public void onPlayerCombatKill(
+            PacketSendEvent<ClientboundPlayerCombatKill> event, CultPlayer player, ClientboundPlayerCombatKill packet) {
+        if (packet.playerId() == player.entityID && !player.isBedrockMovement()) {
+            player.openWindow.onServerDeathScreen(event);
+        }
+    }
+
     @CultPacketHandler("serverbound.sign_update")
     public void onSignUpdate(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (!player.isBedrockMovement() && !event.isCancelled()) player.openWindow.onClientSignUpdate();
+        // AbstractSignEditScreen#removed alone sends sign_update, so the editor is gone even when it is cancelled.
+        if (!player.isBedrockMovement()) player.openWindow.onClientSignUpdate();
     }
 
     @CultPacketHandler
@@ -80,6 +121,7 @@ public class PacketPlayerWindow {
         if (!player.isBedrockMovement()) {
             MenuType type = MenuType.fromRegistryKey(packet.menuType());
             if (type != MenuType.UNKNOWN) player.openWindow.onServerWindow(event, packet.containerId(), type);
+            else player.openWindow.onUntrackedServerWindow(packet.containerId());
             return;
         }
         player.sendTransaction();
@@ -101,6 +143,8 @@ public class PacketPlayerWindow {
                             || EntityTypeUtil.isType(entity.getEntityType(), "nautilus")
                             || EntityTypeUtil.isType(entity.getEntityType(), "zombie_nautilus"))) {
                 player.openWindow.onServerWindow(event, packet.containerId(), MenuType.UNKNOWN);
+            } else {
+                player.openWindow.onUntrackedServerWindow(packet.containerId());
             }
             return;
         }
@@ -144,11 +188,6 @@ public class PacketPlayerWindow {
     }
 
     public static void handleInventory(CultPlayer cultPlayer, boolean nowOpen) {
-
-        if (!cultPlayer.hasInventoryOpen && nowOpen) {
-            cultPlayer.lastOpenedInventory = System.currentTimeMillis();
-        }
-
         cultPlayer.hasInventoryOpen = nowOpen;
     }
 }

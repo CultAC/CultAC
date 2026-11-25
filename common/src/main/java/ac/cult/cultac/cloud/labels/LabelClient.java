@@ -4,7 +4,6 @@ import ac.cult.cultac.cloud.CloudHttp;
 import ac.cult.cultac.cloud.CloudService;
 import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.cloud.Generation;
-import ac.cult.cultac.cloud.transport.CloudConnection.CappedBody;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.google.gson.JsonArray;
@@ -14,7 +13,6 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import java.net.ConnectException;
-import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -30,7 +28,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
@@ -57,7 +54,6 @@ public final class LabelClient {
             "Your Minecraft account isn't a moderator of this server's cloud organization.";
     public static final String NOT_ALLOWED = "This organization can't label yet: labels are for trusted organizations.";
 
-    static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     private static final int MAX_ERROR = 160;
     /** The most bytes of an answer read, whatever its status; past it the call fails. */
     static final int MAX_BODY = 256 << 10;
@@ -230,17 +226,11 @@ public final class LabelClient {
     }
 
     private HttpRequest.Builder request(String path) {
-        return HttpRequest.newBuilder(URI.create(base + path))
-                .timeout(REQUEST_TIMEOUT)
-                .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json");
+        return CloudHttp.request(base, path, apiKey);
     }
 
     private CompletableFuture<Reply> send(HttpRequest.Builder request) {
-        return CompletableFuture.supplyAsync(
-                        () -> http.sendAsync(request.build(), info -> new CappedBody(MAX_BODY)), executor)
-                .thenCompose(Function.identity())
+        return CloudHttp.send(http, executor, request, MAX_BODY)
                 .thenApply(response -> new Reply(response.statusCode(), response.body(), this::mask));
     }
 

@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.PlatformConnection;
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -16,6 +17,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.reload.integrations.GeyserQueue;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
@@ -24,61 +26,109 @@ import java.util.Map;
 import java.util.UUID;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.BedrockSession;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.netty.BedrockPacketWrapper;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler;
 import org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
+import org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket;
+import org.geysermc.geyser.entity.type.Entity;
 import org.geysermc.geyser.session.GeyserSession;
 import org.junit.Test;
 import org.mockito.Mockito;
 
 /**
- * A move of another actor follows a latency marker in its own batch, with no heavy packet in between, so the client
- * normally answers the marker and handles the move before the same tick. Markers written only for that take at most two
- * a client tick; a second move of one actor gets a marker after the first regardless.
+ * The latency marker that ends a batch of moves of other actors proves them, and the client takes each move whole when
+ * it answers it. Before data that can use up the client's packet budget a marker proves the moves written so far; such
+ * markers take at most two a client tick. A chunk column new to the client's chunk view is followed by its own marker.
  */
 public final class GeyserEntityWaveMarkerTest {
     private static final long PLAYER = 123L;
 
     @Test
-    public void aWaveOfMovesOpensWithAMarkerInItsBatch() throws Exception {
+    public void passengerSeatDataAppliesOnlyAtItsAcknowledgedBoundary() throws Exception {
         try (Transport transport = new Transport()) {
+            PacketEntity passenger = transport.track(456L, 900);
             transport.write(move(456L));
-            transport.write(move(457L));
-            assertEquals(List.of("marker", "move 456", "move 457"), transport.flush());
-            // The marker before belongs to the batch already sent.
-            transport.write(move(456L));
-            assertEquals(List.of("marker", "move 456"), transport.flush());
+            transport.flush();
+            assertTrue(transport.player.addTransactionResponse(transport.markers.getLast()));
+
+            var metadata = new SetEntityDataPacket();
+            metadata.setRuntimeEntityId(456L);
+            metadata.getMetadata().put(EntityDataTypes.SEAT_OFFSET, Vector3f.from(0.2F, 0.3875F, 0));
+            transport.write(metadata);
+            transport.flush();
+            assertEquals(2, transport.markers.size());
+            assertEquals(Vec3.ZERO, passenger.bedrockSeatOffset);
+            assertTrue(transport.player.addTransactionResponse(transport.markers.getLast()));
+            assertEquals(new Vec3(0.2F, 0.3875F, 0), passenger.bedrockSeatOffset);
+
+            // A partial size update keeps the independently written seat.
+            var size = new SetEntityDataPacket();
+            size.setRuntimeEntityId(456L);
+            size.getMetadata().put(EntityDataTypes.WIDTH, 0.7F);
+            transport.write(size);
+            transport.flush();
+            assertTrue(transport.player.addTransactionResponse(transport.markers.getLast()));
+            assertEquals(new Vec3(0.2F, 0.3875F, 0), passenger.bedrockSeatOffset);
         }
     }
 
     @Test
-    public void heavyDataEndsTheWaveSoTheNextMoveOpensAnother() throws Exception {
+    public void aBatchOfMovesEndsWithTheMarkerThatProvesThem() throws Exception {
         try (Transport transport = new Transport()) {
+            transport.track(456L, 900);
+            transport.track(457L, 901);
+            transport.write(move(456L));
+            transport.write(move(457L));
+            assertEquals(List.of("move 456", "move 457", "marker"), transport.flush());
+        }
+    }
+
+    @Test
+    public void heavyDataGetsAMarkerAfterTheMovesBeforeIt() throws Exception {
+        try (Transport transport = new Transport()) {
+            transport.track(456L, 900);
+            transport.track(457L, 901);
             transport.write(move(456L));
             transport.write(chunk());
             transport.write(move(457L));
-            assertEquals(List.of("marker", "move 456", "chunk", "marker", "move 457"), transport.flush());
+            assertEquals(List.of("move 456", "marker", "chunk", "marker", "move 457", "marker"), transport.flush());
         }
     }
 
     @Test
-    public void aTickTakesAtMostTwoMarkersOnlyToNarrowWaves() throws Exception {
+    public void aTickTakesAtMostTwoMarkersBeforeHeavyData() throws Exception {
         try (Transport transport = new Transport()) {
+            for (int i = 0; i < 4; i++) transport.track(456L + i, 900 + i);
             transport.write(move(456L));
             transport.write(chunk());
             transport.write(move(457L));
             transport.write(chunk());
             transport.write(move(458L));
+            transport.write(chunk());
+            transport.write(move(459L));
             assertEquals(
-                    List.of("marker", "move 456", "chunk", "marker", "move 457", "chunk", "move 458"),
+                    List.of(
+                            "move 456",
+                            "marker",
+                            "chunk",
+                            "marker",
+                            "move 457",
+                            "marker",
+                            "chunk",
+                            "move 458",
+                            "chunk",
+                            "move 459",
+                            "marker"),
                     transport.flush());
             // The next client tick may narrow again.
             transport.player.compensatedEntities.onClientTick();
             transport.write(move(456L));
-            assertEquals(List.of("marker", "move 456"), transport.flush());
+            transport.write(chunk());
+            assertEquals(List.of("move 456", "marker", "chunk"), transport.flush());
         }
     }
 
@@ -91,56 +141,40 @@ public final class GeyserEntityWaveMarkerTest {
     }
 
     @Test
-    public void aSecondMoveOfOneActorInAWaveGetsAMarkerBeforeIt() throws Exception {
+    public void twoMovesOfOneActorProvenByOneMarkerAreHandledTogether() throws Exception {
         try (Transport transport = new Transport()) {
-            transport.track(456L, 900);
+            PacketEntity zombie = transport.track(456L, 900);
             transport.write(move(456L, 3));
-            transport.write(move(457L));
             transport.write(move(456L, -3));
-            // The last marker proves the second move.
-            assertEquals(List.of("marker", "move 456", "move 457", "marker", "move 456", "marker"), transport.flush());
+            assertEquals(List.of("move 456", "move 456", "marker"), transport.flush());
+
+            CultPlayer player = transport.player;
+            assertTrue(player.addTransactionResponse(transport.markers.get(0)));
+            zombie.onMovement(player, true);
+            // One step from 0 toward -3: the move to 3 was replaced before any tick.
+            assertSpans(player, zombie, -1.0D, -1.0D);
         }
     }
 
     @Test
-    public void aClientThatTicksBetweenTwoMovesOfOneActorMayStillShowTheFirst() throws Exception {
+    public void aMoveProvenBeforeHeavyDataStepsFromTheTickItsMarkerIsAnswered() throws Exception {
         try (Transport transport = new Transport()) {
             PacketEntity zombie = transport.track(456L, 900);
-            // Another actor's waves use up the tick's narrowing markers.
-            transport.write(move(457L));
-            transport.write(chunk());
-            transport.write(move(457L));
-            transport.write(chunk());
             // The zombie at x=0 is sent to 3 and back to -3, with data between that can use up the client's packet
-            // budget, so the client may tick between handling the two moves.
+            // budget.
             transport.write(move(456L, 3));
             transport.write(chunk());
             transport.write(move(456L, -3));
-            assertEquals(
-                    List.of(
-                            "marker",
-                            "move 457",
-                            "chunk",
-                            "marker",
-                            "move 457",
-                            "chunk",
-                            "move 456",
-                            "chunk",
-                            "marker",
-                            "move 456",
-                            "marker"),
-                    transport.flush());
+            assertEquals(List.of("move 456", "marker", "chunk", "marker", "move 456", "marker"), transport.flush());
 
             CultPlayer player = transport.player;
-            // The client handles the move to 3 and answers the marker after it, then ticks.
-            for (int i = 0; i < 3; i++) assertTrue(player.addTransactionResponse(transport.markers.get(i)));
+            assertTrue(player.addTransactionResponse(transport.markers.get(0)));
             zombie.onMovement(player, true);
-            // It handled the move to -3 before the tick, or not yet and shows the zombie a third of the way to 3.
-            assertSpans(player, zombie, -1.0D, 1.0D);
-            assertTrue(player.addTransactionResponse(transport.markers.get(3)));
+            assertSpans(player, zombie, 1.0D, 1.0D);
+            assertTrue(player.addTransactionResponse(transport.markers.get(2)));
             zombie.onMovement(player, true);
-            // Two steps toward -3 from 0, or one from 1.
-            assertSpans(player, zombie, -2.0D, -1.0D / 3.0D);
+            // A third of the way from 1 to -3.
+            assertSpans(player, zombie, -1.0D / 3.0D, -1.0D / 3.0D);
         }
     }
 
@@ -155,7 +189,7 @@ public final class GeyserEntityWaveMarkerTest {
 
     private static LevelChunkPacket chunk() {
         var chunk = new LevelChunkPacket();
-        chunk.setData(io.netty.buffer.Unpooled.buffer(1));
+        chunk.setData(Unpooled.buffer(1));
         return chunk;
     }
 
@@ -193,8 +227,7 @@ public final class GeyserEntityWaveMarkerTest {
                     })
                     .when(platform)
                     .runInModel(Mockito.any(Runnable.class));
-            User user = ac.cult.cultac.network.TestUsers.create(
-                    new User.Profile(uuid, ".Wave_Test"), javaChannel, platform);
+            User user = TestUsers.create(new User.Profile(uuid, ".Wave_Test"), javaChannel, platform);
             player = new CultPlayer(user, MovementPlatform.BEDROCK, new BedrockPlayerState(uuid));
             var manager = CultAPI.INSTANCE.getNetworkManager();
             var connections = manager.getClass().getDeclaredField("connections");
@@ -227,7 +260,7 @@ public final class GeyserEntityWaveMarkerTest {
 
         // Translates runtimeId to a zombie at the origin that the player tracks, so its moves are followed.
         PacketEntity track(long runtimeId, int javaId) {
-            var translated = Mockito.mock(org.geysermc.geyser.entity.type.Entity.class);
+            var translated = Mockito.mock(Entity.class);
             Mockito.when(translated.getEntityId()).thenReturn(javaId);
             Mockito.when(session.getEntityCache().getEntityByGeyserId(runtimeId))
                     .thenReturn(translated);

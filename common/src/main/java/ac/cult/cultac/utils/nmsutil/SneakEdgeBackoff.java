@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UnknownCollisionProvider;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -20,12 +21,23 @@ import java.util.List;
  * never showed. On a shortened axis that delta holds the water current Entity#baseTick added and the input of the keys
  * in the client's latest PLAYER_INPUT, which LocalPlayer#sendChanges sends before the tick's position.
  */
-final class SneakEdgeBackoff {
+public final class SneakEdgeBackoff {
     private static final double STEP = 0.05D;
     // Bounds the 0.05 probe loop; a larger shortened delta keeps the engine's candidates.
     private static final double MAX_PROBED_AXIS = 1.0D;
 
     private SneakEdgeBackoff() {}
+
+    /** Player#maybeBackOffFromEdge for the replay's SELF move, after stuck scaling and before Entity#collide. */
+    public static Vec3 travelMovement(CultPlayer player, PredictionResult result, Vec3 delta) {
+        SimulationContext context = result.getSimulationContext();
+        if (context.getVehicle() != null
+                || player.isFlying
+                || delta.y > 0
+                || !context.isSneaking()
+                || !isAboveGround(player, result, context)) return delta;
+        return backOff(player, context.getFromActualPose(), delta, player.getMaxUpStep());
+    }
 
     /**
      * The deltaMovement Entity#move leaves after an edge shortened the accepted move, or null when no zero-flag
@@ -55,7 +67,7 @@ final class SneakEdgeBackoff {
 
         float sneakingSpeed =
                 (float) player.compensatedEntities.getSelf().sneakingSpeed.value();
-        if (context.getWorldData().getInWater() != DesyncStatus.TRUE) {
+        if (!context.getWorldData().isInWater()) {
             return deltaMovementFrom(
                     player, result, context, accepted, context.isLastSneaking() ? sneakingSpeed : 1.0F);
         }
@@ -75,7 +87,7 @@ final class SneakEdgeBackoff {
             SimulationContext context,
             Vec3 accepted,
             float movingSlowlyFactor) {
-        boolean water = context.getWorldData().getInWater() == DesyncStatus.TRUE;
+        boolean water = context.getWorldData().isInWater();
         if (water) {
             float speed = context.getMoveRelativeSpeed(player, true, true, false);
             return deltaMovementFrom(player, result, context, accepted, movingSlowlyFactor, speed);
@@ -109,7 +121,7 @@ final class SneakEdgeBackoff {
             Vec3 accepted,
             float movingSlowlyFactor,
             float speed) {
-        boolean water = context.getWorldData().getInWater() == DesyncStatus.TRUE;
+        boolean water = context.getWorldData().isInWater();
         PredVector start = result.getInitialStartingVel();
         Vec3 input = ClientKeyInput.travelInput(
                 player, context, player.packetStateData.knownInput, 1.0F, movingSlowlyFactor, speed);
@@ -146,26 +158,28 @@ final class SneakEdgeBackoff {
     private static boolean appliesTo(CultPlayer player, PredictionResult result, SimulationContext context) {
         PredVector start = result.getInitialStartingVel();
         WorldData world = context.getWorldData();
-        return appliesTo(player)
+        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && !player.isBedrockMovement()
+                && player.packetStateData.clientMovementInputKnown
+                // Player#isStayingOnGroundSurface reads the keys this tick's PLAYER_INPUT sent.
+                && player.packetStateData.knownInput.shift()
                 && context.isSneaking()
                 && context.getVehicle() == null
                 && !player.isFlying
                 && !context.usesFallFlyingMovement()
                 && start != null
-                && !start.isTickSkip()
                 && !start.isJump()
                 && !start.isKnockback()
                 && !(start.y > 0.0D)
                 && isAboveGround(player, result, context)
-                && world.getInLava() == DesyncStatus.FALSE
+                && !world.isInLava()
                 && world.getClimbingAtStart() == DesyncStatus.FALSE
                 && !world.isMightBeInBlock()
                 && context.getMaxAttackSlow() == 0
                 // LivingEntity#checkAutoSpinAttack can reset sprinting after travel when it hits a RemotePlayer.
                 && !world.isSpinAttackPlayer()
                 // LivingEntity#travelInWater moves by moveRelative(0.02F) when no water_movement_efficiency raises it.
-                && (world.getInWater() == DesyncStatus.FALSE
-                        || world.getInWater() == DesyncStatus.TRUE && context.getWaterMovementEfficiency() == 0.0F)
+                && (!world.isInWater() || context.getWaterMovementEfficiency() == 0.0F)
                 && !IsUsingItem.isUsingItem(player)
                 && result.getValidMovements() != null
                 && result.getValidMovements().getPositionOnlyDelta().lengthSqr() <= 1.0E-14;
@@ -189,7 +203,7 @@ final class SneakEdgeBackoff {
                 ReachUtils.getLook(player, context.getXRot(), context.getYRot()).getY();
         Vec3 from = context.getStart();
         if (!(lookY <= 0.0D)
-                && !player.packetStateData.knownInput.jump()
+                && !ClientKeyInput.jumping(player)
                 && player.compensatedWorld.getFluidLevelAt(
                                 CultMath.floor(from.x), CultMath.floor(from.y + 1.0D - 0.1D), CultMath.floor(from.z))
                         == 0.0D) {
@@ -206,48 +220,174 @@ final class SneakEdgeBackoff {
     private static boolean isAboveGround(CultPlayer player, PredictionResult result, SimulationContext context) {
         DesyncStatus onGround = context.getWorldData().getLastOnGround();
         if (onGround != DesyncStatus.FALSE) return onGround == DesyncStatus.TRUE;
-        float maxDownStep = player.getMaxUpStep();
         double fallDistance = JavaFallDistance.beforeMove(player, context, result.getInitialStartingVel())
                 .fallDistance();
-        return fallDistance < maxDownStep
-                && !canFallAtLeast(
-                        player,
-                        context.getFromActualPose(),
-                        new SimpleCollisionBox(),
-                        0.0,
-                        0.0,
-                        maxDownStep - fallDistance);
+        return groundWithinStep(player, context.getFromActualPose(), fallDistance);
     }
 
-    /** Player#maybeBackOffFromEdge once its flying, mover, shift and Player#isAboveGround conditions hold. */
+    /**
+     * Player#isAboveGround off the ground: a fall distance under maxUpStep, with ground within the rest of maxUpStep
+     * below {@code box}.
+     */
+    public static boolean groundWithinStep(CultPlayer player, SimpleCollisionBox box, double fallDistance) {
+        float maxDownStep = player.getMaxUpStep();
+        // Entity.fallDistance is a float through 1.21.4, where canFallAtLeast takes the float difference.
+        double minHeight = player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)
+                ? (double) (maxDownStep - (float) fallDistance)
+                : maxDownStep - fallDistance;
+        return fallDistance < maxDownStep && !canFallAtLeast(player, box, new SimpleCollisionBox(), 0.0, 0.0, minHeight);
+    }
+
+    /**
+     * How far a move along X ({@code axis} 0) or Z (2) toward {@code far} can go and still stand on ground, which
+     * Player#maybeBackOffFromEdge keeps and backs off past; NaN when the whole move stands or the start does not.
+     */
+    public static double supportedTo(
+            CultPlayer player, SimpleCollisionBox box, int axis, double far, float maxDownStep) {
+        SimpleCollisionBox probe = new SimpleCollisionBox();
+        if (canFallAtLeast(player, box, probe, 0.0, 0.0, maxDownStep)
+                || !canFallAtLeast(player, box, probe, axis == 0 ? far : 0.0, axis == 2 ? far : 0.0, maxDownStep))
+            return Double.NaN;
+        double supported = 0.0;
+        double unsupported = far;
+        for (int i = 0; i < 40; i++) {
+            double middle = (supported + unsupported) * 0.5;
+            if (canFallAtLeast(player, box, probe, axis == 0 ? middle : 0.0, axis == 2 ? middle : 0.0, maxDownStep))
+                unsupported = middle;
+            else supported = middle;
+        }
+        return supported;
+    }
+
+    /**
+     * Player#maybeBackOffFromEdge once its flying, mover, shift and Player#isAboveGround conditions hold. Each loop
+     * steps by 0.05 while canFallAtLeast holds; a run of later steps whose probes all lie in one box that cannot fall
+     * is passed at once, as canFallAtLeast holds for every box inside one where it holds. The result is the loops'.
+     */
     static Vec3 backOff(CultPlayer player, SimpleCollisionBox box, Vec3 delta, float maxDownStep) {
         SimpleCollisionBox probe = new SimpleCollisionBox();
-        double deltaX = delta.x;
-        double deltaZ = delta.z;
+        double deltaX = backOffAxis(player, box, probe, delta.x, true, maxDownStep);
+        double deltaZ = backOffAxis(player, box, probe, delta.z, false, maxDownStep);
+        if (deltaX == 0.0 || deltaZ == 0.0) return new Vec3(deltaX, delta.y, deltaZ);
         double stepX = Math.signum(deltaX) * STEP;
         double stepZ = Math.signum(deltaZ) * STEP;
-        while (deltaX != 0.0 && canFallAtLeast(player, box, probe, deltaX, 0.0, maxDownStep)) {
-            if (Math.abs(deltaX) <= STEP) {
-                deltaX = 0.0;
-                break;
+        long span = 1;
+        boolean grow = true;
+        while (true) {
+            // The diagonal loop probes both axes until either one is within 0.05 of zero, then zeroes it.
+            long steps = Math.min(span - 1, Math.min(stepsAbove(deltaX), stepsAbove(deltaZ)));
+            double lastX = stepped(deltaX, steps), lastZ = stepped(deltaZ, steps);
+            if (canFallAtLeast(
+                    player,
+                    box,
+                    probe,
+                    Math.min(deltaX, lastX),
+                    Math.max(deltaX, lastX),
+                    Math.min(deltaZ, lastZ),
+                    Math.max(deltaZ, lastZ),
+                    maxDownStep)) {
+                deltaX = Math.abs(lastX) <= STEP ? 0.0 : lastX - stepX;
+                deltaZ = Math.abs(lastZ) <= STEP ? 0.0 : lastZ - stepZ;
+                if (deltaX == 0.0 || deltaZ == 0.0) return new Vec3(deltaX, delta.y, deltaZ);
+                if (lastX == deltaX && lastZ == deltaZ) return new Vec3(deltaX, delta.y, deltaZ);
+                grow |= span == 1;
+                span = nextSpan(span, grow);
+            } else if (steps == 0) {
+                return new Vec3(deltaX, delta.y, deltaZ);
+            } else {
+                grow = false;
+                span = (steps + 1) >> 1;
             }
-            deltaX -= stepX;
         }
-        while (deltaZ != 0.0 && canFallAtLeast(player, box, probe, 0.0, deltaZ, maxDownStep)) {
-            if (Math.abs(deltaZ) <= STEP) {
-                deltaZ = 0.0;
-                break;
-            }
-            deltaZ -= stepZ;
-        }
-        while (deltaX != 0.0 && deltaZ != 0.0 && canFallAtLeast(player, box, probe, deltaX, deltaZ, maxDownStep)) {
-            deltaX = Math.abs(deltaX) <= STEP ? 0.0 : deltaX - stepX;
-            deltaZ = Math.abs(deltaZ) <= STEP ? 0.0 : deltaZ - stepZ;
-        }
-        return new Vec3(deltaX, delta.y, deltaZ);
     }
 
-    /** Player#canFallAtLeast: nothing collides in the slab {@code minHeight} below the moved box's feet. */
+    /** One axis loop of {@link #backOff} from {@code delta}, by runs of its steps as there. */
+    private static double backOffAxis(
+            CultPlayer player,
+            SimpleCollisionBox box,
+            SimpleCollisionBox probe,
+            double delta,
+            boolean x,
+            float maxDownStep) {
+        if (delta == 0.0) return delta;
+        double step = Math.signum(delta) * STEP;
+        long span = 1;
+        boolean grow = true;
+        while (true) {
+            long steps = Math.min(span - 1, stepsAbove(delta));
+            double last = stepped(delta, steps);
+            double low = Math.min(delta, last), high = Math.max(delta, last);
+            if (x
+                    ? canFallAtLeast(player, box, probe, low, high, 0.0, 0.0, maxDownStep)
+                    : canFallAtLeast(player, box, probe, 0.0, 0.0, low, high, maxDownStep)) {
+                if (Math.abs(last) <= STEP) return 0.0;
+                double next = last - step;
+                // Past 2^56 a 0.05 step no longer changes the delta, and the client's loop never ends.
+                if (next == delta) return delta;
+                delta = next;
+                grow |= span == 1;
+                span = nextSpan(span, grow);
+            } else if (steps == 0) {
+                return delta;
+            } else {
+                grow = false;
+                span = (steps + 1) >> 1;
+            }
+        }
+    }
+
+    /**
+     * The next run after one that could fall: twice as long while growing, else half the run known to hold a probe
+     * that cannot. The caller restarts growth after a single probe that could fall.
+     */
+    private static long nextSpan(long span, boolean grow) {
+        return grow ? Math.min(span << 1, 1L << 62) : span >> 1;
+    }
+
+    /** How many of the loop's 0.05 steps {@code delta} takes before it is within 0.05 of zero. */
+    static long stepsAbove(double delta) {
+        double size = Math.abs(delta);
+        long steps = 0;
+        while (size > STEP) {
+            double next = size - STEP;
+            if (next == size) return Long.MAX_VALUE;
+            long run = size >= 1.0 ? runInBinade(size, next, Long.MAX_VALUE) : 1;
+            steps += run;
+            size = run == 1 ? next : size - run * (size - next);
+        }
+        return steps;
+    }
+
+    /** {@code delta} after {@code steps} of the loop's {@code delta -= signum(delta) * 0.05}, each still above 0.05. */
+    static double stepped(double delta, long steps) {
+        double size = Math.abs(delta);
+        while (steps > 0) {
+            double next = size - STEP;
+            if (next == size) break;
+            long run = size >= 1.0 ? runInBinade(size, next, steps) : 1;
+            size = run == 1 ? next : size - run * (size - next);
+            steps -= run;
+        }
+        return Math.copySign(size, delta);
+    }
+
+    /**
+     * How many of at most {@code limit} steps from {@code size} (at least 1.0) end above the bottom of its binade, at
+     * least one. There a 0.05 subtraction always removes {@code size - next}: its exact result rounds to a multiple of
+     * the same ulp, never from a tie, as 0.05 is an odd multiple of 2^-56. The products and differences below are exact
+     * multiples of that ulp. A step reaching the bottom itself may round on the finer ulp below, so it runs alone.
+     */
+    private static long runInBinade(double size, double next, long limit) {
+        double low = Math.scalb(1.0, Math.getExponent(size));
+        if (next <= low) return 1;
+        double removed = size - next;
+        long run = Math.max(1, Math.min(limit, (long) ((size - low) / removed)));
+        while (run > 1 && size - run * removed <= low) run--;
+        while (run < limit && size - (run + 1) * removed > low) run++;
+        return run;
+    }
+
+    /** Player#canFallAtLeast: the pre-1.21.5 slab uses full X/Z and a float 1e-5 Y margin. */
     private static boolean canFallAtLeast(
             CultPlayer player,
             SimpleCollisionBox box,
@@ -255,16 +395,31 @@ final class SneakEdgeBackoff {
             double deltaX,
             double deltaZ,
             double minHeight) {
-        boolean legacy = player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5);
-        double inset = legacy ? 0.0 : 1.0E-7;
-        double depth = legacy ? (double) 1.0E-5F : 1.0E-7;
+        return canFallAtLeast(player, box, probe, deltaX, deltaX, deltaZ, deltaZ, minHeight);
+    }
+
+    /** {@link #canFallAtLeast} for every box between the offsets, the union of their slabs. */
+    private static boolean canFallAtLeast(
+            CultPlayer player,
+            SimpleCollisionBox box,
+            SimpleCollisionBox probe,
+            double lowX,
+            double highX,
+            double lowZ,
+            double highZ,
+            double minHeight) {
+        boolean modern = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5);
+        double horizontalMargin = modern ? 1.0E-7 : 0.0;
+        double verticalMargin = modern ? 1.0E-7 : (double) 1.0E-5F;
         probe.set(
-                box.minX + inset + deltaX,
-                box.minY - minHeight - depth,
-                box.minZ + inset + deltaZ,
-                box.maxX - inset + deltaX,
+                box.minX + horizontalMargin + lowX,
+                box.minY - minHeight - verticalMargin,
+                box.minZ + horizontalMargin + lowZ,
+                box.maxX - horizontalMargin + highX,
                 box.minY,
-                box.maxZ - inset + deltaZ);
-        return Collisions.isEmpty(player, probe, box.minY);
+                box.maxZ - horizontalMargin + highZ);
+        // CollisionGetter#noCollision counts the entity shapes EntityGetter#getEntityCollisions gives the player.
+        return Collisions.isEmpty(player, probe, box.minY)
+                && !UnknownCollisionProvider.hasEntityCollision(player, Collisions.feet(box), probe);
     }
 }

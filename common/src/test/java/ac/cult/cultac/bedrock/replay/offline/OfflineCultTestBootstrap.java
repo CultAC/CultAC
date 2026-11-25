@@ -1,15 +1,43 @@
 package ac.cult.cultac.bedrock.replay.offline;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.config.BaseConfigManager;
+import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.PacketDispatcher;
+import ac.cult.cultac.network.PacketOwner;
+import ac.cult.cultac.network.PlatformConnection;
+import ac.cult.cultac.network.TestProtocolRuntime;
+import ac.cult.cultac.network.codec.ClientPacketCodecs;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
+import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.PlatformLoader;
+import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.manager.PermissionRegistrationManager;
+import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketDirection;
+import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.data.ProtocolData;
+import ac.cult.cultac.protocol.netty.CultDecoder;
+import ac.cult.cultac.protocol.netty.CultEncoder;
+import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
+import ac.cult.cultac.utils.inventory.ItemUtil;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.plugin.GrimPlugin;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.embedded.EmbeddedChannel;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 import org.mockito.Mockito;
@@ -25,23 +53,24 @@ public final class OfflineCultTestBootstrap {
     public static void installConfig() {
         if (installed) {
             initializeProtocolRuntime();
+            loadBedrockBlockShapes();
             return;
         }
         initializeProtocolRuntime();
         installPlatformLoader();
-        // The config outlives every test in the fork, so it records no invocations.
-        ConfigManager config = Mockito.mock(ConfigManager.class, Mockito.withSettings().stubOnly());
-        Mockito.when(config.getIntElse(Mockito.anyString(), Mockito.anyInt()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
-        Mockito.when(config.getBooleanElse(Mockito.anyString(), Mockito.anyBoolean()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
-
-        Mockito.when(config.getBooleanElse("experimental-checks", false)).thenReturn(true);
-        Mockito.when(config.getDoubleElse(Mockito.anyString(), Mockito.anyDouble()))
-                .thenAnswer(invocation ->
-                        DOUBLE_CONFIG_OVERRIDES.getOrDefault(invocation.getArgument(0), invocation.getArgument(1)));
-        Mockito.when(config.getStringElse(Mockito.anyString(), Mockito.anyString()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
+        // The config outlives every test in the fork and is read on every player's creation: a plain proxy keeps
+        // those reads cheap. It answers each default, with the experimental checks on and any double override.
+        ConfigManager config = (ConfigManager) Proxy.newProxyInstance(
+                ConfigManager.class.getClassLoader(), new Class<?>[] {ConfigManager.class}, (proxy, method, args) -> {
+                    String name = method.getName();
+                    if (name.equals("getBooleanElse") && "experimental-checks".equals(args[0])) return true;
+                    if (name.equals("getDoubleElse")) return DOUBLE_CONFIG_OVERRIDES.getOrDefault(args[0], (Double) args[1]);
+                    if (name.endsWith("Else") && args != null && args.length == 2) return args[1];
+                    if (name.equals("hashCode")) return System.identityHashCode(proxy);
+                    if (name.equals("equals")) return proxy == args[0];
+                    if (name.equals("toString")) return "OfflineCultTestConfig";
+                    return unconfigured(method.getReturnType());
+                });
 
         BaseConfigManager configManager = new ReplayConfigManager(config);
 
@@ -53,6 +82,28 @@ public final class OfflineCultTestBootstrap {
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("failed to install offline Cult config", exception);
         }
+        loadBedrockBlockShapes();
+    }
+
+    /** Bedrock players collide with the client's block shapes, loaded from the catalog the Geyser bridge loads. */
+    private static void loadBedrockBlockShapes() {
+        if (!BedrockClientBlockShapeMappings.isInitialized()) {
+            BedrockClientBlockShapeMappings.initialize();
+        }
+    }
+
+    /** What an unconfigured config answers: nothing, zero, false or an empty collection. */
+    private static Object unconfigured(Class<?> type) {
+        if (type == boolean.class) return false;
+        if (type == int.class) return 0;
+        if (type == long.class) return 0L;
+        if (type == double.class) return 0.0D;
+        if (type == float.class) return 0.0F;
+        if (type == List.class) return List.of();
+        if (type == Set.class) return Set.of();
+        if (type == Map.class) return Map.of();
+        if (type == Optional.class) return Optional.empty();
+        return null;
     }
 
     private static void initializeProtocolRuntime() {
@@ -60,44 +111,38 @@ public final class OfflineCultTestBootstrap {
         if (!networkConfigured) {
             networkConfigured = true;
             manager.configureTransport(
-                    ac.cult.cultac.network.TestProtocolRuntime.create(ac.cult.cultac.protocol.data.ProtocolData.load(
-                            ac.cult.cultac.protocol.ProtocolVersion.V26_3)),
+                    TestProtocolRuntime.create(ProtocolData.load(ProtocolVersion.V26_3)),
                     () -> {},
-                    () -> java.util.concurrent.CompletableFuture.completedFuture(null));
+                    () -> CompletableFuture.completedFuture(null));
         }
     }
 
     /** Offline state tests still encode authored records through the real transport. */
-    static ac.cult.cultac.network.protocol.player.User wireUser(
-            ac.cult.cultac.network.protocol.player.User.Profile profile) {
+    static User wireUser(User.Profile profile) {
         return wireUser(profile, null);
     }
 
     /** A non-null bridge attaches the connection to a Geyser session through owner resolution. */
-    static ac.cult.cultac.network.protocol.player.User wireUser(
-            ac.cult.cultac.network.protocol.player.User.Profile profile, Object bedrockBridge) {
+    static User wireUser(User.Profile profile, Object bedrockBridge) {
         var runtime =
                 CultAPI.INSTANCE.getNetworkManager().dispatcher().scanner().runtime();
-        var channel = new io.netty.channel.embedded.EmbeddedChannel();
-        channel.pipeline().addLast("splitter", new io.netty.channel.ChannelInboundHandlerAdapter());
-        channel.pipeline().addLast("decoder", new io.netty.channel.ChannelInboundHandlerAdapter());
-        channel.pipeline().addLast("prepender", new io.netty.channel.ChannelOutboundHandlerAdapter());
-        channel.pipeline().addLast("encoder", new io.netty.channel.ChannelOutboundHandlerAdapter());
+        var channel = new EmbeddedChannel();
+        channel.pipeline().addLast("splitter", new ChannelInboundHandlerAdapter());
+        channel.pipeline().addLast("decoder", new ChannelInboundHandlerAdapter());
+        channel.pipeline().addLast("prepender", new ChannelOutboundHandlerAdapter());
+        channel.pipeline().addLast("encoder", new ChannelOutboundHandlerAdapter());
         // Offline tests invoke consumers directly. Routes are empty so authored
         // packets are encoded without running those consumers a second time.
-        var routes = new ac.cult.cultac.network.PacketDispatcher(runtime);
-        var transport = new ac.cult.cultac.network.CultConnection(
+        var routes = new PacketDispatcher(runtime);
+        var transport = new CultConnection(
                 channel,
                 routes,
-                ignored -> bedrockBridge == null
-                        ? null
-                        : new ac.cult.cultac.network.PacketOwner(channel.eventLoop(), bedrockBridge));
-        ac.cult.cultac.protocol.netty.CultDecoder.install(transport);
-        ac.cult.cultac.protocol.netty.CultEncoder.install(transport);
-        for (var direction : ac.cult.cultac.protocol.PacketDirection.values())
-            transport.phase(direction, ac.cult.cultac.protocol.ConnectionPhase.PLAY);
+                ignored -> bedrockBridge == null ? null : new PacketOwner(channel.eventLoop(), bedrockBridge));
+        CultDecoder.install(transport);
+        CultEncoder.install(transport);
+        for (var direction : PacketDirection.values()) transport.phase(direction, ConnectionPhase.PLAY);
         transport.resolveOwner();
-        var user = new ac.cult.cultac.network.protocol.player.User(profile, transport);
+        var user = new User(profile, transport);
         return user;
     }
 
@@ -110,34 +155,30 @@ public final class OfflineCultTestBootstrap {
     }
 
     /** Default fixtures use the bundled names and client-visible world facts. */
-    public static ac.cult.cultac.network.PlatformConnection platformConnection() {
-        var platform = Mockito.mock(ac.cult.cultac.network.PlatformConnection.class);
+    public static PlatformConnection platformConnection() {
+        var platform = Mockito.mock(PlatformConnection.class);
         Mockito.doAnswer(invocation -> {
                     ((Runnable) invocation.getArgument(0)).run();
                     return null;
                 })
                 .when(platform)
                 .runInModel(Mockito.any(Runnable.class));
-        Mockito.when(platform.registryNames())
-                .thenReturn(ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults());
-        Mockito.when(platform.initialWorldData())
-                .thenReturn(ac.cult.cultac.utils.latency.ClientWorldRegistries.modelDefaults());
+        Mockito.when(platform.registryNames()).thenReturn(ModelRegistryNamesState.defaults());
+        Mockito.when(platform.initialWorldData()).thenReturn(ClientWorldRegistries.modelDefaults());
         return platform;
     }
 
-    public static java.util.List<ac.cult.cultac.protocol.PacketType<?>> catalog() {
-        var world = new ac.cult.cultac.utils.latency.ClientWorldRegistries(
-                ac.cult.cultac.utils.latency.ClientWorldRegistries.modelDefaults());
-        return ac.cult.cultac.network.codec.ClientPacketCodecs.catalog(
-                context -> ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults(), context -> world);
+    public static List<PacketType<?>> catalog() {
+        var world = new ClientWorldRegistries(ClientWorldRegistries.modelDefaults());
+        return ClientPacketCodecs.catalog(context -> ModelRegistryNamesState.defaults(), context -> world);
     }
 
-    public static ac.cult.blocksim.engine.SimItemStack item(String key) {
+    public static SimItemStack item(String key) {
         return item(key, 1);
     }
 
-    public static ac.cult.blocksim.engine.SimItemStack item(String key, int count) {
-        return ac.cult.cultac.utils.inventory.ItemUtil.modelItems().stack(key, count);
+    public static SimItemStack item(String key, int count) {
+        return ItemUtil.modelItems().stack(key, count);
     }
 
     private static void installPlatformLoader() {
@@ -155,9 +196,8 @@ public final class OfflineCultTestBootstrap {
                 new Class<?>[] {PlatformLoader.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getPermissionManager" -> noOpPermissions;
-                    case "getPluginManager" ->
-                        Mockito.mock(ac.cult.cultac.platform.api.manager.PlatformPluginManager.class);
-                    case "getPlatformServer" -> Mockito.mock(ac.cult.cultac.platform.api.PlatformServer.class);
+                    case "getPluginManager" -> Mockito.mock(PlatformPluginManager.class);
+                    case "getPlatformServer" -> Mockito.mock(PlatformServer.class);
                     case "getPlugin" -> grimPlugin;
                     default -> defaultValue(method.getReturnType());
                 });
@@ -218,8 +258,8 @@ public final class OfflineCultTestBootstrap {
         }
 
         // isExperimentalChecks()/getMaxPingTransaction() overrides dropped: neither exists on the
-        // merged BaseConfigManager (experimental checks are stubbed on the mock above; the engine
-        // reads the clamped max-transaction-time key, which the mock default-answers).
+        // merged BaseConfigManager (experimental checks are on in the config above; the engine
+        // reads the clamped max-transaction-time key, which the config default-answers).
         @Override
         public int getMaxPingKnockback() {
             return 1000;

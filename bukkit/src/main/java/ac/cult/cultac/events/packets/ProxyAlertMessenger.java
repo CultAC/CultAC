@@ -113,7 +113,6 @@ public class ProxyAlertMessenger implements PluginMessageListener {
                 && CultAPI.INSTANCE.getConfigManager().getConfig().getBooleanElse("alerts.proxy.receive", false);
     }
 
-    // TODO (Cross-Platform) check if new getBooleanFromFile impl is correct
     private static boolean getBooleanFromFile(String pathToFile, String pathToValue) {
         File file = new File(pathToFile);
         if (!file.exists()) return false;

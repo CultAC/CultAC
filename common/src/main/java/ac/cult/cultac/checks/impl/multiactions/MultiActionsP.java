@@ -2,15 +2,16 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.*;
-import ac.cult.cultac.protocol.value.*;
 
 @CheckData(
-        name = "MultiActionsP",
+        name = "InventoryH",
+        formerNames = @FormerName(name = "MultiActionsP", until = 2),
         stableKey = "cult.multiactions.inventory_drop",
         description = "Dropping items without using click packets while in an inventory",
         experimental = true)

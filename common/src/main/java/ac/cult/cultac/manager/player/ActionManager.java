@@ -16,7 +16,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
@@ -33,8 +32,6 @@ import lombok.Getter;
 public class ActionManager extends CultProcessor implements CheckListener, ClientTickEndListener {
 
     public long lastAttack = 0;
-
-    public long lastFlyingPacketTime;
 
     public ActionManager(CultPlayer cultPlayer) {
         super(cultPlayer);
@@ -65,7 +62,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
                         ClientItemUseState.duration(heldStack),
                         !ItemUseInventory.possiblyRefused(player, hand)
                                 && (RiptideUtil.getRiptideLevel(heldStack) <= 0
-                                        || RiptideUtil.inWaterOrRain(player).determinePessimistically()));
+                                        || RiptideUtil.inWaterOrRain(player)));
             return;
         }
         if (canStartUsingItem(heldStack)) {
@@ -84,7 +81,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     }
 
     public void releaseItem() {
-        if (player.usesModernJavaItemUse()) player.clientItemUse.release();
+        if (player.usesModernJavaItemUse()) player.clientItemUse.clientReleased();
         player.packetStateData.setSlowedByUsingItem(false);
     }
 
@@ -116,7 +113,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
                 // TridentItem#use refuses a riptide trident only while !Player#isInWaterOrRain.
                 return !nms.nextDamageWillBreak()
                         && (ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0
-                                || RiptideUtil.inWaterOrRain(player).determineOptimistically());
+                                || RiptideUtil.inWaterOrRain(player));
             }
 
             var consumable = ItemComponents.consumable(nms.components());
@@ -140,7 +137,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
             // TridentItem#use refuses a riptide trident only while !Player#isInWaterOrRain.
             return !nms.nextDamageWillBreak()
                     && (ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0
-                            || RiptideUtil.inWaterOrRain(player).determineOptimistically());
+                            || RiptideUtil.inWaterOrRain(player));
         }
         if (material == ItemTypes.BOW || material == ItemTypes.CROSSBOW) {
             return false;
@@ -185,14 +182,6 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     }
 
     @CultPacketHandler
-    public void onSetCarriedItem(
-            PacketReceiveEvent<ServerboundSetCarriedItem> event, CultPlayer player, ServerboundSetCarriedItem packet) {
-        selectHotbarSlot();
-    }
-
-    public void selectHotbarSlot() {}
-
-    @CultPacketHandler
     public void onMovePlayerPos(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         clearMainHandUseAfterSlotChange();
@@ -206,7 +195,6 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     public void endClientTick() {
         clearMainHandUseAfterSlotChange();
         ++player.totalFlyingPacketsSent;
-        this.lastFlyingPacketTime = System.currentTimeMillis();
     }
 
     @CultPacketHandler
@@ -225,16 +213,23 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     public void onRespawn() {
         resetItemUse();
         player.packetStateData.setSlowedByUsingItem(false);
+        // ClientPacketListener#handleRespawn constructs a new LocalPlayer.
+        if (!player.isBedrockMovement()) newLocalPlayerState();
     }
 
     /** The Java client constructed another player; accumulated anti-abuse accounting survives. */
     public void onJavaPlayerReplacement() {
         player.clientItemUse.reset();
-        player.clientItemUse.onNewLocalPlayer();
-        player.checkManager.getCompensatedCooldown().clearPossibleCooldowns();
+        newLocalPlayerState();
         // A LocalPlayer's FoodData starts full.
         player.food = 20;
         player.packetStateData.setSlowedByUsingItem(false);
+    }
+
+    /** A new LocalPlayer starts with fresh FoodData and empty ItemCooldowns. */
+    private void newLocalPlayerState() {
+        player.clientItemUse.onNewLocalPlayer();
+        player.checkManager.getCompensatedCooldown().clearForNewLocalPlayer();
     }
 
     private void clearMainHandUseAfterSlotChange() {

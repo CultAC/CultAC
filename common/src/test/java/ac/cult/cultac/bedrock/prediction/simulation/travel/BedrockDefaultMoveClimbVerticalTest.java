@@ -53,7 +53,9 @@ public final class BedrockDefaultMoveClimbVerticalTest {
     @Test
     public void descendActionKeepsRawMoveAndExposesAirDraggedCollisionVelocity() {
         BedrockTravelMoveVector.Step step = BedrockTravelMoveVector.resolve(
-                new Vec3d(0.0D, BedrockClimbMovement.SCAFFOLDING_DESCEND_VELOCITY, 0.0D), descendingThroughBlock());
+                new Vec3d(0.0D, BedrockClimbMovement.SCAFFOLDING_DESCEND_VELOCITY, 0.0D),
+                descendingThroughBlock(),
+                false);
 
         double expected = BedrockAerialMovement.airDraggedVelocityWithoutGravity(
                 BedrockClimbMovement.SCAFFOLDING_DESCEND_VELOCITY);
@@ -64,21 +66,21 @@ public final class BedrockDefaultMoveClimbVerticalTest {
 
     private static BedrockClimbState noClimb() {
         return new BedrockClimbState(
-                new BedrockClimbSurface(BedrockClimbSurface.Type.NONE, false, false),
+                new BedrockClimbSurface(BedrockClimbSurface.Type.NONE, false, false, false, false),
                 BedrockScaffoldingState.NONE,
                 BedrockClimbableState.NONE);
     }
 
     private static BedrockClimbState descendingThroughBlock() {
         return new BedrockClimbState(
-                new BedrockClimbSurface(BedrockClimbSurface.Type.SCAFFOLDING, true, false),
+                new BedrockClimbSurface(BedrockClimbSurface.Type.SCAFFOLDING, false, false, true, false),
                 BedrockScaffoldingState.DESCENDING,
                 BedrockClimbableState.NONE);
     }
 
     private static BedrockClimbState climbing() {
         return new BedrockClimbState(
-                new BedrockClimbSurface(BedrockClimbSurface.Type.CLIMBABLE, false, false),
+                new BedrockClimbSurface(BedrockClimbSurface.Type.CLIMBABLE, true, false, false, false),
                 BedrockScaffoldingState.NONE,
                 BedrockClimbableState.NONE);
     }

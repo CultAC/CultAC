@@ -10,8 +10,10 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.player.ClientVersionFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -40,7 +42,7 @@ class LegacyClientPositionSyncSnapTest {
         CultPlayer player = player();
         try {
             PacketEntity entity = syncedFrom(player, new Vec3d(20, 100, 6));
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertEquals(20.0D, entity.clientPhysicalPosition.x, 0.0D);
             assertEquals(100.0D, entity.clientPhysicalPosition.y, 0.0D);
             SimpleCollisionBox possible = entity.getPossibleCollisionBoxes();
@@ -60,17 +62,17 @@ class LegacyClientPositionSyncSnapTest {
         try {
             PacketEntity entity = added(player);
             sync(player, new Vec3d(0, 37, 0.9));
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertEquals(0.3D, entity.clientPhysicalPosition.z, 1.0E-9D);
 
             sync(player, new Vec3d(20, 100, 6));
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertEquals(20.0D, entity.clientPhysicalPosition.x, 1.0E-9D);
             assertEquals(100.0D, entity.clientPhysicalPosition.y, 1.0E-9D);
             assertEquals(6.3D, entity.clientPhysicalPosition.z, 1.0E-9D);
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertEquals(6.6D, entity.clientPhysicalPosition.z, 1.0E-9D);
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertEquals(6.6D, entity.clientPhysicalPosition.z, 1.0E-9D);
         } finally {
             close(player);
@@ -87,15 +89,15 @@ class LegacyClientPositionSyncSnapTest {
         try {
             PacketEntity entity = added(player);
             sync(player, new Vec3d(0, 37, 0.9));
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertEquals(0.3D, entity.clientPhysicalPosition.z, 1.0E-9D);
 
             sync(player, new Vec3d(20, 100, 6));
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertEquals(10.0D, entity.clientPhysicalPosition.x, 1.0E-9D);
             assertEquals(68.5D, entity.clientPhysicalPosition.y, 1.0E-9D);
             assertEquals(3.45D, entity.clientPhysicalPosition.z, 1.0E-9D);
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertEquals(0.0D, entity.clientPhysicalPosition.x, 1.0E-9D);
             assertEquals(37.0D, entity.clientPhysicalPosition.y, 1.0E-9D);
             assertEquals(0.9D, entity.clientPhysicalPosition.z, 1.0E-9D);
@@ -109,8 +111,21 @@ class LegacyClientPositionSyncSnapTest {
         CultPlayer player = player();
         try {
             PacketEntity entity = syncedFrom(player, new Vec3d(20, 60, 6));
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertTrue(entity.clientPhysicalPosition.y < 59.0D, entity.clientPhysicalPosition.toString());
+        } finally {
+            close(player);
+        }
+    }
+
+    @Test
+    void farSyncInterpolatesBefore1_21_2() throws Exception {
+        CultPlayer player = player();
+        try {
+            ClientVersionFixtures.setClientVersion(player, ClientVersion.V_1_21);
+            PacketEntity entity = syncedFrom(player, new Vec3d(20, 100, 6));
+            entity.onMovement(player);
+            assertTrue(entity.clientPhysicalPosition.y < 99.0D, entity.clientPhysicalPosition.toString());
         } finally {
             close(player);
         }
@@ -126,7 +141,7 @@ class LegacyClientPositionSyncSnapTest {
         player.packetEntityReplication.addEntity(ID, EntityTypeIds.PLAYER, new Vec3(0, 37, 0), 0, 0, 0, -1);
         PacketEntity entity = player.compensatedEntities.getEntity(ID);
         assertNotNull(entity);
-        for (int tick = 0; tick < 5; tick++) entity.onMovement(player, true);
+        for (int tick = 0; tick < 5; tick++) entity.onMovement(player);
         return entity;
     }
 

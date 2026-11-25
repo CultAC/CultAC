@@ -1,15 +1,20 @@
 package ac.cult.blocksim;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ac.cult.blocksim.behavior.BehaviorRegistry;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.SimWorldView;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
 
 class GrowingPlantBehaviorTest {
     private static final DataTables DATA;
@@ -26,9 +31,9 @@ class GrowingPlantBehaviorTest {
         var top = POS.relative(Direction.UP);
         var level = level(Map.of(POS, body, top, head), true);
         assertTrue(level.setBlock(top, state("air"), 3));
-        assertEquals(java.util.List.of(top, POS), level.writes().stream().map(w -> w.pos()).toList());
+        assertEquals(List.of(top, POS), level.writes().stream().map(w -> w.pos()).toList());
         assertEquals(with(state("twisting_vines"), "age", "17"), level.stateAt(POS));
-        assertEquals(java.util.List.of(POS, top), new java.util.ArrayList<>(level.retainedStates().keySet()));
+        assertEquals(List.of(POS, top), new ArrayList<>(level.retainedStates().keySet()));
         assertEquals(body, level.retainedStates().get(POS));
     }
 
@@ -40,7 +45,7 @@ class GrowingPlantBehaviorTest {
         var sample = level.statePossibilitiesAt(POS);
         assertFalse(sample.exact());
         assertEquals("true", DATA.registry().value(sample.state(), "berries"));
-        var bindings = new HashMap<java.util.UUID, Integer>();
+        var bindings = new HashMap<UUID, Integer>();
         assertTrue(sample.matches(DATA.registry(), with(converted, "age", "24"), bindings));
         assertFalse(sample.matches(DATA.registry(), with(converted, "age", "23"), bindings));
         assertFalse(sample.matches(DATA.registry(), with(converted, "age", "25"), new HashMap<>()));
@@ -111,10 +116,10 @@ class GrowingPlantBehaviorTest {
             public boolean isSectionEmpty(BlockPos pos) { return states.isEmpty(); }
             public int minY() { return -64; }
             public int height() { return 384; }
-            public boolean isWithinBorder(ac.cult.blocksim.engine.BlockPos pos) { return true; }
-            public boolean creakingActiveAt(ac.cult.blocksim.engine.BlockPos pos) { return false; }
-            public boolean waterEvaporatesAt(ac.cult.blocksim.engine.BlockPos pos) { return false; }
-        public ac.cult.blocksim.engine.BlockEntityData blockEntityAt(ac.cult.blocksim.engine.BlockPos pos) { return null; }
+            public boolean isWithinBorder(BlockPos pos) { return true; }
+            public boolean creakingActiveAt(BlockPos pos) { return false; }
+            public boolean waterEvaporatesAt(BlockPos pos) { return false; }
+        public BlockEntityData blockEntityAt(BlockPos pos) { return null; }
         };
         return new SimLevel(view, DATA.registry(), new BehaviorRegistry(DATA), SimLevel.CLIENT_CHAIN_LIMIT, knownAge ? () -> 17 : null);
     }

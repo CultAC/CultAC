@@ -1,12 +1,20 @@
 package ac.cult.blocksim.data;
 
+import ac.cult.blocksim.data.nbt.NbtValue;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.util.AbstractMap;
+import java.util.AbstractSet;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
-import ac.cult.blocksim.data.nbt.NbtValue;
+import java.util.function.BiConsumer;
 
 /** Portable codec values. Copies at the boundary keep mutable JSON out of shared data. */
 public final class Components {
@@ -172,10 +180,11 @@ public final class Components {
     }
 
     /** A single immutable overlay; metadata absent from an override hides the prototype's metadata too. */
-    private static final class OverlayMap<V> extends java.util.AbstractMap<String, V> {
+    private static final class OverlayMap<V> extends AbstractMap<String, V> {
         private final Map<String, V> prototype, added;
         private final Set<String> overridden, removed;
-        private final int size;
+        /** -1 until counted; a racing reader may count again. */
+        private int size = -1;
 
         private OverlayMap(Map<String, V> prototype, Map<String, V> added,
                            Set<String> overridden, Set<String> removed) {
@@ -183,10 +192,6 @@ public final class Components {
             this.added = added;
             this.overridden = overridden;
             this.removed = removed;
-            int count = 0;
-            for (String key : prototype.keySet()) if (retains(key)) count++;
-            for (String key : added.keySet()) if (overridden.contains(key)) count++;
-            size = count;
         }
 
         static <V> Map<String, V> of(Map<String, V> prototype, Map<String, V> added,
@@ -199,27 +204,36 @@ public final class Components {
         private boolean retains(String key) { return !overridden.contains(key) && !removed.contains(key); }
 
         @Override public V get(Object key) {
-            java.util.Objects.requireNonNull(key);
+            Objects.requireNonNull(key);
             return overridden.contains(key) ? added.get(key) : removed.contains(key) ? null : prototype.get(key);
         }
 
         @Override public boolean containsKey(Object key) { return get(key) != null; }
-        @Override public int size() { return size; }
-        @Override public Set<String> keySet() { return java.util.Collections.unmodifiableSet(super.keySet()); }
+        @Override public int size() {
+            int known = size;
+            if (known < 0) {
+                known = 0;
+                for (String key : prototype.keySet()) if (retains(key)) known++;
+                for (String key : added.keySet()) if (overridden.contains(key)) known++;
+                size = known;
+            }
+            return known;
+        }
+        @Override public Set<String> keySet() { return Collections.unmodifiableSet(super.keySet()); }
 
-        @Override public void forEach(java.util.function.BiConsumer<? super String, ? super V> action) {
-            java.util.Objects.requireNonNull(action);
+        @Override public void forEach(BiConsumer<? super String, ? super V> action) {
+            Objects.requireNonNull(action);
             prototype.forEach((key, value) -> { if (retains(key)) action.accept(key, value); });
             added.forEach((key, value) -> { if (overridden.contains(key)) action.accept(key, value); });
         }
 
         @Override public Set<Entry<String, V>> entrySet() {
-            return java.util.Collections.unmodifiableSet(new java.util.AbstractSet<>() {
-                @Override public int size() { return size; }
-                @Override public java.util.Iterator<Entry<String, V>> iterator() {
-                    return new java.util.Iterator<>() {
-                        private final java.util.Iterator<Entry<String, V>> defaults = prototype.entrySet().iterator();
-                        private final java.util.Iterator<Entry<String, V>> overrides = added.entrySet().iterator();
+            return Collections.unmodifiableSet(new AbstractSet<>() {
+                @Override public int size() { return OverlayMap.this.size(); }
+                @Override public Iterator<Entry<String, V>> iterator() {
+                    return new Iterator<>() {
+                        private final Iterator<Entry<String, V>> defaults = prototype.entrySet().iterator();
+                        private final Iterator<Entry<String, V>> overrides = added.entrySet().iterator();
                         private Entry<String, V> next;
                         @Override public boolean hasNext() {
                             while (next == null && defaults.hasNext()) {
@@ -233,7 +247,7 @@ public final class Components {
                             return next != null;
                         }
                         @Override public Entry<String, V> next() {
-                            if (!hasNext()) throw new java.util.NoSuchElementException();
+                            if (!hasNext()) throw new NoSuchElementException();
                             var result = next;
                             next = null;
                             return result;
@@ -252,14 +266,14 @@ public final class Components {
     public boolean has(String key) { return values.containsKey(key); }
     /** Boundary encodings preserve NBT kinds and normalize codec booleans independently of JSON. */
     public boolean sameValue(String key, Components other) {
-        if (AdventurePredicateData.isComponent(key)) return java.util.Objects.equals(identity(key), other.identity(key));
-        if (key.equals(BundleContents.COMPONENT)) return java.util.Objects.equals(bundle, other.bundle);
-        if (key.equals(ComponentIdentity.TOOLTIP_DISPLAY)) return java.util.Objects.equals(identity(key), other.identity(key));
-        if (!java.util.Objects.equals(layouts.get(key), other.layouts.get(key))) return false;
-        if (RAW_NBT.contains(key)) return java.util.Objects.equals(identity(key), other.identity(key));
+        if (AdventurePredicateData.isComponent(key)) return Objects.equals(identity(key), other.identity(key));
+        if (key.equals(BundleContents.COMPONENT)) return Objects.equals(bundle, other.bundle);
+        if (key.equals(ComponentIdentity.TOOLTIP_DISPLAY)) return Objects.equals(identity(key), other.identity(key));
+        if (!Objects.equals(layouts.get(key), other.layouts.get(key))) return false;
+        if (RAW_NBT.contains(key)) return Objects.equals(identity(key), other.identity(key));
         if (encodedNbt.containsKey(key) && other.encodedNbt.containsKey(key))
-            return java.util.Objects.equals(encodedNbt.get(key), other.encodedNbt.get(key));
-        return java.util.Objects.equals(values.get(key), other.values.get(key));
+            return Objects.equals(encodedNbt.get(key), other.encodedNbt.get(key));
+        return Objects.equals(values.get(key), other.values.get(key));
     }
     public Set<String> keys() { return values.keySet(); }
     public JsonElement get(String key) {
@@ -279,7 +293,7 @@ public final class Components {
         return value == null ? fallback : value.getAsInt();
     }
     public Components with(String key, JsonElement value) {
-        return with(key, value, java.util.Objects.equals(values.get(key), value) ? encodedNbt.get(key) : null);
+        return with(key, value, Objects.equals(values.get(key), value) ? encodedNbt.get(key) : null);
     }
     public Components with(String key, JsonElement value, NbtValue encoding) {
         var copy = new HashMap<>(values);
@@ -295,8 +309,8 @@ public final class Components {
     }
     /** Preserve local selection/cache while exposing the ordinary persistent encoding at boundaries. */
     public Components withBundle(BundleContents value) {
-        java.util.Objects.requireNonNull(value);
-        var json = new com.google.gson.JsonArray();
+        Objects.requireNonNull(value);
+        var json = new JsonArray();
         var children = new HashMap<String, NbtValue>();
         boolean typed = true;
         for (int i = 0; i < value.items().size(); i++) {
@@ -339,7 +353,7 @@ public final class Components {
     @Override public boolean equals(Object other) {
         if (this == other) return true;
         if (!(other instanceof Components components) || !values.keySet().equals(components.values.keySet())) return false;
-        for (String key : values.keySet()) if (!java.util.Objects.equals(identity(key), components.identity(key))) return false;
+        for (String key : values.keySet()) if (!Objects.equals(identity(key), components.identity(key))) return false;
         return true;
     }
     @Override public int hashCode() {
@@ -347,7 +361,7 @@ public final class Components {
         values.forEach(hash);
         return hash.value;
     }
-    private final class IdentityHash implements java.util.function.BiConsumer<String, JsonElement> {
+    private final class IdentityHash implements BiConsumer<String, JsonElement> {
         private int value;
         @Override public void accept(String key, JsonElement ignored) {
             value += key.hashCode() ^ identity(key).hashCode();

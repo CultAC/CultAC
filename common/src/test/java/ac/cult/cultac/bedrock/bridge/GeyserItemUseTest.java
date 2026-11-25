@@ -6,15 +6,21 @@ import static org.mockito.Mockito.*;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -27,8 +33,10 @@ import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.ItemUseTransaction;
 import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket;
+import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.registry.type.GeyserBedrockBlock;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.cache.WorldCache;
@@ -42,15 +50,15 @@ public class GeyserItemUseTest {
     @BeforeClass
     public static void bootstrap() throws Exception {
         OfflineCultTestBootstrap.installConfig();
-        var field = org.geysermc.geyser.GeyserImpl.class.getDeclaredField("instance");
+        var field = GeyserImpl.class.getDeclaredField("instance");
         field.setAccessible(true);
         previousGeyser = field.get(null);
-        field.set(null, mock(org.geysermc.geyser.GeyserImpl.class, RETURNS_DEEP_STUBS));
+        field.set(null, mock(GeyserImpl.class, RETURNS_DEEP_STUBS));
     }
 
     @AfterClass
     public static void restoreGeyser() throws Exception {
-        var field = org.geysermc.geyser.GeyserImpl.class.getDeclaredField("instance");
+        var field = GeyserImpl.class.getDeclaredField("instance");
         field.setAccessible(true);
         field.set(null, previousGeyser);
     }
@@ -80,9 +88,7 @@ public class GeyserItemUseTest {
             inventory.setHeldItem(OfflineCultTestBootstrap.item("minecraft:elytra"));
             inventory
                     .getInventoryStorage()
-                    .setItem(
-                            ac.cult.cultac.utils.inventory.Inventory.SLOT_CHESTPLATE,
-                            OfflineCultTestBootstrap.item("minecraft:iron_chestplate"));
+                    .setItem(Inventory.SLOT_CHESTPLATE, OfflineCultTestBootstrap.item("minecraft:iron_chestplate"));
             h.session.getWorldCache().nextPredictionSequence();
             var packet = new InventoryTransactionPacket();
             packet.setTransactionType(InventoryTransactionType.ITEM_USE);
@@ -103,13 +109,15 @@ public class GeyserItemUseTest {
             h.player.getInventory().inventory.getSlot(36).set((OfflineCultTestBootstrap.item("minecraft:sand", 61)));
             h.position(2369.6301, 65.75320, -40.47053);
             var click = useOn(support, 1);
+            click.setClientInteractPrediction(ItemUseTransaction.PredictedResult.FAILURE);
             GeyserItemUse.observe(h.session, h.player, click, 0);
             assertTrue(DataTables.defaults()
                     .registry()
                     .facts(h.player.compensatedWorld.getBlockStateIdAt(support.above()))
-                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+                    .has(StateFacts.AIR));
 
             h.position(2369.6301, 66.00134, -40.471252);
+            click.setClientInteractPrediction(ItemUseTransaction.PredictedResult.SUCCESS);
             GeyserItemUse.observe(h.session, h.player, click, 0);
             assertTrue(DataTables.defaults()
                     .registry()
@@ -143,7 +151,38 @@ public class GeyserItemUseTest {
             assertTrue(DataTables.defaults()
                     .registry()
                     .facts(h.player.compensatedWorld.getBlockStateIdAt(support.above()))
-                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+                    .has(StateFacts.AIR));
+        }
+    }
+
+    @Test
+    public void useTheClientReportsAsFailedChangesNothing() {
+        try (var h = new Harness()) {
+            // The same click that places sand once the client reports it placed.
+            var support = new BlockPos(2369, 64, -41);
+            h.seed(support);
+            h.player.getInventory().inventory.getSlot(36).set((OfflineCultTestBootstrap.item("minecraft:sand", 61)));
+            h.position(2369.6301, 66.00134, -40.471252);
+            var click = useOn(support, 1);
+            click.setClientInteractPrediction(ItemUseTransaction.PredictedResult.FAILURE);
+            GeyserItemUse.observe(h.session, h.player, click, 0);
+            assertTrue(DataTables.defaults()
+                    .registry()
+                    .facts(h.player.compensatedWorld.getBlockStateIdAt(support.above()))
+                    .has(StateFacts.AIR));
+            assertFalse(h.player.compensatedWorld.isBedrockClientWritten(
+                    support.getX(), support.getY() + 1, support.getZ()));
+            assertEquals(
+                    61, h.player.getInventory().inventory.getSlot(36).getItem().getCount());
+
+            click.setClientInteractPrediction(ItemUseTransaction.PredictedResult.SUCCESS);
+            GeyserItemUse.observe(h.session, h.player, click, 0);
+            assertEquals(
+                    "minecraft:sand",
+                    DataTables.defaults()
+                            .registry()
+                            .block(h.player.compensatedWorld.getBlockStateIdAt(support.above()))
+                            .key());
         }
     }
 
@@ -188,7 +227,7 @@ public class GeyserItemUseTest {
                 assertTrue(DataTables.defaults()
                         .registry()
                         .facts(h.player.compensatedWorld.getBlockStateIdAt(support.above()))
-                        .has(ac.cult.blocksim.data.StateFacts.AIR));
+                        .has(StateFacts.AIR));
                 assertSame(staleBox, h.player.boundingBox);
 
                 // Conversely, a stale overlapping box must not reject a legal placement.
@@ -230,7 +269,8 @@ public class GeyserItemUseTest {
 
             var corrections = new GeyserBlockUpdates();
             List<Consumer<CultPlayer>> receipts = new ArrayList<>();
-            Map<Integer, Integer> palette = Map.of(99, BlockIds.AIR.defaultState());
+            var palette =
+                    new GeyserBlockStateMappings.Tables(Map.of(99, BlockIds.AIR.defaultState()), new int[] {0});
             corrections.begin();
             for (int layer = 0; layer < 2; layer++) {
                 var restore = new UpdateBlockPacket();
@@ -261,8 +301,9 @@ public class GeyserItemUseTest {
         packet.setBlockPosition(Vector3i.from(pos.getX(), pos.getY(), pos.getZ()));
         packet.setBlockFace(face);
         packet.setClickPosition(Vector3f.from(.63f, 1, .53f));
-        // Deliberately do not supply a claimed result or item: prediction must derive
-        // placement from the compensated inventory, world and player collision box.
+        // The client reports that its use succeeded. Deliberately do not supply an item: what the
+        // use changes derives from the compensated inventory, world and player collision box.
+        packet.setClientInteractPrediction(ItemUseTransaction.PredictedResult.SUCCESS);
         return packet;
     }
 
@@ -273,13 +314,13 @@ public class GeyserItemUseTest {
 
         Harness() {
             UUID uuid = UUID.randomUUID();
-            var connection = new ac.cult.cultac.network.CultConnection(
+            var connection = new CultConnection(
                     OfflineCultTestBootstrap.platformConnection(),
                     channel,
-                    ac.cult.cultac.CultAPI.INSTANCE.getNetworkManager().dispatcher(),
+                    CultAPI.INSTANCE.getNetworkManager().dispatcher(),
                     ignored -> null);
-            for (var direction : ac.cult.cultac.protocol.PacketDirection.values()) {
-                connection.phase(direction, ac.cult.cultac.protocol.ConnectionPhase.PLAY);
+            for (var direction : PacketDirection.values()) {
+                connection.phase(direction, ConnectionPhase.PLAY);
             }
             player = new CultPlayer(
                     new User(new User.Profile(uuid, ".Placement_Replay"), connection),

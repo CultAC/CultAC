@@ -43,7 +43,6 @@ import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.blockplace.BlockSimulatorWorldView;
 import ac.cult.cultac.utils.blockplace.ClientBlockActions;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import ac.cult.cultac.utils.latency.PalettedSection;
 import ac.cult.cultac.utils.math.Vec3;
@@ -366,9 +365,6 @@ class OlderBackendRegistriesTest {
 
             assertNull(world.getChunk(1, 0), "An old level's column stays out of the new level");
             assertNull(player.compensatedEntities.getEntity(7), "An old level's spawn stays out of the new level");
-            assertFalse(
-                    world.hasRecentClientCollisionChanges(new SimpleCollisionBox(7, 63, 7, 10, 66, 10)),
-                    "An old level's block update leaves no collision change in the new level");
             assertEquals(
                     DataTables.defaults().registry().block("minecraft:air").defaultState(),
                     world.getBlockStateIdAt(new BlockPos(8, 64, 8)));
@@ -602,6 +598,42 @@ class OlderBackendRegistriesTest {
             failures = sendReporting(fixture, biomeUpdate(fixture, sections, 2));
             assertEquals(1, failures.size(), "The replaced entry resolves to nothing, not a stale biome");
             assertEquals(List.of(), updates);
+        }
+    }
+
+    @Test
+    void aFailedTagsOnlyGenerationStopsResolvingABiomeItResolvedBefore() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = RecordReceiveFixture.olderHost(HOST)) {
+            listen(fixture);
+            fixture.phase(ConnectionPhase.CONFIGURATION);
+            send(fixture, coldBiomes(fixture));
+            finishConfiguration(fixture);
+            var player = fixture.player;
+            var registries = player.getWorldRegistries();
+            var overworld = registries.dimension("minecraft:overworld");
+            player.compensatedWorld.setLastClientboundDimension("minecraft:overworld", overworld.dimension());
+            int sections = player.compensatedWorld.getLastClientboundSectionCount();
+            var updates = new ArrayList<Object>();
+            fixture.registrar.register(routes -> routes.sendRoute(
+                    fixture.registrar.runtime().typeForKey("clientbound.chunks_biomes"),
+                    PacketListenerPriority.NORMAL,
+                    (event, ignored, packet) -> updates.add(packet)));
+            send(fixture, biomeUpdate(fixture, sections, 1));
+            assertEquals(1, updates.size());
+
+            reconfigure(fixture);
+            send(fixture, tags(fixture, ClientWorldRegistries.TIMELINES, "example:any", 0));
+            var failures =
+                    sendReporting(fixture, frame(fixture, ConnectionPhase.CONFIGURATION, "finish_configuration"));
+            fixture.phase(ConnectionPhase.PLAY);
+            assertEquals(1, failures.size(), failures.toString());
+            assertTrue(fixture.connection.require(RegistryNames.class).id(BIOME, COLD) < 0);
+
+            failures = sendReporting(fixture, biomeUpdate(fixture, sections, 1));
+            assertEquals(1, failures.size(), failures.toString());
+            assertTrue(failures.getFirst().contains("Unavailable older biome " + COLD), failures.toString());
+            assertEquals(1, updates.size());
         }
     }
 

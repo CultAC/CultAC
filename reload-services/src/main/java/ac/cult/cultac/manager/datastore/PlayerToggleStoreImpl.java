@@ -19,7 +19,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiConsumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -251,15 +250,6 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
         if (v.length == 1) return v[0] != 0;
         String s = new String(v, StandardCharsets.UTF_8).trim().toLowerCase(Locale.ROOT);
         return s.equals("1") || s.equals("true");
-    }
-
-    /** Test/audit helper. Snapshot read of the three slot atomics. */
-    void inspect(@NotNull UUID uuid, @NotNull BiConsumer<String, TogglePair> visitor) {
-        ToggleSlot slot = slots.get(uuid);
-        if (slot == null) return;
-        visitor.accept(KEY_ALERTS, slot.alerts.get());
-        visitor.accept(KEY_VERBOSE, slot.verbose.get());
-        visitor.accept(KEY_BRANDS, slot.brands.get());
     }
 
     @Override

@@ -14,7 +14,6 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.PacketServerTickingState;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -29,12 +28,9 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundTickingState;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Vec3d;
-import ac.cult.cultac.utils.latency.CompensatedBlockEntities;
-import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
-import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +55,7 @@ class JavaShulkerLidPushTest {
     private static final Map<Integer, Double> LIFT = Map.of(2, 1.33);
     private static final int SERVER_TELEPORT = 900;
     private static final int BOAT = 50;
+    private static final int VIEWER = 51;
 
     /**
      * A 26.1 client standing on a shulker box while it opens. Each ShulkerBoxBlockEntity#updateAnimation after
@@ -69,6 +66,46 @@ class JavaShulkerLidPushTest {
     @Test
     void aShovedPlayerFallingPastAnOpeningShulkerLidIsNotOnGround() throws Exception {
         rideOpeningLid(ClientVersion.V_26_1, 6, 0, LIFT, -1, 0, false);
+    }
+
+    /** A player standing on an upward shulker box rides the whole opening lid on every client version. */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_4", "V_1_21_11", "V_26_1", "V_26_3"})
+    void aPlayerStandingOnAnOpeningShulkerBoxRidesTheLid(ClientVersion version) throws Exception {
+        rideOpeningLid(version, 14, 0, Map.of(), -1, 0, false);
+    }
+
+    /** A player standing on the open lid follows it down as it closes, from the client tick after the block event. */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_4", "V_1_21_11", "V_26_1", "V_26_3"})
+    void aPlayerStandingOnAClosingShulkerBoxFollowsTheLidDown(ClientVersion version) throws Exception {
+        new Ride(version).open(14, 0).run(30);
+    }
+
+    /** The same ride with the player who opens and closes the box standing beside it. */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_11", "V_26_3"})
+    void aPlayerStandingOnAShulkerBoxBesideItsViewerRidesTheLid(ClientVersion version) throws Exception {
+        new Ride(version).viewer().open(14, 0).run(30);
+    }
+
+    /**
+     * The same ride from a client that sends nothing on a tick it stays still: the tick that handles each block event
+     * reports only its tick end, and before 26.3 the lid moves the player only after it.
+     */
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, false", "V_1_21_11, true", "V_1_21_4, false", "V_26_3, false"})
+    void aStillPlayerOnAnOpeningAndClosingShulkerBoxRidesTheLid(ClientVersion version, boolean viewer)
+            throws Exception {
+        Ride ride = new Ride(version).unmovedSendsNothing().open(20, 0);
+        if (viewer) ride.viewer();
+        ride.run(40);
     }
 
     /** The last shove of the opening, at progress 1.0F, is reported with the landing on the fully open lid. */
@@ -90,7 +127,7 @@ class JavaShulkerLidPushTest {
     /** ClientPacketListener#handleMovePlayer leaves a passenger in place, so the last tick's shoves still apply. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void onlyATeleportThatMovesThePlayerReplacesTheLastTicksShoves(boolean mounted) throws Exception {
+    void onlyATeleportThatMovesThePlayerReplacesTheShovedPosition(boolean mounted) throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_26_1);
             int box = REGISTRY.block("minecraft:shulker_box").defaultState();
@@ -98,7 +135,9 @@ class JavaShulkerLidPushTest {
             f.place(new Vec3(0.5, lidTop(0.0F), 0.5), Vec3.ZERO);
             blockEvent(f, BOX, 1, 1, box, true);
             f.tickEnd();
-            assertEquals(1, pendingShoves(f));
+            // The refactored runner commits the whole pass at tick end rather than deferring lid shoves.
+            Vec3 shoved = new Vec3(f.player.x, f.player.y, f.player.z);
+            assertTrue(shoved.y > lidTop(0.0F));
             if (mounted) {
                 f.player.compensatedEntities.addEntity(
                         BOAT, EntityTypeIds.OAK_BOAT, new Vec3(3.5, FLOOR_Y, 3.5), 0, 0, 0);
@@ -108,7 +147,7 @@ class JavaShulkerLidPushTest {
             }
             Vec3 target = new Vec3(0.5, FLOOR_Y + 3.0, 0.5);
             serverTeleport(f, target, new RelativeFlag(0), target);
-            assertEquals(mounted ? 1 : 0, pendingShoves(f));
+            assertEquals(mounted ? shoved : target, new Vec3(f.player.x, f.player.y, f.player.z));
         }
     }
 
@@ -319,7 +358,7 @@ class JavaShulkerLidPushTest {
         try (var f = new JavaTickFixture()) {
             int box = REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east");
             f.player.compensatedWorld.updateBlock(BOX, box);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(minX + (double) (0.6F / 2.0F), FLOOR_Y + 0.5, 0.5);
             f.place(position, new Vec3(0, 0, 0));
             f.player.xRot = yaw;
@@ -363,7 +402,7 @@ class JavaShulkerLidPushTest {
         try (var f = new JavaTickFixture()) {
             int box = REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east");
             for (int z = -3; z <= 3; z++) f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, z), box);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(1.0 + (double) (0.6F / 2.0F), FLOOR_Y, maxZ - (double) (0.6F / 2.0F));
             f.place(position, new Vec3(0, -FALL, 0));
             f.player.xRot = 45.0F;
@@ -417,7 +456,7 @@ class JavaShulkerLidPushTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), west);
                 f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(minX + (double) (0.6F / 2.0F), FLOOR_Y, 0.5);
             f.place(position, new Vec3(0, -FALL, 0));
             f.player.xRot = yaw;
@@ -451,7 +490,7 @@ class JavaShulkerLidPushTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(1, FLOOR_Y, 0),
                     REGISTRY.block("minecraft:stone").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(1.0 + (double) (0.6F / 2.0F), lidTop(0.0F), 0.5);
             f.place(position, new Vec3(0, -FALL, 0));
             f.player.xRot = WEST;
@@ -499,7 +538,7 @@ class JavaShulkerLidPushTest {
             f.player.compensatedWorld.updateBlock(BOX, box);
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), stone);
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y + 1, 0), stone);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             double halfWidth = (double) (0.6F / 2.0F);
             double x = 1.0 + halfWidth;
             f.place(new Vec3(x, FLOOR_Y, 0.5), new Vec3(0, -FALL, 0));
@@ -558,6 +597,33 @@ class JavaShulkerLidPushTest {
             return this;
         }
 
+        private boolean viewer;
+
+        /** Another player stands beside the box, two blocks south of its centre. */
+        Ride viewer() {
+            viewer = true;
+            return this;
+        }
+
+        private boolean unmovedSendsNothing;
+
+        /**
+         * LocalPlayer#sendPosition sends no move on a tick that leaves the position and ground state as last sent, so
+         * such a tick reports only its tick end.
+         */
+        Ride unmovedSendsNothing() {
+            unmovedSendsNothing = true;
+            return this;
+        }
+
+        /** A tick that sends only its tick end; a prediction it commits is exact. */
+        private static void unmoved(JavaTickFixture f, int tick) {
+            PredictionResult before = f.player.checkManager.getSimulationProcessor().getLastPrediction();
+            f.tickEnd();
+            PredictionResult result = f.player.checkManager.getSimulationProcessor().getLastPrediction();
+            if (result != before) assertTrue(exact(result), "unmoved tick " + tick + ": " + describe(result));
+        }
+
         /** The ticking state freezing the game, handled at the start of {@code tick}. */
         Ride freeze(int tick) {
             freezeTick = tick;
@@ -585,12 +651,15 @@ class JavaShulkerLidPushTest {
                 boolean shoveAfterTravel = version.isNewerThanOrEquals(ClientVersion.V_26_3);
                 int box = REGISTRY.block("minecraft:shulker_box").defaultState();
                 f.player.compensatedWorld.updateBlock(BOX, box);
+                if (viewer) f.addRemotePlayer(VIEWER, new Vec3(0.5, FLOOR_Y, 2.6), GameMode.SURVIVAL);
                 f.place(new Vec3(0.5, y, 0.5), new Vec3(0, velocity, 0));
                 f.player.onGround = f.player.lastOnGround = onGround;
                 f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.fromBoolean(onGround));
                 travel();
                 f.input(NONE);
                 assertExact(f.tick(new Vec3(0.5, y, 0.5), onGround));
+                double reportedY = y;
+                boolean reportedOnGround = onGround;
                 for (int tick = 0; tick < ticks; tick++) {
                     Integer openCount = openCounts.get(tick);
                     if (openCount != null) {
@@ -611,7 +680,13 @@ class JavaShulkerLidPushTest {
                     f.input(NONE);
                     if (tick == fakeTick)
                         return f.tick(new Vec3(0.5, Double.isNaN(fakeY) ? y : fakeY, 0.5), fakeOnGround);
-                    assertExact(f.tick(new Vec3(0.5, y, 0.5), onGround));
+                    if (unmovedSendsNothing && y == reportedY && onGround == reportedOnGround) {
+                        unmoved(f, tick);
+                    } else {
+                        assertExact(f.tick(new Vec3(0.5, y, 0.5), onGround));
+                        reportedY = y;
+                        reportedOnGround = onGround;
+                    }
                     if (!shoveAfterTravel) updateAnimation();
                 }
             }
@@ -785,7 +860,6 @@ class JavaShulkerLidPushTest {
         var packet = new ClientboundBlockEvent(pos, action, parameter, REGISTRY.blockIndex(state));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         if (handled) f.pongThrough(f.player.lastTransactionSent.get());
@@ -810,14 +884,6 @@ class JavaShulkerLidPushTest {
         var event = f.event(ServerboundPackets.ACCEPT_TELEPORTATION, packet);
         new PacketServerTeleport().onAcceptTeleportation(event, f.player, packet);
         assertFalse(event.isCancelled(), "the teleport acceptance was rejected");
-    }
-
-    private static int pendingShoves(JavaTickFixture f) throws Exception {
-        Field field = CompensatedWorld.class.getDeclaredField("clientBlockEntities");
-        field.setAccessible(true);
-        List<CompensatedBlockEntities.ShulkerShove> shoves = new ArrayList<>();
-        ((CompensatedBlockEntities) field.get(f.player.compensatedWorld)).shulkerShoves(false, true, shoves);
-        return shoves.size();
     }
 
     private static void assertExact(PredictionResult result) {

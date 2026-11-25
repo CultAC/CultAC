@@ -4,8 +4,13 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.CheckNames;
+import ac.cult.cultac.checks.StampedConfig;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsP;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsWindow;
+import ac.cult.cultac.checks.impl.chat.ChatD;
+import ac.cult.cultac.checks.impl.chat.ChatE;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsH;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsS;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
@@ -15,16 +20,25 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundChat;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.ChatVisibility;
+import ac.cult.cultac.protocol.value.ClientInformation;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.MainHand;
+import ac.cult.cultac.protocol.value.ParticleStatus;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.KnownInput;
@@ -33,6 +47,7 @@ import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import io.netty.buffer.ByteBuf;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -148,6 +163,34 @@ class InventoryWindowChecksTest {
             check.onDecodedPacketReceive(swing);
             check.onDecodedPacketReceive(clickEvent(f, click(0, 36, WindowClickType.PICKUP)));
             verify(check).flag();
+        }
+    }
+
+    @Test
+    void anInventoryActionNamesItsActionInTheVerboseOnlyWhereItIsReportedAsInventoryD() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            f.player.openWindow.onClientOpenOrCloseWindow(true);
+            f.player.setExperimentalChecks(true);
+            var verbose = new ArrayList<String>();
+            f.player.observer = new PlayerObserver() {
+                @Override
+                public void flagged(Check check, double violations, Supplier<String> text) {
+                    verbose.add(text.get());
+                }
+            };
+            var check = new MultiActionsS(f.player);
+            var swing = new PacketReceiveEvent<>(
+                    f.user, ConnectionPhase.PLAY, ServerboundPackets.SWING, ServerboundSwing.PUNCH);
+            var stored = new ArrayList<Boolean>();
+            for (int version = CheckNames.FIRST; version <= CheckNames.LATEST; version++) {
+                check.reload(StampedConfig.of(Map.of(CheckNames.CONFIG_KEY, version)));
+                check.onDecodedPacketReceive(swing);
+                check.onDecodedPacketReceive(clickEvent(f, click(0, 36, WindowClickType.PICKUP)));
+                stored.add(check.isLastFlagStoredBinaryVerbose());
+            }
+            assertEquals(List.of("", "", "action=swing"), verbose);
+            assertEquals(List.of(false, false, true), stored);
         }
     }
 
@@ -355,10 +398,157 @@ class InventoryWindowChecksTest {
     }
 
     private static void serverOpen(RecordReceiveFixture f, int id) {
+        serverOpen(f, id, "minecraft:generic_9x1", MenuType.GENERIC_9x1);
+    }
+
+    private static void serverOpen(RecordReceiveFixture f, int id, String menuType, MenuType type) {
         if (f.user.getPlayer() == null) f.user.bind(mock(PlatformPlayer.class));
-        var packet = new ClientboundOpenScreen(id, "minecraft:generic_9x1");
+        var packet = new ClientboundOpenScreen(id, menuType);
         var event = new PacketSendEvent<>(f.user, ConnectionPhase.PLAY, ClientboundPackets.OPEN_SCREEN, packet, false);
-        f.player.openWindow.onServerWindow(event, id, MenuType.GENERIC_9x1);
+        f.player.openWindow.onServerWindow(event, id, type);
+    }
+
+    @Test
+    void aDialogOpenedFromALecternBookRunsItsCommandWithTheLecternStillOpen() {
+        try (var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            serverOpen(f, 1, "minecraft:lectern", MenuType.LECTERN);
+            acknowledge(f, 2);
+            assertTrue(f.player.openWindow.mustBeOpen());
+            var check = spy(new ChatE(f.player));
+            doReturn(true).when(check).flag();
+            doReturn(true).when(check).shouldModifyPackets();
+            var command = new ServerboundChatCommand("list");
+            var commandEvent =
+                    new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command);
+            check.onCommand(commandEvent, f.player, command);
+            assertFalse(commandEvent.isCancelled());
+            var chat = new ServerboundChat("list");
+            var chatEvent = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT, chat);
+            check.onChat(chatEvent, f.player, chat);
+            assertTrue(chatEvent.isCancelled());
+
+            serverOpen(f, 2);
+            acknowledge(f, 4);
+            var chestCommandEvent =
+                    new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command);
+            check.onCommand(chestCommandEvent, f.player, command);
+            assertTrue(chestCommandEvent.isCancelled());
+        }
+    }
+
+    @Test
+    void aServerDialogOverAnOpenChestRunsItsCommandUntilTheChestScreenIsBackOnTop() {
+        try (var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            serverOpen(f, 1);
+            acknowledge(f, 2);
+            var check = spy(new ChatE(f.player));
+            doReturn(true).when(check).flag();
+            doReturn(true).when(check).shouldModifyPackets();
+            assertTrue(sendCommand(f, check));
+
+            showDialog(f);
+            assertFalse(sendCommand(f, check));
+            // The client sent this click before it handled the dialog.
+            clickChest(f);
+            assertFalse(sendCommand(f, check));
+
+            assertEquals(
+                    3, f.player.createTrackedTransactionPacketForDeferredSend().transaction());
+            acknowledge(f, 3);
+            clickChest(f);
+            assertTrue(sendCommand(f, check));
+
+            showDialog(f);
+            assertFalse(sendCommand(f, check));
+            assertEquals(1, clearDialog(f).getWritesAfterSend().size());
+            acknowledge(f, 4);
+            assertTrue(sendCommand(f, check));
+        }
+    }
+
+    @Test
+    void aDialogCoversAContainerScreenOnlyWhenOneMayBeShown() {
+        try (var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            f.user.bind(mock(PlatformPlayer.class));
+            var idle = showDialog(f);
+            var idleClear = clearDialog(f);
+            assertTrue(idle.getWritesBeforeSend().isEmpty());
+            assertTrue(idle.getWritesAfterSend().isEmpty());
+            assertTrue(idle.getTasksAfterSend().isEmpty());
+            assertTrue(idleClear.getWritesAfterSend().isEmpty());
+            assertFalse(f.player.openWindow.mayShowServerDialog());
+
+            serverOpen(f, 1);
+            showDialog(f);
+            acknowledge(f, 2);
+            assertTrue(f.player.openWindow.mustBeOpen());
+            var check = spy(new ChatE(f.player));
+            doReturn(true).when(check).flag();
+            doReturn(true).when(check).shouldModifyPackets();
+            assertFalse(sendCommand(f, check));
+        }
+    }
+
+    private static PacketSendEvent<ClientboundShowDialog> showDialog(RecordReceiveFixture f) {
+        var packet = ClientboundShowDialog.inline(new byte[] {10, 0});
+        var event = new PacketSendEvent<>(f.user, ConnectionPhase.PLAY, ClientboundPackets.SHOW_DIALOG, packet, false);
+        new PacketPlayerWindow().onShowDialog(event, f.player, packet);
+        return event;
+    }
+
+    private static PacketSendEvent<Opaque> clearDialog(RecordReceiveFixture f) {
+        var packet = ClientboundPackets.CLEAR_DIALOG.opaqueValue();
+        var event = new PacketSendEvent<>(f.user, ConnectionPhase.PLAY, ClientboundPackets.CLEAR_DIALOG, packet, false);
+        new PacketPlayerWindow().onClearDialog(event, f.player, packet);
+        return event;
+    }
+
+    private static void clickChest(RecordReceiveFixture f) {
+        var click = click(1, 0, WindowClickType.PICKUP);
+        new PacketPlayerWindow().onContainerClick(clickEvent(f, click), f.player, click);
+    }
+
+    @Test
+    void aCommandTheConfiguredRegexMatchesPassesAnOpenChestOrHiddenChatWhileAnotherIsCancelled() {
+        try (var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            serverOpen(f, 1);
+            acknowledge(f, 2);
+            var check = spy(new ChatE(f.player));
+            doReturn(true).when(check).flag();
+            doReturn(true).when(check).shouldModifyPackets();
+            check.reload(StampedConfig.of(Map.of("ChatE.exempt-regex", "/pl")));
+            assertFalse(sendCommand(f, check, "pl"));
+            assertTrue(sendCommand(f, check, "pl 2"));
+            assertTrue(sendCommand(f, check));
+
+            var hidden = spy(new ChatD(f.player));
+            doReturn(true).when(hidden).flag();
+            doReturn(true).when(hidden).shouldModifyPackets();
+            hidden.reload(StampedConfig.of(Map.of("ChatD.exempt-regex", "/pl")));
+            hidden.observe(new ClientInformation(
+                    "en_us", 2, ChatVisibility.HIDDEN, true, 0, MainHand.RIGHT, false, false, ParticleStatus.ALL));
+            assertFalse(sendCommand(f, hidden, "pl"));
+            assertTrue(sendCommand(f, hidden, "pl 2"));
+        }
+    }
+
+    /** Whether ChatE cancels a command over the open window. */
+    private static boolean sendCommand(RecordReceiveFixture f, ChatE check) {
+        return sendCommand(f, check, "shop buy");
+    }
+
+    private static boolean sendCommand(RecordReceiveFixture f, ChatE check, String text) {
+        var command = new ServerboundChatCommand(text);
+        var event = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command);
+        check.onCommand(event, f.player, command);
+        return event.isCancelled();
+    }
+
+    private static boolean sendCommand(RecordReceiveFixture f, ChatD check, String text) {
+        var command = new ServerboundChatCommand(text);
+        var event = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.CHAT_COMMAND, command);
+        check.onChatCommand(event, f.player, command);
+        return event.isCancelled();
     }
 
     @Test

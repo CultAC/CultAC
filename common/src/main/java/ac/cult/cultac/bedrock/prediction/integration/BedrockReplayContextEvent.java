@@ -7,6 +7,9 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Patches only the fields supplied by an update, retaining all other historical inputs. */
@@ -22,7 +25,7 @@ public record BedrockReplayContextEvent(
         implements BedrockReplayEvent {
     public BedrockReplayContextEvent {
         // Movement is represented by the complete attribute, not also by a second numeric entry.
-        var other = new java.util.LinkedHashMap<>(attributes);
+        var other = new LinkedHashMap<>(attributes);
         other.remove("minecraft:movement");
         attributes = Map.copyOf(other);
     }
@@ -43,7 +46,7 @@ public record BedrockReplayContextEvent(
                 usingItem,
                 attributes.containsKey("minecraft:movement")
                         ? new BedrockMovementAttributeState(
-                                attributes.get("minecraft:movement"), 0, 1024, 0, 1024, 0.1F, java.util.List.of())
+                                attributes.get("minecraft:movement"), 0, 1024, 0, 1024, 0.1F, List.of())
                         : null,
                 false);
     }
@@ -65,6 +68,54 @@ public record BedrockReplayContextEvent(
                 && gameType == null
                 && usingItem == null
                 && state.movementAttribute().current() == movementAttribute.current();
+    }
+
+    private static final String SPEED_ID = "91AEAA56-376B-4498-935B-2F7F68070635";
+    private static final String SLOWNESS_ID = "7107DE5E-7CE8-4030-940E-514C1F160890";
+
+    /**
+     * The player's movement speed as it takes a speed or slowness effect: the effect's own modifier replaces the one it
+     * held for that effect, 20% faster or 15% slower for each level, before any attribute value that carries the
+     * change arrives. A vehicle's speed is written ahead of its effect instead.
+     */
+    BedrockMovementState withEffectSpeed(BedrockMovementState state) {
+        if (effectId == null || effectId != 1 && effectId != 2 || state.isVehicle()) return state;
+        String id = effectId == 1 ? SPEED_ID : SLOWNESS_ID;
+        var taken = effectLevel > 0
+                ? new BedrockMovementAttributeState.Modifier(
+                        id,
+                        effectId == 1 ? "MovementSpeed" : "MovementSlowdown",
+                        (effectId == 1 ? 0.2F : -0.15F) * effectLevel,
+                        2,
+                        2,
+                        false)
+                : null;
+        var modifiers = new ArrayList<BedrockMovementAttributeState.Modifier>();
+        boolean held = false;
+        for (var modifier : state.movementAttribute().modifiers()) {
+            if (!modifier.id().equalsIgnoreCase(id)) modifiers.add(modifier);
+            else if (modifier.equals(taken)) return state;
+            else held = true;
+        }
+        if (taken == null && !held) return state;
+        if (taken != null) modifiers.add(taken);
+        return state.withMovementAttribute(state.movementAttribute().recalculate(modifiers));
+    }
+
+    /** Whether this effect update gives the actor a level other than the one {@code effects} holds. */
+    boolean changesEffect(BedrockEffectState effects) {
+        if (effectId == null) return false;
+        return switch (effectId) {
+            case 1 -> effects.speedLevel() != effectLevel;
+            case 2 -> effects.slownessLevel() != effectLevel;
+            case 8 -> effects.jumpBoostLevel() != effectLevel;
+            case 24 -> effects.levitationLevel() != effectLevel;
+            // Held as present or absent only.
+            case 15 -> effects.blindness() != effectLevel > 0;
+            case 27 -> effects.slowFalling() != effectLevel > 0;
+            case 33 -> effects.weaving() != effectLevel > 0;
+            default -> true;
+        };
     }
 
     @Override
@@ -162,7 +213,9 @@ public record BedrockReplayContextEvent(
                     m.rainContact(),
                     usingItem == null ? m.itemUseSlowdownActive() : usingItem,
                     m.itemUseMovementModifier(),
-                    m.itemUseSlowdownDurationTicks());
+                    m.itemUseSlowdownDurationTicks(),
+                    m.hasGravity(),
+                    gameType == null ? m.noClip() : gameType == 6);
         }
         if (recorded != null && (gameType != null || usingItem != null)) {
             var original = recorded.modifierState();
@@ -177,7 +230,9 @@ public record BedrockReplayContextEvent(
                     m.rainContact(),
                     usingItem == null ? m.itemUseSlowdownActive() : original.itemUseSlowdownActive(),
                     m.itemUseMovementModifier(),
-                    m.itemUseSlowdownDurationTicks());
+                    m.itemUseSlowdownDurationTicks(),
+                    m.hasGravity(),
+                    gameType == null ? m.noClip() : original.noClip());
         }
         var context = new BedrockMovementContext(
                 e, a, c.worldState(), c.equipmentState(), c.entityContactState(), m, c.playerDimensionsState());

@@ -1,7 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation;
 
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
-import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.simulation.reconciliation.BedrockNextTickStateDeriver;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import java.util.List;
@@ -15,16 +14,11 @@ public final class BedrockForwardTick {
         return BedrockSimulation.candidates(input);
     }
 
-    public static List<BedrockMovementState> finish(BedrockMovementResult result, BedrockMovementState selected) {
-        return finish(result, selected, null);
-    }
-
-    public static List<BedrockMovementState> finish(
-            BedrockMovementResult result, BedrockMovementState selected, Vec3d reportedVelocity) {
-        return BedrockNextTickStateDeriver.fromSimulated(result, selected).stream()
-                .map(BedrockNextTickStateDeriver.DerivedState::state)
-                .map(state -> BedrockEndTickBlockPush.apply(result, state, reportedVelocity))
-                .distinct()
-                .toList();
+    /** The one state the client ends the tick with, the next tick's start. */
+    public static BedrockMovementState finish(BedrockMovementResult result, BedrockMovementState selected) {
+        BedrockMovementState simulated = BedrockNextTickStateDeriver.fromSimulated(result, selected);
+        float standingSlowdown = BedrockEndTickBlockPush.standingSlowdown(result, simulated);
+        return BedrockEndTickBlockPush.apply(
+                result, BedrockGeyserMovement.apply(result, simulated), standingSlowdown);
     }
 }

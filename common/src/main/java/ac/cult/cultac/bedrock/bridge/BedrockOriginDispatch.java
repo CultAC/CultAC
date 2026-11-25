@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,7 +69,7 @@ final class BedrockOriginDispatch {
         if (depth != 0 || !pending.isEmpty()) throw new IllegalStateException("GFP rewrite is still in progress");
         var queued = new IdentityHashMap<BedrockPacket, Map<String, Object>>();
         emissions.forEach((packet, emission) -> {
-            var fields = new java.util.HashMap<String, Object>(coordinates(emission.frame()));
+            var fields = new HashMap<String, Object>(coordinates(emission.frame()));
             if (emission.operation() != null) {
                 fields.put("operation-sequence", emission.operation().id());
                 fields.put("operation-source", emission.operation().provenance().name());

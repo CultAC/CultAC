@@ -1,5 +1,6 @@
 package ac.cult.cultac.command.commands;
 
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.checks.info.CheckCategory;
 import ac.cult.cultac.checks.info.CheckPolicy;
@@ -31,8 +32,14 @@ final class CheckInfoLines {
     private static final int MAX_MATCHES = 10;
 
     record View(ConfigManager config, CheckPolicy policy, CheckTexts texts, boolean experimentalChecks) {
+        /** The name version {@code config.yml} is written in, which the shown names follow. */
+        int nameVersion() {
+            return CheckNames.version(config, CheckNames.CONFIG_KEY);
+        }
+
         String displayName(CheckCatalog.Entry entry) {
-            return config.getStringElse(entry.configName() + ".displayname", entry.name());
+            int nameVersion = nameVersion();
+            return config.getStringElse(entry.configName(nameVersion) + ".displayname", entry.name(nameVersion));
         }
 
         Handling handling(CheckCatalog.Entry entry) {
@@ -43,9 +50,27 @@ final class CheckInfoLines {
             return !entry.experimental() || experimentalChecks;
         }
 
+        /** What {@code /cult info check} finds {@code entry} by under the name version of {@code config.yml}. */
+        String query(CheckCatalog.Entry entry) {
+            int nameVersion = nameVersion();
+            return CheckCatalog.query(entry.name(nameVersion), entry.name(), nameVersion);
+        }
+
+        @Nullable
+        CheckTexts.Text text(CheckCatalog.Entry entry) {
+            return texts.text(entry, nameVersion());
+        }
+
+        /** How many checks {@code entries} hold; checks the name version merged into one count once. */
+        int count(List<CheckCatalog.Entry> entries) {
+            Set<String> queries = new HashSet<>();
+            for (CheckCatalog.Entry entry : entries) queries.add(query(entry));
+            return queries.size();
+        }
+
         @Nullable
         CheckCatalog.Entry find(String query) {
-            CheckCatalog.Entry entry = CheckCatalog.find(query);
+            CheckCatalog.Entry entry = CheckCatalog.find(query, nameVersion());
             if (entry != null) return entry;
             for (CheckCatalog.Entry each : CheckCatalog.ENTRIES) {
                 if (displayName(each).equalsIgnoreCase(query)) return each;
@@ -62,7 +87,7 @@ final class CheckInfoLines {
     private CheckInfoLines() {}
 
     static List<Component> check(Sender sender, View view, CheckCatalog.Entry entry) {
-        CheckTexts.Text text = view.texts().text(entry.name());
+        CheckTexts.Text text = view.text(entry);
         String category = view.texts().label(entry.category());
         Component buttons = Component.join(
                 JoinConfiguration.separator(Component.space()),
@@ -113,7 +138,7 @@ final class CheckInfoLines {
         for (CheckCategory category : CheckCategory.values()) {
             Map<String, Object> values = Map.of(
                     "category", view.texts().label(category),
-                    "count", CheckCatalog.byCategory(category).size());
+                    "count", view.count(CheckCatalog.byCategory(category)));
             lines.add(button(
                     sender,
                     view.template("info-group"),
@@ -130,9 +155,16 @@ final class CheckInfoLines {
         lines.add(render(
                 sender,
                 view.template("info-group-header"),
-                Map.of("category", view.texts().label(category), "count", entries.size())));
+                Map.of("category", view.texts().label(category), "count", view.count(entries))));
         Map<Handling, List<CheckCatalog.Entry>> byHandling = byHandling(view, entries);
+        // A check the name version merged from several is listed once, under the first handling of any of them.
+        Set<String> listed = new HashSet<>();
         for (Map.Entry<Handling, List<CheckCatalog.Entry>> each : byHandling.entrySet()) {
+            List<CheckCatalog.Entry> unlisted = new ArrayList<>();
+            for (CheckCatalog.Entry entry : each.getValue()) {
+                if (listed.add(view.query(entry))) unlisted.add(entry);
+            }
+            if (unlisted.isEmpty()) continue;
             String template = switch (each.getKey()) {
                 case AUTOMATIC -> view.template("info-handling-automatic");
                 case ALERTS -> view.template("info-handling-alerts");
@@ -140,7 +172,7 @@ final class CheckInfoLines {
                 case NONE -> view.template("info-handling-none");
                 case OFF -> view.template("info-handling-off");
             };
-            lines.add(render(sender, template, Map.of("checks", checkLinks(sender, view, each.getValue(), true))));
+            lines.add(render(sender, template, Map.of("checks", checkLinks(sender, view, unlisted, true))));
         }
         if (entries.stream().anyMatch(CheckCatalog.Entry::experimental)) {
             lines.add(render(
@@ -165,7 +197,7 @@ final class CheckInfoLines {
         List<Component> lines = new ArrayList<>();
         lines.add(render(
                 sender, view.template("info-unknown"), Map.of("query", query)));
-        List<CheckCatalog.Entry> matches = CheckCatalog.containing(query);
+        List<CheckCatalog.Entry> matches = CheckCatalog.containing(query, view.nameVersion());
         if (matches.isEmpty()) {
             lines.add(render(
                     sender, view.template("info-see-all")));
@@ -227,8 +259,11 @@ final class CheckInfoLines {
             Sender sender, View view, List<CheckCatalog.Entry> entries, boolean markExperimental) {
         Component symbol = experimentalSymbol(sender, view);
         List<Component> names = new ArrayList<>();
+        Set<String> listed = new HashSet<>();
         for (CheckCatalog.Entry entry : entries) {
-            CheckTexts.Text text = view.texts().text(entry.name());
+            String query = view.query(entry);
+            if (!listed.add(query)) continue;
+            CheckTexts.Text text = view.text(entry);
             Map<String, Object> values = Map.of(
                     "check", view.displayName(entry),
                     "experimental", markExperimental && entry.experimental() ? symbol : Component.empty(),
@@ -238,7 +273,7 @@ final class CheckInfoLines {
                     view.template("info-entry"),
                     view.template("info-entry-hover"),
                     values,
-                    "info check " + entry.name()));
+                    "info check " + query));
         }
         Component separator = render(sender, view.template("info-entry-separator"));
         return Component.join(JoinConfiguration.separator(separator), names);

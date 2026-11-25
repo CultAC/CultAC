@@ -4,9 +4,9 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.util.WrapperPlayClientPlayerFlying;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
@@ -33,12 +33,22 @@ public class PacketOrderO extends Check implements CheckListener {
             flying = false;
         }
 
-        if (WrapperPlayClientPlayerFlying.isFlying(event) && !event.answersTeleport()) {
+        if (event.getPacket() instanceof ServerboundMovePlayer && !event.answersTeleport()) {
             flying = true;
             return;
         }
 
-        if (!flying || event.getPacketType() == ServerboundPackets.MOVE_VEHICLE) {
+        // Minecraft#tick can save options when the tutorial advances, after sendChanges and before tick end.
+        // Options#save broadcasts CLIENT_INFORMATION when its remote copy differs.
+        if (!flying
+                || event.getPacketType() == ServerboundPackets.MOVE_VEHICLE
+                || event.getPacketType() == ServerboundPackets.CLIENT_INFORMATION) {
+            return;
+        }
+
+        // Minecraft#tick saves options after the entity tick (Tutorial#tick, the first-server save); a save sends the
+        // client's settings.
+        if (event.getPacketType() == ServerboundPackets.CLIENT_INFORMATION) {
             return;
         }
 

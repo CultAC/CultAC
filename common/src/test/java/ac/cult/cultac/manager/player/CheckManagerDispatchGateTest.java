@@ -61,6 +61,36 @@ class CheckManagerDispatchGateTest {
         });
     }
 
+    /** The listener loops read the platform once and test only Bedrock players; that answers as shouldDispatch. */
+    @Test
+    void bedrockOnlyTestAnswersAsShouldDispatch() throws Exception {
+        withPlayer(player -> {
+            CheckManager manager = player.checkManager;
+            List<CheckListener> listeners = new ArrayList<>(manager.allCheckListeners.values());
+            var overriding = new OverridingCheck(player);
+            listeners.addAll(List.of(new PlainCheck(player), new SupportedCheck(player), overriding, new CheckListener() {}));
+            Method onBedrock = CheckManager.class.getDeclaredMethod("dispatchesOnBedrock", CheckListener.class);
+            onBedrock.setAccessible(true);
+            MovementPlatform initial = player.movementPlatform;
+            int skipped = 0;
+            for (CheckListener listener : listeners) {
+                for (boolean answer : new boolean[] {true, false}) {
+                    overriding.answer = answer;
+                    for (MovementPlatform platform : MovementPlatform.values()) {
+                        player.movementPlatform = platform;
+                        boolean hoisted =
+                                !player.isBedrockMovement() || (boolean) onBedrock.invoke(null, listener);
+                        boolean expected = shouldDispatch(manager, listener);
+                        assertEquals(expected, hoisted, listener.getClass() + " on " + platform);
+                        if (!expected) skipped++;
+                    }
+                }
+                player.movementPlatform = initial;
+            }
+            assertTrue(skipped > 4, "skipped " + skipped);
+        });
+    }
+
     /** Every handler the manager routes is a gated scanned callback, dispatched through gated segments. */
     @Test
     void checkRoutesHoldOnlyGatedHandlersInGatedSegments() throws Exception {

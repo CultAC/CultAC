@@ -20,6 +20,8 @@ public final class BedrockClimbMovement {
         return new BedrockClimbState(
                 new BedrockClimbSurface(
                         contact.scaffolding() ? Type.SCAFFOLDING : (contact.climbing() ? Type.CLIMBABLE : Type.NONE),
+                        contact.ladder(),
+                        contact.overScaffolding(),
                         contact.descendAllowed(),
                         inWater || inLava),
                 BedrockScaffoldingState.NONE,
@@ -58,20 +60,19 @@ public final class BedrockClimbMovement {
             ClimbInput input,
             BedrockInputFrame frame,
             BedrockInputIntent intent) {
-        if (!surface.climbing() || surface.inScaffolding()) {
-            return BedrockClimbableState.NONE;
-        }
+        // A sneaking climber is held by the climbable block at the centre of its feet, like the fall cap, even
+        // where its box reaches scaffolding.
+        boolean climbable = surface.climbing() && !surface.inScaffolding();
         return new BedrockClimbableState(
-                input.upward() && !intent.jump().start(),
-                frame.sneaking() && !input.upward(),
-                current.collisionFlags().horizontalBlockContact());
+                climbable && input.upward() && !intent.jump().start(),
+                surface.climbableAtFeet() && frame.sneaking() && !input.upward(),
+                climbable && current.collisionFlags().horizontalBlockContact());
     }
 
     record ClimbInput(boolean descend, boolean upward) {
         static ClimbInput from(BedrockInputFrame frame, BedrockInputIntent intent) {
             return new ClimbInput(
-                    BedrockLiquidVerticalMovement.descendInput(intent),
-                    intent.vertical().upwardClimbInput(frame.jumping()));
+                    intent.vertical().descendThroughBlock(), intent.vertical().upwardClimbInput(frame.jumping()));
         }
     }
 }

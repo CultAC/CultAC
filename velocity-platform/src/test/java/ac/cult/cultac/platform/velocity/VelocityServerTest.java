@@ -2,7 +2,6 @@ package ac.cult.cultac.platform.velocity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -106,17 +105,6 @@ class VelocityServerTest {
         ArgumentCaptor<IntFunction<BridgeMessage>> request = ArgumentCaptor.forClass(IntFunction.class);
         verify(session).exchange(request.capture(), anyLong());
         return request.getValue().apply(requestId);
-    }
-
-    @Test
-    void velocityHasNoTickTimes() {
-        assertNull(server.recentTickNanos());
-    }
-
-    @Test
-    void velocityCountsProxyPlayers() {
-        when(proxy.getPlayerCount()).thenReturn(3);
-        assertEquals(3, server.onlinePlayers());
     }
 
     @Test

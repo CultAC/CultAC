@@ -1,17 +1,13 @@
 package ac.cult.cultac.utils.inventory.slot;
 
-import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
+import ac.cult.cultac.utils.data.packetentity.ClientSaddle;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
+import ac.cult.cultac.utils.inventory.ClientEquippable;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
-import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
-import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import java.util.List;
 
 /**
@@ -66,44 +62,11 @@ public final class MountSaddleSlot extends Slot {
     /** ArmorSlot#mayPlace: LivingEntity#isEquippableInSlot for EquipmentSlot.SADDLE. */
     @Override
     public boolean mayPlace(SimItemStack stack) {
-        ItemComponents.Equippable equippable = ItemComponents.equippable(stack.components());
-        return equippable != null
-                && equippable.slot().equals("saddle")
-                && canUseSaddleSlot()
-                && canBeEquippedBy(equippable.allowedEntities());
+        return canUseSaddleSlot() && ClientEquippable.fitsSlot(player, mount, stack, EquipmentSlot.SADDLE);
     }
 
-    /** AbstractHorse#canUseSlot and AbstractNautilus#canUseSlot; Horse, SkeletonHorse, ZombieHorse and Llama allow any. */
+    /** The mount's LivingEntity#canUseSlot for EquipmentSlot.SADDLE, which Mob#isSaddled reads too. */
     private boolean canUseSaddleSlot() {
-        int type = mount.type;
-        if (type == EntityTypeIds.HORSE
-                || type == EntityTypeIds.SKELETON_HORSE
-                || type == EntityTypeIds.ZOMBIE_HORSE
-                || type == EntityTypeIds.LLAMA
-                || EntityTypeUtil.isType(type, "trader_llama")) {
-            return true;
-        }
-        if (mount instanceof PacketEntityHorse horse) {
-            return horse.actionAlive && !horse.isBaby && horse.isTamed();
-        }
-        if (mount instanceof PacketEntityNautilus nautilus) {
-            return nautilus.actionAlive && !nautilus.isBaby && nautilus.isTame;
-        }
-        return false;
-    }
-
-    /** Equippable#canBeEquippedBy against the client's entity type tags. */
-    private boolean canBeEquippedBy(ItemComponents.HolderSet allowedEntities) {
-        if (allowedEntities == null) {
-            return true;
-        }
-        String key = EntityTypeUtil.modelType(mount.type).key();
-        if (allowedEntities.tag() == null) {
-            return allowedEntities.entries().contains(key);
-        }
-        return ClientFluidQueries.clientTags(player)
-                .entities()
-                .getOrDefault(allowedEntities.tag(), List.of())
-                .contains(key);
+        return ClientSaddle.canUseSaddleSlot(player, mount);
     }
 }

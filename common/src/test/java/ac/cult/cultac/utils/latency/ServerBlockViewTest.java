@@ -35,6 +35,41 @@ class ServerBlockViewTest {
     }
 
     @Test
+    void aSentChunkSupersedesOnlyItsOwnColumn() {
+        var view = new ServerBlockView();
+        long neighbor = BlockPos.asLong(15, 64, -3);
+        long superseded = view.sent(POS, 5);
+        long kept = view.sent(neighbor, 6);
+        view.columnSent(1, -1);
+        assertEquals(6, view.sentState(neighbor));
+        long resent = view.sent(POS, 7);
+        // The superseded update's proof must not hide the value sent after the chunk.
+        view.applied(POS, superseded);
+        assertEquals(7, view.sentState(POS));
+        view.applied(POS, resent);
+        view.applied(neighbor, kept);
+        assertEquals(ServerBlockView.UNKNOWN, view.sentState(POS));
+        assertEquals(ServerBlockView.UNKNOWN, view.sentState(neighbor));
+    }
+
+    @Test
+    void manySentChunksKeepUpdatesOfOtherColumnsAndLaterOnes() {
+        var view = new ServerBlockView();
+        long other = BlockPos.asLong(15, 64, -3);
+        view.sent(POS, 5);
+        view.sent(other, 6);
+        view.columnSent(1, -1);
+        view.sent(POS, 7);
+        for (int chunkX = 100; chunkX < 400; chunkX++) view.columnSent(chunkX, 0);
+        assertEquals(7, view.sentState(POS));
+        assertEquals(6, view.sentState(other));
+        view.columnSent(1, -1);
+        for (int chunkX = 100; chunkX < 400; chunkX++) view.columnSent(chunkX, 1);
+        assertEquals(ServerBlockView.UNKNOWN, view.sentState(POS));
+        assertEquals(6, view.sentState(other));
+    }
+
+    @Test
     void aWorldChangeHidesEveryColumnUntilItApplies() {
         var view = new ServerBlockView();
         view.sent(POS, 5);

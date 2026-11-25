@@ -1,7 +1,6 @@
 package ac.cult.cultac.platform.api;
 
 import ac.cult.cultac.platform.api.command.CommandService;
-import ac.cult.cultac.platform.api.manager.ItemResetHandler;
 import ac.cult.cultac.platform.api.manager.MessagePlaceHolderManager;
 import ac.cult.cultac.platform.api.manager.PermissionRegistrationManager;
 import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
@@ -20,8 +19,6 @@ public interface PlatformLoader {
     PlatformScheduler getScheduler();
 
     PlatformPlayerFactory getPlatformPlayerFactory();
-
-    ItemResetHandler getItemResetHandler();
 
     CommandService getCommandService();
 

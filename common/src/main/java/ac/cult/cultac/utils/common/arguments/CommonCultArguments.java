@@ -1,23 +1,24 @@
 package ac.cult.cultac.utils.common.arguments;
 
-import static ac.cult.cultac.utils.common.arguments.ArgumentUtils.*;
-
 import ac.cult.cultac.platform.api.Platform;
+import java.lang.management.ManagementFactory;
+import java.util.HashMap;
+import java.util.Map;
+import org.jetbrains.annotations.Nullable;
 
-public class CommonCultArguments {
+/**
+ * Startup flags, read once when this class initializes from the JVM's {@code -DCult<Key>=<value>} input arguments.
+ * Key case is ignored and an empty value leaves the flag unset. A yes/no flag reads true only for {@code true} in any
+ * case and false for any other value; a number that does not parse reads as the default.
+ */
+public final class CommonCultArguments {
+    private static final Map<String, String> ARGUMENTS = inputArguments();
 
-    private static final SystemArgumentFactory FACTORY = SystemArgumentFactory.Builder.of("Cult")
-            .optionModifier(builder -> builder.key("Cult" + builder.options().getKey()))
-            .supportEnv()
-            .build();
-
-    public static final SystemArgument<String> API_URL =
-            FACTORY.create(string("APIUrl", "https://api.grim.ac/v1/server/"));
-    public static final SystemArgument<String> PASTE_API_URL =
-            FACTORY.create(string("PasteApiUrl", "https://api.pastes.dev/"));
-    public static final SystemArgument<String> PASTE_URL = FACTORY.create(string("PasteUrl", "https://pastes.dev/"));
-    public static final SystemArgument<Platform> PLATFORM_OVERRIDE = FACTORY.create(platform("PlatformOverride"));
-    public static final SystemArgument<Integer> URL_TIMEOUT = FACTORY.create(range("UrlTimeout", 10000, 1000, 60000));
+    public static final String PASTE_API_URL = string("PasteApiUrl", "https://api.pastes.dev/");
+    public static final String PASTE_URL = string("PasteUrl", "https://pastes.dev/");
+    public static final @Nullable Platform PLATFORM_OVERRIDE = platform("PlatformOverride");
+    /** Clamped to 1000..60000. */
+    public static final int URL_TIMEOUT = range("UrlTimeout", 10000, 1000, 60000);
 
     /**
      * Enables "Fast Bypass" mode for chat messages sent by CultAC.
@@ -30,12 +31,55 @@ public class CommonCultArguments {
      * <p>
      * This setting is opt-out (default: true) and requires a server restart to change.
      */
-    public static final SystemArgument<Boolean> USE_CHAT_FAST_BYPASS = FACTORY.create(string("ChatFastBypass", true));
+    public static final boolean USE_CHAT_FAST_BYPASS = bool("ChatFastBypass", true);
 
     /**
      * If true, players will be kicked when they try to connect from a proxy server with ViaVersion installed.
      * <p>
      * This setting is opt-out (default: true) and requires a server restart to change.
      */
-    public static final SystemArgument<Boolean> KICK_ON_VIA_PROXY = FACTORY.create(string("KickOnViaProxy", true));
+    public static final boolean KICK_ON_VIA_PROXY = bool("KickOnViaProxy", true);
+
+    private CommonCultArguments() {}
+
+    private static @Nullable String value(String key) {
+        return ARGUMENTS.get(("Cult" + key).toLowerCase());
+    }
+
+    private static String string(String key, String otherwise) {
+        String value = value(key);
+        return value == null ? otherwise : value;
+    }
+
+    private static @Nullable Platform platform(String key) {
+        String value = value(key);
+        return value == null ? null : Platform.getByName(value);
+    }
+
+    private static int range(String key, int otherwise, int min, int max) {
+        String value = value(key);
+        if (value == null) return otherwise;
+        try {
+            return Math.min(Math.max(Integer.parseInt(value), min), max);
+        } catch (NumberFormatException e) {
+            return otherwise;
+        }
+    }
+
+    private static boolean bool(String key, boolean otherwise) {
+        String value = value(key);
+        return value == null ? otherwise : Boolean.parseBoolean(value);
+    }
+
+    private static Map<String, String> inputArguments() {
+        Map<String, String> arguments = new HashMap<>();
+        for (String line : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+            if (!line.toLowerCase().startsWith("-dcult")) continue;
+            int index = line.indexOf('=');
+            if (index > 0 && index < line.length() - 1) {
+                arguments.put(line.substring(2, index).toLowerCase(), line.substring(index + 1));
+            }
+        }
+        return arguments;
+    }
 }

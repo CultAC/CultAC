@@ -11,7 +11,6 @@ import ac.cult.cultac.bedrock.prediction.world.FluidCurrentState;
 import ac.cult.cultac.bedrock.prediction.world.FluidState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -55,9 +54,10 @@ final class BedrockBlockFluidResolver {
         int maxY = (int) Math.ceil(actorBox.maxY()) - 1;
         int minZ = (int) Math.floor(actorBox.minZ());
         int maxZ = (int) Math.ceil(actorBox.maxZ()) - 1;
-        for (int y = minY; y <= maxY; y++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                for (int x = minX; x <= maxX; x++) {
+        // Blocks are visited x-major, then y, then z; each bubble column block pushes once in that order.
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
                     BlockPosition position = new BlockPosition(x, y, z);
                     PlacedBlockCollision block = byPosition.get(position);
                     if (block != null) {
@@ -85,7 +85,7 @@ final class BedrockBlockFluidResolver {
                             waterContact = true;
                             fetchedWater.add(liquidBlock);
                             BedrockLiquidFlowVector flow = BedrockLiquidFlowResolver.flowVector(
-                                    liquidBlock, BedrockLiquidKind.WATER, byPosition);
+                                    liquidBlock, BedrockLiquidKind.WATER, byPosition, liquidByPosition);
                             waterFlowX += flow.x();
                             waterFlowY += flow.y();
                             waterFlowZ += flow.z();
@@ -94,7 +94,7 @@ final class BedrockBlockFluidResolver {
                             lavaContact = true;
                             fetchedLava.add(liquidBlock);
                             BedrockLiquidFlowVector flow = BedrockLiquidFlowResolver.flowVector(
-                                    liquidBlock, BedrockLiquidKind.LAVA, byPosition);
+                                    liquidBlock, BedrockLiquidKind.LAVA, byPosition, liquidByPosition);
                             lavaFlowX += flow.x();
                             lavaFlowY += flow.y();
                             lavaFlowZ += flow.z();
@@ -135,7 +135,6 @@ final class BedrockBlockFluidResolver {
         FluidCurrentState currentState = liquidCurrent
                 ? fluidCurrentStateFor(liquidMovementMedium, currentX, currentY, currentZ)
                 : FluidCurrentState.NONE;
-        bubbleLayers.sort(Comparator.comparingInt(BubbleColumnLayer::blockY));
         FluidState fluidState = new FluidState(
                 liquidCurrent,
                 currentPositiveX,
@@ -145,10 +144,7 @@ final class BedrockBlockFluidResolver {
                 upwardBubbleContact,
                 downwardBubbleContact,
                 currentState,
-                bubbleLayers.isEmpty()
-                        ? BubbleColumnState.NONE
-                        : bubbleColumnState(bubbleLayers, actorBox.maxY() - actorBox.minY()),
-                false,
+                bubbleLayers.isEmpty() ? BubbleColumnState.NONE : new BubbleColumnState(bubbleLayers),
                 1.0D);
         return new BedrockFluidResolution(
                 waterContact ? Medium.WATER : Medium.LAVA, fluidState, waterContact, lavaContact, liquidMovementMedium);
@@ -214,14 +210,6 @@ final class BedrockBlockFluidResolver {
                 directionX,
                 directionY,
                 directionZ);
-    }
-
-    private static BubbleColumnState bubbleColumnState(List<BubbleColumnLayer> bubbleLayers, double playerHeight) {
-        int minY =
-                bubbleLayers.stream().mapToInt(BubbleColumnLayer::blockY).min().orElse(0);
-        int maxY =
-                bubbleLayers.stream().mapToInt(BubbleColumnLayer::blockY).max().orElse(-1);
-        return new BubbleColumnState(minY, maxY, maxY, maxY + 1.0D, playerHeight, bubbleLayers);
     }
 
     private static boolean isWaterloggedBlock(PlacedBlockCollision block) {

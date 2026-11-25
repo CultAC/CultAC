@@ -2,6 +2,7 @@ package ac.cult.cultac.cloud;
 
 import ac.cult.cultac.player.CultPlayer;
 import java.util.function.Consumer;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Names the backend each of a player's capture segments belongs to. A segment runs from a clientbound play
@@ -19,6 +20,15 @@ public interface SegmentBinder {
      * is discarded through {@link #abandoned}.
      */
     void started(CultPlayer player, Consumer<String> bind, boolean playing);
+
+    /**
+     * The backend {@code player}'s segment starting now belongs to, when the binder already knows it: at a play
+     * {@code login} sent on its event loop, or mid-play when {@code playing}. Null when only {@code bind} will name it.
+     * On the player's event loop.
+     */
+    default @Nullable String upcoming(CultPlayer player, boolean playing) {
+        return null;
+    }
 
     /** {@code player}'s segment was discarded unbound; a pending bind is dropped. */
     default void abandoned(CultPlayer player) {}

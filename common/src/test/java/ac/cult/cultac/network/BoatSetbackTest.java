@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
@@ -167,6 +168,29 @@ class BoatSetbackTest {
         }
     }
 
+    /** An echo of the setback at its position with another yaw reaches the server with the yaw the snap gave the boat. */
+    @Test
+    void aVehicleSetbackEchoedWithAnotherYawCarriesTheSnappedYaw() throws Exception {
+        try (Ride ride = mount(GROUND_SEAT)) {
+            ride.f.player.checkManager.getCheck(VehicleOffset.class).setEnabled(true);
+            TurningBoat boat = new TurningBoat();
+            for (int tick = 0; tick < FALL_TICKS; tick++) {
+                JavaTickFixture.assertVehicleExact(boat.tick(ride.f, tick == 0 ? 0 : -1, Vec3.ZERO), tick);
+            }
+            JavaTickFixture.assertRejected(boat.tick(ride.f, -1, new Vec3(0.5, 0, 0)), "VehicleOffset");
+            SetBackData setback = ride.f.player.getSetbackTeleportUtil().getRequiredSetBack();
+            float snapped = ride.moves.getLast().yaw() % 360.0F;
+            ride.f.pongThrough(ride.f.player.lastTransactionSent.get());
+            Vec3 at = setback.getTeleportData().getLocation();
+            var echo = new ServerboundMoveVehicle(new Vec3d(at.x, at.y, at.z), snapped + 90.0F, 0, false, true);
+            var event = ride.f.event(ServerboundPackets.MOVE_VEHICLE, echo);
+            ride.f.listener.onMoveVehicle(event, ride.f.player, echo);
+            assertTrue(setback.isComplete(), "the setback echo was not accepted");
+            assertEquals(snapped, event.getPacket().yaw());
+            assertEquals(snapped, ride.f.player.compensatedEntities.getEntity(BOAT).clientPhysicalYaw);
+        }
+    }
+
     /**
      * A boat on stone its rider drives with the left key, which turns it the ticks after the key is sent and thrusts it
      * 0.005 along its yaw; the rider looks 30 degrees to the boat's right.
@@ -200,9 +224,12 @@ class BoatSetbackTest {
         }
     }
 
-    /** AbstractBoat#floatBoat in the air: 0.9 friction and 0.04 gravity, then no input. */
+    /**
+     * AbstractBoat#floatBoat in the air: 0.9 friction and the gravity AbstractBoat#getDefaultGravity returns, the
+     * double 0.04, then no input.
+     */
     private static Vec3 floatBoatInAir(Vec3 velocity) {
-        return new Vec3(velocity.x * 0.9F, velocity.y - 0.04F, velocity.z * 0.9F);
+        return new Vec3(velocity.x * 0.9F, velocity.y - 0.04, velocity.z * 0.9F);
     }
 
     private static float groundFriction(int blocks) {

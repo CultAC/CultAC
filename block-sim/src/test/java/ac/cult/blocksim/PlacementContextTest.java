@@ -1,8 +1,11 @@
 package ac.cult.blocksim;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ac.cult.blocksim.behavior.BehaviorRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.ItemRegistry;
+import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimLevel;
@@ -14,7 +17,6 @@ import ac.cult.blocksim.interaction.Hand;
 import ac.cult.blocksim.interaction.PlacementContext;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
 
 class PlacementContextTest {
     private static final DataTables DATA;
@@ -72,10 +74,10 @@ class PlacementContextTest {
             public boolean isSectionEmpty(BlockPos pos) { return false; }
             public int minY() { return -64; }
             public int height() { return 384; }
-            public boolean isWithinBorder(ac.cult.blocksim.engine.BlockPos pos) { return true; }
-            public boolean creakingActiveAt(ac.cult.blocksim.engine.BlockPos pos) { return false; }
-            public boolean waterEvaporatesAt(ac.cult.blocksim.engine.BlockPos pos) { return false; }
-        public ac.cult.blocksim.engine.BlockEntityData blockEntityAt(ac.cult.blocksim.engine.BlockPos pos) { return null; }
+            public boolean isWithinBorder(BlockPos pos) { return true; }
+            public boolean creakingActiveAt(BlockPos pos) { return false; }
+            public boolean waterEvaporatesAt(BlockPos pos) { return false; }
+        public BlockEntityData blockEntityAt(BlockPos pos) { return null; }
         };
         var level = new SimLevel(view, DATA.registry(), new BehaviorRegistry(DATA));
         var stack = ITEMS.stack("minecraft:" + item, 32);

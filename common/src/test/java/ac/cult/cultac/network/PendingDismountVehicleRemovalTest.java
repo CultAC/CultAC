@@ -34,6 +34,7 @@ class PendingDismountVehicleRemovalTest {
             var vehicles = player.compensatedEntities.vehicles;
             player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.OAK_BOAT, Vec3.ZERO, 0.0F, 0.0F, 0);
             assertTrue(vehicles.applyVehiclePassengers(VEHICLE, new int[] {player.entityID}));
+            vehicles.onSentPassengers(VEHICLE, new int[] {player.entityID});
             vehicles.setServerVehicle(VEHICLE, new int[] {player.entityID}, player.lastTransactionSent.get());
 
             var dismount = new ClientboundSetPassengers(VEHICLE, List.of());

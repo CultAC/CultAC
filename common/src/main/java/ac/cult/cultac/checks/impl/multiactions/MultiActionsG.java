@@ -1,6 +1,7 @@
 package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -15,7 +16,8 @@ import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 @CheckData(
-        name = "MultiActionsG",
+        name = "MultiActionsE",
+        formerNames = @FormerName(name = "MultiActionsG", until = 2),
         stableKey = "cult.multiactions.action_while_rowing",
         description = "Attacking or using items while rowing a boat",
         experimental = true)

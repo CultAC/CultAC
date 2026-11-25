@@ -5,6 +5,7 @@ import ac.cult.blocksim.data.ItemTemplates;
 import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.engine.BlockEntityComponentWriter;
+import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.blocksim.interaction.PlacementContext;
 import java.util.List;
 
@@ -37,6 +38,6 @@ public final class BlockEntityComponentApplication implements BlockEntityCompone
         var saved = new NbtValue.Compound(input.fields);
         var modeled = NbtJson.encode(saved).getAsJsonObject();
         input.internalFields.forEach(modeled::add);
-        level.blockEntityAt(context.clickedPos(), new ac.cult.blocksim.engine.BlockEntityData(entity.type(), new Components(modeled.asMap()), saved));
+        level.blockEntityAt(context.clickedPos(), new BlockEntityData(entity.type(), new Components(modeled.asMap()), saved));
     }
 }

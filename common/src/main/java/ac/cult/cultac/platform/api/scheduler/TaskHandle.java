@@ -20,7 +20,5 @@ package ac.cult.cultac.platform.api.scheduler;
 
 public interface TaskHandle {
 
-    boolean isCancelled();
-
     void cancel();
 }

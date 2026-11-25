@@ -59,7 +59,8 @@ class JavaSneakFlushWallTest {
     @Test
     void movingFurtherAlongTheWallThanTheSneakingInputReachesIsRejected() throws Exception {
         try (var f = new JavaTickFixture()) {
-            assertRejected(slide(f, VELOCITY.x + 0.045), "NoSneakSlow");
+            // The travel adds exactly the sneaking input, so what the move adds past it is Speed's.
+            assertRejected(slide(f, VELOCITY.x + 0.045), "Speed");
         }
     }
 
@@ -72,7 +73,7 @@ class JavaSneakFlushWallTest {
         try (var f = new JavaTickFixture()) {
             wall(f);
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 1), BlockIds.COBWEB.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 entered = new Vec3(WEB_X, FLOOR_Y, WALL_Z - HALF_WIDTH - WEB_GAP);
             f.place(entered.subtract(WEB_ENTRY_VELOCITY.x, 0, WEB_ENTRY_VELOCITY.z), WEB_ENTRY_VELOCITY);
             f.player.xRot = f.player.lastTickXRot = WEB_YAW;
@@ -106,7 +107,7 @@ class JavaSneakFlushWallTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(bx, by, 2), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** LivingEntity#moveRelative of a sneaking diagonal: 0.98F * 0.3F on each input axis at the 0.1F speed. */

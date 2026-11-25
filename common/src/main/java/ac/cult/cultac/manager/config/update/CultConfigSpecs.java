@@ -1,7 +1,7 @@
 package ac.cult.cultac.manager.config.update;
 
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
@@ -54,25 +54,6 @@ import org.jetbrains.annotations.Nullable;
 public final class CultConfigSpecs {
 
     /**
-     * Cult-only settings in {@code cult.yml}; v2 adds Bedrock position reconciliation.
-     *
-     * <p>v2 → v3: FairReach's absolute {@code max-reach} becomes {@code reach-leniency} on top of
-     * the player's own reach, so an old limit becomes its distance past the 3-block default.
-     */
-    public static @NotNull ConfigUpdater.Spec cultSettings() {
-        return ConfigUpdater.Spec.builder("/cult/", 3, ConfigUpdater.ConfigFlavor.V2)
-                .migration(3, CultConfigSpecs::fairReachLeniency)
-                .build();
-    }
-
-    private static void fairReachLeniency(MigrationContext ctx) {
-        Object maxReach = ctx.input().get("cult.checks.fair-reach.max-reach");
-        if (!(maxReach instanceof Number number)) return;
-        BigDecimal leniency = new BigDecimal(number.toString()).subtract(BigDecimal.valueOf(3));
-        ctx.output().put("cult.checks.fair-reach.reach-leniency", leniency.doubleValue());
-    }
-
-    /**
      * Spec for the main {@code config.yml}.
      *
      * <p>v9 → v10: migrates Cult 2.x's {@code history:} block out of
@@ -103,9 +84,14 @@ public final class CultConfigSpecs {
      * Every step reads the user's file as it was, so a v15 config takes the v16 step inside the v17 one.
      *
      * <p>v17 → v18: adds {@code alerts.default-scope}; default rewriting adds the key.
+     *
+     * <p>v18 → v19: adds {@code bridge.enabled}; default rewriting adds the key.
+     *
+     * <p>v19 → v20: adds {@code cloud.uncaptured-servers}; default rewriting adds the key.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 18, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 20, ConfigUpdater.ConfigFlavor.V2)
+                .operatorStamp(CheckNames.CONFIG_KEY, CheckNames.FIRST)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);
@@ -310,7 +296,7 @@ public final class CultConfigSpecs {
     public static @NotNull ConfigUpdater.Spec cultConfig(String resourceDirectory) {
         ConfigUpdater.Spec.Builder builder = ConfigUpdater.Spec.builder(
                         resourceDirectory,
-                        resourceDirectory.equals("/punishments/") ? 5 : 0,
+                        resourceDirectory.equals("/punishments/") ? 6 : 0,
                         ConfigUpdater.ConfigFlavor.V2)
                 .cultVersioning();
         if (resourceDirectory.equals("/punishments/")) {
@@ -318,9 +304,35 @@ public final class CultConfigSpecs {
                     .migration(2, CultConfigSpecs::addMissingCheckPunishments)
                     .migration(3, CultConfigSpecs::addNoSneakSlowPunishment)
                     .migration(4, CultConfigSpecs::addSkinBlinkerAndCloudPunishments)
-                    .migration(5, CultConfigSpecs::excludeCloudFromDefaultMisc);
+                    .migration(5, CultConfigSpecs::excludeCloudFromDefaultMisc)
+                    .migration(6, CultConfigSpecs::addPhasePunishment);
         }
         return builder.build();
+    }
+
+    /**
+     * Phase flags and sets back with no punishment group of its own; it alerts with the movement checks. A group that
+     * already selects it keeps it alone.
+     */
+    private static void addPhasePunishment(MigrationContext ctx) {
+        Map<String, Object> groups = ctx.input().getMap("Punishments");
+        if (groups != null) {
+            for (Object value : groups.values()) {
+                if (!(value instanceof Map<?, ?> group) || !(group.get("checks") instanceof List<?> checks)) continue;
+                for (Object selector : checks) {
+                    if (selector instanceof String text
+                            && !text.startsWith("!")
+                            && "phase".contains(text.toLowerCase(Locale.ROOT))) return;
+                }
+            }
+        }
+        addPunishmentChecks(
+                ctx,
+                "Simulation",
+                List.of("Simulation"),
+                List.of("Phase"),
+                List.of("100:40 [alert]", "1:1 [log]", "100:100 [webhook]", "100:100 [proxy]"),
+                "NoFall");
     }
 
     /** {@code Misc}'s selectors as revision 4 shipped them. */
@@ -445,10 +457,10 @@ public final class CultConfigSpecs {
             }
         }
         List<Object> checks = new ArrayList<>();
-        if (target != null) {
-            List<?> existing = ctx.output().getList("Punishments." + target + ".checks");
-            if (existing != null) checks.addAll(existing);
-        }
+        // An operator's group name is one literal key, dots included.
+        if (target != null
+                && groups.get(target) instanceof Map<?, ?> targetGroup
+                && targetGroup.get("checks") instanceof List<?> existing) checks.addAll(existing);
         int insertAt = -1;
         for (int i = 0; insertAfter != null && i < checks.size(); i++) {
             if (insertAfter.equalsIgnoreCase(String.valueOf(checks.get(i)))) insertAt = i + 1;
@@ -484,9 +496,9 @@ public final class CultConfigSpecs {
             group.put("remove-violations-after", removeViolationsAfter);
             group.put("checks", checks);
             group.put("commands", defaultCommands);
-            ctx.output().put("Punishments." + defaultGroup, group);
+            ctx.output().put(List.of("Punishments", defaultGroup), group);
         } else {
-            ctx.output().put("Punishments." + target + ".checks", checks);
+            ctx.output().put(List.of("Punishments", target, "checks"), checks);
         }
     }
 
@@ -510,7 +522,7 @@ public final class CultConfigSpecs {
                 continue;
             List<Object> updated = new ArrayList<>(checks);
             updated.add("BedrockMovement");
-            ctx.output().put("Punishments." + entry.getKey() + ".checks", updated);
+            ctx.output().put(List.of("Punishments", entry.getKey(), "checks"), updated);
             return;
         }
     }

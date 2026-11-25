@@ -53,7 +53,9 @@ class CamelSeatTest {
             Vec3 riderPush = onFloor(155.40813477563708, 153.568579037637, 155, 154);
             f.place(standing, Vec3.ZERO);
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
-            Vec3 camel = onFloor(154.93652 - 471 / 4096.0, 154.71431 + 1884 / 4096.0, 155, 154);
+            // VecDeltaCodec#decode leaves a moved entity on the 1/4096 grid: the camel stood at the grid point the
+            // capture's first two pushes, Entity#push from its second and third interpolation step, resolve to.
+            Vec3 camel = onFloor(634148 / 4096.0, 635600 / 4096.0, 155, 154);
             f.player.packetEntityReplication.addEntity(CAMEL, EntityTypeIds.CAMEL, camel, -165.9375F, 0, 0, -1);
             f.player.packetEntityReplication.addEntity(RIDER, EntityTypeIds.PLAYER, camel, 0, 0, 0, -1);
             f.setPassengers(CAMEL, List.of(RIDER));

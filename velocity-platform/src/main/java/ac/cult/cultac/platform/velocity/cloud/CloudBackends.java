@@ -15,6 +15,7 @@ import ac.cult.cultac.platform.velocity.bridge.BridgeSessions;
 import ac.cult.cultac.player.CultPlayer;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -26,6 +27,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
@@ -83,6 +85,13 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
     private final Map<UUID, Consumer<String>> pending = new ConcurrentHashMap<>();
     /** The backend connection each player's last segment ended on at a {@code start_configuration}. */
     private final Map<UUID, ServerConnection> reconfiguring = new ConcurrentHashMap<>();
+    /**
+     * The backend each player's next play {@code login} comes from, kept while {@link #uncapturing}: Velocity names it
+     * in {@link ServerConnectedEvent} and forwards that backend's login only once every handler has returned.
+     */
+    private final Map<UUID, String> connecting = new ConcurrentHashMap<>();
+    /** Whether {@code cloud.uncaptured-servers} names any backend, the only time a login's backend is asked ahead. */
+    private final BooleanSupplier uncapturing;
 
     private final Map<String, ServerFacts> backends = new ConcurrentHashMap<>();
     /** Backends whose bridge sessions have reached READY: they run a companion. */
@@ -99,10 +108,21 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
             Object plugin,
             Function<Player, Channel> channels,
             Predicate<ServerConnection> backendInPlay) {
-        this(proxy, plugin, channels, backendInPlay, POLL_MILLIS, FACTS_WAIT_MILLIS, System::nanoTime);
+        this(
+                proxy,
+                plugin,
+                channels,
+                backendInPlay,
+                POLL_MILLIS,
+                FACTS_WAIT_MILLIS,
+                System::nanoTime,
+                CloudCapture::uncapturesAny);
     }
 
-    /** As above, polling every {@code pollMillis} and waiting for facts at most {@code factsWaitMillis} on {@code clock}. */
+    /**
+     * As above, polling every {@code pollMillis} and waiting for facts at most {@code factsWaitMillis} on {@code clock},
+     * with {@code uncapturing} telling whether any backend is left uncaptured.
+     */
     CloudBackends(
             ProxyServer proxy,
             Object plugin,
@@ -110,7 +130,8 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
             Predicate<ServerConnection> backendInPlay,
             long pollMillis,
             long factsWaitMillis,
-            LongSupplier clock) {
+            LongSupplier clock,
+            BooleanSupplier uncapturing) {
         this.proxy = proxy;
         this.plugin = plugin;
         this.channels = channels;
@@ -118,6 +139,7 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
         this.pollMillis = pollMillis;
         this.factsWaitMillis = factsWaitMillis;
         this.clock = clock;
+        this.uncapturing = uncapturing;
     }
 
     /**
@@ -178,6 +200,29 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
         if (ended != null) schedulePoll(id, bind, velocity, ended, channel);
     }
 
+    /**
+     * Mid-play, the backend the player is in play on. At a login, the backend {@link ServerConnectedEvent} last named
+     * since the player's last {@code start_configuration}, else the connection that reconfigured itself while it is
+     * still the player's current one.
+     */
+    @Override
+    public @Nullable String upcoming(CultPlayer player, boolean playing) {
+        if (closed) return null;
+        UUID id = player.getUniqueId();
+        if (playing) {
+            ServerConnection server =
+                    proxy.getPlayer(id).flatMap(Player::getCurrentServer).orElse(null);
+            return server != null && backendInPlay.test(server) ? server.getServerInfo().getName() : null;
+        }
+        String next = connecting.get(id);
+        if (next != null) return next;
+        ServerConnection ended = reconfiguring.get(id);
+        if (ended == null) return null;
+        ServerConnection current =
+                proxy.getPlayer(id).flatMap(Player::getCurrentServer).orElse(null);
+        return current == ended ? ended.getServerInfo().getName() : null;
+    }
+
     @Override
     public void abandoned(CultPlayer player) {
         pending.remove(player.getUniqueId());
@@ -187,6 +232,7 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
     public void configuring(CultPlayer player) {
         UUID id = player.getUniqueId();
         pending.remove(id);
+        connecting.remove(id);
         ServerConnection server =
                 proxy.getPlayer(id).flatMap(Player::getCurrentServer).orElse(null);
         if (server == null) reconfiguring.remove(id);
@@ -288,6 +334,12 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
     }
 
     @Subscribe
+    public void onServerConnected(ServerConnectedEvent event) {
+        if (closed || !uncapturing.getAsBoolean()) return;
+        connecting.put(event.getPlayer().getUniqueId(), event.getServer().getServerInfo().getName());
+    }
+
+    @Subscribe
     public void onServerPostConnect(ServerPostConnectEvent event) {
         if (closed) return;
         Player player = event.getPlayer();
@@ -311,6 +363,7 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
     private void forget(UUID id) {
         pending.remove(id);
         reconfiguring.remove(id);
+        connecting.remove(id);
         players.remove(id);
     }
 
@@ -416,6 +469,7 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
         }
         pending.clear();
         reconfiguring.clear();
+        connecting.clear();
         synchronized (this) {
             players.clear();
             backends.clear();

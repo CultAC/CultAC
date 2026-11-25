@@ -131,6 +131,11 @@ public final class BedrockCollisionOverrideCatalog {
         }
     }
 
+    /** The Java protocol whose block state registry this catalog's Java state IDs index. */
+    public int javaProtocol() {
+        return integer(source.get("javaProtocol"), "source.javaProtocol");
+    }
+
     public int javaStateCount() {
         int count = integer(summary.get("javaStateCount"), "summary.javaStateCount");
         if (count <= 0) {
@@ -176,10 +181,6 @@ public final class BedrockCollisionOverrideCatalog {
     public OptionalLong blockPropertyMask(int javaStateId) {
         Long value = blockPropertyMasksByJavaStateId.get(javaStateId);
         return value == null ? OptionalLong.empty() : OptionalLong.of(value);
-    }
-
-    public int overrideCount() {
-        return byJavaStateId.size();
     }
 
     public int shapeCount() {

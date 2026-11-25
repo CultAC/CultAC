@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionOu
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockEntityMove;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameFacts;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameState;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockRiptideMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInputControl;
 import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockPostMoveResult;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockMoveRequest;
@@ -28,6 +29,10 @@ final class BedrockMovementResultBuilder {
             boolean canStep,
             double maxUpStep) {
         BedrockMovementState next = current.withoutActorMovementTick(frame);
+        if (!current.isVehicle()) {
+            next = next.withRiptideChargeTicks(BedrockRiptideMovement.chargeTicksWithoutActorTick(
+                    current, frame.intent(), snapshot.movementContext()));
+        }
         return new BedrockMovementResult(
                 current,
                 snapshot.movementContext(),
@@ -90,8 +95,11 @@ final class BedrockMovementResultBuilder {
                 .withWaterTravelFlag(postMoveEffects.waterTravelActive())
                 .withMovementBranch(postMoveEffects.movementBranch())
                 .withCameraWater(BedrockFallDistance.cameraWaterAfterMove(plan, collision))
-                .withDolphinBoost(state.dolphinBoost().endTick());
+                .withDolphinBoost(state.dolphinBoost().endTick())
+                .withSneakMoveScale(BedrockTravelInputControl.sneakMoveScaleAfterTick(
+                        current, frameFacts.context().equipmentState().swiftSneakLevel()));
         if (blockMove.collisionBox() != null) next = next.withCollisionBox(blockMove.collisionBox());
+        next = next.withPenetratingMove(blockMove.penetrating());
         if (state.boat() != null) {
             next = next.withBoat(state.boat().state());
         }
@@ -124,8 +132,10 @@ final class BedrockMovementResultBuilder {
                 state.input().options().maxUpStep(),
                 state.input().options().travelActive(),
                 state.groundJumpApplied(),
-                postMoveEffects.nonHopVelocity(),
-                collision.collisionFetchBox());
+                collision.collisionFetchBox(),
+                blockMove.solidActorOrder(),
+                blockMove.solidActorOrderRange(),
+                blockMove.preCastPosition());
     }
 
     private static double horizontalInputLimit(BedrockTravelPlan plan) {

@@ -24,7 +24,10 @@ import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
+import ac.cult.cultac.utils.latency.CompensatedVehicleState;
+import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.LatencyUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -69,12 +72,17 @@ class VelocityClientboundHandlingTest {
                     })
                     .when(fixture.player)
                     .appendTrailingProofTransaction(any(), anyList());
+            // Drive the real set_passengers handler for an unrelated vehicle the client holds: it still proves
+            // receipt with a trailing ping bundled with the packet.
+            var entities = mock(CompensatedEntities.class);
+            when(entities.existsAsSent(42)).thenReturn(true);
+            setField(CompensatedEntities.class, entities, "vehicles", mock(CompensatedVehicleState.class));
+            fixture.player.compensatedEntities = entities;
+            fixture.player.latencyUtils = mock(LatencyUtils.class);
             var replication = new PacketEntityReplication(fixture.player);
             var callbackWriteCount = new AtomicInteger(-1);
             fixture.dispatcher.register(routes -> routes.send(
-                    ClientboundPackets.SET_PASSENGERS,
-                    PacketListenerPriority.NORMAL,
-                    (event, player, packet) -> replication.appendVehicleProtocolProofTransaction(event)));
+                    ClientboundPackets.SET_PASSENGERS, PacketListenerPriority.NORMAL, replication::onSetPassengers));
             // Send completion callbacks must observe the packet and its proof already queued.
             doAnswer(call -> {
                         callbackWriteCount.set(fixture.writtenNames.size());
@@ -102,6 +110,16 @@ class VelocityClientboundHandlingTest {
                     List.of("bundle_delimiter", "set_passengers", "ping", "bundle_delimiter"), fixture.wireNames());
             assertEquals(serverBundle ? 3 : 4, callbackWriteCount.get());
             verify(fixture.player).markTrackedTransactionPacketSent(proof);
+        }
+    }
+
+    private static void setField(Class<?> owner, Object target, String name, Object value) {
+        try {
+            var field = owner.getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(target, value);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError(failure);
         }
     }
 
@@ -144,7 +162,7 @@ class VelocityClientboundHandlingTest {
                     verify(fixture.player).sendTrailingTransaction();
                     acknowledgement.get().run();
                     assertFalse(fixture.player.isInBed);
-                    verify(fixture.player).refreshPlayerPose();
+                    verify(fixture.player).refreshPlayerPose(Pose.STANDING);
                 } else {
                     assertNull(acknowledgement.get(), "Swing and particle actions must not wake the player");
                     verify(fixture.player, never()).sendTrailingTransaction();
@@ -182,6 +200,7 @@ class VelocityClientboundHandlingTest {
             fixture.player.packetStateData = new PacketStateData();
             fixture.player.compensatedEntities = mock(CompensatedEntities.class);
             when(fixture.player.compensatedEntities.getSelf()).thenReturn(mock(PacketEntitySelf.class));
+            fixture.player.compensatedWorld = mock(CompensatedWorld.class);
             fixture.player.latencyUtils = new LatencyUtils(fixture.player);
             doAnswer(call -> {
                         int id = sent.incrementAndGet();
@@ -191,6 +210,7 @@ class VelocityClientboundHandlingTest {
                     .when(fixture.player)
                     .sendTransaction();
             doCallRealMethod().when(fixture.player).runAtTrailingProof(any(), any());
+            doCallRealMethod().when(fixture.player).runAtTrailingProof(any(), any(), any());
             if (proofSendable) {
                 doAnswer(call -> {
                             PacketSendEvent<?> event = call.getArgument(0);

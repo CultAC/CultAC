@@ -18,21 +18,25 @@ import org.junit.Test;
 
 public class BedrockSprintRewindTest {
     @Test
-    public void historicalAttributeWaitsForFollowingFrameAndPublishesItsContinuation() {
+    public void stampedAttributeAppliesToTheNextFrameWithoutWaitingOrReplayingItsStampFrame() {
         var history = BedrockActorHistoryTest.history(1, 1);
         var rewind = new BedrockMovementRewind(history);
         var anchor = history.current().getFirst().state();
-        var current = commit(history.current());
+        // Stamped with the newest frame: the client has it before its next tick and does not re-run this one.
         rewind.queue(1, true, attribute(BedrockMovementAttributeState.serverValue(0.2F, false), true));
-        assertSame(current, rewind.apply(null, current));
-        var start = forward(history.current().getFirst(), 2, Set.of("START_SPRINTING"));
-        history.record(start);
         var published = rewind.apply(null, commit(history.current()));
-        var state = BedrockProfileState.previousState(published.carry());
-        assertEquals(
-                anchor.physicalFeetPosition(),
-                history.frames().getFirst().end().getFirst().state().physicalFeetPosition());
-        assertEquals(2, state.clientTick());
+        var applied = BedrockProfileState.previousState(published.carry());
+        assertEquals(1, applied.clientTick());
+        assertEquals(anchor.physicalFeetPosition(), applied.physicalFeetPosition());
+        assertEquals(anchor.velocity(), applied.velocity());
+        assertEquals(0.2F, applied.movementAttribute().current(), 0);
+        assertSame("Nothing is left to apply a frame late", published, rewind.apply(null, published));
+        var start = forward(
+                new BedrockProfileState.Entry(
+                        applied, history.current().getFirst().mobJumpComponent()),
+                2,
+                Set.of("START_SPRINTING"));
+        var state = start.end().getFirst().state();
         assertTrue(state.movementAttribute().hasSprintModifier());
         assertEquals(0.26F, state.movementAttribute().current(), 1e-7F);
         var stop = forward(
@@ -43,24 +47,45 @@ public class BedrockSprintRewindTest {
     }
 
     @Test
-    public void replayPublicationCanSupersedeALaterOrdinaryReplacement() {
+    public void stampedSprintConfirmationMatchingItsFrameIsNotAppliedToALaterState() {
         var history = BedrockActorHistoryTest.history(1, 1);
-        var anchor = history.current().getFirst().state();
-        history.record(forward(history.current().getFirst(), 2, Set.of("START_SPRINTING")));
+        var start = forward(history.current().getFirst(), 2, Set.of("START_SPRINTING"));
+        history.record(start);
+        var stop = forward(start.end().getFirst(), 3, Set.of("SPRINTING", "STOP_SPRINTING"));
+        history.record(stop);
         var rewind = new BedrockMovementRewind(history);
-        rewind.queue(1, true, new BedrockReplayEvent.Motion(anchor.velocity()));
-        rewind.queue(
-                0,
-                false,
-                attribute(new BedrockMovementAttributeState(0.13000001F, 0, 1024, 0, 1024, 0.1F, List.of()), false));
-        var published = rewind.apply(null, commit(history.current()));
-        var state = BedrockProfileState.previousState(published.carry());
-        assertTrue(state.movementAttribute().hasSprintModifier());
-        var stop = forward(
-                new BedrockProfileState.Entry(state, BedrockMobJumpComponentState.DEFAULT),
-                3,
-                Set.of("SPRINTING", "STOP_SPRINTING"));
-        assertEquals(0.1F, stop.end().getFirst().state().movementAttribute().current(), 0);
+        var current = commit(history.current());
+        // The confirmation of the sprint that began on tick 2 arrives after the client stopped on tick 3.
+        rewind.queue(2, true, attribute(BedrockMovementAttributeState.serverValue(0.1F, true), true));
+        assertSame(current, rewind.apply(null, current));
+        assertEquals(
+                0.1F,
+                BedrockProfileState.previousState(current.carry())
+                        .movementAttribute()
+                        .current(),
+                0);
+    }
+
+    @Test
+    public void anOrdinaryReplacementAcknowledgedWithAReplayIsKeptInEitherOrder() {
+        var replacement =
+                attribute(new BedrockMovementAttributeState(0.13000001F, 0, 1024, 0, 1024, 0.1F, List.of()), false);
+        for (boolean replayFirst : List.of(true, false)) {
+            var history = BedrockActorHistoryTest.history(1, 1);
+            var anchor = history.current().getFirst().state();
+            history.record(forward(history.current().getFirst(), 2, Set.of("START_SPRINTING")));
+            var rewind = new BedrockMovementRewind(history);
+            var motion = new BedrockReplayEvent.Motion(anchor.velocity());
+            if (replayFirst) rewind.queue(1, true, motion);
+            rewind.queue(0, false, replacement);
+            if (!replayFirst) rewind.queue(1, true, motion);
+            var published = rewind.apply(null, commit(history.current()));
+            var state = BedrockProfileState.previousState(published.carry());
+            // The replay re-runs the sprint start; the replacement the client also received still stands after it.
+            assertTrue(state.sprinting());
+            assertFalse(state.movementAttribute().hasSprintModifier());
+            assertEquals(0.13000001F, state.movementAttribute().current(), 0);
+        }
     }
 
     @Test
@@ -108,9 +133,8 @@ public class BedrockSprintRewindTest {
                 new Vec3d(0, 0, 1));
         var candidate = BedrockForwardTick.simulate(input).getFirst();
         var result = candidate.movementResult();
-        var entries = BedrockForwardTick.finish(result, result.predictedState()).stream()
-                .map(state -> new BedrockProfileState.Entry(state, candidate.mobJumpComponent()))
-                .toList();
+        var entries = List.of(new BedrockProfileState.Entry(
+                BedrockForwardTick.finish(result, result.predictedState()), candidate.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 input,

@@ -1,9 +1,10 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.BlockDefinition;
+import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimLevel;
-import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.interaction.PlacementContext;
 import java.util.Set;
 
@@ -11,7 +12,7 @@ public final class CopperChestBehavior extends ChestBehavior {
     private final Set<String> copperChests;
     public CopperChestBehavior(Set<String> copperChests) { this.copperChests = Set.copyOf(copperChests); }
     @Override
-    public boolean shouldKeepBlockEntity(ac.cult.blocksim.data.BlockRegistry registry, int state, int oldState) {
+    public boolean shouldKeepBlockEntity(BlockRegistry registry, int state, int oldState) {
         return copperChests.contains(registry.block(oldState).key());
     }
 

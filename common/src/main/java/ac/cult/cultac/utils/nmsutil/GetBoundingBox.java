@@ -20,6 +20,23 @@ public class GetBoundingBox {
         return getPlayerBoundingBox(player, centerX, centerY, centerZ);
     }
 
+    /** {@link #getCollisionBoxForPlayer(CultPlayer, double, double, double)} written into {@code out}. */
+    public static SimpleCollisionBox getCollisionBoxForPlayer(
+            SimpleCollisionBox out, CultPlayer player, double centerX, double centerY, double centerZ) {
+        if (player.compensatedEntities != null
+                && player.compensatedEntities.getSelf().getRiding() != null) {
+            return getPacketEntityBoundingBox(
+                    out,
+                    player,
+                    centerX,
+                    centerY,
+                    centerZ,
+                    player.compensatedEntities.getSelf().getRiding());
+        }
+
+        return getPlayerBoundingBox(out, player, centerX, centerY, centerZ);
+    }
+
     public static SimpleCollisionBox getPacketEntityBoundingBox(
             CultPlayer player, double centerX, double minY, double centerZ, PacketEntity entity) {
         float width = BoundingBoxSize.getWidth(player, entity);
@@ -47,6 +64,15 @@ public class GetBoundingBox {
         float height = player.getBukkitHeight();
 
         return getBoundingBoxFromPosAndSize(centerX, minY, centerZ, width, height);
+    }
+
+    /** {@link #getPlayerBoundingBox(CultPlayer, double, double, double)} written into {@code out}. */
+    public static SimpleCollisionBox getPlayerBoundingBox(
+            SimpleCollisionBox out, CultPlayer player, double centerX, double minY, double centerZ) {
+        float width = player.pose.width * player.dimensionScale;
+        float height = player.getBukkitHeight();
+
+        return getBoundingBoxFromPosAndSize(out, centerX, minY, centerZ, width, height);
     }
 
     public static SimpleCollisionBox getBoundingBoxFromPosAndSize(

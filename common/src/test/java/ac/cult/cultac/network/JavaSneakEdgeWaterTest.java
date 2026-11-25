@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -135,8 +136,31 @@ class JavaSneakEdgeWaterTest {
      */
     @Test
     void theCurrentTheEdgeHidesIsReleasedWithShift() throws Exception {
+        releaseTheEdgesCurrent(null, 0.014D);
+    }
+
+    /**
+     * Forge 26.3 before 66.0.5 pushes no entity by a fluid. The held position is the same on either build of a client
+     * claiming Forge, so the edge hides the deltaMovement of the build its last telling move followed: the keys'
+     * alone once it waded without the current, the current too as on vanilla otherwise.
+     */
+    @Test
+    void aClaimedForgeHidesItsOwnBuildsDeltaMovementAtTheEdge() throws Exception {
+        releaseTheEdgesCurrent("forge", 0.0D);
+        releaseTheEdgesCurrent("forge", 0.014D);
+    }
+
+    private static void releaseTheEdgesCurrent(String brand, double current) throws Exception {
         try (var f = new JavaTickFixture()) {
+            if (brand != null) f.player.checkManager.getCheck(ClientBrand.class).restore(brand);
             flowingTowardTheEdge(f);
+            if (brand != null && current == 0.0D) {
+                // One step in the source at x = 8, which flows +x, that only the build without the current explains.
+                Vec3 wading = new Vec3(8.5, FLOOR_Y, 0.5);
+                f.place(wading, new Vec3(0.05, -0.005, 0.0));
+                assertTrue(exact(f.tick(wading.add(0.05, 0.0, 0.0), true)));
+                assertTrue(f.player.loaderFluids.prefersWithoutCurrent());
+            }
             float yaw = 0.0F;
             rotate(f, yaw, 20.0F);
             double z = 0.5;
@@ -144,13 +168,13 @@ class JavaSneakEdgeWaterTest {
             // The source at x = 8 and the level-1 water at x = 9 both flow +x: the player current is 0.014 along x.
             f.input(SHIFT);
             assertTrue(exact(f.tick(new Vec3(EDGE_X, FLOOR_Y, z), true)));
-            double velocityX = 0.014D * 0.8F;
+            double velocityX = current * 0.8F;
 
             f.input(SNEAK_IN_WATER);
             Vec3 input = ClientMoveInput.of(f, SNEAK_IN_WATER, 0.3F, 0.02F, yaw);
             double velocityZ = 0.0;
             for (int tick = 0; tick < 6; tick++) {
-                velocityX += 0.014D + input.x;
+                velocityX += current + input.x;
                 velocityZ += input.z;
                 z += velocityZ;
                 PredictionResult result = f.tick(new Vec3(EDGE_X, FLOOR_Y, z), true);
@@ -163,7 +187,7 @@ class JavaSneakEdgeWaterTest {
             Vec3 release = ClientMoveInput.of(f, WADE, 0.3F, 0.02F, yaw);
             f.input(WADE);
             PredictionResult result = f.tick(
-                    new Vec3(EDGE_X + velocityX + 0.014D + release.x, FLOOR_Y, z + velocityZ + release.z), true);
+                    new Vec3(EDGE_X + velocityX + current + release.x, FLOOR_Y, z + velocityZ + release.z), true);
             assertTrue(exact(result), describe(result));
         }
     }
@@ -213,7 +237,7 @@ class JavaSneakEdgeWaterTest {
     /**
      * A crouched player walking on the pool floor straight at its edge holds its position while deltaMovement builds
      * toward the drop. LivingEntity#travelInWater's drag follows the sprint flag, so each hidden tick leaves a single
-     * deltaMovement, and releasing shift moves on it.
+     * deltaMovement for each sine table, and releasing shift moves on it.
      */
     @Test
     void aHeldEdgeCarriesOneDeltaMovement() throws Exception {
@@ -234,7 +258,12 @@ class JavaSneakEdgeWaterTest {
                 assertTrue(exact(result), "tick " + tick + " " + describe(result));
                 Set<Vec3> carried =
                         f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
-                assertEquals(1, carried.size(), "tick " + tick + " " + carried);
+                // One deltaMovement for each sine table a client may run: Mth's sin(180 degrees) is 1.2246469E-16
+                // and OptiFine's fast table rounds it to 0, so the two differ only by that on x.
+                Vec3 first = carried.iterator().next();
+                for (Vec3 other : carried) {
+                    assertTrue(first.distanceTo(other) < 1.0E-15, "tick " + tick + " " + carried);
+                }
                 velocityZ = (velocityZ + input.z) * 0.8F;
             }
 
@@ -262,7 +291,7 @@ class JavaSneakEdgeWaterTest {
                     }
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             float yaw = -90.0F;
             rotate(f, yaw, 20.0F);
             double x = 8.8;
@@ -412,7 +441,7 @@ class JavaSneakEdgeWaterTest {
         }
         f.player.compensatedWorld.updateBlock(new BlockPos(-1, FLOOR_Y, 0), BlockIds.STONE.defaultState());
         f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), BlockIds.STONE.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void assertLedgeExact(JavaTickFixture f, float yaw, float pitch, double x, double y, double z) {
@@ -438,7 +467,7 @@ class JavaSneakEdgeWaterTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void assertTrenchExact(
@@ -464,7 +493,7 @@ class JavaSneakEdgeWaterTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** Water sources over the floor, which ends at x = 9, and level-1 water over the drop beyond it. */
@@ -474,7 +503,7 @@ class JavaSneakEdgeWaterTest {
             for (int x = -8; x <= 8; x++) water(f, x, FLOOR_Y, z);
             f.player.compensatedWorld.updateBlock(new BlockPos(9, FLOOR_Y, z), flowing);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void water(JavaTickFixture f, int x, int y, int z) {

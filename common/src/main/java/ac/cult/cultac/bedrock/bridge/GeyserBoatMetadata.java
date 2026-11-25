@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayBoatMetadata;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties;
 import com.google.gson.JsonObject;
@@ -55,14 +56,12 @@ record GeyserBoatMetadata(
                 offset == null ? null : new Vec3d(offset.getX(), offset.getY(), offset.getZ()));
     }
 
-    ac.cult.cultac.bedrock.prediction.integration.BedrockReplayBoatMetadata replayable() {
-        return new ac.cult.cultac.bedrock.prediction.integration.BedrockReplayBoatMetadata(
-                width, height, null, outOfControl, leashed, null, null, null, seat);
+    BedrockReplayBoatMetadata replayable() {
+        return new BedrockReplayBoatMetadata(width, height, null, outOfControl, leashed, null, null, null, seat);
     }
 
-    ac.cult.cultac.bedrock.prediction.integration.BedrockReplayBoatMetadata immediate() {
-        return new ac.cult.cultac.bedrock.prediction.integration.BedrockReplayBoatMetadata(
-                null, null, buoyant, null, null, gravity, baseBuoyancy, liquids, null);
+    BedrockReplayBoatMetadata immediate() {
+        return new BedrockReplayBoatMetadata(null, null, buoyant, null, null, gravity, baseBuoyancy, liquids, null);
     }
 
     boolean isEmpty() {

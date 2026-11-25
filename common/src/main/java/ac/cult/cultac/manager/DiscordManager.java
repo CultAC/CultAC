@@ -55,7 +55,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             .asMatchPredicate();
     private static final Predicate<String> HTTPS_URL_REGEX =
             Pattern.compile("^https://[^/\\s]+/\\S+$").asMatchPredicate();
-    private static final Duration timeout = Duration.ofMillis(CommonCultArguments.URL_TIMEOUT.value());
+    private static final Duration timeout = Duration.ofMillis(CommonCultArguments.URL_TIMEOUT);
     private static final HttpClient client = RuntimeEnvironment.http(timeout);
     private static final WebhookQueue queue =
             new WebhookQueue(DiscordManager::post, System::currentTimeMillis, LogUtil::getLogger);

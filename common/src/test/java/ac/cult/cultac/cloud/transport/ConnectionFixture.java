@@ -79,7 +79,7 @@ public final class ConnectionFixture {
     }
 
     public static CloudSettings settings(String url, String key, List<Integer> protocols) {
-        return new CloudSettings(url, key, CloudSettings.DEFAULT_SERVER_ID, "proxy", protocols, false, false);
+        return new CloudSettings(url, key, CloudSettings.DEFAULT_SERVER_ID, "proxy", protocols, false);
     }
 
     /** A taken message's remaining bytes, null for none. */

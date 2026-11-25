@@ -96,11 +96,11 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
 
     private void onNodeMutate(PermissionHolder target, Node node) {
         if (target instanceof User user) {
-            if (shouldRefreshUserForNode(node)) refreshCultPlayerPermissions(user);
+            if (shouldRefreshForNode(node)) refreshCultPlayerPermissions(user);
             return;
         }
 
-        if (target instanceof Group group && shouldRefreshGroupForNode(node)) {
+        if (target instanceof Group group && shouldRefreshForNode(node)) {
             refreshPlayersInheritingGroup(group);
         }
     }
@@ -121,14 +121,7 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
         refreshCultPlayerPermissions(contextSubjectUuid(event));
     }
 
-    private boolean shouldRefreshUserForNode(Node node) {
-        if (node instanceof PermissionNode permissionNode) return isCultPermission(permissionNode);
-        if (node instanceof InheritanceNode inheritanceNode)
-            return inheritedGroupMayAffectCultPermissions(inheritanceNode);
-        return false;
-    }
-
-    private boolean shouldRefreshGroupForNode(Node node) {
+    private boolean shouldRefreshForNode(Node node) {
         if (node instanceof PermissionNode permissionNode) return isCultPermission(permissionNode);
         if (node instanceof InheritanceNode inheritanceNode)
             return inheritedGroupMayAffectCultPermissions(inheritanceNode);
@@ -137,7 +130,7 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
 
     private boolean shouldRefreshHolderForNodes(Iterable<? extends Node> nodes) {
         for (Node node : nodes) {
-            if (shouldRefreshGroupForNode(node)) return true;
+            if (shouldRefreshForNode(node)) return true;
         }
 
         return false;

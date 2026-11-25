@@ -191,6 +191,7 @@ public final class CaptureStream {
         long conditions;
         long handled;
         List<IntakeWire.Flag> flags = List.of();
+        List<IntakeWire.Setback> setbacks = List.of();
         IntakeWire.Target target;
         List<IntakeWire.Geometry> geometries = List.of();
         IntakeWire.Engine engine;
@@ -343,6 +344,11 @@ public final class CaptureStream {
     private final Sections.Out terrainOut = new Sections.Out() {
         @Override
         public boolean put(int kind, byte[] body, long section, long nanos) {
+            return putTerrain(kind, body, section, nanos);
+        }
+
+        @Override
+        public boolean put(int kind, Sections.Body body, long section, long nanos) {
             return putTerrain(kind, body, section, nanos);
         }
 
@@ -689,6 +695,37 @@ public final class CaptureStream {
         return true;
     }
 
+    /** As {@link #putTerrain(int, byte[], long, long)}, the body written into the open frame's copies. */
+    private boolean putTerrain(int kind, Sections.Body body, long section, long nanos) {
+        if (overflow) return false;
+        int length = body.length();
+        byte[] bytes = terrainCopy(length, nanos);
+        int offset = copiedAt;
+        body.write(bytes, offset);
+        if (!put(kind, framedTerrain.size(), bytes, offset, length, nanos, 0, 0, tapped, 0, false)) {
+            if (copies != null) copies.abandon(bytes, offset, length);
+            return false;
+        }
+        if (framedTerrain == NO_TERRAIN) framedTerrain = new ArrayList<>();
+        framedTerrain.add(new TerrainRecord(kind, section));
+        if (kind == IntakeWire.SECTION) framedTerrainBytes += length;
+        return true;
+    }
+
+    /** Room for a terrain record of {@code length} bytes, from {@link #copiedAt} in the array returned. */
+    private byte[] terrainCopy(int length, long nanos) {
+        copyClock = Math.max(copyClock, nanos);
+        copiedAt = 0;
+        if (copies == null) {
+            copies = spareCopies != null ? spareCopies : CapturePacketCopies.of(copyBudget, nanos);
+            spareCopies = null;
+            if (copies == null) return new byte[length];
+        }
+        byte[] bytes = copies.reserve(length, nanos);
+        copiedAt = copies.offset();
+        return bytes;
+    }
+
     /** Terrain records that never reached the service are owed again. */
     private void lostTerrain(List<TerrainRecord> records, BitSet only) {
         for (int i = 0; i < records.size(); i++) {
@@ -904,6 +941,19 @@ public final class CaptureStream {
             IntakeWire.Target target,
             List<IntakeWire.Geometry> geometries,
             IntakeWire.Engine engine) {
+        verdict(tickEnd, handled, conditions, flags, List.of(), target, geometries, engine);
+    }
+
+    /** As the other {@code verdict}, with the setbacks sent during the tick. */
+    public void verdict(
+            long tickEnd,
+            long handled,
+            long conditions,
+            List<IntakeWire.Flag> flags,
+            List<IntakeWire.Setback> setbacks,
+            IntakeWire.Target target,
+            List<IntakeWire.Geometry> geometries,
+            IntakeWire.Engine engine) {
         Tick tick;
         while ((tick = awaiting.peek()) != null && tick.index < tickEnd) leaveQueue(awaiting.poll());
         if (tick == null || tick.index != tickEnd) return;
@@ -912,6 +962,7 @@ public final class CaptureStream {
         tick.conditions = conditions;
         tick.handled = handled;
         tick.flags = flags;
+        tick.setbacks = setbacks;
         tick.target = target;
         tick.geometries = geometries;
         tick.engine = engine;
@@ -1183,7 +1234,8 @@ public final class CaptureStream {
                 last,
                 engine == null || !engine.velocity() ? -1 : velocityOrdinal,
                 seq,
-                carried);
+                carried,
+                tick.setbacks);
     }
 
     /**
@@ -1331,11 +1383,18 @@ public final class CaptureStream {
         lastMicros = atMicros;
     }
 
-    /** Writes the widest VERDICT there is: every flag, geometry and engine field present and at its longest. */
+    /**
+     * Writes the widest VERDICT there is: every flag, geometry, setback and engine field present and at its longest, as
+     * many flags with a verbose as one carries.
+     */
     private static int maxVerdictBytes() {
         String wide = "x".repeat(256);
-        List<IntakeWire.Flag> flags =
-                Collections.nCopies(IntakeWire.MAX_FLAGS, new IntakeWire.Flag(wide, Long.MAX_VALUE));
+        List<IntakeWire.Flag> flags = new ArrayList<>(IntakeWire.MAX_FLAGS);
+        for (int i = 0; i < IntakeWire.MAX_FLAGS; i++) {
+            flags.add(new IntakeWire.Flag(wide, Long.MAX_VALUE, i < IntakeWire.MAX_VERBOSE_FLAGS ? wide : null));
+        }
+        List<IntakeWire.Setback> setbacks = Collections.nCopies(
+                IntakeWire.MAX_SETBACKS, new IntakeWire.Setback(IntakeWire.SETBACK_RESEND, wide, wide));
         double[] box = {-Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE, 0, 0, 0};
         double[] eyes = new double[IntakeWire.MAX_EYES * 3];
         List<IntakeWire.Geometry> geometries = Collections.nCopies(
@@ -1368,7 +1427,8 @@ public final class CaptureStream {
                         null,
                         Long.MAX_VALUE,
                         Long.MAX_VALUE,
-                        List.of(new byte[MAX_OUTCOME_BYTES]));
+                        List.of(new byte[MAX_OUTCOME_BYTES]),
+                        setbacks);
     }
 
     /** Nanoseconds rounded to the nearest microsecond. */

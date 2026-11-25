@@ -69,7 +69,7 @@ class JavaSneakEdgeStepTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.AIR.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         // LivingEntity#travelInAir's ground friction, 0.6F * 0.91F, applied to the previous move.
         double friction = 0.6F * 0.91F;
         f.place(

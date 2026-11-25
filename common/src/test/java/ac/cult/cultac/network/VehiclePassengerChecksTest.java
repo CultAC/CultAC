@@ -78,7 +78,8 @@ class VehiclePassengerChecksTest {
         try (var f = ride(EntityTypeIds.PIG)) {
             ((PacketEntityRideable) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
             BadPacketsR check = enabled(f, BadPacketsR.class);
-            for (int tick = 0; tick < 20; tick++) passengerTick(f, check, false);
+            pong(f, check);
+            for (int tick = 0; tick < 21; tick++) passengerTick(f, check, false);
             pongAfterTwoSeconds(f, check);
 
             assertEquals(0, check.violations);
@@ -89,8 +90,9 @@ class VehiclePassengerChecksTest {
     void aBoatPassengerThatStopsSendingTheVehicleIsStillFlagged() throws Exception {
         try (var f = ride(EntityTypeIds.OAK_BOAT)) {
             BadPacketsR check = enabled(f, BadPacketsR.class);
+            pong(f, check);
             // The Rot alone cannot stand for a vehicle the rider controls.
-            for (int tick = 0; tick < 20; tick++) passengerTick(f, check, false);
+            for (int tick = 0; tick < 21; tick++) passengerTick(f, check, false);
             pongAfterTwoSeconds(f, check);
 
             assertEquals(1, check.violations);
@@ -101,7 +103,8 @@ class VehiclePassengerChecksTest {
     void aBoatPassengerSteeringItIsNotFlagged() throws Exception {
         try (var f = ride(EntityTypeIds.OAK_BOAT)) {
             BadPacketsR check = enabled(f, BadPacketsR.class);
-            for (int tick = 0; tick < 20; tick++) passengerTick(f, check, true);
+            pong(f, check);
+            for (int tick = 0; tick < 21; tick++) passengerTick(f, check, true);
             pongAfterTwoSeconds(f, check);
 
             assertEquals(0, check.violations);
@@ -113,6 +116,12 @@ class VehiclePassengerChecksTest {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
             BadPacketsR check = enabled(f, BadPacketsR.class);
+            position(f, check);
+            pongAfterTwoSeconds(f, check);
+            for (int tick = 0; tick < 61; tick++) {
+                f.tickEnd();
+                pong(f, check);
+            }
             pongAfterTwoSeconds(f, check);
 
             assertEquals(1, check.violations);
@@ -120,13 +129,18 @@ class VehiclePassengerChecksTest {
     }
 
     @Test
-    void aStillPlayerAtTickRateOneIsNotFlaggedBetweenItsPositionReminders() throws Exception {
+    void aFrozenClientAnsweringItsQueuedPingsBeforeItsReminderTickIsNotFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
             BadPacketsR check = enabled(f, BadPacketsR.class);
-            tickRate(f, 1F);
-            pong(f, check);
-            pongAfter(f, check, 11_645_000_000L);
+            position(f, check);
+            for (int tick = 0; tick < 15; tick++) f.tickEnd();
+            pongAfterTwoSeconds(f, check);
+            // Minecraft#runTick answers the pings queued during the stall before the ticks DeltaTracker owes.
+            pongAfterTwoSeconds(f, check);
+            for (int pong = 0; pong < 127; pong++) pong(f, check);
+            for (int tick = 0; tick < 5; tick++) f.tickEnd();
+            pongAfterTwoSeconds(f, check);
 
             assertEquals(0, check.violations);
         }
@@ -139,6 +153,7 @@ class VehiclePassengerChecksTest {
             BadPacketsR check = enabled(f, BadPacketsR.class);
             tickRate(f, 1F);
             pong(f, check);
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             pongAfter(f, check, 41_000_000_000L);
 
             assertEquals(1, check.violations);
@@ -154,6 +169,7 @@ class VehiclePassengerChecksTest {
             pong(f, check);
             position(f, check);
             pongAfter(f, check, 41_000_000_000L);
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             tickRate(f, 20F);
             pongAfter(f, check, 5_342_000_000L);
             assertEquals(0, check.violations);
@@ -171,6 +187,7 @@ class VehiclePassengerChecksTest {
             tickRate(f, 1F);
             f.player.packetStateData.serverTicksFrozen = true;
             pong(f, check);
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             pongAfterTwoSeconds(f, check);
 
             assertEquals(1, check.violations);
@@ -182,7 +199,9 @@ class VehiclePassengerChecksTest {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
             BadPacketsR check = enabled(f, BadPacketsR.class);
+            pong(f, check);
             respawn(f);
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             pongAfterTwoSeconds(f, check);
 
             assertEquals(0, check.violations);
@@ -194,8 +213,10 @@ class VehiclePassengerChecksTest {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
             BadPacketsR check = enabled(f, BadPacketsR.class);
+            pong(f, check);
             var accept = acceptance(f, teleport(f, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z)));
             assertFalse(accept.isCancelled(), "the acceptance did not answer the teleport");
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             pongAfterTwoSeconds(f, check);
 
             assertEquals(0, check.violations);
@@ -207,7 +228,9 @@ class VehiclePassengerChecksTest {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
             BadPacketsR check = enabled(f, BadPacketsR.class);
+            pong(f, check);
             assertTrue(acceptance(f, 7).isCancelled(), "an acceptance without a teleport was taken");
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             pongAfterTwoSeconds(f, check);
 
             assertEquals(1, check.violations);
@@ -223,6 +246,7 @@ class VehiclePassengerChecksTest {
             assertFalse(acceptance(f, id).isCancelled(), "the acceptance did not answer the teleport");
             pongAfterTwoSeconds(f, check);
             assertTrue(acceptance(f, id).isCancelled(), "a repeated acceptance answered the teleport again");
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             pongAfterTwoSeconds(f, check);
 
             assertEquals(1, check.violations);
@@ -246,6 +270,7 @@ class VehiclePassengerChecksTest {
             var repeated = acceptanceEvent(f, id, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z));
             route.dispatch(repeated, f.player);
             assertTrue(repeated.isCancelled(), "a repeated acceptance answered the teleport again");
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             pongAfterTwoSeconds(f, check);
 
             assertEquals(1, check.violations);
@@ -257,9 +282,11 @@ class VehiclePassengerChecksTest {
         try (var f = sleeping()) {
             var route = moveRoute();
             BadPacketsR check = enabled(f, BadPacketsR.class);
+            pong(f, check);
             var rest = positionEvent(f, FLOOR_Y + 0.5625);
             route.dispatch(rest, f.player);
             assertFalse(rest.isCancelled(), "the resting sleeper's position was cancelled");
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             pongAfterTwoSeconds(f, check);
 
             assertEquals(0, check.violations);
@@ -267,16 +294,10 @@ class VehiclePassengerChecksTest {
     }
 
     @Test
-    void aSleeperBelowTheBedsTopIsStillCancelled() throws Exception {
+    void aSleeperBelowTheBedsTopIsStillRejectedByPrediction() throws Exception {
         try (var f = sleeping()) {
-            var route = moveRoute();
-            BadPacketsR check = enabled(f, BadPacketsR.class);
-            var below = positionEvent(f, FLOOR_Y + 0.5);
-            route.dispatch(below, f.player);
-            assertTrue(below.isCancelled(), "a sleeper below the bed was taken");
-            pongAfterTwoSeconds(f, check);
-
-            assertEquals(1, check.violations);
+            // Java sleeping movement reaches the engine, which checks travel and collisions before cancellation.
+            JavaTickFixture.assertRejected(f.tick(new Vec3(SEAT.x, FLOOR_Y + 0.5, SEAT.z), true), "VerticalOffset");
         }
     }
 
@@ -293,13 +314,11 @@ class VehiclePassengerChecksTest {
     }
 
     @Test
-    void aSleeperBelowAStrawBedsPillowIsStillCancelled() throws Exception {
+    void aSleeperBelowAStrawBedsPillowIsStillRejectedByPrediction() throws Exception {
         for (String facing : FACINGS) {
             try (var f = sleepingOnStraw(facing)) {
-                var route = moveRoute();
-                var below = positionEvent(f, FLOOR_Y + 0.28125);
-                route.dispatch(below, f.player);
-                assertTrue(below.isCancelled(), "a sleeper below the pillow was taken, facing " + facing);
+                JavaTickFixture.assertRejected(
+                        f.tick(new Vec3(SEAT.x, FLOOR_Y + 0.28125, SEAT.z), true), "VerticalOffset");
             }
         }
     }
@@ -333,8 +352,10 @@ class VehiclePassengerChecksTest {
     void aBoatPassengerAnsweringATeleportStillOwesTheVehicle() throws Exception {
         try (var f = ride(EntityTypeIds.OAK_BOAT)) {
             BadPacketsR check = enabled(f, BadPacketsR.class);
+            pong(f, check);
             var accept = acceptance(f, teleport(f, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z)), SEAT);
             assertFalse(accept.isCancelled(), "the acceptance did not answer the teleport");
+            for (int tick = 0; tick < 21; tick++) f.tickEnd();
             pongAfterTwoSeconds(f, check);
 
             assertEquals(1, check.violations);
@@ -373,7 +394,7 @@ class VehiclePassengerChecksTest {
     private static JavaTickFixture sleepingIn(int head, double y) throws Exception {
         var f = new JavaTickFixture();
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), head);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         Vec3 bed = new Vec3(SEAT.x, y, SEAT.z);
         f.place(bed, Vec3.ZERO);
         f.player.isInBed = true;
@@ -424,15 +445,20 @@ class VehiclePassengerChecksTest {
         return check;
     }
 
-    /** One ridden client tick as BadPacketsR sees it: the passenger Rot, and the vehicle's move when it controls it. */
+    /**
+     * One ridden client tick as BadPacketsR sees it: the passenger Rot, the vehicle's move when it controls it, and the
+     * tick end.
+     */
     private static void passengerTick(JavaTickFixture f, BadPacketsR check, boolean echoVehicle) {
         var rot =
                 new ServerboundMovePlayer(0, 0, 0, f.player.xRot, f.player.yRot, f.player.onGround, false, false, true);
         check.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
-        if (!echoVehicle) return;
-        var move = new ServerboundMoveVehicle(
-                new Vec3d(SEAT.x, SEAT.y, SEAT.z), f.player.xRot, f.player.yRot, f.player.onGround, true);
-        check.onMoveVehicle(f.event(ServerboundPackets.MOVE_VEHICLE, move), f.player, move);
+        if (echoVehicle) {
+            var move = new ServerboundMoveVehicle(
+                    new Vec3d(SEAT.x, SEAT.y, SEAT.z), f.player.xRot, f.player.yRot, f.player.onGround, true);
+            check.onMoveVehicle(f.event(ServerboundPackets.MOVE_VEHICLE, move), f.player, move);
+        }
+        f.tickEnd();
     }
 
     private static void rot(JavaTickFixture f, float yaw, float pitch) {

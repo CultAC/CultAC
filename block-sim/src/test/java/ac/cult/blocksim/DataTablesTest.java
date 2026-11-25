@@ -1,14 +1,21 @@
 package ac.cult.blocksim;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.data.nbt.NbtJson;
+import ac.cult.blocksim.engine.ClientClocks;
+import ac.cult.blocksim.environment.ClientWorldDefaults;
+import ac.cult.blocksim.environment.DimensionData;
+import ac.cult.blocksim.environment.EnvironmentData;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.zip.GZIPInputStream;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
 
 class DataTablesTest {
     @Test void everyWireStateAndPropertyTransitionMatchesVanillaReport() throws Exception {
@@ -74,24 +81,24 @@ class DataTablesTest {
     }
 
     @Test void bundledWorldDefinitionsResolveDimensionTagsAndDriveTheNightClockBoundary() throws Exception {
-        var defaults = ac.cult.blocksim.environment.ClientWorldDefaults.defaults();
+        var defaults = ClientWorldDefaults.defaults();
         var overworld = defaults.resolve("dimension_type", "overworld");
-        var dimension = new ac.cult.blocksim.environment.DimensionData("overworld", overworld.data(), overworld.json());
+        var dimension = new DimensionData("overworld", overworld.data(), overworld.json());
         assertEquals(-64, dimension.minY());
         assertEquals(384, dimension.height());
         assertTrue(dimension.hasSkyLight());
         var nether = defaults.resolve("dimension_type", "the_nether");
-        assertTrue(new ac.cult.blocksim.environment.DimensionData("the_nether", nether.data(), nether.json()).hasFastLava());
+        assertTrue(new DimensionData("the_nether", nether.data(), nether.json()).hasFastLava());
         var members = defaults.tags("timeline").get("minecraft:in_overworld");
         assertNotNull(members);
-        var timelines = members.stream().map(key -> ac.cult.blocksim.data.nbt.NbtJson.encode(defaults.resolve("timeline", key).data())).toList();
-        var biome = ac.cult.blocksim.data.nbt.NbtJson.encode(defaults.resolve("worldgen/biome", "plains").data()).getAsJsonObject();
-        var clocks = new ac.cult.blocksim.engine.ClientClocks();
-        clocks.handleUpdates(0, java.util.Map.of("minecraft:overworld", new ac.cult.blocksim.engine.ClientClocks.State(18000, 0, 0)));
-        var metadata = new ac.cult.blocksim.environment.EnvironmentData(dimension.attributes(), java.util.Map.of(5, biome.getAsJsonObject("attributes")), timelines);
+        var timelines = members.stream().map(key -> NbtJson.encode(defaults.resolve("timeline", key).data())).toList();
+        var biome = NbtJson.encode(defaults.resolve("worldgen/biome", "plains").data()).getAsJsonObject();
+        var clocks = new ClientClocks();
+        clocks.handleUpdates(0, Map.of("minecraft:overworld", new ClientClocks.State(18000, 0, 0)));
+        var metadata = new EnvironmentData(dimension.attributes(), Map.of(5, biome.getAsJsonObject("attributes")), timelines);
         var environment = metadata.create(clocks);
         assertTrue(environment.at(5).creakingActive());
-        clocks.handleUpdates(1, java.util.Map.of("minecraft:overworld", new ac.cult.blocksim.engine.ClientClocks.State(23401, 0, 0)));
+        clocks.handleUpdates(1, Map.of("minecraft:overworld", new ClientClocks.State(23401, 0, 0)));
         environment.tick();
         assertFalse(environment.at(5).creakingActive());
     }

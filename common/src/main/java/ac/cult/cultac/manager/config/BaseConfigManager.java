@@ -1,13 +1,19 @@
 package ac.cult.cultac.manager.config;
 
 import ac.cult.cultac.bridge.protocol.CommandRoots;
+import ac.cult.cultac.checks.CheckNames;
+import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.reload.api.HostContext;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import lombok.Getter;
@@ -19,8 +25,15 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BaseConfigManager {
 
-    public static final String OBSERVE_ONLY_ENV = "CULTAC_OBSERVE_ONLY";
     public static final String OBSERVE_ONLY_KEY = "observe-only";
+    public static final String DORMANT_KEY = "dormant";
+    public static final String CHECKS_OFF_KEY = "checks-off";
+    public static final String PAUSE_PUNISHMENTS_KEY = "pause-punishments";
+
+    private static final String CONFIG_LOCK_KEY = "cultac.config.lock";
+    private static final Object CONFIG_LOCK = new Object();
+    /** The check names already logged as naming no check, each after where it was read. */
+    private static final Set<String> UNKNOWN_CHECKS = ConcurrentHashMap.newKeySet();
 
     private final List<Pattern> ignoredClientPatterns = new ArrayList<>();
 
@@ -29,6 +42,18 @@ public class BaseConfigManager {
 
     @Getter
     private boolean observeOnly = false;
+
+    /** {@code dormant} as config.yml sets it; the network's shared settings decide. */
+    @Getter
+    private boolean dormant = false;
+
+    /** The stable keys of the checks {@code checks-off} names in config.yml; the network's shared settings decide. */
+    @Getter
+    private List<String> checksOff = List.of();
+
+    /** {@code pause-punishments} as config.yml sets it; the network's shared settings decide. */
+    @Getter
+    private boolean pausePunishments = false;
 
     @Getter
     private String prefix = "&bCult &8»";
@@ -64,6 +89,9 @@ public class BaseConfigManager {
 
     @Getter
     private int maxPingKnockback = 1000;
+
+    @Getter
+    private int maxPendingPingMs = 0;
     // cult.client-brand.strip-pattern regex; null when disabled (empty key)
     private Pattern brandRemover = null;
 
@@ -92,6 +120,12 @@ public class BaseConfigManager {
     @Getter
     private boolean bedrockMovementSetbacksEnabled = true;
 
+    @Getter
+    private boolean exemptBedrockPlayers = false;
+
+    @Getter
+    private boolean exemptJavaPlayers = false;
+
     private static double nonNegativeElse(ConfigManager config, String key, double fallback) {
         double value = config.getDoubleElse(key, fallback);
         return value >= 0 ? value : fallback;
@@ -109,6 +143,7 @@ public class BaseConfigManager {
 
     // initialize the config
     public void load(ConfigManager config) {
+        CheckNames.validate(config);
         boolean reloading = this.config != null;
         boolean wasObserveOnly = observeOnly;
         this.config = config;
@@ -131,7 +166,7 @@ public class BaseConfigManager {
             }
         }
 
-        observeOnly = resolveObserveOnly(config, System::getenv);
+        observeOnly = config.getBooleanElse(OBSERVE_ONLY_KEY, false);
         if (observeOnly) {
             LogUtil.info("Observe-only mode: checks flag and alert; nothing acts on the player or their packets");
         }
@@ -141,6 +176,12 @@ public class BaseConfigManager {
                             ? "Switched to observe-only; pending setbacks are released"
                             : "Switched to enforcing; check violations start from zero");
         }
+        dormant = config.getBooleanElse(DORMANT_KEY, false);
+        checksOff = checkKeys(
+                config.getStringListElse(CHECKS_OFF_KEY, List.of()),
+                CheckNames.version(config, CheckNames.CONFIG_KEY),
+                CHECKS_OFF_KEY);
+        pausePunishments = config.getBooleanElse(PAUSE_PUNISHMENTS_KEY, false);
 
         prefix = config.getStringElse("prefix", "&bCult &8»");
 
@@ -156,6 +197,7 @@ public class BaseConfigManager {
         disablePongCancelling = config.getBooleanElse("disable-pong-cancelling", false);
         launchFailOpen = config.getBooleanElse("launch-safety.fail-open", true);
         maxPingKnockback = config.getIntElse("cult.prediction.max-knockback-ping-ms", 1000);
+        maxPendingPingMs = config.getIntElse("max-pending-ping-ms", 0);
 
         // owner-authored config semantics: strip e.g. the " (Velocity)" suffix from brands
         String brandRegex = config.getStringElse("cult.client-brand.strip-pattern", " \\(Velocity\\)$");
@@ -185,23 +227,32 @@ public class BaseConfigManager {
         bedrockMovementVelocityFlagThreshold =
                 nonNegativeElse(config, "cult.checks.bedrock-movement.velocity-flag-threshold", 0.001D);
         bedrockMovementSetbacksEnabled = config.getBooleanElse("cult.checks.bedrock-movement.enable-setbacks", true);
+        exemptBedrockPlayers = config.getBooleanElse("cult.exempt-bedrock-players", false);
+        exemptJavaPlayers = config.getBooleanElse("cult.exempt-java-players", false);
     }
 
-    /** {@code CULTAC_OBSERVE_ONLY} when it reads true/1/yes or false/0/no, else {@code observe-only}. */
-    static boolean resolveObserveOnly(ConfigManager config, Function<String, String> env) {
-        Boolean pinned = observeOnlyPin(env);
-        return pinned != null ? pinned : config.getBooleanElse(OBSERVE_ONLY_KEY, false);
+    /**
+     * The stable keys of every check {@code names} name, each read as {@link CheckCatalog#named(String, int)} reads it
+     * in name version {@code nameVersion}. A name of no check is logged once, after {@code source}, where it was read,
+     * and left out.
+     */
+    public static List<String> checkKeys(@Nullable Collection<?> names, int nameVersion, String source) {
+        if (names == null) return List.of();
+        Set<String> keys = new LinkedHashSet<>();
+        for (Object name : names) {
+            if (name == null || name.toString().isBlank()) continue;
+            String typed = name.toString().strip();
+            List<CheckCatalog.Entry> checks = CheckCatalog.named(typed, nameVersion);
+            for (CheckCatalog.Entry check : checks) keys.add(check.stableKey());
+            if (checks.isEmpty() && UNKNOWN_CHECKS.add(source + " " + typed.toLowerCase(Locale.ROOT)))
+                LogUtil.warn(source + " names " + typed + ", which is not a check of this build; it is left out");
+        }
+        return List.copyOf(keys);
     }
 
-    /** The mode {@code CULTAC_OBSERVE_ONLY} pins, or null when the config key decides. */
-    public static @Nullable Boolean observeOnlyPin(Function<String, String> env) {
-        String value = env.apply(OBSERVE_ONLY_ENV);
-        if (value == null) return null;
-        return switch (value.strip().toLowerCase(Locale.ROOT)) {
-            case "true", "1", "yes" -> true;
-            case "false", "0", "no" -> false;
-            default -> null;
-        };
+    /** The lock every writer of config.yml holds while it writes, one object for the engine generations of a host. */
+    public static Object configLock(@Nullable HostContext host) {
+        return host == null ? CONFIG_LOCK : host.shared(CONFIG_LOCK_KEY, Object::new);
     }
 
     public static List<String> resolveCommandRoots(@Nullable ConfigManager config, Consumer<String> warn) {

@@ -2,17 +2,19 @@ package ac.cult.blocksim.engine;
 
 import ac.cult.blocksim.data.Components;
 import ac.cult.blocksim.data.nbt.NbtValue;
+import java.util.HashMap;
+import java.util.Objects;
 
 /** Immutable block-entity prediction inputs; savedData is a sparse NBT projection. */
 public record BlockEntityData(String type, Components data, NbtValue.Compound savedData) {
     public BlockEntityData(String type, Components data) { this(type, data, null); }
-    public BlockEntityData { java.util.Objects.requireNonNull(type); java.util.Objects.requireNonNull(data); }
+    public BlockEntityData { Objects.requireNonNull(type); Objects.requireNonNull(data); }
     public boolean isSign() { return type.equals("minecraft:sign") || type.equals("minecraft:hanging_sign"); }
 
     /** Basic adventure NBT matching can inspect retained fields, type and position. */
     public NbtValue.Compound fullMetadataAt(BlockPos pos) {
         if (savedData == null) throw new IllegalStateException("Missing typed client block-entity NBT for " + type + " at " + pos);
-        var fields = new java.util.HashMap<>(savedData.values());
+        var fields = new HashMap<>(savedData.values());
         fields.put("id", new NbtValue.Text(type));
         fields.put("x", new NbtValue.Numeric(NbtValue.Kind.INT, pos.x()));
         fields.put("y", new NbtValue.Numeric(NbtValue.Kind.INT, pos.y()));

@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.prediction.integration;
 
 import static org.junit.Assert.*;
 
+import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
@@ -13,9 +14,14 @@ import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionSw
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.*;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
+import ac.cult.cultac.player.CultPlayer;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 public final class BedrockMetadataReplayTest {
     private static final BedrockReplayEvent.Metadata CANCEL =
@@ -81,10 +87,9 @@ public final class BedrockMetadataReplayTest {
     @Test
     public void boostRewindRestoresSavedBoxWithoutReplayingLaterHeightDelivery() {
         var history = history(true);
-        var current = new ac.cult.cultac.checks.impl.prediction.PredictionCommit(
-                new BedrockNextTickStates(history.current()), Set.of());
-        var player = org.mockito.Mockito.mock(ac.cult.cultac.player.CultPlayer.class);
-        player.bedrockState = new ac.cult.cultac.bedrock.player.BedrockPlayerState(new java.util.UUID(0, 1));
+        var current = new PredictionCommit(new BedrockNextTickStates(history.current()), Set.of());
+        var player = Mockito.mock(CultPlayer.class);
+        player.bedrockState = new BedrockPlayerState(new UUID(0, 1));
         var rewind = new BedrockMovementRewind(history);
 
         rewind.metadata(0, new BedrockReplayEvent.Metadata(null, 0.6F, null, null, null, null, null));
@@ -97,7 +102,7 @@ public final class BedrockMetadataReplayTest {
         assertTrue(restored.gliding());
         assertEquals(1.8F, restored.playerDimensions().height(), 0);
         assertEquals(0.6F, restored.acknowledgedPlayerDimensions().height(), 0);
-        assertSame(restored, player.bedrockState.applyConfirmedBoundingBoxSize(restored, restored.inputFrame()));
+        assertSame(restored, player.bedrockState.applyConfirmedBoundingBoxSize(restored, restored.inputFrame(), 1.0F));
 
         var leaves = PlacedBlockCollision.manual(
                 new BlockPosition(281, 71, -164),
@@ -116,7 +121,7 @@ public final class BedrockMetadataReplayTest {
                 <= 0.001);
 
         player.bedrockState.applyAcknowledgedBoundingBoxMetadata(0.7F, null);
-        var resized = player.bedrockState.applyConfirmedBoundingBoxSize(restored, restored.inputFrame());
+        var resized = player.bedrockState.applyConfirmedBoundingBoxSize(restored, restored.inputFrame(), 1.0F);
         assertEquals(0.7F, resized.playerDimensions().width(), 0);
         assertEquals(0.6F, resized.playerDimensions().height(), 0);
     }
@@ -233,12 +238,7 @@ public final class BedrockMetadataReplayTest {
         var requested = new Vec3d(0.7260316014289856, -0.11001903563737869, 1.4890620708465576);
         var observed = new Vec3d(520.7152099609375, 68.1066665649414, -21.30000114440918);
         var result = BedrockCollisionSweep.sweep(
-                start,
-                requested,
-                obstacles,
-                dimensions,
-                ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY,
-                0.01F);
+                start, requested, obstacles, dimensions, BedrockCoordinateFrame.IDENTITY, 0.01F);
         assertTrue(result.position().subtract(observed).length() <= 0.001);
         assertFalse(result.xCollision());
         assertFalse(result.yCollision());
@@ -248,7 +248,7 @@ public final class BedrockMetadataReplayTest {
                 requested,
                 obstacles,
                 new PlayerDimensionsState(0.6F, 0.6F),
-                ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY,
+                BedrockCoordinateFrame.IDENTITY,
                 0.01F);
         assertFalse(shortBox.zCollision());
         assertTrue(shortBox.position().subtract(observed).length() > 0.001);
@@ -344,9 +344,8 @@ public final class BedrockMetadataReplayTest {
                 boost);
         var candidate = BedrockForwardTick.simulate(input).getFirst();
         var result = candidate.movementResult();
-        var entries = BedrockForwardTick.finish(result, result.predictedState()).stream()
-                .map(next -> new BedrockProfileState.Entry(next, candidate.mobJumpComponent()))
-                .toList();
+        var entries = List.of(new BedrockProfileState.Entry(
+                BedrockForwardTick.finish(result, result.predictedState()), candidate.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 input,

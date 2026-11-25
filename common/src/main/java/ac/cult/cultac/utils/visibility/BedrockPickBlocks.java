@@ -1,7 +1,6 @@
 package ac.cult.cultac.utils.visibility;
 
 import ac.cult.blocksim.data.DataTables;
-import ac.cult.blocksim.engine.BlockRaycast;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -9,7 +8,6 @@ import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
-import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import java.util.List;
 import java.util.Optional;
@@ -60,58 +58,6 @@ public final class BedrockPickBlocks {
             if (local == null) return null;
         }
         return local.copy().offset(x, y, z);
-    }
-
-    /**
-     * Whether the ray from {@code from} to {@code to} first meets such a block at least {@code edge} inside the face
-     * it enters, so that every ray within {@code edge} of it meets that block too.
-     */
-    public static boolean blocks(CultPlayer player, Vec3 from, Vec3 to, double edge) {
-        Boolean blocked;
-        try {
-            blocked = BlockRaycast.traverse(
-                    new ac.cult.blocksim.engine.Vec3(from.x, from.y, from.z),
-                    new ac.cult.blocksim.engine.Vec3(to.x, to.y, to.z),
-                    pos -> {
-                        SimpleCollisionBox box = core(player, pos.x(), pos.y(), pos.z());
-                        return box == null ? null : entersInside(box, from, to, edge);
-                    });
-        } catch (ac.cult.blocksim.engine.SimLevel.UnloadedWorldException unloaded) {
-            return false; // The client's view of an unloaded block is unknown.
-        }
-        return blocked != null && blocked;
-    }
-
-    // Null when the segment misses the box; otherwise whether it enters a face from outside, at least edge inside it.
-    private static Boolean entersInside(SimpleCollisionBox box, Vec3 from, Vec3 to, double edge) {
-        double[] start = {from.x, from.y, from.z};
-        double[] delta = {to.x - from.x, to.y - from.y, to.z - from.z};
-        double[] min = {box.minX, box.minY, box.minZ};
-        double[] max = {box.maxX, box.maxY, box.maxZ};
-        double enter = 0, exit = 1;
-        int enterAxis = -1;
-        for (int axis = 0; axis < 3; axis++) {
-            if (delta[axis] == 0) {
-                if (start[axis] < min[axis] || start[axis] > max[axis]) return null;
-                continue;
-            }
-            double a = (min[axis] - start[axis]) / delta[axis];
-            double b = (max[axis] - start[axis]) / delta[axis];
-            double near = Math.min(a, b);
-            if (near > enter) {
-                enter = near;
-                enterAxis = axis;
-            }
-            exit = Math.min(exit, Math.max(a, b));
-            if (enter > exit) return null;
-        }
-        if (enterAxis < 0) return false; // The ray starts inside the box.
-        for (int axis = 0; axis < 3; axis++) {
-            if (axis == enterAxis) continue;
-            double at = start[axis] + delta[axis] * enter;
-            if (at < min[axis] + edge || at > max[axis] - edge) return false;
-        }
-        return true;
     }
 
     // The box of this state inside its Bedrock pick shape, in block coordinates, or null.

@@ -7,9 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflinePlayers;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.manager.player.setback.SetbackReason;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
@@ -140,6 +143,59 @@ class SetbackOutsidePlayTest {
             assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
             assertEquals(0, drain(channel), "the queued setback wrote nothing");
         });
+    }
+
+    @Test
+    void aQueuedSetbackIsReportedWhenItsTeleportIsWritten() {
+        withPlayer(player -> {
+            Setbacks reports = new Setbacks();
+            player.observer = reports;
+            EmbeddedChannel channel = (EmbeddedChannel) player.user.getChannel();
+            Hold hold = new Hold();
+            channel.pipeline().addLast("hold", hold);
+            drain(channel);
+
+            player.getSetbackTeleportUtil().executeTooHighLatencySetback("kb 1200ms");
+            hold.release();
+            channel.runPendingTasks();
+
+            assertEquals(List.of("LATENCY kb 1200ms"), reports.sent);
+        });
+    }
+
+    @Test
+    void aSetbackThatIsNeverWrittenIsNotReported() {
+        withPlayer(player -> {
+            Setbacks reports = new Setbacks();
+            player.observer = reports;
+            CultConnection connection = player.user.getCultConnection();
+            EmbeddedChannel channel = (EmbeddedChannel) player.user.getChannel();
+            Hold hold = new Hold();
+            channel.pipeline().addLast("hold", hold);
+            drain(channel);
+
+            player.getSetbackTeleportUtil().executeTooHighLatencySetback("kb 1200ms");
+            connection.placedClientbound(ClientboundPackets.START_CONFIGURATION);
+            new PacketPlayerRespawn().onStartConfiguration(null, player, null);
+            hold.release();
+            channel.runPendingTasks();
+            player.getSetbackTeleportUtil().executeForceResync("phase");
+            player.getSetbackTeleportUtil().executeViolationSetback();
+            player.getSetbackTeleportUtil().executeNonSimulatingSetback();
+            channel.runPendingTasks();
+
+            assertEquals(0, drain(channel), "a setback was written");
+            assertEquals(List.of(), reports.sent);
+        });
+    }
+
+    private static final class Setbacks implements PlayerObserver {
+        final List<String> sent = new ArrayList<>();
+
+        @Override
+        public void setbackSent(SetbackReason reason, String cause, Check check) {
+            sent.add(reason + " " + cause);
+        }
     }
 
     /** Holds writes until released, so a queued write runs after what the test does in between. */

@@ -1,6 +1,7 @@
 package ac.cult.cultac.protocol;
 
 import ac.cult.cultac.protocol.data.ProtocolData;
+import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.Packets;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
@@ -248,9 +249,7 @@ public final class ProtocolRuntime {
     /** Resolve authored records against this runtime's existing catalog; creates no codec or routing state. */
     @SuppressWarnings("unchecked") // The catalog validates that each record class owns exactly one type.
     public <R> PacketType<R> writableType(R packet) {
-        PacketType<?> type = packet instanceof ac.cult.cultac.protocol.packet.Opaque opaque
-                ? opaque.type()
-                : typeForRecord(packet.getClass());
+        PacketType<?> type = packet instanceof Opaque opaque ? opaque.type() : typeForRecord(packet.getClass());
         if (type == null || !contains(type) || !type.writable()) {
             throw new UnsupportedOnVersionException(
                     "No writable catalog entry for " + packet.getClass().getName());

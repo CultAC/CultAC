@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerWindow;
 import ac.cult.cultac.player.CultPlayer;
@@ -13,6 +15,8 @@ import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.ContainerClosePacket;
 import org.cloudburstmc.protocol.bedrock.packet.ItemStackRequestPacket;
+import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
+import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
 import org.geysermc.geyser.inventory.Inventory;
 import org.geysermc.geyser.session.GeyserSession;
@@ -24,8 +28,8 @@ final class GeyserInventoryActions {
 
     static void translate(GeyserSession session, CultPlayer player, BedrockPacket packet, Runnable translator) {
         rejectCreativeRequests(session, player, packet);
-        if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket
-                || packet instanceof org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket
+        if (packet instanceof NetworkStackLatencyPacket
+                || packet instanceof MovePlayerPacket
                 || packet instanceof PlayerAuthInputPacket input && input.getItemStackRequest() == null) {
             translator.run();
             return;
@@ -48,7 +52,6 @@ final class GeyserInventoryActions {
         if (selected != inventory.getHeldItemSlot()) {
             int slot = inventory.getHeldItemSlot();
             PacketPlayerDigging.selectHotbarSlot(player, slot);
-            player.actionManager.selectHotbarSlot();
             target.selectHotbarSlot(slot);
         }
         if (packet instanceof ContainerClosePacket && session.getInventoryHolder() == null) {
@@ -90,9 +93,9 @@ final class GeyserInventoryActions {
         return result;
     }
 
-    private static Map<Integer, ac.cult.blocksim.engine.SimItemStack> changes(
+    private static Map<Integer, SimItemStack> changes(
             CultPlayer player, GeyserSession session, ItemStack[] before, Inventory inventory) {
-        var changed = new HashMap<Integer, ac.cult.blocksim.engine.SimItemStack>();
+        var changed = new HashMap<Integer, SimItemStack>();
         for (int slot = 0; slot < before.length; slot++) {
             ItemStack after = inventory.getItem(slot).copy().getItemStack();
             if (!Objects.equals(before[slot], after)) changed.put(slot, convert(player, session, after));
@@ -100,14 +103,13 @@ final class GeyserInventoryActions {
         return changed;
     }
 
-    private static ac.cult.blocksim.engine.SimItemStack convert(
-            CultPlayer player, GeyserSession session, ItemStack item) {
-        if (item == null || item.getAmount() <= 0) return ac.cult.blocksim.engine.SimItemStack.EMPTY;
+    private static SimItemStack convert(CultPlayer player, GeyserSession session, ItemStack item) {
+        if (item == null || item.getAmount() <= 0) return SimItemStack.EMPTY;
         return GeyserItemStacks.toModelItem(
                 session,
                 item,
                 player.registryState
-                        .blockSimulatorRegistries(ac.cult.blocksim.data.DataTables.defaults())
+                        .blockSimulatorRegistries(DataTables.defaults())
                         .items());
     }
 }

@@ -39,8 +39,16 @@ public class Check extends CultProcessor implements AbstractCheck {
     private int deferredFlags;
 
     // check data
-    private final @Nullable String checkName;
-    private final @Nullable String configName;
+    @Getter(AccessLevel.NONE)
+    private final @Nullable CheckNames names;
+
+    @Getter(AccessLevel.NONE)
+    private final @Nullable String declaredConfigName;
+
+    // The check's name and the prefix of its config keys, as the name version of config.yml has them: reload sets
+    // both, first from the constructor.
+    private @Nullable String checkName;
+    private @Nullable String configName;
     private final @Nullable String alternativeName;
     private final @NotNull String stableKey;
     private final boolean experimental;
@@ -57,6 +65,10 @@ public class Check extends CultProcessor implements AbstractCheck {
     @Setter
     private boolean isEnabled;
 
+    /** A network check switch holds this check off: no flags, setbacks or packet changes, whatever punishments.yml says. */
+    @Setter
+    private volatile boolean switchedOff;
+
     // permissions
     private boolean exemptPermission;
     private boolean noSetbackPermission;
@@ -67,23 +79,22 @@ public class Check extends CultProcessor implements AbstractCheck {
 
         final CheckData checkData = this.getClass().getAnnotation(CheckData.class);
         if (checkData != null) {
-            this.checkName = checkData.name();
-            this.configName = configName(this.checkName, checkData.configName());
+            this.names = CheckNames.of(checkData);
+            this.declaredConfigName = checkData.configName();
             this.defaultDecay = checkData.decay();
             this.defaultSetbackVL = checkData.setback();
             this.alternativeName = checkData.alternativeName();
             this.experimental = checkData.experimental();
             this.defaultDescription = checkData.description();
             this.stableKey = checkData.stableKey();
-            this.displayName = this.checkName;
         } else {
             this.defaultDescription = CheckData.DEFAULT_DESCRIPTION;
             this.defaultDecay = CheckData.DEFAULT_DECAY;
             this.defaultSetbackVL = CheckData.DEFAULT_SETBACK;
             this.stableKey = "";
             this.alternativeName = null;
-            this.checkName = null;
-            this.configName = null;
+            this.names = null;
+            this.declaredConfigName = null;
             this.experimental = false;
         }
 
@@ -95,15 +106,14 @@ public class Check extends CultProcessor implements AbstractCheck {
         super(Objects.requireNonNull(player, "player"));
         Objects.requireNonNull(checkInfo, "checkInfo");
 
-        this.checkName = checkInfo.getName();
-        this.configName = configName(this.checkName, checkInfo.getConfigName());
+        this.names = checkInfo.getNames();
+        this.declaredConfigName = checkInfo.getConfigName();
         this.defaultDecay = checkInfo.getDecay();
         this.defaultSetbackVL = checkInfo.getSetback();
         this.alternativeName = checkInfo.getAltName();
         this.experimental = checkInfo.isExperimental();
         this.defaultDescription = checkInfo.getDescription();
         this.stableKey = Objects.requireNonNull(checkInfo.getStableKey(), "checkInfo.stableKey");
-        this.displayName = this.checkName;
 
         reload();
     }
@@ -113,14 +123,42 @@ public class Check extends CultProcessor implements AbstractCheck {
         return declared == null || declared.equals("DEFAULT") ? checkName : declared;
     }
 
+    /** The check's name as name version {@code version} has it, or null for a check without a name. */
+    public @Nullable String nameIn(int version) {
+        return names == null ? null : names.in(version);
+    }
+
+    /** The prefix of the check's config keys and its permission id as name version {@code version} has them. */
+    public @Nullable String configNameIn(int version) {
+        return names == null ? null : configName(names.in(version), declaredConfigName);
+    }
+
+    /** The check's name in the newest name version, whichever version this server's files are written in. */
+    public @Nullable String getLatestName() {
+        return names == null ? null : names.latest();
+    }
+
     /** Whether this check may run for Bedrock-platform players. */
     public boolean isBedrockSupported() {
         return getClass().isAnnotationPresent(BedrockSupported.class);
     }
 
+    /** Whether punishments.yml holds this check and no network check switch holds it off. */
+    public boolean isEnabled() {
+        return isEnabled && !switchedOff;
+    }
+
+    /**
+     * Whether this check may cancel or rewrite the player's packets at all: false while a network switch holds it off or
+     * the player is observed only. {@link #shouldModifyPackets()} also asks punishments.yml and the permissions.
+     */
+    public boolean mayModifyPackets() {
+        return !switchedOff && !player.isObserveOnly();
+    }
+
     public boolean shouldModifyPackets() {
-        return isEnabled
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+        return isEnabled()
+                && !player.isObserveOnly()
                 && !player.isDisabled()
                 && !player.noModifyPacketPermission
                 && !noModifyPacketPermission
@@ -178,6 +216,21 @@ public class Check extends CultProcessor implements AbstractCheck {
                 memoize(Objects.requireNonNull(alertText, "alertText")));
     }
 
+    /**
+     * Flags exactly as {@link #flag()} does for every flag consumer and alert, and gives the player's observer
+     * {@code recorded} as the flag's verbose. Call it only when {@link #observerRecordsVerbose()} is true.
+     */
+    protected final boolean flagRecorded(@NotNull Supplier<String> recorded) {
+        Supplier<String> empty = memoize(constant(""));
+        return recordFlag(empty, empty, memoize(Objects.requireNonNull(recorded, "recorded")));
+    }
+
+    /** Whether the player's observer records a verbose of this check's flags that no other consumer reads. */
+    protected final boolean observerRecordsVerbose() {
+        PlayerObserver observer = player.observer;
+        return observer != null && observer.recordsVerbose(this);
+    }
+
     public final boolean flag(@NotNull Verbose.Writer verbose) {
         BinaryVerbose binary = lazyVerbose(verbose);
         return recordFlag(binary, binary.rendered());
@@ -188,19 +241,35 @@ public class Check extends CultProcessor implements AbstractCheck {
         return recordFlag(binary, alertText);
     }
 
-    /** Whether a flag of this check reaches its consumers: false while the player is disabled or exempt from it. */
+    /**
+     * Whether a flag of this check reaches its consumers: false while the player is disabled or exempt from it, or the
+     * check is switched off.
+     */
     public final boolean canRecordFlags() {
-        return !player.isDisabled() && (!experimental || player.isExperimentalChecks()) && !exemptPermission;
+        return !switchedOff
+                && !player.isDisabled()
+                && (!experimental || player.isExperimentalChecks())
+                && !exemptPermission;
     }
 
     private boolean recordFlag(@NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
+        return recordFlag(verbose, alertText, null);
+    }
+
+    /** {@code recorded} is the verbose only the player's observer reads; null gives it {@code verbose}. */
+    private boolean recordFlag(
+            @NotNull Supplier<String> verbose,
+            @NotNull Supplier<String> alertText,
+            @Nullable Supplier<String> recorded) {
         if (!canRecordFlags()) return false; // Avoid calling event if disabled
 
         if (FLAG_CHANNEL.fire(RuntimeEnvironment.outwardUser(player), RuntimeEnvironment.outwardCheck(this), verbose))
             return false;
 
         FlagArbiter arbiter = player.getFlagArbiter();
-        if (arbiter == null || !defer(arbiter, verbose, null, alertText)) commitFlag(null, verbose, alertText);
+        if (arbiter == null || !defer(arbiter, verbose, null, alertText, recorded)) {
+            commitFlag(null, verbose, alertText, recorded);
+        }
         return true;
     }
 
@@ -216,21 +285,27 @@ public class Check extends CultProcessor implements AbstractCheck {
                 RuntimeEnvironment.outwardVerbose(rendered))) return false;
 
         FlagArbiter arbiter = player.getFlagArbiter();
-        if (arbiter == null || !defer(arbiter, rendered, verboseData, alertText)) {
-            commitFlag(verboseData, rendered, alertText);
+        if (arbiter == null || !defer(arbiter, rendered, verboseData, alertText, null)) {
+            commitFlag(verboseData, rendered, alertText, null);
         }
         return true;
     }
 
-    /** {@code verboseData} is null for a text verbose, which stores no binary flag row. */
+    /**
+     * {@code verboseData} is null for a text verbose, which stores no binary flag row; {@code recorded} is null unless
+     * the observer reads a verbose of its own.
+     */
     private void commitFlag(
-            byte @Nullable [] verboseData, @NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
+            byte @Nullable [] verboseData,
+            @NotNull Supplier<String> verbose,
+            @NotNull Supplier<String> alertText,
+            @Nullable Supplier<String> recorded) {
         lastFlagStoredBinaryVerbose = verboseData != null;
         player.punishmentManager.handleViolation(this);
         lastViolationTime = System.currentTimeMillis();
         violations++;
         PlayerObserver observer = player.observer;
-        if (observer != null) observer.flagged(this, violations);
+        if (observer != null) observer.flagged(this, violations, recorded != null ? recorded : verbose);
         if (verboseData != null) {
             CultAPI.INSTANCE
                     .getDataStoreLifecycle()
@@ -244,10 +319,12 @@ public class Check extends CultProcessor implements AbstractCheck {
             @NotNull FlagArbiter arbiter,
             @NotNull Supplier<String> verbose,
             byte @Nullable [] verboseData,
-            @NotNull Supplier<String> alertText) {
+            @NotNull Supplier<String> alertText,
+            @Nullable Supplier<String> recorded) {
         double prospective = violations + deferredFlags + 1;
         Supplier<String> alert = memoize(alertText);
-        if (!arbiter.defer(this, verbose, prospective, new DeferredFlag(verboseData, verbose, alert))) return false;
+        if (!arbiter.defer(this, verbose, prospective, new DeferredFlag(verboseData, verbose, alert, recorded)))
+            return false;
         deferredFlags++;
         // The verdict commits after this prediction's listeners, too late for a Cult Log identifier the alert shows to
         // build its log. Render the alert now if committing could render it.
@@ -305,7 +382,13 @@ public class Check extends CultProcessor implements AbstractCheck {
 
     @Override
     public final void reload(@NotNull ConfigManager configuration) {
-        if (configName != null) {
+        if (names != null) {
+            String previous = configName;
+            int nameVersion = CheckNames.version(configuration, CheckNames.CONFIG_KEY);
+            checkName = names.in(nameVersion);
+            configName = configName(checkName, declaredConfigName);
+            // The permission nodes carry the config name.
+            if (previous != null && !previous.equals(configName)) updatePermissions();
             decay = configuration.getDoubleElse(configName + ".decay", defaultDecay);
             setbackVL = configuration.getDoubleElse(configName + ".setbackvl", defaultSetbackVL);
             displayName = configuration.getStringElse(configName + ".displayname", checkName);
@@ -320,12 +403,13 @@ public class Check extends CultProcessor implements AbstractCheck {
     public void onReload(@NotNull ConfigManager config) {}
 
     public boolean alert(@NotNull Supplier<String> verbose) {
+        if (switchedOff) return false;
         return player.punishmentManager.handleAlert(player, memoize(Objects.requireNonNull(verbose, "verbose")), this);
     }
 
     public boolean setbackIfAboveSetbackVL() {
         if (shouldSetback()) {
-            return player.getSetbackTeleportUtil().executeViolationSetback();
+            return player.getSetbackTeleportUtil().executeViolationSetback(this);
         }
         return false;
     }
@@ -339,13 +423,16 @@ public class Check extends CultProcessor implements AbstractCheck {
     }
 
     public boolean shouldSetback() {
-        return !noSetbackPermission
-                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+        return !switchedOff
+                && !noSetbackPermission
+                && !player.isObserveOnly()
                 && violations + deferredFlags > setbackVL;
     }
 
     public boolean executeViolationSetback() {
-        return !noSetbackPermission && player.getSetbackTeleportUtil().executeViolationSetback();
+        return !switchedOff
+                && !noSetbackPermission
+                && player.getSetbackTeleportUtil().executeViolationSetback(this);
     }
 
     public String formatOffset(double offset) {
@@ -382,18 +469,23 @@ public class Check extends CultProcessor implements AbstractCheck {
         private final byte @Nullable [] verboseData;
         private final @NotNull Supplier<String> verbose;
         private final @NotNull Supplier<String> alertText;
+        private final @Nullable Supplier<String> recorded;
 
         private DeferredFlag(
-                byte @Nullable [] verboseData, @NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
+                byte @Nullable [] verboseData,
+                @NotNull Supplier<String> verbose,
+                @NotNull Supplier<String> alertText,
+                @Nullable Supplier<String> recorded) {
             this.verboseData = verboseData;
             this.verbose = verbose;
             this.alertText = alertText;
+            this.recorded = recorded;
         }
 
         @Override
         public void commit() {
             deferredFlags--;
-            commitFlag(verboseData, verbose, alertText);
+            if (!switchedOff) commitFlag(verboseData, verbose, alertText, recorded);
         }
 
         @Override

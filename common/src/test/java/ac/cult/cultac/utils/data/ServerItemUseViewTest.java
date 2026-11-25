@@ -153,8 +153,97 @@ class ServerItemUseViewTest {
         h.now += 10 * TICK;
         h.view.serverFlags(true, false, 1, h.now);
         h.view.serverFlags(false, false, ServerItemUseView.NO_PROOF, h.now + 4 * TICK);
-        assertEquals(4, h.last().expected(), 1e-9);
+        // Four periods, less the one a server-started use is not charged.
+        assertEquals(3, h.last().expected(), 1e-9);
         assertEquals(0, h.last().ticks());
+    }
+
+    /**
+     * A use the server started in the offhand that the player is not holding, in microseconds: the clear and
+     * the flag at their sends, the two tick ends the client sent before it handled them, their pongs, and the
+     * release Minecraft#handleKeybinds sends at the next tick, before that tick travels.
+     */
+    private static ServerItemUseView.Outcome serverStartedTap(
+            long clear, long flag, long end1, long end2, long clearPong, long flagPong, long release) {
+        var h = new Harness();
+        h.view.charge(0.95);
+        h.view.serverFlags(false, true, 1, clear * 1000);
+        h.view.serverFlags(true, true, 2, flag * 1000);
+        // Every ping acknowledged by these tick ends was sent before the flag.
+        h.view.tickEnd(SLOWED, clear * 1000, end1 * 1000);
+        h.view.tickEnd(SLOWED, clear * 1000, end2 * 1000);
+        h.view.acknowledge(1, clearPong * 1000);
+        h.view.acknowledge(2, flagPong * 1000);
+        h.view.release(release * 1000);
+        assertEquals(1, h.finished.size());
+        assertTrue(h.traced("without a use packet"));
+        return h.last();
+    }
+
+    @Test
+    void aServerStartedUseTheClientReleasesAtItsNextTickOwesNothing() {
+        // hoplite capture 01a1f48c (26.3): an Interaction click makes the server start a golden carrot in
+        // the offhand, three times; each release arrives 2.8 to 2.9 periods after its flag with two tick
+        // ends between, which was charged as 0.685, 0.732 and 0.793 ticks of debt.
+        long[][] taps = {
+            {3_985_582, 3_986_271, 4_035_822, 4_079_275, 4_110_636, 4_110_674, 4_127_606},
+            {7_035_780, 7_036_044, 7_079_903, 7_128_610, 7_160_755, 7_160_774, 7_179_832},
+            {9_879_546, 9_880_557, 9_928_911, 9_979_353, 10_010_910, 10_010_934, 10_027_534},
+        };
+        for (long[] t : taps) {
+            var outcome = serverStartedTap(t[0], t[1], t[2], t[3], t[4], t[5], t[6]);
+            assertEquals(2, outcome.ticks());
+            assertEquals(0, outcome.debt(), 1e-9);
+        }
+    }
+
+    @Test
+    void aServerStartedUseIsStillChargedPastItsOneUnalignedPeriod() {
+        // Stalled through the whole consumption: only the period between two ticks is not charged.
+        var stalled = new Harness();
+        stalled.view.serverFlags(true, false, 1, stalled.now);
+        stalled.now += 32 * TICK;
+        stalled.view.serverComplete(2, stalled.now, TICK);
+        stalled.view.acknowledge(2, stalled.now);
+        assertEquals(31, stalled.last().debt(), 1e-9);
+
+        // Moving unslowed through it pays nothing either.
+        var unslowed = new Harness();
+        unslowed.view.serverFlags(true, false, 1, unslowed.now);
+        unslowed.ticks(32, UNSLOWED, true);
+        unslowed.view.serverComplete(2, unslowed.now, TICK);
+        unslowed.view.acknowledge(2, unslowed.now);
+        assertEquals(32, unslowed.last().unslowed());
+        assertEquals(31, unslowed.last().debt(), 1e-9);
+    }
+
+    @Test
+    void theUnalignedPeriodOfAServerStartedUseIsNeverCredit() {
+        // 2.3 periods against two slowed ticks: the 0.3 is not charged, and nothing is left over.
+        var partial = new Harness();
+        partial.view.serverFlags(true, false, 1, partial.now);
+        partial.ticks(2, SLOWED, true);
+        partial.view.release(partial.now + 3 * TICK / 10);
+        assertEquals(0, partial.last().debt(), 1e-9);
+
+        // Three slowed ticks in 2.5 periods were already half a tick of credit, and stay that.
+        var paid = new Harness();
+        paid.view.serverFlags(true, false, 1, paid.now);
+        paid.now -= TICK / 2;
+        paid.ticks(3, SLOWED, true);
+        paid.view.release(paid.now);
+        assertEquals(2.5, paid.last().expected(), 1e-9);
+        assertEquals(-0.5, paid.last().debt(), 1e-9);
+    }
+
+    @Test
+    void aUseTheClientStartedIsChargedToItsReleaseInFull() {
+        var h = new Harness();
+        h.start(1);
+        h.ticks(2, SLOWED, true);
+        h.view.release(h.now + 9 * TICK / 10);
+        assertEquals(2.9, h.last().expected(), 1e-9);
+        assertEquals(0.9, h.last().debt(), 1e-9);
     }
 
     @Test
@@ -313,6 +402,57 @@ class ServerItemUseViewTest {
         assertTrue(h.traced("t=6 client view lost minecraft:golden_apple: tentative local stop at +300.0ms"));
         assertTrue(h.traced("server sent slot: server keeps minecraft:golden_apple, local stop refuted"));
         assertTrue(h.traced("proof 2 acknowledged"));
+    }
+
+    @Test
+    void theItemReturnedToAHandTheServerEmptiedAsksForTheUseFlagsOnce() {
+        var h = new Harness();
+        h.start(1);
+        ticks(h, 2, true, SLOWED);
+        // A kit reload: the hand is emptied and refilled between two server entity ticks.
+        h.view.serverTookItem("server sent slot");
+        assertTrue(h.view.serverReturnedItem("server sent slot"));
+        assertFalse(h.view.serverReturnedItem("server sent slot"));
+        h.view.serverTookItem("server sent slot");
+        assertTrue(h.view.serverReturnedItem("server sent slot"));
+        assertTrue(h.traced("server sent slot: the used hand no longer holds minecraft:golden_apple"));
+    }
+
+    @Test
+    void theItemReturnedAfterALocalStopAsksForTheUseFlags() {
+        var h = new Harness();
+        h.start(1);
+        ticks(h, 2, true, SLOWED);
+        ticks(h, 1, false, UNSLOWED);
+        assertTrue(h.view.serverReturnedItem("server sent slot"));
+        assertTrue(h.traced("server sent slot: server keeps minecraft:golden_apple, local stop refuted"));
+    }
+
+    @Test
+    void anUndisturbedHandNeedsNoUseFlags() {
+        var h = new Harness();
+        // Without a use, and for a slot that only repeats the held item.
+        assertFalse(h.view.serverReturnedItem("server sent slot"));
+        h.view.serverTookItem("server sent slot");
+        h.start(1);
+        ticks(h, 2, true, SLOWED);
+        assertFalse(h.view.serverReturnedItem("server sent slot"));
+    }
+
+    @Test
+    void aUseTheServerKeptThroughAnEmptiedHandStaysCharged() {
+        var h = new Harness();
+        h.start(1);
+        ticks(h, 2, true, SLOWED);
+        h.view.serverTookItem("server sent slot");
+        assertTrue(h.view.serverReturnedItem("server sent slot"));
+        // The client stopped on the emptied hand and ignores the resent flags.
+        ticks(h, 30, false, UNSLOWED);
+        h.view.serverComplete(2, h.now, TICK);
+        h.view.acknowledge(2, h.now);
+        assertEquals(32, h.last().ticks());
+        assertEquals(30, h.last().unslowed());
+        assertEquals(30, h.last().debt(), 1e-9);
     }
 
     @Test

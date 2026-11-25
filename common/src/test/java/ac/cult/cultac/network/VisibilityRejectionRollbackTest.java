@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
@@ -39,6 +40,9 @@ class VisibilityRejectionRollbackTest {
     void rejectedPlaceSendsBlockInventoryAndAckCorrectionsWithoutApplyingOrTrackingIt() throws Exception {
         try (var setup = new Setup()) {
             setup.held("stone", 3);
+            setup.fixture.user.write(
+                    new InventoryPackets.Slot(0, 7, 36, ItemUtil.modelItems().stack("minecraft:stone", 3)));
+            setup.confirm(setup.output());
             setup.reject(place(TARGET, Direction.NORTH, 1));
             var player = setup.player;
             assertEquals(state("air"), player.compensatedWorld.getBlockStateIdAt(TARGET.north()));
@@ -151,6 +155,21 @@ class VisibilityRejectionRollbackTest {
                             .pendingPredictionSnapshot()
                             .getFirst()
                             .sequence());
+        }
+    }
+
+    @Test
+    void aSequenceIdSpentOnARejectedPlaceIsNotReportedSkipped() throws Exception {
+        try (var setup = new Setup()) {
+            setup.player.setExperimentalChecks(true);
+            BadPacketsH sequences = setup.player.checkManager.getCheck(BadPacketsH.class);
+            sequences.setEnabled(true);
+            setup.held("stone", 3);
+            setup.reject(place(TARGET, Direction.NORTH, 1));
+            setup.confirm(setup.output());
+            setup.block(new BlockPos(2, 63, 0), "stone");
+            setup.fixture.forward(setup.encode(place(new BlockPos(2, 63, 0), Direction.UP, 2)));
+            assertEquals(0, sequences.violations);
         }
     }
 

@@ -48,6 +48,7 @@ public final class PacketOrderProcessor extends Check implements DecodedPacketRe
     private boolean startingToGlide;
     private boolean jumpingWithMount;
     private boolean stabbing;
+    private int attackTarget;
 
     @Getter(AccessLevel.NONE)
     private boolean acceptedTeleport;
@@ -91,6 +92,7 @@ public final class PacketOrderProcessor extends Check implements DecodedPacketRe
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
         if (packet.action() == InteractAction.ATTACK) {
             attacking = true;
+            attackTarget = packet.entityId();
         } else {
             interacting = true;
         }
@@ -105,6 +107,7 @@ public final class PacketOrderProcessor extends Check implements DecodedPacketRe
             ServerboundSpectatorAction packet) {
         // Minecraft#startAttack sends an empty target when the spectator's hit result is a block or a miss
         attacking |= packet.target().isPresent();
+        if (packet.target().isPresent()) attackTarget = packet.target().getAsInt();
 
         maybeReset(player, false);
     }
@@ -200,6 +203,7 @@ public final class PacketOrderProcessor extends Check implements DecodedPacketRe
 
     @CultPacketHandler
     public void onPong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
+        if (!event.isAcceptedTransactionResponse()) return;
         maybeReset(player, false);
     }
 

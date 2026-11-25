@@ -36,13 +36,22 @@ class JavaBubbleColumnGlideTest {
     @ParameterizedTest
     @EnumSource(
             value = ClientVersion.class,
-            names = {"V_1_21_4", "V_1_21_11", "V_26_3"})
+            names = {
+                "V_1_21_2",
+                "V_1_21_4",
+                "V_1_21_5",
+                "V_1_21_6",
+                "V_1_21_7",
+                "V_1_21_9",
+                "V_1_21_11",
+                "V_26_1",
+                "V_26_2", "V_26_3"})
     void theColumnPushFeedsTheNextGlide(ClientVersion version) throws Exception {
         try (var f = new JavaTickFixture()) {
             setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
             int column = BlockProps.DRAG.with(BlockIds.BUBBLE_COLUMN.defaultState(), false);
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), column);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.player
                     .getInventory()
                     .inventory
@@ -64,6 +73,11 @@ class JavaBubbleColumnGlideTest {
             // Entity#onAboveBubbleColumn: min(1.8, y + 0.1).
             Vec3 pushed = cut(entering);
             pushed = new Vec3(pushed.x, Math.min(1.8, pushed.y + 0.1), pushed.z);
+            Vec3 expected = pushed;
+            var carried = f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
+            assertTrue(
+                    carried.stream().anyMatch(v -> v.distanceToSqr(expected) < 1.0E-20),
+                    "the block callback belongs to tick-end carry: expected=" + expected + " carry=" + carried);
             PredictionResult second = f.tick(over.add(glide(f, pushed)), false);
             assertTrue(exact(second), describe(second));
         }

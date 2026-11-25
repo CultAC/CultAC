@@ -1,36 +1,39 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.engine.BiomeLookup;
 import ac.cult.blocksim.engine.BlockEntityData;
+import ac.cult.blocksim.engine.ClientClocks;
+import ac.cult.blocksim.entity.EntityTypes;
+import ac.cult.blocksim.environment.BooleanEnvironment;
+import ac.cult.blocksim.environment.DimensionData;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate;
 import ac.cult.cultac.network.packet.WorldPackets.SectionBlocksUpdate;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.data.RegistryNames;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.GameEventType;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
-import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ClientBlockGeometry;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
-import ac.cult.cultac.utils.nmsutil.ClientShapeBoxes;
-import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
-import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import io.netty.buffer.ByteBuf;
-import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -38,25 +41,26 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.function.IntPredicate;
+import java.util.function.IntUnaryOperator;
+import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
 // Inspired by
 // https://github.com/GeyserMC/Geyser/blob/master/connector/src/main/java/org/geysermc/connector/network/session/cache/ChunkCache.java
 public class CompensatedWorld {
-    private static final int RECENT_CLIENT_COLLISION_CHANGE_TICKS = 3;
-    private static final int RECENT_CLIENT_FLUID_CHANGE_TICKS = 3;
     private static final int MAX_PENDING_PREDICTIONS = 1024;
     private static final int MAX_REINTERN_CONTENT_COMPARISONS_PER_TICK = 10;
     private static final int MAX_REINTERN_HASH_CALCULATIONS_PER_TICK = 50;
     private static final int MAX_REINTERN_ATTEMPTED_COMPARISONS_PER_TICK = 100;
     private static final Comparator<PendingReinternCandidate> BY_LAST_MUTATED =
             Comparator.comparingLong(PendingReinternCandidate::lastMutatedNanos);
-    private static final byte RECENT_FLUID_WATER = 1;
-    private static final byte RECENT_FLUID_LAVA = 1 << 1;
     public final CultPlayer player;
     private final Long2ObjectMap<CachedChunk> chunks;
+    private final ClientChunkCacheState clientChunkCache = new ClientChunkCacheState(this);
     private final LongSet chunkPositions;
     // Changes whenever a chunk is added to or removed from chunks; every write to chunks bumps it.
     private long chunkEpoch;
@@ -66,28 +70,24 @@ public class CompensatedWorld {
     private long lastChunkEpoch = -1;
     private final Long2ObjectOpenHashMap<String> chunkDimensions = new Long2ObjectOpenHashMap<>();
     // Packet locations for blocks
-    public Set<ShulkerData> openShulkerBoxes = new HashSet<>();
     public final CompensatedWorldPistons pistons;
-    /** The pushes of a pass with no push source; push consumers only read them. */
-    private final PistonPushes noPushes;
     private final CompensatedGeysers geysers = new CompensatedGeysers();
     private final CompensatedBlockEntities clientBlockEntities;
     private final ClientBlockGeometry geometry;
-    private final ac.cult.blocksim.engine.ClientClocks clientClocks = new ac.cult.blocksim.engine.ClientClocks();
+    private final ClientClocks clientClocks = new ClientClocks();
     private final ClientEnvironment clientEnvironment = new ClientEnvironment();
     private long clientGameTime;
     private long endedTickGameTime;
+    private ClientBlockEntityPass lastBlockEntityPass = ClientBlockEntityPass.EMPTY;
     private Map<String, Set<String>> clientRecipeInputs = Map.of();
     // Initial ClientListenerCookie uses DEFAULT_FLAGS; ClientLevelData begins at NORMAL.
     private Set<String> clientEnabledFeatures = Set.of("minecraft:vanilla");
     private boolean clientPeaceful;
-    private final Long2IntOpenHashMap recentClientCollisionChanges = new Long2IntOpenHashMap();
-    private final Long2IntOpenHashMap recentClientFluidChanges = new Long2IntOpenHashMap();
-    private final Long2ByteOpenHashMap recentClientFluidChangeKinds = new Long2ByteOpenHashMap();
     // Blocks a Bedrock client's own predictions wrote that no server update has replaced since. Its predictions are
     // written straight into this world, and the client may not hold them: Geyser can refuse a use and restore the
     // block on the client without anything reaching this world.
     private final LongOpenHashSet bedrockClientWrites = new LongOpenHashSet();
+    private final BedrockClientOnlyBlocks bedrockClientOnlyBlocks = new BedrockClientOnlyBlocks();
     private final Map<PendingReinternSection, PendingReinternState> pendingReinternSections = new LinkedHashMap<>();
     /** One tick end's reintern candidates, empty outside processPendingReinterns; owned by the packet thread. */
     private final List<PendingReinternCandidate> reinternCandidates = new ArrayList<>();
@@ -104,7 +104,7 @@ public class CompensatedWorld {
 
     private int clientMaxHeight = 256;
     private String visibleDimension = "minecraft:overworld";
-    private ac.cult.blocksim.environment.DimensionData visibleDimensionType;
+    private DimensionData visibleDimensionType;
     private int clientSeaLevel = 63;
     private long clientBiomeZoomSeed;
     private boolean fastLava;
@@ -121,8 +121,10 @@ public class CompensatedWorld {
     private final ServerBlockView serverBlockView = new ServerBlockView();
     // Blocks the client changed while placing or breaking blocks
     private List<BlockPos> currentlyChangedBlocks = new LinkedList<>();
-    private final Map<Integer, List<BlockPos>> serverIsCurrentlyProcessingThesePredictions = new LinkedHashMap<>();
+    private final Map<Integer, PredictionBatch> serverIsCurrentlyProcessingThesePredictions = new LinkedHashMap<>();
     private int clientPredictionSequence;
+    /** The sequence the client sent with its newest sequenced action; the server acknowledges this value. */
+    private int clientWireSequence;
     /** The newest block-changed ack sequence sent to the client: the server answered every prediction up to it. */
     private int answeredPredictionSequence = -1;
     /** BlockStatePredictionHandler#lastTeleportSequence: the prediction sequence when the client last took a teleport. */
@@ -161,8 +163,6 @@ public class CompensatedWorld {
         this.geometry = new ClientBlockGeometry(this);
         this.clientBlockEntities = new CompensatedBlockEntities(player);
         this.pistons = new CompensatedWorldPistons(player, this);
-        SimpleCollisionBox empty = new SimpleCollisionBox();
-        this.noPushes = new PistonPushes(empty, empty, empty, Collections.emptySet());
         chunks = new Long2ObjectOpenHashMap<>(81, 0.5f);
         chunkPositions = LongSets.unmodifiable(chunks.keySet());
     }
@@ -183,7 +183,7 @@ public class CompensatedWorld {
         private final CachedSection[] sections;
         private final int transaction;
         private MotionHeightmap motionHeightmap;
-        private final List<ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate> blockEntities;
+        private final List<WorldPackets.BlockEntityUpdate> blockEntities;
         private static final AtomicReferenceArray<int[]> UNIFORM_BIOMES = new AtomicReferenceArray<>(1024);
         private int[][] biomes;
 
@@ -194,7 +194,7 @@ public class CompensatedWorld {
         public CachedChunk(
                 CachedSection[] sections,
                 int transaction,
-                List<ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate> blockEntities,
+                List<WorldPackets.BlockEntityUpdate> blockEntities,
                 int[][] biomes) {
             this.sections = sections;
             this.transaction = transaction;
@@ -336,8 +336,7 @@ public class CompensatedWorld {
     }
 
     public static final class CachedSection {
-        public static final java.util.concurrent.atomic.AtomicLong mutableCopyCounter =
-                new java.util.concurrent.atomic.AtomicLong(0);
+        public static final AtomicLong mutableCopyCounter = new AtomicLong(0);
         private static final long[] COUNT_WEIGHTS = countWeights();
         private static final String CANONICAL_AIR_WRITE = "The canonical air section is never written";
 
@@ -384,7 +383,7 @@ public class CompensatedWorld {
             this.nonEmptyBlockCount = nonEmptyBlockCount;
         }
 
-        public CachedSection translatedStateIds(java.util.function.IntUnaryOperator mapper) {
+        public CachedSection translatedStateIds(IntUnaryOperator mapper) {
             var translated = states.translated(id -> stateIdOrAir(mapper.applyAsInt(id)));
             return translated == states ? this : new CachedSection(translated);
         }
@@ -453,6 +452,11 @@ public class CompensatedWorld {
             return nonEmptyBlockCount == 0;
         }
 
+        /** False only when no index holds a state matching {@code predicate}. */
+        public boolean maybeHas(IntPredicate predicate) {
+            return states.maybeHas(predicate);
+        }
+
         public boolean hasFluid() {
             return fluidCount > 0;
         }
@@ -479,6 +483,16 @@ public class CompensatedWorld {
             states.write(output);
         }
 
+        /** The bytes {@link #writeStates(ByteBuf)} writes. */
+        public int statesBytes() {
+            return states.writtenBytes();
+        }
+
+        /** As {@link #writeStates(ByteBuf)}, into {@code into} from {@code offset}; returns the index past the last byte. */
+        public int writeStates(byte[] into, int offset) {
+            return states.write(into, offset);
+        }
+
         boolean hasCachedContentHash() {
             return cachedContentHashValid;
         }
@@ -492,8 +506,8 @@ public class CompensatedWorld {
             this.cachedContentHashValid = true;
         }
 
-        private static ac.cult.blocksim.data.StateFacts facts(int state) {
-            return ac.cult.blocksim.data.DataTables.defaults().registry().facts(state);
+        private static StateFacts facts(int state) {
+            return DataTables.defaults().registry().facts(state);
         }
 
         private static long[] countWeights() {
@@ -523,7 +537,7 @@ public class CompensatedWorld {
 
         private void addCounts(int state, int count) {
             var facts = facts(state);
-            if (!facts.has(ac.cult.blocksim.data.StateFacts.AIR)) {
+            if (!facts.has(StateFacts.AIR)) {
                 nonEmptyBlockCount += count;
                 if (!facts.fluid().equals("minecraft:empty")) fluidCount += count;
             }
@@ -531,7 +545,7 @@ public class CompensatedWorld {
 
         private void decrementCounts(int state) {
             var facts = facts(state);
-            if (!facts.has(ac.cult.blocksim.data.StateFacts.AIR)) {
+            if (!facts.has(StateFacts.AIR)) {
                 nonEmptyBlockCount--;
                 if (!facts.fluid().equals("minecraft:empty")) fluidCount--;
             }
@@ -539,7 +553,7 @@ public class CompensatedWorld {
 
         private void incrementCounts(int state) {
             var facts = facts(state);
-            if (!facts.has(ac.cult.blocksim.data.StateFacts.AIR)) {
+            if (!facts.has(StateFacts.AIR)) {
                 nonEmptyBlockCount++;
                 if (!facts.fluid().equals("minecraft:empty")) fluidCount++;
             }
@@ -548,6 +562,13 @@ public class CompensatedWorld {
 
     public void startPredicting() {
         this.isCurrentlyPredicting = true;
+    }
+
+    /** Reopens the batch of the action predicted last, so an action predicted again ends with the same sequence. */
+    public void resumePredicting() {
+        this.isCurrentlyPredicting = true;
+        PredictionBatch batch = serverIsCurrentlyProcessingThesePredictions.remove(clientPredictionSequence);
+        if (batch != null) this.currentlyChangedBlocks = batch.blocks();
     }
 
     /** Minecraft#pick precedes all local block predictions in handleKeybinds. */
@@ -567,7 +588,7 @@ public class CompensatedWorld {
         return readingSelectionSnapshot;
     }
 
-    public <T> T withSelectionHeldItemKey(String key, java.util.function.Supplier<T> query) {
+    public <T> T withSelectionHeldItemKey(String key, Supplier<T> query) {
         String previous = selectionHeldItemKey;
         selectionHeldItemKey = key;
         try {
@@ -577,7 +598,7 @@ public class CompensatedWorld {
         }
     }
 
-    public <T> T withSelectionSnapshot(java.util.function.Supplier<T> query) {
+    public <T> T withSelectionSnapshot(Supplier<T> query) {
         boolean previous = readingSelectionSnapshot;
         readingSelectionSnapshot = true;
         try {
@@ -601,31 +622,17 @@ public class CompensatedWorld {
                         "Block changes " + (debugBlockChanges ? "enabled" : "disabled") + ".", NamedTextColor.GRAY)));
     }
 
-    public void advanceClientPredictionSequence() {
+    /** BlockStatePredictionHandler#startPredicting; a vanilla client sends the new counter as {@code wireSequence}. */
+    public void advanceClientPredictionSequence(int wireSequence) {
         if (player.isBedrockMovement()) return;
         clientPredictionSequence++;
+        clientWireSequence = wireSequence;
     }
 
     /** ClientPacketListener#handleMovePlayer -> BlockStatePredictionHandler#onTeleport. */
     public void onClientTeleport() {
         if (!tracksTeleportSequence()) return;
-        lastTeleportPredictionSequence = clientPredictionSequence;
-    }
-
-    public void onClientPositionSet() {
-        clientBlockEntities.positionSet();
-    }
-
-    public Vec3 lastTickShulkerBoxShove() {
-        List<CompensatedBlockEntities.ShulkerShove> shoves = shulkerBoxShoves();
-        if (shoves.isEmpty() || pistons.reportsAfterBlockEntities()) return Vec3.ZERO;
-        var last = player.checkManager.getSimulationProcessor().getLastPrediction();
-        SimulationContext context = last == null ? null : last.getSimulationContext();
-        if (context == null || context.getVehicle() != null || context.getWorldData() == null) return Vec3.ZERO;
-        Pose pose = player.updatedPose(context.getWorldData().isSwimming(), player.x, player.y, player.z);
-        ShulkerBoxShoveResult result = shoveByShulkerBoxes(
-                context, shoves, new Vec3(player.x, player.y, player.z), pose, player.onGround, false);
-        return result == null ? Vec3.ZERO : result.movement();
+        lastTeleportPredictionSequence = clientWireSequence;
     }
 
     /** BlockStatePredictionHandler#lastTeleportSequence exists from 26.1; older clients always snap back. */
@@ -637,6 +644,7 @@ public class CompensatedWorld {
         player.blockActionReconciler.reset();
         endSelectionSnapshot();
         clientPredictionSequence = 0;
+        clientWireSequence = 0;
         answeredPredictionSequence = -1;
         lastTeleportPredictionSequence = -1;
         isCurrentlyPredicting = false;
@@ -652,12 +660,14 @@ public class CompensatedWorld {
 
     public void handlePredictionConfirmation(int prediction, int transaction) {
         answeredPredictionSequence = Math.max(answeredPredictionSequence, prediction);
-        for (Iterator<Map.Entry<Integer, List<BlockPos>>> it =
-                        serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
+        // The server acknowledges the sequence each action carried; a vanilla client sends its prediction counter
+        // there, so a batch ends at the acknowledgement of its own sequence. Every batch is scanned.
+        for (Iterator<PredictionBatch> it =
+                        serverIsCurrentlyProcessingThesePredictions.values().iterator();
                 it.hasNext(); ) {
-            Map.Entry<Integer, List<BlockPos>> iter = it.next();
-            if (iter.getKey() <= prediction) {
-                applyBlockChanges(iter.getValue(), transaction, prediction);
+            PredictionBatch batch = it.next();
+            if (batch.wireSequence() <= prediction) {
+                applyBlockChanges(batch.blocks(), transaction, prediction);
                 it.remove();
             }
         }
@@ -665,17 +675,7 @@ public class CompensatedWorld {
     }
 
     public void handlePredictionConfirmation(int prediction, CultPlayer.TrackedTransaction transaction) {
-        answeredPredictionSequence = Math.max(answeredPredictionSequence, prediction);
-        for (Iterator<Map.Entry<Integer, List<BlockPos>>> it =
-                        serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
-                it.hasNext(); ) {
-            Map.Entry<Integer, List<BlockPos>> iter = it.next();
-            if (iter.getKey() <= prediction) {
-                applyBlockChanges(iter.getValue(), transaction, prediction);
-                it.remove();
-            }
-        }
-        endGhostPositionsUpTo(prediction, transaction.transaction());
+        handlePredictionConfirmation(prediction, transaction.transaction());
     }
 
     /** ClientLevel#handleBlockChangedAck: the client has ended every prediction up to this sequence. */
@@ -688,6 +688,11 @@ public class CompensatedWorld {
     /** BlockStatePredictionHandler#currentSequence: the client's local block prediction counter. */
     public int clientPredictionSequence() {
         return clientPredictionSequence;
+    }
+
+    /** The sequence the client sent with its newest sequenced action. */
+    public int clientWireSequence() {
+        return clientWireSequence;
     }
 
     public void handleServerBlockUpdate(BlockPos pos, int state, CultPlayer.TrackedTransaction transaction) {
@@ -737,7 +742,9 @@ public class CompensatedWorld {
         int chunkZ = pos.getZ() >> 4;
         if (serverBlockView.isUnknown(chunkX, chunkZ) || !isChunkLoaded(chunkX, chunkZ)) return UNKNOWN_SERVER_STATE;
         int sent = serverBlockView.sentState(pos.asLong());
-        return sent != ServerBlockView.UNKNOWN ? sent : getServerBlockStateIdAt(pos);
+        if (sent != ServerBlockView.UNKNOWN) return sent;
+        int underneath = bedrockClientOnlyBlocks.serverState(pos.asLong());
+        return underneath != BedrockClientOnlyBlocks.NONE ? underneath : getServerBlockStateIdAt(pos);
     }
 
     public static final int UNKNOWN_SERVER_STATE = ServerBlockView.UNKNOWN;
@@ -747,10 +754,38 @@ public class CompensatedWorld {
     }
 
     public void handleServerBlockUpdate(int x, int y, int z, int state, int transaction) {
-        // Geyser forwards it, but a Bedrock BlockSource#setBlock refuses a Y outside its dimension's heights.
-        if (player.isBedrockMovement() && !clientHoldsBlockAt(y)) return;
+        // Geyser forwards it, but a Bedrock BlockSource#setBlock refuses a Y outside its dimension's heights. Geyser
+        // keeps a moving piston's block to itself: the client holds whatever Geyser's own piston updates left there.
+        if (player.isBedrockMovement() && (!clientHoldsBlockAt(y) || BlockIds.is(state, BlockIds.MOVING_PISTON)))
+            return;
+        // The client keeps its own block until its translator sends the server's again.
+        if (bedrockClientOnlyBlocks.keepsServerUpdate(BlockPos.asLong(x, y, z), state)) return;
         bedrockClientWrites.remove(BlockPos.asLong(x, y, z));
         updateBlock(x, y, z, state);
+    }
+
+    /**
+     * A block update the Bedrock client's translator sent on its own account, which the client has processed.
+     * {@code state} is the block the client now holds; {@code serverBlock} whether that is the block the server
+     * last sent for the position, as opposed to one only this client has.
+     */
+    public void handleBedrockClientBlockUpdate(BlockPos pos, int state, boolean serverBlock) {
+        if (!clientHoldsBlockAt(pos.getY())) return;
+        long position = pos.asLong();
+        if (serverBlock) bedrockClientOnlyBlocks.removed(position);
+        else bedrockClientOnlyBlocks.placed(position, getServerBlockStateIdAt(pos));
+        bedrockClientWrites.remove(position);
+        updateBlock(pos.getX(), pos.getY(), pos.getZ(), state);
+    }
+
+    /**
+     * The Bedrock client broke the block here itself, which no packet reports. It holds air until the server sends
+     * the block or its chunk again.
+     */
+    public void handleBedrockClientBlockBreak(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        bedrockClientOnlyBlocks.broken(pos.asLong(), getServerBlockStateIdAt(pos));
+        updateBlock(x, y, z, BlockIds.AIR.defaultState());
     }
 
     /** Whether a Bedrock client's own prediction wrote this block and no server update has replaced it since. */
@@ -759,6 +794,7 @@ public class CompensatedWorld {
     }
 
     private void forgetBedrockClientWrites(int chunkX, int chunkZ) {
+        bedrockClientOnlyBlocks.forgetChunk(chunkX, chunkZ);
         if (bedrockClientWrites.isEmpty()) return;
         bedrockClientWrites.removeIf((long position) -> {
             BlockPos pos = BlockPos.of(position);
@@ -795,11 +831,6 @@ public class CompensatedWorld {
         });
     }
 
-    private void applyBlockChanges(
-            List<BlockPos> toApplyBlocks, CultPlayer.TrackedTransaction transaction, int sequence) {
-        applyBlockChanges(toApplyBlocks, transaction.transaction(), sequence);
-    }
-
     private void handleAck(BlockPos vector3i, int originalBlockId, Vec3 playerPosition, boolean snapsBack) {
         // make sure that this "delayed" block update is always known to the ghost block mitigator
         final GhostBlockMitigator mitigator = player.getGhostBlockMitigator();
@@ -813,7 +844,7 @@ public class CompensatedWorld {
             if (playerPosition == null) {
                 // Fuck you player. You tried teleporting and then causing an illegal block change to try to validate
                 // your illegal teleport.
-                final ac.cult.cultac.manager.player.SetbackTeleportUtil setbackUtil = player.getSetbackTeleportUtil();
+                final SetbackTeleportUtil setbackUtil = player.getSetbackTeleportUtil();
                 setbackUtil.executeForceResync("block ack");
             } else if (snapsBack
                     && ClientBlockShapes.movement(player, state, vector3i.getX(), vector3i.getY(), vector3i.getZ())
@@ -830,7 +861,7 @@ public class CompensatedWorld {
         }
     }
 
-    public void stopPredicting(int ignoredWireSequence) {
+    public void stopPredicting(int wireSequence) {
         this.isCurrentlyPredicting = false; // We aren't in a block place or use item
 
         if (this.currentlyChangedBlocks.isEmpty()) return; // Nothing to change
@@ -839,17 +870,38 @@ public class CompensatedWorld {
                 this.currentlyChangedBlocks; // We must now track the client applying the server predicted blocks
         this.currentlyChangedBlocks = new LinkedList<>(); // Reset variable without changing original
 
-        // Only a client whose wire sequence stops advancing reaches this; its oldest prediction reverts to the server.
+        // Only a client whose actions go unacknowledged reaches this; its oldest prediction reverts to the server.
         if (serverIsCurrentlyProcessingThesePredictions.size() >= MAX_PENDING_PREDICTIONS) {
-            Iterator<Map.Entry<Integer, List<BlockPos>>> oldest =
-                    serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
-            Map.Entry<Integer, List<BlockPos>> entry = oldest.next();
-            applyBlockChanges(entry.getValue(), player.lastTransactionSent.get() + 1, entry.getKey());
+            Iterator<PredictionBatch> oldest =
+                    serverIsCurrentlyProcessingThesePredictions.values().iterator();
+            PredictionBatch batch = oldest.next();
+            applyBlockChanges(batch.blocks(), player.lastTransactionSent.get() + 1, batch.wireSequence());
             oldest.remove();
         }
-        // Vanilla stores predictions under its local monotonic counter, not the untrusted packet sequence.
-        serverIsCurrentlyProcessingThesePredictions.put(clientPredictionSequence, toApplyBlocks);
+        // Keyed by the local counter so a repeated wire sequence cannot replace a pending batch.
+        serverIsCurrentlyProcessingThesePredictions.put(
+                clientPredictionSequence, new PredictionBatch(wireSequence, toApplyBlocks));
     }
+
+    /** The highest sequence among predictions no acknowledgement has ended, or -1 when there are none. */
+    public int highestUnacknowledgedPredictionSequence() {
+        int highest = -1;
+        for (PredictionBatch batch : serverIsCurrentlyProcessingThesePredictions.values()) {
+            highest = Math.max(highest, batch.wireSequence());
+        }
+        return highest;
+    }
+
+    /** The positions of every prediction no acknowledgement has ended. */
+    public List<BlockPos> unacknowledgedPredictionPositions() {
+        List<BlockPos> positions = new ArrayList<>();
+        for (PredictionBatch batch : serverIsCurrentlyProcessingThesePredictions.values()) {
+            positions.addAll(batch.blocks());
+        }
+        return positions;
+    }
+
+    private record PredictionBatch(int wireSequence, List<BlockPos> blocks) {}
 
     public static long chunkPositionToLong(int x, int z) {
         return ((x & 0xFFFFFFFFL) << 32L) | (z & 0xFFFFFFFFL);
@@ -868,6 +920,7 @@ public class CompensatedWorld {
     }
 
     public void ensureValidationChunkLoaded(int chunkX, int chunkZ) {
+        if (!clientChunkCache.load(chunkX, chunkZ)) return;
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
         if (chunks.containsKey(chunkPosition)) {
             return;
@@ -878,6 +931,7 @@ public class CompensatedWorld {
         chunks.put(chunkPosition, new CachedChunk(new CachedSection[sectionCount], player.lastTransactionSent.get()));
         chunksChanged();
         chunkDimensions.put(chunkPosition, visibleDimension);
+        if (player.compensatedEntities != null) player.compensatedEntities.onClientChunkTicking(chunkX, chunkZ, true);
     }
 
     public void markForBlockPrediction(BlockPos pos) {
@@ -909,7 +963,7 @@ public class CompensatedWorld {
     }
 
     /** ClientPacketListener.handleGameEvent and Level.setRainLevel (26.3). */
-    public void applyClientWeather(ac.cult.cultac.protocol.value.GameEventType event, float level) {
+    public void applyClientWeather(GameEventType event, float level) {
         switch (event) {
             case START_RAINING -> {
                 clientRainLevel = 0.0F;
@@ -940,11 +994,32 @@ public class CompensatedWorld {
     /** Level.precipitationAt (26.3), retaining only the inputs needed by trident use. */
     public boolean clientIsRainingAt(BlockPos pos) {
         if (!clientIsRaining() || clientMotionBlockingHeightAt(pos.getX(), pos.getZ()) > pos.getY()) return false;
+        // The Bedrock bridge keeps the heightmap test alone.
+        if (!player.isBedrockMovement() && !clientCanSeeSkyAboveMotionBlocking(pos)) return false;
         return player.getWorldRegistries()
                 .canRain(
                         clientBiomeKeyAt(pos),
                         new ac.cult.blocksim.engine.BlockPos(pos.getX(), pos.getY(), pos.getZ()),
                         clientSeaLevel);
+    }
+
+    /**
+     * BlockAndLightGetter#canSeeSky, sky light 15, at a position no lower than its column's MOTION_BLOCKING height.
+     * ChunkSkyLightSources gives full sky light to every position below no occluded edge. Above that height the only
+     * shape LightEngine#getOcclusionShape occludes with is a snow layer's, which leaves its own block full sky light
+     * and stands on a motion-blocking block. An edge there occludes exactly when its lower block dampens light
+     * (BlockBehaviour#getLightDampening): powder snow and cobwebs stop rain from reaching the blocks they fill.
+     */
+    private boolean clientCanSeeSkyAboveMotionBlocking(BlockPos pos) {
+        CachedChunk column = getChunk(pos.getX() >> 4, pos.getZ() >> 4);
+        if (column == null) return true;
+        var registry = DataTables.defaults().registry();
+        int top = minHeight + column.heightmapScanHeight();
+        for (int y = Math.max(pos.getY(), minHeight); y < top; y++) {
+            var facts = registry.facts(getBlockStateIdAt(pos.getX(), y, pos.getZ()));
+            if (facts.has(StateFacts.SOLID_RENDER) || !facts.has(StateFacts.PROPAGATES_SKYLIGHT)) return false;
+        }
+        return true;
     }
 
     /** Level.getHeight(MOTION_BLOCKING): first available Y, including missing/out-of-world fallbacks. */
@@ -964,18 +1039,17 @@ public class CompensatedWorld {
             chunk.motionHeightmap.prime(chunk.heightmapScanHeight(), chunk::stateAtIndex, motionBlockingPredicate());
     }
 
-    private java.util.function.IntPredicate motionBlockingPredicate() {
-        var data = ac.cult.blocksim.data.DataTables.defaults();
+    private IntPredicate motionBlockingPredicate() {
+        var data = DataTables.defaults();
         var source =
                 player.user.getCultConnection().dispatcher().runtime().data().version();
         var client = player.isBedrockMovement()
                 ? source
-                : ac.cult.cultac.protocol.ProtocolVersion.of(
-                        player.getClientVersion().getProtocolVersion());
-        if (!client.atLeast(ac.cult.cultac.protocol.ProtocolVersion.V26_3)) {
+                : ProtocolVersion.of(player.getClientVersion().getProtocolVersion());
+        if (!client.atLeast(ProtocolVersion.V26_3)) {
             // Through 26.2, BlockStateBase.blocksMotion uses legacy solidity with these two exceptions.
             return state -> !data.registry().facts(state).fluid().equals("minecraft:empty")
-                    || data.registry().facts(state).has(ac.cult.blocksim.data.StateFacts.SOLID)
+                    || data.registry().facts(state).has(StateFacts.SOLID)
                             && !data.registry().block(state).key().equals("minecraft:cobweb")
                             && !data.registry().block(state).key().equals("minecraft:bamboo_sapling");
         }
@@ -1005,190 +1079,6 @@ public class CompensatedWorld {
                 .toList();
     }
 
-    public boolean wasClientCollisionChangedRecently(BlockPos pos) {
-        return recentClientCollisionChanges.containsKey(pos.asLong());
-    }
-
-    public boolean hasRecentClientCollisionChanges(SimpleCollisionBox queryBox) {
-        int minX = CultMath.floor(queryBox.minX);
-        int minY = CultMath.floor(queryBox.minY);
-        int minZ = CultMath.floor(queryBox.minZ);
-        int maxX = CultMath.ceil(queryBox.maxX) - 1;
-        int maxY = CultMath.ceil(queryBox.maxY) - 1;
-        int maxZ = CultMath.ceil(queryBox.maxZ) - 1;
-        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
-
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    mutablePos.set(x, y, z);
-                    if (wasClientCollisionChangedRecently(mutablePos)) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    public boolean hasRecentClientFluidChanges(SimpleCollisionBox queryBox) {
-        return hasRecentClientFluidChanges(queryBox, (byte) (RECENT_FLUID_WATER | RECENT_FLUID_LAVA));
-    }
-
-    public boolean hasRecentClientWaterChanges(SimpleCollisionBox queryBox) {
-        return hasRecentClientFluidChanges(queryBox, RECENT_FLUID_WATER);
-    }
-
-    public boolean hasRecentClientLavaChanges(SimpleCollisionBox queryBox) {
-        return hasRecentClientFluidChanges(queryBox, RECENT_FLUID_LAVA);
-    }
-
-    private boolean hasRecentClientFluidChanges(SimpleCollisionBox queryBox, byte mask) {
-        int minX = CultMath.floor(queryBox.minX);
-        int minY = CultMath.floor(queryBox.minY);
-        int minZ = CultMath.floor(queryBox.minZ);
-        int maxX = CultMath.ceil(queryBox.maxX) - 1;
-        int maxY = CultMath.ceil(queryBox.maxY) - 1;
-        int maxZ = CultMath.ceil(queryBox.maxZ) - 1;
-        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
-
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    long key = mutablePos.set(x, y, z).asLong();
-                    if (recentClientFluidChanges.containsKey(key)
-                            && (recentClientFluidChangeKinds.get(key) & mask) != 0) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    public void addDynamicBlockCollisionUncertaintyBoxes(SimpleCollisionBox queryBox, List<SimpleCollisionBox> boxes) {
-        pistons.addDynamicBlockCollisionUncertaintyBoxes(queryBox, boxes);
-        if (openShulkerBoxes.isEmpty()) return;
-
-        for (ShulkerData data : openShulkerBoxes) {
-            if (!data.isAnimationActive() || ridesUntracked(data)) {
-                continue;
-            }
-
-            SimpleCollisionBox box = openShulkerCollisionBox(data);
-            if (box.isCollided(queryBox)) {
-                boxes.add(box);
-            }
-        }
-    }
-
-    public boolean hasOpenShulkerCollision(SimpleCollisionBox queryBox) {
-        for (ShulkerData data : openShulkerBoxes) {
-            if (data.isAnimationActive()
-                    && !ridesUntracked(data)
-                    && openShulkerCollisionBox(data).isCollided(queryBox)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    // A shulker entity riding outside the own riding tree has no simulated position.
-    private boolean ridesUntracked(ShulkerData data) {
-        return data.entity != null && player.compensatedEntities.isUntrackedRider(data.entity);
-    }
-
-    private SimpleCollisionBox openShulkerCollisionBox(ShulkerData data) {
-        if (data.entity instanceof PacketEntityShulker shulker) {
-            return shulker.boundingBox(data.getCollision().copy());
-        }
-        Direction facing = data.getFacing(player);
-        return data.getCollision().copy().expandToCoordinate(facing.getModX(), facing.getModY(), facing.getModZ());
-    }
-
-    void markRecentClientCollisionChange(BlockPos pos) {
-        recentClientCollisionChanges.put(pos.asLong(), RECENT_CLIENT_COLLISION_CHANGE_TICKS);
-    }
-
-    private void markRecentClientFluidChange(BlockPos pos, int oldState, int newState) {
-        byte kinds = recentFluidChangeKinds(oldState, newState);
-        if (kinds == 0) {
-            return;
-        }
-
-        long key = pos.asLong();
-        recentClientFluidChanges.put(key, RECENT_CLIENT_FLUID_CHANGE_TICKS);
-        recentClientFluidChangeKinds.put(key, kinds);
-    }
-
-    private void markRecentClientCollisionChange(BlockPos pos, int oldState, int newState) {
-        if (BlockIds.is(oldState, BlockIds.MOVING_PISTON)
-                || BlockIds.is(newState, BlockIds.MOVING_PISTON)
-                || !collisionShapesMatch(pos, oldState, newState)) {
-            markRecentClientCollisionChange(pos);
-        }
-    }
-
-    private boolean collisionShapesMatch(BlockPos pos, int oldState, int newState) {
-        if (oldState == newState) return true;
-        var oldFixed = geometry().staticCollision(oldState);
-        var newFixed = geometry().staticCollision(newState);
-        if (oldFixed != null && newFixed != null) return ClientShapeBoxes.sameCachedShape(oldFixed, newFixed);
-        var point = new ac.cult.blocksim.engine.BlockPos(pos.getX(), pos.getY(), pos.getZ());
-        var actor = BlockIds.is(oldState, BlockIds.POWDER_SNOW) || BlockIds.is(newState, BlockIds.POWDER_SNOW)
-                ? JavaCollisionState.current(player)
-                : null;
-        var context = NativeBlockCollisionHelper.entityContext(player, player.y);
-        var comparison = ClientShapeBoxes.comparison(
-                NativeBlockCollisionHelper.getCollisionShape(player, oldState, point, player.y, actor, context));
-        return comparison.matches(
-                NativeBlockCollisionHelper.getCollisionShape(player, newState, point, player.y, actor, context));
-    }
-
-    private byte recentFluidChangeKinds(int oldState, int newState) {
-        var oldFluid = ClientFluidQueries.modelFluid(oldState);
-        var newFluid = ClientFluidQueries.modelFluid(newState);
-        if (oldFluid.equals(newFluid)) {
-            return 0;
-        }
-
-        byte result = 0;
-        if (FluidTags.WATER.test(oldFluid) || FluidTags.WATER.test(newFluid)) {
-            result |= RECENT_FLUID_WATER;
-        }
-        if (FluidTags.LAVA.test(oldFluid) || FluidTags.LAVA.test(newFluid)) {
-            result |= RECENT_FLUID_LAVA;
-        }
-        return result;
-    }
-
-    private void tickRecentClientCollisionChanges() {
-        if (recentClientCollisionChanges.isEmpty()) return;
-        var iterator = recentClientCollisionChanges.long2IntEntrySet().fastIterator();
-        while (iterator.hasNext()) {
-            var entry = iterator.next();
-            int ticks = entry.getIntValue() - 1;
-            if (ticks <= 0) iterator.remove();
-            else entry.setValue(ticks);
-        }
-    }
-
-    private void tickRecentClientFluidChanges() {
-        if (recentClientFluidChanges.isEmpty()) return;
-        var iterator = recentClientFluidChanges.long2IntEntrySet().fastIterator();
-        while (iterator.hasNext()) {
-            var entry = iterator.next();
-            int ticks = entry.getIntValue() - 1;
-            if (ticks <= 0) {
-                recentClientFluidChangeKinds.remove(entry.getLongKey());
-                iterator.remove();
-            } else entry.setValue(ticks);
-        }
-    }
-
     public int updateBlock(int x, int y, int z, int newState) {
         newState = ViaClientBlockShapeMappings.clientBlockStateId(player, stateIdOrAir(newState));
         BlockPos asVector = new BlockPos(x, y, z);
@@ -1214,13 +1104,13 @@ public class CompensatedWorld {
                                 serverState,
                                 newState,
                                 isPlayerTryingToDisableCult ? null : new Vec3(player.x, player.y, player.z),
-                                clientPredictionSequence)); // Remember server controlled block type
+                                clientWireSequence)); // Remember server controlled block type
             } else {
                 prediction.setForBlockUpdate(
                         currentlyChangedBlocks); // Block existing there was placed by client, mark block to have a new
                 // prediction
                 prediction.setPredictedBlockId(newState);
-                prediction.setSequence(clientPredictionSequence);
+                prediction.setSequence(clientWireSequence);
             }
             currentlyChangedBlocks.add(asVector);
         }
@@ -1241,16 +1131,10 @@ public class CompensatedWorld {
         // This works because of how we optimized wrappedblockstate (avoid messing with inner tick predictions)
         if (getBlockStateIdAt(asVector) == newState) return original;
 
-        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, original);
-        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, newState);
-        markRecentClientCollisionChange(asVector, original, newState);
-        markRecentClientFluidChange(asVector, original, newState);
-
         applyBlockChangeRawDANGER(x, y, z, newState, asVector);
         geysers.updateBlock(asVector, original, newState);
         if (debugBlockChanges && isCurrentlyPredicting && getBlockStateIdAt(asVector) == newState) {
-            String state =
-                    ac.cult.blocksim.data.DataTables.defaults().registry().serialize(newState);
+            String state = DataTables.defaults().registry().serialize(newState);
             if (state.startsWith("minecraft:")) state = state.substring("minecraft:".length());
             player.sendMessage(Component.text("[places] ", NamedTextColor.AQUA)
                     .append(Component.text(x + ", " + y + ", " + z, NamedTextColor.GRAY))
@@ -1288,10 +1172,10 @@ public class CompensatedWorld {
             int previous = section.getStateId(index);
             boolean heightmapChange = previous != combinedState
                     && !(section.isEmpty()
-                            && ac.cult.blocksim.data.DataTables.defaults()
+                            && DataTables.defaults()
                                     .registry()
                                     .facts(combinedState)
-                                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+                                    .has(StateFacts.AIR));
             if (position == null) position = new BlockPos(x, y, z);
             clientBlockEntities.stateChanged(position, previous, combinedState);
             section.setStateId(index, combinedState);
@@ -1309,21 +1193,136 @@ public class CompensatedWorld {
         }
     }
 
+    /** The end of a client tick: the moving pistons take their step. */
     public void removeInvalidPistonLikeStuff() {
-        removeInvalidPistonLikeStuff(0);
+        pistons.tickClientTickEnd();
     }
 
     public void onClientTickEnd() {
+        // Minecraft#tick sends the tick end after Level#tickBlockEntities: record that pass before advancing past it.
+        lastBlockEntityPass = player.isBedrockMovement() ? ClientBlockEntityPass.EMPTY : nextBlockEntityPass();
         endedTickGameTime = clientGameTime;
         if (!player.isBedrockMovement() && clientRunsNormally()) {
             clientClocks.tick(++clientGameTime);
             clientBlockEntities.tick();
-        } else {
-            clientBlockEntities.skipTick();
         }
         clientEnvironment.tick();
         removeInvalidPistonLikeStuff();
         processPendingReinterns();
+    }
+
+    /** A pass mover with its Level#blockEntityTickers position. */
+    record OrderedMover(long order, ClientBlockEntityPass.Mover mover) {}
+
+    /**
+     * A PistonMovingBlockEntity#tick that settles its block, with its Level#blockEntityTickers position and the
+     * Level#setBlock writes it makes.
+     */
+    record OrderedFinal(
+            long order,
+            BlockPos pos,
+            int movingState,
+            int movedState,
+            Direction direction,
+            boolean extending,
+            boolean source,
+            int finalState,
+            List<ClientBlockEntityPass.Write> writes) {}
+
+    /** A shulker box's ShulkerBoxBlockEntity#updateAnimation with its Level#blockEntityTickers position. */
+    record OrderedLid(long order, BlockPos pos, BlockEntityData before, BlockEntityData after) {}
+
+    long nextBlockEntityTickerOrder() {
+        return clientBlockEntities.nextTickerOrder();
+    }
+
+    /**
+     * The Level#tickBlockEntities the client tick in progress runs: Minecraft#tick runs it after ClientLevel#tickEntities
+     * in every tick whose TickRateManager#runsNormally holds, at the game time ClientLevel#tickTime advances afterwards.
+     */
+    public ClientBlockEntityPass nextBlockEntityPass() {
+        if (player.isBedrockMovement() || !clientRunsNormally()) return ClientBlockEntityPass.EMPTY;
+        List<OrderedMover> ordered = new ArrayList<>(0);
+        // In ticker order, the order the block entities' tickers are walked.
+        List<OrderedLid> orderedLids = new ArrayList<>(0);
+        List<OrderedFinal> orderedFinals = new ArrayList<>(0);
+        pistons.addPassMovers(ordered);
+        clientBlockEntities.addPassMovers(ordered, orderedLids);
+        if (ordered.isEmpty() && orderedLids.isEmpty()) return new ClientBlockEntityPass(List.of(), clientGameTime);
+        // Only a mover's replay reads a settled block.
+        if (!ordered.isEmpty()) pistons.addPassFinals(orderedFinals);
+        ordered.sort(java.util.Comparator.comparingLong(OrderedMover::order));
+        List<ClientBlockEntityPass.Mover> movers = new ArrayList<>(ordered.size());
+        for (OrderedMover mover : ordered) movers.add(mover.mover());
+        List<ClientBlockEntityPass.Lid> lids = new ArrayList<>(orderedLids.size());
+        int before = 0;
+        for (OrderedLid lid : orderedLids) {
+            // A box's update runs before its own moveCollidedEntities and after every earlier ticker's moves.
+            while (before < ordered.size() && ordered.get(before).order() < lid.order()) before++;
+            lids.add(new ClientBlockEntityPass.Lid(lid.pos(), lid.before(), lid.after(), before));
+        }
+        // A settling ticker replaces its MOVING_PISTON between the moves of the tickers either side of it.
+        orderedFinals.sort(java.util.Comparator.comparingLong(OrderedFinal::order));
+        List<ClientBlockEntityPass.Final> finals = new ArrayList<>(orderedFinals.size());
+        before = 0;
+        for (OrderedFinal settled : orderedFinals) {
+            while (before < ordered.size() && ordered.get(before).order() < settled.order()) before++;
+            finals.add(new ClientBlockEntityPass.Final(
+                    settled.pos(),
+                    settled.movingState(),
+                    settled.movedState(),
+                    settled.direction(),
+                    settled.extending(),
+                    settled.source(),
+                    settled.finalState(),
+                    before,
+                    settled.writes()));
+        }
+        return new ClientBlockEntityPass(movers, lids, finals, clientGameTime);
+    }
+
+    /**
+     * Starts replaying {@code pass} for the collisions of what its client tick ran before or during it: until the scope
+     * closes, each moving piston collides at the progress the replay gives it and each shulker box lid as it was before
+     * its update, rather than as this model, which may have advanced past the pass, has them now.
+     */
+    public BlockEntityReplay beginBlockEntityReplay(ClientBlockEntityPass pass) {
+        if (pass.isEmpty() && pass.lids().isEmpty()) return BlockEntityReplay.NONE;
+        return new BlockEntityReplay(pistons.beginReplay(pass), clientBlockEntities.beginReplay(pass.lids()));
+    }
+
+    /** ShulkerBoxBlockEntity#updateAnimation ran {@code lid}: the replay collides with its box after it from here on. */
+    public void advanceLidReplay(ClientBlockEntityPass.Lid lid) {
+        clientBlockEntities.advanceReplay(lid);
+    }
+
+    /** PistonMovingBlockEntity#tick settled {@code settled}: the replay reads its final state from here on. */
+    public void advanceFinalReplay(ClientBlockEntityPass.Final settled) {
+        pistons.advanceFinalReplay(settled);
+    }
+
+    /** A block-entity pass replay; closing it restores the replay it began inside, or none. */
+    public static final class BlockEntityReplay implements AutoCloseable {
+        static final BlockEntityReplay NONE = new BlockEntityReplay(null, null);
+        private final CompensatedWorldPistons.ReplayScope pistons;
+        private final CompensatedBlockEntities.LidReplay lids;
+
+        private BlockEntityReplay(
+                CompensatedWorldPistons.ReplayScope pistons, CompensatedBlockEntities.LidReplay lids) {
+            this.pistons = pistons;
+            this.lids = lids;
+        }
+
+        @Override
+        public void close() {
+            if (lids != null) lids.close();
+            if (pistons != null) pistons.close();
+        }
+    }
+
+    /** The Level#tickBlockEntities of the client tick whose tick end was processed last. */
+    public ClientBlockEntityPass lastBlockEntityPass() {
+        return lastBlockEntityPass;
     }
 
     /**
@@ -1477,256 +1476,13 @@ public class CompensatedWorld {
             CachedSection section,
             long lastMutatedNanos) {}
 
-    public void removeInvalidPistonLikeStuff(int transactionId) {
-        if (transactionId == 0) {
-            // End-of-client-tick path: advance time-based state instead of
-            // pruning by transaction watermark.
-            tickClientWorldState();
-        } else {
-            // Transaction path: drop entries the client has provably seen.
-            pistons.removeSentBefore(transactionId);
-            if (!openShulkerBoxes.isEmpty())
-                openShulkerBoxes.removeIf(box -> box.isClosing() && box.lastTransactionSent < transactionId);
-        }
-        pruneOrphanedShulkerBoxes();
-    }
-
-    private void tickClientWorldState() {
-        tickRecentClientCollisionChanges();
-        tickRecentClientFluidChanges();
-        pistons.tickClientTickEnd();
-        if (!openShulkerBoxes.isEmpty()) openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
-    }
-
-    // Drop shulker boxes whose backing block or entity no longer exists.
-    private void pruneOrphanedShulkerBoxes() {
-        if (openShulkerBoxes.isEmpty()) return;
-        openShulkerBoxes.removeIf(box -> box.blockPos != null
-                ? !ClientBlockProperties.isShulkerBox(player.compensatedWorld.getBlockStateIdAt(box.blockPos))
-                : !player.compensatedEntities.entityMap.containsValue(box.entity));
-    }
-
     public void clearPistonLikeState() {
         pistons.clear();
-        openShulkerBoxes.clear();
-        recentClientCollisionChanges.clear();
-        recentClientFluidChanges.clear();
-        recentClientFluidChangeKinds.clear();
-    }
-
-    /**
-     * {@code onGround}: Entity#onGround as the packet's start reports it. {@code lastPushes}: the last packet's, or
-     * null.
-     */
-    public PistonPushes tickPlayerInPistonPushingArea(
-            SimulationContext context, boolean onGround, PistonPushes lastPushes) {
-        // Occurs on player login
-        if (player.boundingBox == null) return new PistonPushes(new SimpleCollisionBox(), Collections.emptySet());
-
-        List<CompensatedBlockEntities.ShulkerShove> shulkerBoxShoves = shulkerBoxShoves();
-        if (openShulkerBoxes.isEmpty() && pistons.hasNoPushSources() && shulkerBoxShoves.isEmpty()) return noPushes;
-
-        SimpleCollisionBox queryBox = pistons.createPistonQueryBox(context);
-        SimpleCollisionBox shoveQuery = pistons.createPistonShoveQueryBox(context, queryBox);
-        double shoveMaxX = shoveQuery.maxX, shoveMaxY = shoveQuery.maxY, shoveMaxZ = shoveQuery.maxZ;
-        PistonPushes pistonResult = pistons.tickPlayerInPistonPushingArea(shoveQuery);
-        // The shulker test reads the query grown by every piston shove the pass found.
-        if (shoveQuery != queryBox) {
-            queryBox.expand(shoveQuery.maxX - shoveMaxX, shoveQuery.maxY - shoveMaxY, shoveQuery.maxZ - shoveMaxZ);
+        lastBlockEntityPass = ClientBlockEntityPass.EMPTY;
+        if (player.bedrockState != null) {
+            player.bedrockState.shulkerBoxLids.clear();
+            player.bedrockState.pistonBlocks.clear();
         }
-        SimpleCollisionBox shulkerPushes = accumulateShulkerPushes(queryBox);
-
-        SimpleCollisionBox pistonPush = pistonResult.getPistonPush();
-        SimpleCollisionBox combinedPushes = pistonPush.copy().union(shulkerPushes);
-        PistonPushes pushes =
-                new PistonPushes(combinedPushes, pistonPush, shulkerPushes, pistonResult.getSlimeBlockLaunches());
-        if (!shulkerBoxShoves.isEmpty()) shoveByShulkerBoxes(context, onGround, lastPushes, shulkerBoxShoves, pushes);
-        return pushes;
-    }
-
-    /**
-     * ShulkerBoxBlockEntity#moveCollidedEntities calls this packet carries. Before 26.3, LocalPlayer#sendPosition
-     * runs before ClientLevel#tickBlockEntities, so the packet carries the last client tick's calls; from 26.3,
-     * Minecraft#tick sends the position after them, so it carries the next client tick's calls.
-     */
-    private List<CompensatedBlockEntities.ShulkerShove> shulkerBoxShoves() {
-        if (player.isBedrockMovement()) return List.of();
-        boolean next = pistons.reportsAfterBlockEntities(), runsNormally = clientRunsNormally();
-        if (!clientBlockEntities.mayShove(next, runsNormally)) return List.of();
-        List<CompensatedBlockEntities.ShulkerShove> shoves = new ArrayList<>(1);
-        clientBlockEntities.shulkerShoves(next, runsNormally, shoves);
-        return shoves;
-    }
-
-    /**
-     * The shulker box block shoves this packet carries. Before 26.3 they move the player from the packet's start; from
-     * 26.3 from its travel's end. PistonMovingBlockEntity#moveCollidedEntities calls of this packet and
-     * Shulker#onPeekAmountChange calls of this packet or the last also move the player; without them, each call's
-     * result follows from the one before.
-     */
-    private void shoveByShulkerBoxes(
-            SimulationContext context,
-            boolean onGround,
-            PistonPushes lastPushes,
-            List<CompensatedBlockEntities.ShulkerShove> shoves,
-            PistonPushes pushes) {
-        // PistonShulkerPush replays the last packet's shulker entity moves in this one.
-        boolean exact = pushes.getPistonPush().isEmpty()
-                && pushes.getShulkerPush().isEmpty()
-                && (lastPushes == null || lastPushes.getShulkerPush().isEmpty());
-        SimpleCollisionBox envelope = new SimpleCollisionBox();
-        if (!pistons.reportsAfterBlockEntities()) {
-            ShulkerBoxShoveResult result =
-                    shoveByShulkerBoxes(context, shoves, context.getStart(), context.getPose(), onGround, false);
-            if (result == null) return;
-            envelope.unionX(result.movement().x);
-            envelope.unionY(result.movement().y);
-            envelope.unionZ(result.movement().z);
-            pushes.setShulkerBoxPush(envelope);
-            pushes.setShulkerBoxShoveBeforeTravel(true);
-            if (exact) pushes.setShulkerBoxShoveResult(result);
-            else pushes.getPush().union(envelope);
-            return;
-        }
-        SimpleCollisionBox reach = exact
-                ? context.getFromMaximumExtent()
-                        .union(context.getToMaximumExtent())
-                        .expand(1.0D)
-                : shoveReach(context, shoves, pushes, lastPushes);
-        List<CompensatedBlockEntities.ShulkerShove> reaching = new ArrayList<>(shoves.size());
-        double x = 0.0D, y = 0.0D, z = 0.0D;
-        for (CompensatedBlockEntities.ShulkerShove shove : shoves) {
-            if (!intersects(reach, shove.area())) continue;
-            reaching.add(shove);
-            x += shove.x();
-            y += shove.y();
-            z += shove.z();
-            envelope.unionX(x);
-            envelope.unionY(y);
-            envelope.unionZ(z);
-        }
-        if (reaching.isEmpty()) return;
-        pushes.setShulkerBoxPush(envelope);
-        if (exact) pushes.setShulkerBoxShovesAfterTravel(List.copyOf(reaching));
-        else pushes.getPush().union(envelope);
-    }
-
-    /**
-     * Where the local player's box can be when a call of {@code shoves} tests it: the packet's end, before the call's
-     * own and every later move of the pass, Entity#move(MoverType.SHULKER_BOX),
-     * PistonMovingBlockEntity#moveCollidedEntities and Shulker#onPeekAmountChange (26.3 :256). Entity#collide can stop
-     * each of those moves anywhere from zero to its whole movement.
-     */
-    private static SimpleCollisionBox shoveReach(
-            SimulationContext context,
-            List<CompensatedBlockEntities.ShulkerShove> shoves,
-            PistonPushes pushes,
-            PistonPushes lastPushes) {
-        double[] low = new double[3];
-        double[] high = new double[3];
-        for (SimpleCollisionBox push : new SimpleCollisionBox[] {
-            pushes.getPistonPush(), pushes.getShulkerPush(), lastPushes == null ? null : lastPushes.getShulkerPush()
-        }) {
-            if (push == null || push.isEmpty()) continue;
-            low[0] = Math.min(low[0], push.minX);
-            low[1] = Math.min(low[1], push.minY);
-            low[2] = Math.min(low[2], push.minZ);
-            high[0] = Math.max(high[0], push.maxX);
-            high[1] = Math.max(high[1], push.maxY);
-            high[2] = Math.max(high[2], push.maxZ);
-        }
-        for (CompensatedBlockEntities.ShulkerShove shove : shoves) {
-            double[] movement = {shove.x(), shove.y(), shove.z()};
-            for (int axis = 0; axis < 3; axis++) {
-                low[axis] += Math.min(0.0D, movement[axis]);
-                high[axis] += Math.max(0.0D, movement[axis]);
-            }
-        }
-        SimpleCollisionBox end = context.getToMaximumExtent();
-        return new SimpleCollisionBox(
-                end.minX - high[0],
-                end.minY - high[1],
-                end.minZ - high[2],
-                end.maxX - low[0],
-                end.maxY - low[1],
-                end.maxZ - low[2]);
-    }
-
-    /**
-     * ShulkerBoxBlockEntity#moveCollidedEntities for each of {@code shoves} in Level#tickBlockEntities order: the
-     * local player's Entity#move(MoverType.SHULKER_BOX) when its box of {@code pose}, from {@code position} after the
-     * calls before, intersects the call's area. Each move starts from the Entity#onGround the last left,
-     * {@code onGround} first. Null when no call reaches the player. From 26.3 ({@code restitution})
-     * Entity#restituteMovementAfterCollisions zeroes the vertical velocity only after a vertical move or a horizontal
-     * collision (Entity#move, 26.1 :800-808, 26.3 :820-821).
-     */
-    public ShulkerBoxShoveResult shoveByShulkerBoxes(
-            SimulationContext context,
-            List<CompensatedBlockEntities.ShulkerShove> shoves,
-            Vec3 position,
-            Pose pose,
-            boolean onGround,
-            boolean restitution) {
-        boolean vehicle = context.getVehicle() != null;
-        float width = vehicle ? context.getMaxWidth() : pose.width * context.getScale();
-        float height = vehicle ? context.getMaxHeight() : pose.height * context.getScale();
-        Vec3 start = position;
-        boolean reached = false, zeroX = false, zeroY = false, zeroZ = false, horizontalCollision = false;
-        Vec3 lastMovement = Vec3.ZERO;
-        for (CompensatedBlockEntities.ShulkerShove shove : shoves) {
-            SimpleCollisionBox box =
-                    GetBoundingBox.getBoundingBoxFromPosAndSize(position.x, position.y, position.z, width, height);
-            if (!intersects(box, shove.area())) continue;
-            reached = true;
-            Vec3 movement = Collisions.collide(player, box, shove.x(), shove.y(), shove.z(), onGround);
-            double movementLength = movement.lengthSqr();
-            double deltaLength = shove.x() * shove.x() + shove.y() * shove.y() + shove.z() * shove.z();
-            if (movementLength > 1.0E-7D || deltaLength - movementLength < 1.0E-7D) position = position.add(movement);
-            // Mth#equal
-            boolean xCollision = !(Math.abs(movement.x - shove.x()) < 1.0E-5F);
-            boolean zCollision = !(Math.abs(movement.z - shove.z()) < 1.0E-5F);
-            boolean verticalCollision = shove.y() != movement.y;
-            onGround = verticalCollision && shove.y() < 0.0D;
-            horizontalCollision = xCollision || zCollision;
-            lastMovement = movement;
-            zeroX |= xCollision;
-            zeroZ |= zCollision;
-            if (verticalCollision && (!restitution || shove.y() != 0.0D || xCollision || zCollision)) zeroY = true;
-        }
-        if (!reached) return null;
-        return new ShulkerBoxShoveResult(
-                position.subtract(start), zeroX, zeroY, zeroZ, onGround, horizontalCollision, lastMovement);
-    }
-
-    private static boolean intersects(SimpleCollisionBox box, SimpleCollisionBox area) {
-        return box.minX < area.maxX
-                && box.maxX > area.minX
-                && box.minY < area.maxY
-                && box.maxY > area.minY
-                && box.minZ < area.maxZ
-                && box.maxZ > area.minZ;
-    }
-
-    // Expands the query box by every colliding open shulker box lid and
-    // accumulates the resulting entity push direction.
-    private SimpleCollisionBox accumulateShulkerPushes(SimpleCollisionBox queryBox) {
-        SimpleCollisionBox shulkerPushes = new SimpleCollisionBox();
-        for (ShulkerData data : openShulkerBoxes) {
-            if (!data.canPushEntities() || ridesUntracked(data)) {
-                continue;
-            }
-
-            Direction pushDirection = data.getFacing(player);
-            if (queryBox.isCollided(openShulkerCollisionBox(data))) {
-                queryBox.expand(
-                        Math.abs(pushDirection.getModX()),
-                        Math.abs(pushDirection.getModY()),
-                        Math.abs(pushDirection.getModZ()));
-                shulkerPushes.expandToCoordinate(
-                        pushDirection.getModX(), pushDirection.getModY(), pushDirection.getModZ());
-            }
-        }
-        return shulkerPushes;
     }
 
     public int getBlockStateIdAt(BlockPos pos) {
@@ -1747,9 +1503,14 @@ public class CompensatedWorld {
             long position = new BlockPos(x, y, z).asLong();
             if (selectionOriginalStates.containsKey(position)) return selectionOriginalStates.get(position);
         }
+        int replayed = pistons.replayStateAt(x, y, z);
+        if (replayed >= 0) return replayed;
         try {
-            CachedChunk column =
-                    ownerRead ? getChunk(x >> 4, z >> 4) : chunks.get(chunkPositionToLong(x >> 4, z >> 4));
+            CachedChunk column = ownerRead
+                    ? getChunk(x >> 4, z >> 4)
+                    : clientChunkCache.contains(x >> 4, z >> 4)
+                            ? chunks.get(chunkPositionToLong(x >> 4, z >> 4))
+                            : null;
 
             y -= minHeight;
             if (column == null || y < 0 || (y >> 4) >= column.sectionCount()) return 0;
@@ -1763,14 +1524,106 @@ public class CompensatedWorld {
     }
 
     /**
+     * Whether {@link #getBlockStateIdAt} reads a state of {@code block} anywhere in the box. Visits only the columns
+     * getChunk returns and the sections whose palette may hold the block.
+     */
+    public boolean containsBlock(int minX, int minY, int minZ, int maxX, int maxY, int maxZ, BlockDefinition block) {
+        IntPredicate matches = state -> BlockIds.is(state, block);
+        if (readingSelectionSnapshot) {
+            for (var entry : selectionOriginalStates.long2IntEntrySet()) {
+                BlockPos at = BlockPos.of(entry.getLongKey());
+                if (matches.test(entry.getIntValue())
+                        && at.getX() >= minX
+                        && at.getX() <= maxX
+                        && at.getY() >= minY
+                        && at.getY() <= maxY
+                        && at.getZ() >= minZ
+                        && at.getZ() <= maxZ) return true;
+            }
+        }
+        int minChunkX = minX >> 4, maxChunkX = maxX >> 4, minChunkZ = minZ >> 4, maxChunkZ = maxZ >> 4;
+        long columns = ((long) maxChunkX - minChunkX + 1) * ((long) maxChunkZ - minChunkZ + 1);
+        if (columns > chunks.size()) {
+            for (long key : chunks.keySet()) {
+                int chunkX = chunkXFromPosition(key), chunkZ = chunkZFromPosition(key);
+                if (chunkX >= minChunkX
+                        && chunkX <= maxChunkX
+                        && chunkZ >= minChunkZ
+                        && chunkZ <= maxChunkZ
+                        && columnContains(chunkX, chunkZ, minX, minY, minZ, maxX, maxY, maxZ, matches)) return true;
+            }
+            return false;
+        }
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++)
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++)
+                if (columnContains(chunkX, chunkZ, minX, minY, minZ, maxX, maxY, maxZ, matches)) return true;
+        return false;
+    }
+
+    private boolean columnContains(
+            int chunkX, int chunkZ, int minX, int minY, int minZ, int maxX, int maxY, int maxZ, IntPredicate matches) {
+        CachedChunk column = getChunk(chunkX, chunkZ);
+        if (column == null) return false;
+        // getBlockStateIdAt reads air below the column and from its top section up.
+        long low = Math.max((long) minY - minHeight, 0);
+        long high = Math.min((long) maxY - minHeight, column.sectionCount() * 16L - 1);
+        int fromX = Math.max(minX, chunkX << 4), toX = Math.min(maxX, chunkX << 4 | 15);
+        int fromZ = Math.max(minZ, chunkZ << 4), toZ = Math.min(maxZ, chunkZ << 4 | 15);
+        for (long sectionY = low >> 4; sectionY <= high >> 4; sectionY++) {
+            CachedSection section = column.getSection((int) sectionY);
+            if (section == null || !section.maybeHas(matches)) continue;
+            int fromY = (int) Math.max(low, sectionY << 4), toY = (int) Math.min(high, sectionY << 4 | 15);
+            for (int x = fromX; x <= toX; x++)
+                for (int y = fromY; y <= toY; y++)
+                    for (int z = fromZ; z <= toZ; z++) {
+                        if (readingSelectionSnapshot
+                                && selectionOriginalStates.containsKey(BlockPos.asLong(x, y + minHeight, z))) continue;
+                        if (matches.test(section.getStateId(CachedChunk.index(x & 0xF, y & 0xF, z & 0xF)))) return true;
+                    }
+        }
+        return false;
+    }
+
+    /**
+     * LevelChunk#getBlockState of the stored column, which ClientChunkCache's view range does not hide: a
+     * block-entity ticker reads its own chunk. {@code -1} when no column is stored at the position.
+     */
+    int storedBlockStateIdAt(BlockPos pos) {
+        CachedChunk column = chunks.get(chunkPositionToLong(pos.getX() >> 4, pos.getZ() >> 4));
+        if (column == null) return -1;
+        int y = pos.getY() - minHeight;
+        if (y < 0 || (y >> 4) >= column.sectionCount()) return 0;
+        CachedSection section = column.getSection(y >> 4);
+        return section == null ? 0 : section.getStateId(CachedChunk.index(pos.getX() & 0xF, y & 0xF, pos.getZ() & 0xF));
+    }
+
+    /**
      * Whether a section holding part of the inclusive block range has fluid, as 26.1+
      * EntityFluidInteraction#hasFluidAndLoaded asks before it scans for fluid. False proves every cell in the range
      * reads without fluid: cells of unloaded columns and outside the height read as air. While the selection snapshot
-     * is read, cells can hold original states their sections no longer do, so nothing is ruled out.
+     * is read, cells can hold original states their sections no longer do, so nothing is ruled out; a block-entity
+     * pass replay's states are read cell by cell.
      */
     public boolean mayHaveFluid(int x0, int y0, int z0, int x1, int y1, int z1) {
         if (x0 > x1 || y0 > y1 || z0 > z1) return false;
         if (readingSelectionSnapshot) return true;
+        return sectionsMayHaveFluid(x0, y0, z0, x1, y1, z1) || replayMayReadFluid(x0, y0, z0, x1, y1, z1);
+    }
+
+    /** Whether {@link CompensatedWorldPistons#replayStateAt} may read a fluid in the range, whatever its sections hold. */
+    private boolean replayMayReadFluid(int x0, int y0, int z0, int x1, int y1, int z1) {
+        // An entity's box spans a few cells; a larger range keeps its cell scan.
+        if (((long) x1 - x0 + 1) * ((long) y1 - y0 + 1) * ((long) z1 - z0 + 1) > 4096) return true;
+        for (int x = x0; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+                for (int z = z0; z <= z1; z++) {
+                    int replayed = pistons.replayStateAt(x, y, z);
+                    if (replayed > 0 && !ClientFluidQueries.modelFluid(replayed).isEmpty()) return true;
+                }
+        return false;
+    }
+
+    private boolean sectionsMayHaveFluid(int x0, int y0, int z0, int x1, int y1, int z1) {
         long top = (long) y1 - minHeight;
         if (top < 0) return false;
         int chunkX0 = x0 >> 4, chunkX1 = x1 >> 4, chunkZ0 = z0 >> 4, chunkZ1 = z1 >> 4;
@@ -1801,6 +1654,7 @@ public class CompensatedWorld {
     }
 
     public CachedChunk getChunk(int chunkX, int chunkZ) {
+        if (!clientChunkCache.contains(chunkX, chunkZ)) return null;
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
         if (chunkPosition == lastChunkPosition && chunkEpoch == lastChunkEpoch) return lastChunk;
         CachedChunk chunk = chunks.get(chunkPosition);
@@ -1810,28 +1664,101 @@ public class CompensatedWorld {
         return chunk;
     }
 
-    /** Whether the client has applied the column at the chunk position and no load or unload of it is in flight. */
-    public boolean isColumnProven(int chunkX, int chunkZ) {
-        CachedChunk column = getChunk(chunkX, chunkZ);
-        return column != null
-                && column.getTransaction() < player.lastTransactionReceived.get()
-                && !serverBlockView.isUnknown(chunkX, chunkZ);
+    /**
+     * {@link #getChunk} is null for every chunk X below this. A walk over a block range's columns starts no lower, so
+     * its length follows the client's view and not the range.
+     */
+    public int minViewChunkX() {
+        return clientChunkCache.minX();
+    }
+
+    /** {@link #getChunk} is null for every chunk X above this. */
+    public int maxViewChunkX() {
+        return clientChunkCache.maxX();
+    }
+
+    /** {@link #getChunk} is null for every chunk Z below this. */
+    public int minViewChunkZ() {
+        return clientChunkCache.minZ();
+    }
+
+    /** {@link #getChunk} is null for every chunk Z above this. */
+    public int maxViewChunkZ() {
+        return clientChunkCache.maxZ();
+    }
+
+    /** Whether a walk over these chunk ranges is long enough to bound by {@link #storedChunkBounds} first. */
+    public static boolean isWideColumnWalk(int firstChunkX, int lastChunkX, int firstChunkZ, int lastChunkZ) {
+        return lastChunkX >= firstChunkX
+                && lastChunkZ >= firstChunkZ
+                && ((long) lastChunkX - firstChunkX + 1) * ((long) lastChunkZ - firstChunkZ + 1) > 4096;
+    }
+
+    /** {minX, maxX, minZ, maxZ} over the stored columns, with minX above maxX when none is stored. */
+    public int[] storedChunkBounds() {
+        int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, minZ = Integer.MAX_VALUE, maxZ = Integer.MIN_VALUE;
+        for (long key : chunks.keySet()) {
+            int chunkX = chunkXFromPosition(key), chunkZ = chunkZFromPosition(key);
+            minX = Math.min(minX, chunkX);
+            maxX = Math.max(maxX, chunkX);
+            minZ = Math.min(minZ, chunkZ);
+            maxZ = Math.max(maxZ, chunkZ);
+        }
+        return new int[] {minX, maxX, minZ, maxZ};
     }
 
     public boolean isChunkLoaded(int chunkX, int chunkZ) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
+        if (!clientChunkCache.contains(chunkX, chunkZ)) return false;
         if (lastChunk != null && chunkPosition == lastChunkPosition && chunkEpoch == lastChunkEpoch) return true;
         return chunks.containsKey(chunkPosition);
     }
 
+    public boolean isClientEntityTickingChunk(int x, int z) {
+        return clientChunkCache.ticks(x, z);
+    }
+
+    /**
+     * Changes whenever {@link #isClientEntityTickingChunk} may answer differently for a chunk; negative while no
+     * version tracks it.
+     */
+    public long clientEntityTickingVersion() {
+        return clientChunkCache.tickingVersion();
+    }
+
+    void entityChunkTicking(int x, int z, boolean ticking) {
+        if (player.compensatedEntities != null) player.compensatedEntities.onClientChunkTicking(x, z, ticking);
+    }
+
+    public void initializeClientChunkCache(int radius) {
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14))
+            clientChunkCache.initialize(radius);
+        chunksChanged();
+    }
+
+    public void clientChunkCacheCenter(int x, int z) {
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14))
+            clientChunkCache.center(x, z);
+        chunksChanged();
+    }
+
+    public void clientChunkCacheRadius(int radius) {
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14))
+            clientChunkCache.radius(radius);
+        chunksChanged();
+    }
+
     /** isChunkLoaded for readers that may run off the connection owner: it never reads the last column. */
     public boolean peekChunkLoaded(int chunkX, int chunkZ) {
-        return chunks.containsKey(chunkPositionToLong(chunkX, chunkZ));
+        return clientChunkCache.contains(chunkX, chunkZ) && chunks.containsKey(chunkPositionToLong(chunkX, chunkZ));
     }
 
     public void putChunk(int chunkX, int chunkZ, CachedChunk chunk) {
-        chunks.put(chunkPositionToLong(chunkX, chunkZ), chunk);
+        if (!clientChunkCache.load(chunkX, chunkZ)) return;
+        CachedChunk previous = chunks.put(chunkPositionToLong(chunkX, chunkZ), chunk);
         chunksChanged();
+        if (previous == null && player.compensatedEntities != null)
+            player.compensatedEntities.onClientChunkTicking(chunkX, chunkZ, true);
     }
 
     /** Every write to chunks calls this before anything reads chunks again. */
@@ -1849,7 +1776,7 @@ public class CompensatedWorld {
         return chunkEpoch;
     }
 
-    public ac.cult.blocksim.engine.BlockEntityData getClientBlockEntityData(BlockPos pos) {
+    public BlockEntityData getClientBlockEntityData(BlockPos pos) {
         long key = pos.asLong();
         if (readingSelectionSnapshot && selectionOriginalBlockEntities.containsKey(key)) {
             var original = selectionOriginalBlockEntities.get(key);
@@ -1858,7 +1785,12 @@ public class CompensatedWorld {
         return clientBlockEntities.snapshot(pos, getBlockStateIdAt(pos));
     }
 
-    public void applyPredictedBlockEntityData(BlockPos pos, ac.cult.blocksim.engine.BlockEntityData data) {
+    /** The data held for the block entity at {@code pos}, or {@code null} when none is held. */
+    public BlockEntityData storedClientBlockEntityData(BlockPos pos) {
+        return clientBlockEntities.stored(pos);
+    }
+
+    public void applyPredictedBlockEntityData(BlockPos pos, BlockEntityData data) {
         clientBlockEntities.predict(pos, getBlockStateIdAt(pos), data);
     }
 
@@ -1873,7 +1805,7 @@ public class CompensatedWorld {
     }
 
     /** ClientPacketListener.handleSetTime updates clocks before invalidating attributes. */
-    public void applyClientTime(ac.cult.cultac.network.packet.WorldPackets.TimeUpdate packet) {
+    public void applyClientTime(WorldPackets.TimeUpdate packet) {
         clientGameTime = packet.gameTime();
         clientClocks.handleUpdates(clientGameTime, packet.clocks());
         clientEnvironment.tick();
@@ -1900,19 +1832,19 @@ public class CompensatedWorld {
         clientRainLevel = 0.0F;
     }
 
-    public void applyClientRecipeInputs(ac.cult.cultac.network.packet.WorldPackets.RecipeInputs packet) {
+    public void applyClientRecipeInputs(WorldPackets.RecipeInputs packet) {
         clientRecipeInputs = packet.itemSets();
     }
 
-    public void applyClientFeatures(ac.cult.cultac.network.packet.WorldPackets.EnabledFeatures packet) {
+    public void applyClientFeatures(WorldPackets.EnabledFeatures packet) {
         clientEnabledFeatures = packet.features();
     }
 
-    public void applyClientDifficulty(ac.cult.cultac.network.packet.WorldPackets.Difficulty packet) {
+    public void applyClientDifficulty(WorldPackets.Difficulty packet) {
         clientPeaceful = packet.peaceful();
     }
 
-    public boolean clientCanSpawn(ac.cult.blocksim.entity.EntityTypes.Type type) {
+    public boolean clientCanSpawn(EntityTypes.Type type) {
         return type.canSpawn(clientEnabledFeatures, clientPeaceful);
     }
 
@@ -1928,7 +1860,7 @@ public class CompensatedWorld {
         return clientRecipeInputs.getOrDefault(key, Set.of());
     }
 
-    public ac.cult.blocksim.environment.BooleanEnvironment.Values clientEnvironmentAt(BlockPos pos) {
+    public BooleanEnvironment.Values clientEnvironmentAt(BlockPos pos) {
         var chunk = getChunk(pos.getX() >> 4, pos.getZ() >> 4);
         if (chunk == null) throw new IllegalStateException("Missing client chunk " + pos);
         int y = Math.clamp(pos.getY(), minHeight, maxHeight - 1);
@@ -1937,9 +1869,8 @@ public class CompensatedWorld {
     }
 
     public String clientBiomeKeyAt(BlockPos pos) {
-        var quart =
-                ac.cult.blocksim.engine.BiomeLookup.quartAt(clientBiomeZoomSeed, pos.getX(), pos.getY(), pos.getZ());
-        var names = player.user.getCultConnection().require(ac.cult.cultac.protocol.data.RegistryNames.class);
+        var quart = BiomeLookup.quartAt(clientBiomeZoomSeed, pos.getX(), pos.getY(), pos.getZ());
+        var names = player.user.getCultConnection().require(RegistryNames.class);
         var chunk = getChunk(quart.x() >> 2, quart.z() >> 2);
         String received;
         // LevelReader.getNoiseBiome delegates missing chunks to ClientLevel.getUncachedNoiseBiome.
@@ -1959,8 +1890,7 @@ public class CompensatedWorld {
         if (chunk != null) chunk.replaceBiomes(biomes);
     }
 
-    public void applyClientBlockEntityData(
-            String dimension, ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate packet) {
+    public void applyClientBlockEntityData(String dimension, WorldPackets.BlockEntityUpdate packet) {
         int x = packet.position().getX() >> 4, z = packet.position().getZ() >> 4;
         if (isChunkLoaded(x, z) && dimension.equals(visibleDimension) && dimension.equals(dimensionForChunk(x, z))) {
             pistons.receiveBlockEntityData(packet);
@@ -1968,8 +1898,7 @@ public class CompensatedWorld {
         }
     }
 
-    public void applyClientBlockEvent(
-            String dimension, ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent packet) {
+    public void applyClientBlockEvent(String dimension, ClientboundBlockEvent packet) {
         var pos = new BlockPos(
                 packet.position().x(), packet.position().y(), packet.position().z());
         if (!isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4)
@@ -1977,8 +1906,12 @@ public class CompensatedWorld {
                 || !dimension.equals(dimensionForChunk(pos.getX() >> 4, pos.getZ() >> 4))) return;
         int state = getBlockStateIdAt(pos);
         // Preserve the current-block check using the generated model block IDs.
-        if (ac.cult.blocksim.data.DataTables.defaults().registry().blockIndex(state) == packet.blockId())
-            clientBlockEntities.blockEvent(pos, state, packet.action(), packet.parameter());
+        if (DataTables.defaults().registry().blockIndex(state) != packet.blockId()) return;
+        clientBlockEntities.blockEvent(pos, state, packet.action(), packet.parameter());
+        // Geyser forwards a shulker box's viewer count (event type 1) as block event data 1 for any viewer and 0
+        // for none, which opens or closes the Bedrock lid.
+        if (player.isBedrockMovement() && packet.action() == 1 && ClientBlockProperties.isShulkerBox(state))
+            player.bedrockState.shulkerBoxLids.blockEvent(pos.asLong(), packet.parameter() > 0);
     }
 
     public void addToCache(CachedChunk chunk, int chunkX, int chunkZ) {
@@ -2017,11 +1950,12 @@ public class CompensatedWorld {
         player.latencyUtils.addRealTimeTask(transaction, () -> {
             serverBlockView.columnApplied(chunkX, chunkZ);
             if (queuedLevel != level) return;
-            CachedChunk previous = chunks.get(chunkPosition);
+            CachedChunk previous = getChunk(chunkX, chunkZ);
             String previousDimension = chunkDimensions.get(chunkPosition);
             if (previous != null && dimension.equals(previousDimension) && previous.getTransaction() > transaction) {
                 return;
             }
+            if (dimension.equals(visibleDimension) && !clientChunkCache.load(chunkX, chunkZ)) return;
 
             // ClientChunkCache reuses a LevelChunk. A packet that omits this heightmap
             // leaves its previous values intact even when the section data is replaced.
@@ -2046,6 +1980,7 @@ public class CompensatedWorld {
             if (motionBlocking != null) applyClientMotionHeightmap(dimension, chunkX, chunkZ, motionBlocking);
             preservePendingPredictions(chunk, chunkX, chunkZ);
             if (dimension.equals(visibleDimension)) {
+                entityChunkTicking(chunkX, chunkZ, true);
                 geysers.replaceChunk(chunkX, chunkZ, geyserTickers);
                 pistons.forgetChunk(chunkX, chunkZ);
                 clientBlockEntities.forgetChunk(chunkX, chunkZ);
@@ -2187,7 +2122,7 @@ public class CompensatedWorld {
         return ClientFluidQueries.modelFluid(getBlockStateIdAt(x, y, z)).isSourceOfType("minecraft:water");
     }
 
-    public double getLavaFluidLevelAt(ac.cult.cultac.protocol.value.BlockPos pos) {
+    public double getLavaFluidLevelAt(BlockPos pos) {
         return getLavaFluidLevelAt(pos.getX(), pos.getY(), pos.getZ());
     }
 
@@ -2198,7 +2133,7 @@ public class CompensatedWorld {
         return fluidState.amount() / 9f;
     }
 
-    public double getWaterFluidLevelAt(ac.cult.cultac.protocol.value.BlockPos position) {
+    public double getWaterFluidLevelAt(BlockPos position) {
         return getWaterFluidLevelAt(position.getX(), position.getY(), position.getZ());
     }
 
@@ -2243,25 +2178,40 @@ public class CompensatedWorld {
             if (current != null && current.getTransaction() > transaction) {
                 return;
             }
-
-            CachedChunk removed = chunks.remove(chunkPosition);
-            chunksChanged();
-            chunkDimensions.remove(chunkPosition);
-            removePendingReinternSections(chunkX, chunkZ);
-            if (removed != null) {
-                releaseChunkSections(removed, dimension, chunkX, chunkZ);
-                sectionPoolLeases.release(dimension, chunkX, chunkZ, removed.sectionCount());
-            } else {
-                sectionPoolLeases.release(dimension, chunkX, chunkZ);
-            }
-            if (dimension.equals(visibleDimension)) {
-                geysers.removeChunk(chunkX, chunkZ);
-                pistons.forgetChunk(chunkX, chunkZ);
-                clientBlockEntities.forgetChunk(chunkX, chunkZ);
-                forgetBedrockClientWrites(chunkX, chunkZ);
-            }
-            if (removed != null && terrainListener != null) terrainListener.columnUnloaded(chunkX, chunkZ);
+            if (dimension.equals(visibleDimension) && !clientChunkCache.drop(chunkX, chunkZ)) return;
+            unloadCachedChunk(dimension, chunkX, chunkZ);
         });
+    }
+
+    void unloadClientChunk(int chunkX, int chunkZ) {
+        unloadCachedChunk(visibleDimension, chunkX, chunkZ);
+    }
+
+    /** Cache resizing loses terrain references without running ClientLevel#unload or its entity callbacks. */
+    void discardChunkGeometry(int chunkX, int chunkZ) {
+        long position = chunkPositionToLong(chunkX, chunkZ);
+        CachedChunk removed = chunks.remove(position);
+        chunksChanged();
+        String dimension = chunkDimensions.getOrDefault(position, visibleDimension);
+        chunkDimensions.remove(position);
+        removePendingReinternSections(chunkX, chunkZ);
+        if (removed != null) {
+            releaseChunkSections(removed, dimension, chunkX, chunkZ);
+            sectionPoolLeases.release(dimension, chunkX, chunkZ, removed.sectionCount());
+            if (terrainListener != null) terrainListener.columnUnloaded(chunkX, chunkZ);
+        }
+    }
+
+    private void unloadCachedChunk(String dimension, int chunkX, int chunkZ) {
+        discardChunkGeometry(chunkX, chunkZ);
+        sectionPoolLeases.release(dimension, chunkX, chunkZ);
+        if (dimension.equals(visibleDimension)) {
+            entityChunkTicking(chunkX, chunkZ, false);
+            geysers.removeChunk(chunkX, chunkZ);
+            pistons.forgetChunk(chunkX, chunkZ);
+            clientBlockEntities.forgetChunk(chunkX, chunkZ);
+            forgetBedrockClientWrites(chunkX, chunkZ);
+        }
     }
 
     public int getMinHeight() {
@@ -2280,7 +2230,7 @@ public class CompensatedWorld {
         return !lastClientboundDimension.dimension().equals(dimension);
     }
 
-    public void setLastClientboundDimension(String dimension, ac.cult.blocksim.environment.DimensionData type) {
+    public void setLastClientboundDimension(String dimension, DimensionData type) {
         int minY = type.minY();
         var held = clientHeights(type);
         lastClientboundDimension =
@@ -2289,7 +2239,7 @@ public class CompensatedWorld {
     }
 
     /** The heights of a level of {@code type} at which the client holds blocks; empty when none. */
-    private ClientWorldView.Heights clientHeights(ac.cult.blocksim.environment.DimensionData type) {
+    private ClientWorldView.Heights clientHeights(DimensionData type) {
         var shown = player.getWorldRegistries().heights(type);
         int min = Math.max(type.minY(), shown.min());
         return new ClientWorldView.Heights(min, Math.max(min, Math.min(type.minY() + type.height(), shown.max())));
@@ -2323,7 +2273,7 @@ public class CompensatedWorld {
         return levelUnresolved;
     }
 
-    public void setDimension(String dimension, ac.cult.blocksim.environment.DimensionData.Binding binding) {
+    public void setDimension(String dimension, DimensionData.Binding binding) {
         var type = binding.dimension();
         if (!visibleDimension.equals(dimension)) {
             clientBlockEntities.clear();
@@ -2363,15 +2313,12 @@ public class CompensatedWorld {
         clientBiomeZoomSeed = seed;
     }
 
-    public ac.cult.blocksim.environment.DimensionData getVisibleDimensionType() {
-        return visibleDimensionType;
-    }
-
     public boolean hasFastLava() {
         return fastLava;
     }
 
     public void clearChunksForDimension(String dimension) {
+        if (dimension.equals(visibleDimension)) clientChunkCache.clearLevel();
         Iterator<Map.Entry<Long, CachedChunk>> iterator = chunks.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, CachedChunk> entry = iterator.next();
@@ -2390,6 +2337,7 @@ public class CompensatedWorld {
                     chunkDimension, chunkX, chunkZ, entry.getValue().sectionCount());
             removePendingReinternSections(chunkX, chunkZ);
             if (dimension.equals(visibleDimension)) {
+                player.compensatedEntities.onClientChunkTicking(chunkX, chunkZ, false);
                 geysers.removeChunk(chunkX, chunkZ);
                 pistons.forgetChunk(chunkX, chunkZ);
                 clientBlockEntities.forgetChunk(chunkX, chunkZ);
@@ -2402,6 +2350,7 @@ public class CompensatedWorld {
     }
 
     public void clearChunks() {
+        clientChunkCache.clearLevel();
         TerrainListener listener = terrainListener;
         long[] cleared = listener == null ? null : new long[chunks.size()];
         int count = 0;
@@ -2409,6 +2358,9 @@ public class CompensatedWorld {
             long chunkPosition = entry.getKey();
             if (cleared != null) cleared[count++] = chunkPosition;
             String dimension = chunkDimensions.getOrDefault(chunkPosition, visibleDimension);
+            if (player.compensatedEntities != null)
+                player.compensatedEntities.onClientChunkTicking(
+                        chunkXFromPosition(chunkPosition), chunkZFromPosition(chunkPosition), false);
             releaseChunkSections(
                     entry.getValue(), dimension, chunkXFromPosition(chunkPosition), chunkZFromPosition(chunkPosition));
             pistons.forgetChunk(chunkXFromPosition(chunkPosition), chunkZFromPosition(chunkPosition));
@@ -2421,6 +2373,7 @@ public class CompensatedWorld {
         geysers.clear();
         clientBlockEntities.clear();
         bedrockClientWrites.clear();
+        bedrockClientOnlyBlocks.clear();
         if (cleared != null) {
             for (long position : cleared)
                 listener.columnUnloaded(chunkXFromPosition(position), chunkZFromPosition(position));
@@ -2448,12 +2401,6 @@ public class CompensatedWorld {
     }
 
     private static int stateIdOrAir(int state) {
-        return state >= 0
-                        && state
-                                < ac.cult.blocksim.data.DataTables.defaults()
-                                        .registry()
-                                        .stateCount()
-                ? state
-                : 0;
+        return state >= 0 && state < DataTables.defaults().registry().stateCount() ? state : 0;
     }
 }

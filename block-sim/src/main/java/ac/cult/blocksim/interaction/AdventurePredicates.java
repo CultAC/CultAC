@@ -1,17 +1,19 @@
 package ac.cult.blocksim.interaction;
 
+import ac.cult.blocksim.data.AdventurePredicateData;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.HolderSets;
-import ac.cult.blocksim.data.AdventurePredicateData;
 import ac.cult.blocksim.data.nbt.NbtPredicates;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.engine.SimLevel;
+import java.util.List;
+import java.util.Objects;
 
 /** Basic adventure block/tag/state predicates, with NBT limited to retained prediction fields. */
 public final class AdventurePredicates implements AdventureRuleMatcher {
     private final DataTables data;
-    public AdventurePredicates(DataTables data) { this.data = java.util.Objects.requireNonNull(data); }
+    public AdventurePredicates(DataTables data) { this.data = Objects.requireNonNull(data); }
 
     @Override
     public boolean test(SimItemStack stack, String component, SimLevel level, BlockPos pos) {
@@ -36,7 +38,7 @@ public final class AdventurePredicates implements AdventureRuleMatcher {
     }
 
     /** PropertyMatcher and ExactMatcher/RangedMatcher preserve Property.getValue and Comparable ordering. */
-    private boolean matchesProperties(java.util.List<AdventurePredicateData.Property> properties, SimLevel level, int state) {
+    private boolean matchesProperties(List<AdventurePredicateData.Property> properties, SimLevel level, int state) {
         var registry = level.registry();
         for (var matcher : properties) {
             String name = matcher.name();

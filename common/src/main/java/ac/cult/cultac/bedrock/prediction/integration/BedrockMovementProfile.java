@@ -13,6 +13,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfile;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -60,7 +61,7 @@ public final class BedrockMovementProfile implements MovementProfile {
         }
         boolean swimmingInWater = context.getBedrockInput().isSwimming()
                 && context.getWorldData() != null
-                && context.getWorldData().getInWater().determinePessimistically();
+                && context.getWorldData().isInWater();
         return startsFlyingExemptionThisFrame(
                 hasTrustedMayFlyAbility(player), swimmingInWater, context.getBedrockInput());
     }
@@ -136,7 +137,7 @@ public final class BedrockMovementProfile implements MovementProfile {
     }
 
     private static boolean isCurrentMovementFlag(
-            BedrockMovementObservation observation, ac.cult.cultac.manager.config.BaseConfigManager configManager) {
+            BedrockMovementObservation observation, BaseConfigManager configManager) {
         return observation != null
                 && observation.validationOffset() >= configManager.getBedrockMovementPositionFlagThreshold();
     }

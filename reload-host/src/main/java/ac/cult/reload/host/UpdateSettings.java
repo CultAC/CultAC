@@ -13,7 +13,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
  * The {@code update} section of {@code config.yml}, read by the loader itself so {@code /cult update <build>} works
- * before any runtime has started. Each environment variable, when set and not blank, wins over its key.
+ * before any runtime has started. {@code CULTAC_UPDATE_TOKEN}, when set and not blank, wins over {@code token}.
  *
  * @param repository the GitHub {@code owner/repo} whose {@code build-<N>} releases are installed
  * @param token sent to the GitHub API only; empty for anonymous requests
@@ -61,16 +61,14 @@ public record UpdateSettings(
             }
         }
         Map<?, ?> update = root.get("update") instanceof Map<?, ?> map ? map : Map.of();
-        String repository = value(update, "repository", "CULTAC_UPDATE_REPOSITORY", env);
-        String publicKey = value(update, "public-key", "CULTAC_UPDATE_PUBKEY", env);
-        String stateFile = value(update, "state-file", "CULTAC_UPDATE_STATE", env);
-        String build = value(update, "build", "CULTAC_UPDATE_BUILD", env);
+        String stateFile = value(update, "state-file");
+        String build = value(update, "build");
         var follow = FOLLOW.matcher(build);
         return new UpdateSettings(
-                repository.isEmpty() ? defaultRepository : repository,
+                defaultRepository,
                 value(update, "token", "CULTAC_UPDATE_TOKEN", env),
-                publicKey.isEmpty() ? OFFICIAL_PUBLIC_KEY : publicKey,
-                value(update, "webhook", "CULTAC_UPDATE_WEBHOOK", env),
+                OFFICIAL_PUBLIC_KEY,
+                value(update, "webhook"),
                 stateFile(dataDirectory, stateFile),
                 build.matches("[0-9]{1,18}") ? Long.parseLong(build) : 0,
                 follow.matches() ? (follow.group(1) == null ? "" : follow.group(1)) : null);
@@ -89,10 +87,11 @@ public record UpdateSettings(
 
     private static String value(Map<?, ?> section, String key, String envName, Function<String, String> env) {
         String value = env.apply(envName);
-        if (value == null || value.isBlank()) {
-            Object configured = section.get(key);
-            value = configured == null ? "" : configured.toString();
-        }
-        return value.strip();
+        return value == null || value.isBlank() ? value(section, key) : value.strip();
+    }
+
+    private static String value(Map<?, ?> section, String key) {
+        Object configured = section.get(key);
+        return configured == null ? "" : configured.toString().strip();
     }
 }

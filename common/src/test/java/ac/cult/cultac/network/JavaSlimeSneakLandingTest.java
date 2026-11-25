@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
@@ -64,7 +65,7 @@ class JavaSlimeSneakLandingTest {
                         new BlockPos(x, FLOOR_Y + 2, z), BlockIds.SLIME_BLOCK.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
         // The fall from the ceiling: the last airborne move through LivingEntity#travel's air friction and gravity.
         Vec3 fall = LANDING_FROM.subtract(recorded(269.6156299346299, 62.200000047683716, 150.5597078138167));
@@ -72,6 +73,9 @@ class JavaSlimeSneakLandingTest {
         f.player.xRot = 1088.0381F;
         f.player.yRot = 29.925932F;
         f.input(BACK_RIGHT_SHIFT);
+        // The client held shift through the fall, so LocalPlayer#aiStep already crouches it on the landing tick.
+        JavaTickFixture.setField(
+                SimulationProcessor.class, f.player.checkManager.getSimulationProcessor(), "lastSneaking", true);
         PredictionResult landing = f.tick(LANDING_TO, true);
         assertTrue(exact(landing), "landing: " + describe(landing));
 

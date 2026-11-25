@@ -15,13 +15,6 @@ public class FoliaGlobalRegionScheduler implements GlobalRegionScheduler {
             Bukkit.getGlobalRegionScheduler();
 
     @Override
-    public void execute(@NotNull GrimPlugin plugin, @NotNull Runnable task) {
-        final Runnable guarded_task = RuntimeEnvironment.guard(task);
-
-        globalRegionScheduler.execute(CultACBukkitLoaderPlugin.LOADER, guarded_task);
-    }
-
-    @Override
     public TaskHandle run(@NotNull GrimPlugin plugin, @NotNull Runnable task) {
         final Runnable guarded_task = RuntimeEnvironment.guard(task);
 

@@ -23,6 +23,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.IsUsingItem;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
+import java.util.Collection;
 
 /**
  * Turns each completed prediction into the safe position it proves. A movement's candidate is the tick's end state:
@@ -33,6 +34,10 @@ public final class SafePositionCapture {
     private final CultPlayer player;
     private final SafePositionTracker safePositions;
     private final CorrectionState corrections;
+    // The Java prediction whose commit gives this safe state the deltaMovement it carries on.
+    private PredictionResult uncommittedSafeCarry;
+    private SetbackPosWithVector uncommittedSafeState;
+    private int heldUntil = Integer.MIN_VALUE;
 
     public SafePositionCapture(CultPlayer player, SafePositionTracker safePositions, CorrectionState corrections) {
         this.player = player;
@@ -58,6 +63,7 @@ public final class SafePositionCapture {
 
         Vec3 afterTickFriction = Vec3.ZERO;
         PredictionSetbackState profileState = null;
+        PredictionResult carriedBy = null;
         if (player.isBedrockMovement()) {
             profileState = MovementEngines.requireForProfile(MovementProfiles.forPlayer(player))
                     .captureSetbackState(predictionComplete.getPreparedCommit());
@@ -67,13 +73,16 @@ public final class SafePositionCapture {
             }
         } else if (!predictionComplete.isTeleport()) {
             final PredictionResult result = predictionComplete.getPredictionResult();
+            // An estimate only for a setback this prediction's later listeners request:
+            // onJavaPredictionCommitted replaces it with the deltaMovement the commit carries.
+            carriedBy = result;
             PredVector initialVel = result.getInitialStartingVel();
             final SimulationContext context = result.getSimulationContext();
             final PredictionResult previousResult =
                     player.checkManager.getSimulationProcessor().getLastPrediction();
 
             MovementTrace trace = MovementTrace.start(initialVel);
-            for (UncertaintyHandler modifier : UncertaintyPipeline.MODIFIERS_FOR_SETBACKS) {
+            for (UncertaintyHandler modifier : UncertaintyPipeline.MODIFIERS) {
                 trace = modifier.handleMovementTrace(
                         player,
                         result.getValidMovements(),
@@ -102,8 +111,8 @@ public final class SafePositionCapture {
             afterTickFriction = SetbackPhysics.simulateFriction(
                     player,
                     initialVel,
-                    context.getWorldData().getInWater().determineOptimistically(),
-                    context.getWorldData().getInLava().determineOptimistically(),
+                    context.getWorldData().mayBeInWater(),
+                    context.getWorldData().mayBeInLava(),
                     context.usesFallFlyingMovement(),
                     context.getLastOnGround().determineOptimistically(),
                     context.getWorldData().getStuckSpeed().getStuckSpeedMultiplier() != null,
@@ -142,6 +151,8 @@ public final class SafePositionCapture {
                 if (isAcceptedCorrection(answeredTeleport))
                     answered.setOnGround(corrections.required().getGroundAfter());
                 safePositions.offer(answered, SafePositionTracker.Write.ANSWER);
+                uncommittedSafeCarry = carriedBy;
+                uncommittedSafeState = answered;
             }
         } else if (!player.isBedrockMovement() || profileState != null) {
             // TODO: When flagging immediately after a setback, we don't give uncertainty or allow inputs. This is too
@@ -152,6 +163,7 @@ public final class SafePositionCapture {
                     .provenBy(
                             SetbackEntity.of(player.getRidingVehicleId()),
                             SafeProof.movement(player.lastTransactionReceived.get()));
+            if (player.lastTransactionReceived.get() < heldUntil) return;
             if (!safePositions.accepts(safe, false)) return;
             safe.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
                     player, predictionComplete.isTeleport() ? null : completedPrediction));
@@ -168,7 +180,29 @@ public final class SafePositionCapture {
                 }
             }
             safePositions.stage(safe);
+            uncommittedSafeCarry = carriedBy;
+            uncommittedSafeState = safe;
         }
+    }
+
+    /**
+     * SimulationProcessor committed {@code result}, carrying {@code carried} into the next client tick, the selected
+     * travel's first. That is the deltaMovement LivingEntity#travel left after Entity#move cleared each collided axis
+     * and the travel's friction: the velocity of a safe state taken from this prediction.
+     */
+    public void onJavaPredictionCommitted(PredictionResult result, Collection<Vec3> carried) {
+        SetbackPosWithVector state = uncommittedSafeState;
+        if (uncommittedSafeCarry != result) return;
+        uncommittedSafeCarry = null;
+        uncommittedSafeState = null;
+        // A setback sent from this state in the meantime keeps the velocity it sent.
+        if (!safePositions.holds(state) || corrections.isPending() || carried.isEmpty()) return;
+        state.setVector(carried.iterator().next());
+    }
+
+    /** Movements stage no safe position until the client answers {@code transaction}. */
+    public void holdUntil(int transaction) {
+        heldUntil = Math.max(heldUntil, transaction);
     }
 
     /** Whether the client just accepted {@code teleport} as a Java correction whose delta movement is absolute. */

@@ -97,7 +97,7 @@ public class ClientHorizontalCollisionTest {
     }
 
     static CollideAxisData collide(CollideResult x, CollideResult z) {
-        return new CollideAxisData(x, new CollideResult(false, 0), new CollideResult(false, 0), z, List.of());
+        return new CollideAxisData(x, new CollideResult(false, 0), new CollideResult(false, 0), z);
     }
 
     public static PredictionResult result(float yaw, Vec3 attemptedMomentum, Vec3 target, CollideAxisData collide) {

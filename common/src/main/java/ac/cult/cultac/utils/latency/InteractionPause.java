@@ -106,7 +106,7 @@ public final class InteractionPause {
 
     private void predicted(int sequence) {
         // Keep Cult's prediction counter aligned with the client's, as for any rejected action.
-        player.compensatedWorld.advanceClientPredictionSequence();
+        player.compensatedWorld.advanceClientPredictionSequence(sequence);
         highestSequence = Math.max(highestSequence, sequence);
     }
 

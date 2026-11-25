@@ -12,11 +12,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.GZIPInputStream;
 
 /** Exact static vanilla IDs. Dynamic/custom registries still come from connection configuration. */
 public final class ModelRegistryData {
-    private static final Map<ProtocolVersion, ModelRegistryData> CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<ProtocolVersion, ModelRegistryData> CACHE = new ConcurrentHashMap<>();
     private final ProtocolVersion version;
     private final Map<String, IdTable> registries;
     private final List<String> states;
@@ -45,8 +46,8 @@ public final class ModelRegistryData {
             if (resource == null) throw new ProtocolResolutionException("Missing model registry data for " + version);
             try (var reader =
                     new BufferedReader(new InputStreamReader(new GZIPInputStream(resource), StandardCharsets.UTF_8))) {
-                // Format 2 (scripts/compact-model-registries.py) leaves IDs implicit and lists each block's
-                // property values once instead of every state.
+                // Format 2 leaves IDs implicit and lists each block's property values once;
+                // format 1 lists every state.
                 String header = reader.readLine();
                 String versionSuffix = "\t" + version.protocol() + "\t" + version.minecraftVersion();
                 boolean compact = ("cult-model-registries\t2" + versionSuffix).equals(header);
@@ -152,15 +153,5 @@ public final class ModelRegistryData {
     public String blockStateName(int id) {
         if (id < 0 || id >= states.size()) throw new MalformedPacketException("Unknown block state ID " + id);
         return states.get(id);
-    }
-
-    /** -1 means absent in the target; callers must not silently substitute air or an unrelated ID. */
-    public int translateBlockState(int id, ModelRegistryData target) {
-        return target.blockStateId(blockStateName(id));
-    }
-
-    /** Translates IDs only; component payloads require the exact source protocol's codecs. */
-    public int translateRegistryId(String registry, int id, ModelRegistryData target) {
-        return target.registry(registry).id(registry(registry).name(id));
     }
 }

@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import org.jetbrains.annotations.Nullable;
 
 /** Compensated action boundary. The bundled simulator owns all client action behavior. */
 public final class ClientBlockActions {
@@ -50,37 +51,79 @@ public final class ClientBlockActions {
         }
     }
 
-    public static void useOn(CultPlayer player, BlockPlace place) {
-        var prediction = predictUseOn(player, place);
+    public static Prediction useOn(CultPlayer player, BlockPlace place) {
+        var look = useOnLook(player, place);
+        var prediction = predict(player, look.action(), look.yaw(), look.pitch());
+        if (look.yawIsLastSent()) player.lookPlaceRecheck.predicted(place, look.action(), prediction, look.yaw());
         apply(player, prediction, place);
         debugPlacement(player, prediction, place.getItemStack(), place);
+        return prediction;
     }
 
     /** Identify client-side writes without installing an action rejected by packet checks. */
     public static Prediction predictUseOn(CultPlayer player, BlockPlace place) {
+        var look = useOnLook(player, place);
+        return predict(player, look.action(), look.yaw(), look.pitch());
+    }
+
+    /** {@code yawIsLastSent}: neither the hit nor this client tick's packets gave the yaw the click was made with. */
+    private record UseOnLook(SimAction.UseOn action, float yaw, float pitch, boolean yawIsLastSent) {}
+
+    private static UseOnLook useOnLook(CultPlayer player, BlockPlace place) {
         var pos = place.getPlacedAgainstBlockLocation();
         var cursor = place.getCursor();
         var hit = new Vec3(pos.getX() + cursor.x, pos.getY() + cursor.y, pos.getZ() + cursor.z);
         // UseItemOn supplies a hit position. Match the existing queued-action camera reconstruction.
         double dx = hit.x() - player.x, dy = hit.y() - (player.y + player.getEyeHeight()), dz = hit.z() - player.z;
+        double horizontal = Math.hypot(dx, dz);
         float yaw = player.xRot, pitch = player.yRot;
-        if (Math.hypot(dx, dz) >= 1e-7 || Math.abs(dy) >= 1e-7) {
-            yaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90);
-            pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)));
+        boolean yawIsLastSent = false;
+        // A hit straight above or below the eye has no yaw: only the cursor's float rounding is left of it.
+        if (horizontal >= 1e-7) yaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90);
+        else if (player.lookPlaceRecheck.knowsYaw()) yaw = player.lookPlaceRecheck.yaw();
+        else yawIsLastSent = true;
+        if (horizontal >= 1e-7 || Math.abs(dy) >= 1e-7) {
+            pitch = (float) -Math.toDegrees(Math.atan2(dy, horizontal));
         }
         var action = new SimAction.UseOn(
                 hand(place.getHand()),
                 new BlockHit(
                         position(pos), Direction.valueOf(place.getDirection().name()), hit, place.isInside()));
-        return predict(player, action, yaw, pitch);
+        return new UseOnLook(action, yaw, pitch, yawIsLastSent);
     }
 
-    public static void use(CultPlayer player, Hand hand) {
+    /**
+     * The same use-on from its own snapshot with another yaw. The caller has restored the world and inventory the
+     * first prediction changed.
+     */
+    static Prediction useOnAgain(
+            CultPlayer player, BlockPlace place, SimAction.UseOn action, Prediction first, float yaw) {
+        var binding = binding(player);
+        var before = first.input();
+        var world = new BlockSimulatorWorldView(
+                player.compensatedWorld, player.checkManager.getListener(PacketWorldBorder.class), binding.states());
+        SmoketestPredictionSafety.detachedAdapter(world);
+        var input = new SimInput(
+                world,
+                before.player().withYaw(yaw),
+                before.cooldowns(),
+                before.mining(),
+                before.breaking(),
+                before.tags(),
+                before.clientVersion());
+        var prediction = simulate(binding, action, input);
+        apply(player, prediction, place);
+        debugPlacement(player, prediction, place.getItemStack(), place);
+        return prediction;
+    }
+
+    /** The applied prediction, or {@code null} for a trident, whose use only starts charging. */
+    public static @Nullable Prediction use(CultPlayer player, Hand hand) {
         if (player.getInventory().getHandItem(hand).is("minecraft:trident")) {
             // TridentItem.use only starts charging. Its fixed 72000-tick duration
             // also excludes ItemStack's instant-use inventory/cooldown effects.
             // The existing ActionManager packet handler owns use-state inference.
-            return;
+            return null;
         }
         var item = player.getInventory().getHandItem(hand);
         boolean wasUsingItem = player.isClientUsingItem();
@@ -93,6 +136,7 @@ public final class ClientBlockActions {
             player.checkManager.getCheck(MultiActionsE.class).onPredictedUseSwing(hand);
         }
         debugPlacement(player, prediction, item, null);
+        return prediction;
     }
 
     /**
@@ -161,7 +205,7 @@ public final class ClientBlockActions {
         return first.count() == second.count() && first.sameItemSameComponents(second);
     }
 
-    private static Map<String, Integer> cooldownChanges(Prediction prediction) {
+    static Map<String, Integer> cooldownChanges(Prediction prediction) {
         var before = prediction.input().cooldowns().snapshot();
         var after = prediction.result().cooldowns();
         var changes = new HashMap<String, Integer>();
@@ -276,6 +320,11 @@ public final class ClientBlockActions {
                 BreakSession.State.initial(items.empty()),
                 binding.tags(),
                 BlockSimClientVersion.of(binding.client().protocol()));
+        return simulate(binding, action, input);
+    }
+
+    private static Prediction simulate(
+            ClientComponentRegistries.SimulationActions binding, SimAction action, SimInput input) {
         var result = binding.simulator().simulate(action, input);
         var writes = result.writes().stream()
                 .map(write -> Map.entry(
@@ -287,10 +336,10 @@ public final class ClientBlockActions {
                 input,
                 result,
                 writes,
-                destroying
+                action instanceof SimAction.DestroyBlock
                         ? Map.of()
                         : BlockSimulatorInventory.resolveChanges(
-                                inventory, result.player().inventory()));
+                                input.player().inventory(), result.player().inventory()));
     }
 
     public static void apply(CultPlayer player, Prediction prediction, BlockPlace place) {

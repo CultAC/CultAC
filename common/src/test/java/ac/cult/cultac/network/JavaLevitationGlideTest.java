@@ -64,7 +64,8 @@ class JavaLevitationGlideTest {
         // Paste ip5mXRXKPI: Cult's carried velocity, and the client's own (its previous uncollided move).
         Vec3 carried = new Vec3(-0.4743549434108445, -0.6834765809953322, 0.524686344092288);
         Vec3 client = new Vec3(-0.4743549434108445, -0.6800727831209059, 0.524686344092288);
-        assertEquals(0.003114457067606269, glide(from, to, carried).getOffset(), 1.0E-6);
+        // LivingEntity#updateFallFlyingMovement carries the 0.0034 of vertical velocity between them into the move.
+        assertEquals(0.003138646637180392, glide(from, to, carried).getOffset(), 1.0E-6);
         PredictionResult vanilla = glide(from, to, client);
         assertTrue(vanilla.getOffset() < 1.0E-6, describe(vanilla));
     }

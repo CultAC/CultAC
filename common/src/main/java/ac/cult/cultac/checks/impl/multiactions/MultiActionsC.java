@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.FormerName;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
@@ -15,7 +16,8 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 @CheckData(
-        name = "MultiActionsC",
+        name = "InventoryA",
+        formerNames = @FormerName(name = "MultiActionsC", until = 2),
         stableKey = "cult.multiactions.inventory_click_while_moving",
         description = "Clicked in inventory while moving")
 public class MultiActionsC extends Check implements CheckListener {
@@ -33,7 +35,7 @@ public class MultiActionsC extends Check implements CheckListener {
         if (last == null || last.getSimulationContext() == null) return true;
 
         WorldData world = last.getSimulationContext().getWorldData();
-        return !(world.getInWater().determineOptimistically()
+        return !(world.isInWater()
                 && world.getLastOnGround().determineOptimistically());
     }
 

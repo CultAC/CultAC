@@ -34,10 +34,6 @@ public record BedrockMovementContext(
         return worldState.lavaContact();
     }
 
-    public boolean inAir() {
-        return !worldState.waterContact() && !worldState.lavaContact();
-    }
-
     public Medium liquidMovementMedium() {
         return worldState.liquidMovementMedium();
     }
@@ -78,16 +74,17 @@ public record BedrockMovementContext(
         return modifierState.elytraGlideAvailable();
     }
 
-    public boolean movementAbilityMayFly() {
-        return modifierState.movementAbilityMayFly();
-    }
-
     public boolean movementAbilityFlying() {
         return modifierState.movementAbilityFlying();
     }
 
     public boolean movementAbilityInstabuild() {
         return modifierState.movementAbilityInstabuild();
+    }
+
+    /** A player without collision moves its box by its whole move: no block or actor stops it. */
+    public boolean movementNoClip() {
+        return modifierState.noClip();
     }
 
     public double movementAbilityFlySpeed() {
@@ -116,6 +113,22 @@ public record BedrockMovementContext(
 
     public long itemUseSlowdownDurationTicks() {
         return modifierState.itemUseSlowdownDurationTicks();
+    }
+
+    /** The mobs this tick's riptide spin rebounds off. */
+    public int spinHits() {
+        return entityContactState.spinContact().hits();
+    }
+
+    public BedrockMovementContext withSpinHits(int hits) {
+        return new BedrockMovementContext(
+                effectState,
+                attributeState,
+                worldState,
+                equipmentState,
+                entityContactState.withSpinContact(entityContactState.spinContact().withHits(hits)),
+                modifierState,
+                playerDimensionsState);
     }
 
     public BedrockMovementContext withPlayerDimensions(PlayerDimensionsState dimensions) {

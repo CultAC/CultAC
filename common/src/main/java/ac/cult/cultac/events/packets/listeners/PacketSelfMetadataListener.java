@@ -1,6 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
-import ac.cult.cultac.CultAPI;
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -11,10 +11,13 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAnimate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSwingAnimation;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.utils.data.ItemUseInventory;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.ClientSleepingPosition;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.ArrayList;
@@ -122,9 +125,16 @@ public class PacketSelfMetadataListener {
             EntityMetadata.Entry frozen =
                     WatchableIndexUtil.getIndex(entityMetadata, WatchableIndexUtil.ENTITY_TICKS_FROZEN);
             if (frozen != null) {
-                if (!hasSendTransaction) player.sendTransaction();
-                hasSendTransaction = true;
-                player.latencyUtils.addRealTimeTaskNow(() -> player.powderSnowFrozenTicks = (int) frozen.value());
+                // handleSetEntityData changes the count before the next aiStep, but a ping preceding
+                // this packet cannot prove that change. Keep metadata and its proof in one client task.
+                Runnable applyFrozen = () -> player.powderSnowFrozenTicks = (int) frozen.value();
+                var proof = player.appendTrailingProofTransaction(event);
+                if (proof != null) {
+                    if (!event.isInsideBundle()) event.bundle();
+                    player.latencyUtils.addRealTimeTask(proof.transaction(), applyFrozen);
+                } else {
+                    addTaskAfterPacketProof(event, player, applyFrozen);
+                }
             }
 
             EntityMetadata.Entry bedObject =
@@ -140,20 +150,24 @@ public class PacketSelfMetadataListener {
                         player.bedPosition = new Vec3(
                                 bedPos.getX() + 0.5,
                                 bedPos.getY()
-                                        + (player.getClientVersion()
-                                                                .isNewerThanOrEquals(
-                                                                        ac.cult.cultac.network.protocol.ClientVersion
-                                                                                .V_26_3)
-                                                        && ac.cult.blocksim.data.BlockIds.is(
+                                        + (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
+                                                        && BlockIds.is(
                                                                 player.compensatedWorld.getBlockStateIdAt(bedPos),
-                                                                ac.cult.blocksim.data.BlockIds.STRAW_BED)
+                                                                BlockIds.STRAW_BED)
                                                 ? 0.375
                                                 : 0.6875),
                                 bedPos.getZ() + 0.5);
+                        ClientSleepingPosition.setPosToBed(player, bedPos);
                     } else {
                         player.isInBed = false;
                     }
-                    player.refreshPlayerPose();
+                    // The local pose metadata is stripped above, so a 1.14+ Java client keeps its pose until
+                    // Player#updatePlayerPose after its next aiStep; Entity#setPos boxed it with that pose.
+                    if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_14)) {
+                        player.refreshPlayerPose();
+                    } else {
+                        player.refreshPlayerPose(player.pose);
+                    }
                 };
                 addTaskAfterPacketProof(event, player, applyBedMetadata);
             }
@@ -165,17 +179,20 @@ public class PacketSelfMetadataListener {
             if (handState != null && handState.value() instanceof Byte) {
                 Object handValue = handState.value();
                 boolean isRiptiding = (((byte) handValue) & 0x04) > 0;
+                // resyncItemUse repeats the server's byte: the client reacts to it, the server view does not change.
+                boolean resent = player.resendingSelfLivingFlags;
+                if (!resent) player.serverSentSelfLivingFlags = handState.detach();
 
                 if (player.usesModernJavaItemUse()) {
                     var proof = player.appendTrailingProofTransaction(event);
-                    player.itemUseBurst.serverFlags((byte) handValue, proof);
+                    if (!resent) player.itemUseBurst.serverFlags((byte) handValue, proof);
                     if (proof != null) {
                         if (!event.isInsideBundle()) event.bundle();
                         player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {
                             // LivingEntity#onSyncedDataUpdated leaves the pose to Player#updatePlayerPose after aiStep.
                             player.isRiptidePose = isRiptiding;
                             boolean clientUsing = player.clientItemUse.definitelyUsing();
-                            ac.cult.cultac.utils.data.ItemUseInventory.metadata(player, (byte) handValue);
+                            ItemUseInventory.metadata(player, (byte) handValue);
                             RiptideUtil.serverUseFlags(player, (byte) handValue, clientUsing);
                         });
                     }
@@ -218,7 +235,7 @@ public class PacketSelfMetadataListener {
                     }
                     // don't spoof health of entities we're riding
                     if (player.getRidingVehicleId() == observedEntityId) break;
-                    if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) break;
+                    if (player.isObserveOnly()) break;
 
                     if (!changed) packedItems = new ArrayList<>(packedItems);
                     packedItems.set(i, EntityMetadata.Entry.health(packedItem.id(), event.getDecodedProtocol(), 1.0f));
@@ -254,9 +271,17 @@ public class PacketSelfMetadataListener {
             if (player.isBedrockMovement()) {
                 return;
             }
+            // Player#stopSleepInBed runs LivingEntity#stopSleeping, which sets the STANDING pose whether or not
+            // it fits; Player#updatePlayerPose reconsiders it only after the next aiStep.
             addTaskAfterPacketProof(event, player, () -> {
+                if (player.isInBed && player.bedPosition != null) {
+                    ClientSleepingPosition.stopSleeping(
+                            player,
+                            BlockPos.containing(
+                                    player.bedPosition.x, player.bedPosition.y, player.bedPosition.z));
+                }
                 player.isInBed = false;
-                player.refreshPlayerPose();
+                player.refreshPlayerPose(Pose.STANDING);
             });
         }
     }

@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.prediction.integration;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public record BedrockReplayAttributeEvent(Map<String, BedrockMovementAttributeState> attributes, boolean historical)
@@ -14,7 +15,7 @@ public record BedrockReplayAttributeEvent(Map<String, BedrockMovementAttributeSt
     @Override
     public BedrockMovementState state(BedrockMovementState state) {
         if (!historical) return state.withAttributes(state.attributes().replace(attributes));
-        var changed = new java.util.LinkedHashMap<String, BedrockMovementAttributeState>();
+        var changed = new LinkedHashMap<String, BedrockMovementAttributeState>();
         attributes.forEach((name, value) -> {
             if (!matches(state, name, value)) changed.put(name, value);
         });

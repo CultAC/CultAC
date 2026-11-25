@@ -19,6 +19,13 @@ import org.jetbrains.annotations.Nullable;
  * All transitions run on the ordered player packet stream, never the Bukkit tick thread.
  */
 public final class ClientItemUseState {
+    /**
+     * One client tick's use state. {@code possiblyUsing} is whether LivingEntity#isUsingItem may hold, and
+     * {@code possiblyBlocksSprint} whether a use it may hold lacks UseEffects#canSprint
+     * (LocalPlayer#isSlowDueToUsingItem from 1.21.11). {@code multipliers} holds every LocalPlayer#modifyInput
+     * item-use multiplier the client may travel with: 1 while it may not be using, each use it may hold, and the
+     * outstanding one. The legal, required and slowest multipliers are among them.
+     */
     public record Snapshot(
             long session,
             int tick,
@@ -28,19 +35,107 @@ public final class ClientItemUseState {
             float slowestMultiplier,
             boolean canSprint,
             boolean required,
-            boolean definitelyUsing) {
-        public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, 1, true, false, false);
+            boolean definitelyUsing,
+            boolean possiblyUsing,
+            boolean possiblyBlocksSprint,
+            List<Float> multipliers) {
+        public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, 1, true, false, false, false, false);
+
+        public Snapshot {
+            multipliers = List.copyOf(multipliers);
+        }
+
+        /** A snapshot whose only possible multipliers are its legal, required and slowest ones. */
+        public Snapshot(
+                long session,
+                int tick,
+                int proof,
+                float legalMultiplier,
+                float requiredMultiplier,
+                float slowestMultiplier,
+                boolean canSprint,
+                boolean required,
+                boolean definitelyUsing,
+                boolean possiblyUsing,
+                boolean possiblyBlocksSprint) {
+            this(
+                    session,
+                    tick,
+                    proof,
+                    legalMultiplier,
+                    requiredMultiplier,
+                    slowestMultiplier,
+                    canSprint,
+                    required,
+                    definitelyUsing,
+                    possiblyUsing,
+                    possiblyBlocksSprint,
+                    distinct(legalMultiplier, requiredMultiplier, slowestMultiplier));
+        }
+
+        /** A snapshot whose possible uses are exactly its definite one. */
+        public Snapshot(
+                long session,
+                int tick,
+                int proof,
+                float legalMultiplier,
+                float requiredMultiplier,
+                float slowestMultiplier,
+                boolean canSprint,
+                boolean required,
+                boolean definitelyUsing) {
+            this(
+                    session,
+                    tick,
+                    proof,
+                    legalMultiplier,
+                    requiredMultiplier,
+                    slowestMultiplier,
+                    canSprint,
+                    required,
+                    definitelyUsing,
+                    definitelyUsing,
+                    definitelyUsing && !canSprint);
+        }
+
+        private static List<Float> distinct(float... multipliers) {
+            var distinct = new ArrayList<Float>(multipliers.length);
+            for (float multiplier : multipliers) if (!distinct.contains(multiplier)) distinct.add(multiplier);
+            return distinct;
+        }
     }
 
     public record ActiveUse(Hand hand, String itemKey) {}
 
     private record Use(Hand hand, SimItemStack stack, int remaining, SimItemStack boundStack) {}
 
+    /**
+     * A use the client started on its own in client tick {@code tick} while a completion of its previous use was in
+     * flight to it. {@code duration} is a consumable's use duration, which caps how long the restart may slow the
+     * client, and 0 for a use it holds until a release.
+     */
+    private record Restart(Hand hand, SimItemStack stack, int sequence, int tick, int duration) {
+        boolean cappedByItsDuration() {
+            return duration > 0;
+        }
+
+        /**
+         * The use duration has passed on the client ticks counted from the use_item, counted as the server's
+         * LivingEntity#updateUsingItem counts it: vanilla completes a use only on the server.
+         */
+        boolean ranItsDuration(int at) {
+            return cappedByItsDuration() && at - tick >= duration - 1;
+        }
+    }
+
     /** One LivingEntity.completeUsingItem outcome: the used hand and its native inventory slot. */
     public record Completion(Hand hand, int slot) {}
 
     /** Client outcomes of a completion event; {@code skipped} is a client that completes nothing. */
     public record Completions(List<Completion> completions, boolean skipped) {}
+
+    /** A stack LivingEntity#releaseUsingItem may release, from the hand the use holds. */
+    public record Release(Hand hand, SimItemStack stack) {}
 
     private List<Use> candidates = List.of();
     private boolean inactive = true;
@@ -50,6 +145,9 @@ public final class ClientItemUseState {
     private Snapshot prepared = Snapshot.NONE;
     private final Map<SimItemStack, Integer> possiblyChanged = new IdentityHashMap<>();
     private boolean possiblyFull;
+    // One per hand and item: the latest use_item of each, since acknowledgements are cumulative.
+    private final List<Restart> restarts = new ArrayList<>(2);
+    private int completionsInFlight;
 
     /**
      * An uncertain start keeps the candidate while the client may equally not be using; the
@@ -100,10 +198,77 @@ public final class ClientItemUseState {
         // Do not rewrite prepared: a later release cannot excuse this tick's earlier movement.
     }
 
+    /**
+     * ServerboundPlayerAction RELEASE_USE_ITEM: LocalPlayer#releaseUsingItem ends every local use; the engine keeps a
+     * restarted consumable open until its use duration caps it.
+     */
+    public void clientReleased() {
+        release();
+        if (!restarts.isEmpty()) restarts.removeIf(restart -> !restart.cappedByItsDuration());
+    }
+
     public void claimedSlotChanged() {
         // ServerGamePacketListenerImpl.handleSetCarriedItem stops MAIN_HAND use only.
         // The local client compares item types at its entity tick, not slot numbers.
         if (obligation != null && obligation.hand() == Hand.MAIN_HAND) obligation = null;
+        if (!restarts.isEmpty())
+            restarts.removeIf(restart -> restart.hand() == Hand.MAIN_HAND && !restart.cappedByItsDuration());
+    }
+
+    /**
+     * ServerboundPlayerCommand START_SPRINTING: LocalPlayer#canStartSprinting requires !isSlowDueToUsingItem, so the
+     * client holds no restarted use whose item blocks sprinting.
+     */
+    public void startedSprinting(ClientVersion version) {
+        if (!restarts.isEmpty())
+            restarts.removeIf(restart -> !effects(restart.stack(), version).canSprint());
+    }
+
+    /** A ClientboundEntityEvent(9) for the local player is sent; Player#handleEntityEvent completes the use on it. */
+    public void completionSent() {
+        completionsInFlight++;
+    }
+
+    public void completionHandled() {
+        completionsInFlight = Math.max(0, completionsInFlight - 1);
+    }
+
+    /**
+     * Whether a ServerboundUseItem received at this point starts a use the client holds before it has handled the completion of
+     * the use the model still holds: Minecraft#handleKeybinds starts a use only while the client is not using one.
+     */
+    public boolean restartsBeforeCompletion() {
+        return completionsInFlight > 0 && (!candidates.isEmpty() || obligation != null);
+    }
+
+    /**
+     * A consumable restarted in client tick {@code tick} may slow the client's travel, whatever the server answers,
+     * until its use duration has passed. Any other use may slow it until the client has handled the server's answer to
+     * {@code sequence}: the ClientboundBlockChangedAck of that sequence, which shares one client task with any start
+     * metadata of its flush bundle (CultPlayer#appendTrailingProofTransaction), so its proof is no earlier than theirs.
+     */
+    public void restarted(Hand hand, SimItemStack stack, int sequence, int tick) {
+        int duration = duration(stack);
+        if (stack.isEmpty() || duration == 0) return;
+        var consumable = ItemComponents.consumable(stack.components());
+        int timer = consumable != null && consumable.ticks() == duration ? duration : 0;
+        for (int i = 0; i < restarts.size(); i++) {
+            Restart open = restarts.get(i);
+            if (open.hand() != hand || !sameItem(open.stack(), stack)) continue;
+            if (sequence > open.sequence()) restarts.set(i, new Restart(hand, stack.copy(), sequence, tick, timer));
+            return;
+        }
+        restarts.add(new Restart(hand, stack.copy(), sequence, tick, timer));
+    }
+
+    /** The client handled ClientboundBlockChangedAck up to {@code sequence}. */
+    public void serverAnswered(int sequence) {
+        if (!restarts.isEmpty())
+            restarts.removeIf(restart -> !restart.cappedByItsDuration() && restart.sequence() <= sequence);
+    }
+
+    int openRestarts() {
+        return restarts.size();
     }
 
     public Snapshot prepare(
@@ -115,24 +280,28 @@ public final class ClientItemUseState {
             List<SimItemStack> hotbar) {
         if (lastPreparedTick == tick) return prepared;
         lastPreparedTick = tick;
-        var next = new ArrayList<Use>();
-        for (Use use : candidates) {
-            // Minecraft.tick syncs the selected slot BEFORE handleKeybinds. Selection
-            // during keybinds can therefore be unreported for this tick (and scroll
-            // can restore it before the next sync). Only inventory-proven stacks apply.
-            for (SimItemStack held : use.hand() == Hand.MAIN_HAND ? hotbar : List.of(off)) {
-                if (!sameItem(use.stack(), held)) {
-                    inactive = true;
-                    continue;
+        if (candidates.isEmpty()) {
+            candidates = List.of();
+        } else {
+            var next = new ArrayList<Use>();
+            for (Use use : candidates) {
+                // Minecraft.tick syncs the selected slot BEFORE handleKeybinds. Selection
+                // during keybinds can therefore be unreported for this tick (and scroll
+                // can restore it before the next sync). Only inventory-proven stacks apply.
+                for (SimItemStack held : use.hand() == Hand.MAIN_HAND ? hotbar : List.of(off)) {
+                    if (!sameItem(use.stack(), held)) {
+                        inactive = true;
+                        continue;
+                    }
+                    merge(next, new Use(use.hand(), held.copy(), nextRemaining(use.remaining()), held));
+                    // BrushItem.onUseTick directly releases when its pre-travel ray misses.
+                    // The movement packet's look is sent AFTER that callback, so it cannot
+                    // prove the callback's earlier ray hit a block.
+                    if (held.is("minecraft:brush")) inactive = true;
                 }
-                merge(next, new Use(use.hand(), held.copy(), nextRemaining(use.remaining()), held));
-                // BrushItem.onUseTick directly releases when its pre-travel ray misses.
-                // The movement packet's look is sent AFTER that callback, so it cannot
-                // prove the callback's earlier ray hit a block.
-                if (held.is("minecraft:brush")) inactive = true;
             }
+            candidates = List.copyOf(next);
         }
-        candidates = List.copyOf(next);
         if (candidates.isEmpty()) inactive = true;
         if (obligation != null) {
             SimItemStack held = obligation.hand() == Hand.MAIN_HAND ? main : off;
@@ -143,14 +312,31 @@ public final class ClientItemUseState {
         // LocalPlayer#modifyInput slows by any use the client may hold, including one it may have refused.
         float slowest = 1;
         boolean canSprint = inactive;
-        for (Use use : candidates) {
-            var effects = effects(use.stack(), version);
+        boolean blocksSprint = false;
+        var multipliers = new ArrayList<Float>(candidates.size() + 2);
+        if (inactive) multipliers.add(1.0F);
+        for (int i = 0; i < candidates.size(); i++) {
+            var effects = effects(candidates.get(i).stack(), version);
             legal = Math.max(legal, effects.speedMultiplier());
             slowest = Math.min(slowest, effects.speedMultiplier());
             canSprint |= effects.canSprint();
+            blocksSprint |= !effects.canSprint();
+            if (!multipliers.contains(effects.speedMultiplier())) multipliers.add(effects.speedMultiplier());
         }
         float required =
                 obligation == null ? 1 : effects(obligation.stack(), version).speedMultiplier();
+        if (!multipliers.contains(required)) multipliers.add(required);
+        float fastest = Collections.max(multipliers);
+        if (!restarts.isEmpty()) restarts.removeIf(restart -> restart.ranItsDuration(tick));
+        for (Restart restart : restarts) {
+            SimItemStack held = restart.hand() == Hand.MAIN_HAND ? main : off;
+            // LivingEntity#updatingUsingItem stops a use whose hand holds another item; ItemStack#isSameItem
+            // matches a use stack consumed to empty with the empty hand and keeps that use. A restarted
+            // consumable stays open to its use duration whatever the hand holds.
+            if (!restart.cappedByItsDuration() && !held.isEmpty() && !sameItem(restart.stack(), held)) continue;
+            float multiplier = effects(restart.stack(), version).speedMultiplier();
+            if (multiplier < fastest && !multipliers.contains(multiplier)) multipliers.add(multiplier);
+        }
         prepared = new Snapshot(
                 session,
                 tick,
@@ -160,8 +346,17 @@ public final class ClientItemUseState {
                 Math.min(slowest, required),
                 canSprint,
                 obligation != null && required < 1,
-                !inactive && !candidates.isEmpty());
+                !inactive && !candidates.isEmpty(),
+                !candidates.isEmpty(),
+                blocksSprint,
+                multipliers);
         return prepared;
+    }
+
+    /** Whether {@link #prepare} reads its {@code hotbar} for the next tick: only a use candidate's hand reads it. */
+    public boolean preparesFromHotbar() {
+        for (int i = 0; i < candidates.size(); i++) if (candidates.get(i).hand() == Hand.MAIN_HAND) return true;
+        return false;
     }
 
     public boolean definitelyUsing() {
@@ -191,6 +386,26 @@ public final class ClientItemUseState {
             }
         }
         return new Completions(List.copyOf(completions), skipped);
+    }
+
+    /**
+     * The stacks LivingEntity#releaseUsingItem may hand to Item#releaseUsing. Through 1.21.4 it releases useItem, the
+     * stack the last LivingEntity#updatingUsingItem bound, even when the hand holds another item since. From 1.21.5 it
+     * reads the used hand again and releases that stack only while ItemStack#isSameItem holds. Neither resets
+     * useItemRemaining, so a switch to another stack of the same item keeps the charge.
+     */
+    public List<Release> releases(ClientVersion version, SimItemStack main, SimItemStack off) {
+        boolean rereadsHand = version.isNewerThanOrEquals(ClientVersion.V_1_21_5);
+        var releases = new ArrayList<Release>(candidates.size());
+        for (Use use : candidates) {
+            SimItemStack held = use.hand() == Hand.MAIN_HAND ? main : off;
+            if (rereadsHand && !sameItem(use.stack(), held)) continue;
+            var release = new Release(use.hand(), rereadsHand ? held : use.stack());
+            if (releases.stream()
+                    .noneMatch(other -> other.hand() == release.hand() && other.stack() == release.stack()))
+                releases.add(release);
+        }
+        return List.copyOf(releases);
     }
 
     /**
@@ -276,6 +491,7 @@ public final class ClientItemUseState {
 
     public void reset() {
         release();
+        restarts.clear();
         lastPreparedTick = Integer.MIN_VALUE;
         prepared = Snapshot.NONE;
     }

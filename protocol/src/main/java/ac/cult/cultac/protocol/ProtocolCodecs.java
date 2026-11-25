@@ -3,6 +3,7 @@ package ac.cult.cultac.protocol;
 import ac.cult.cultac.codec.PrivateCodecService;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /** Directly linked, relocated value codecs shared by the platform. */
 public final class ProtocolCodecs {
@@ -45,7 +46,7 @@ public final class ProtocolCodecs {
     private static WireValueDecoder open() throws Exception {
         // Via's Config keeps a private SnakeYAML instance in a ThreadLocal. Initialize
         // it on an owned thread so no server/packet thread retains a retired runtime.
-        var result = new java.util.concurrent.CompletableFuture<WireValueDecoder>();
+        var result = new CompletableFuture<WireValueDecoder>();
         var initializer = new Thread(
                 () -> {
                     try {

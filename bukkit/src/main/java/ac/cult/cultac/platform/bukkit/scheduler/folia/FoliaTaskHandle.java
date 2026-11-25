@@ -20,11 +20,6 @@ public class FoliaTaskHandle implements TaskHandle {
     }
 
     @Override
-    public boolean isCancelled() {
-        return task.isCancelled();
-    }
-
-    @Override
     public void cancel() {
         task.cancel();
     }

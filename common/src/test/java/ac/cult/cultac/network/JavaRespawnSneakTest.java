@@ -124,6 +124,8 @@ class JavaRespawnSneakTest {
         Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
         f.place(START, GROUNDED);
         f.input(keys);
+        // The old player's last Player#updatePlayerPose already crouched for the held shift.
+        f.player.refreshPlayerPose();
         f.player.sendTransaction();
         f.pongThrough(f.player.lastTransactionSent.get());
         // A respawn into the same dimension replaces the LocalPlayer the same way and keeps the floor.

@@ -16,6 +16,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.grim.grimac.api.config.ConfigManager;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
@@ -70,6 +71,9 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     private final Set<String> missingServers = ConcurrentHashMap.newKeySet();
     private final Set<String> rejections = ConcurrentHashMap.newKeySet();
     private final Set<UUID> malformedPlayers = ConcurrentHashMap.newKeySet();
+    /** Players CultAC does not inspect, whose frames no encoder would strip; they get no session. */
+    private final Set<UUID> dormant = ConcurrentHashMap.newKeySet();
+
     private final Set<String> authFailures = ConcurrentHashMap.newKeySet();
     /** Backend connections whose session ended at a backend configuration phase, awaiting the return to PLAY. */
     private final Map<UUID, ServerConnection> reconfiguring = new ConcurrentHashMap<>();
@@ -117,13 +121,18 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     }
 
     /**
-     * Strips the bridge channel from the packet stream and, when a secret is available, starts opening sessions.
+     * Strips the bridge channel from the packet stream and, when {@code bridge.enabled} is on and a secret is
+     * available, starts opening sessions. {@code bridge.secret} empty uses Velocity's modern-forwarding secret.
      *
-     * @param secretOverride CultAC's {@code bridge.secret}; empty uses Velocity's modern-forwarding secret
      * @return whether sessions are enabled
      */
-    public boolean start(PacketDispatcher dispatcher, String secretOverride) {
+    public boolean start(PacketDispatcher dispatcher, ConfigManager config) {
         registerStripRoutes(dispatcher);
+        if (!config.getBooleanElse("bridge.enabled", true)) {
+            logger.info("CultAC companion bridge off by configuration (bridge.enabled: false)");
+            return false;
+        }
+        String secretOverride = config.getStringElse("bridge.secret", "");
         Forwarding forwarding = forwarding(proxy);
         byte[] resolved =
                 secretOverride.isEmpty() ? forwarding.secret() : secretOverride.getBytes(StandardCharsets.UTF_8);
@@ -297,6 +306,19 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
         player.getCurrentServer().ifPresent(server -> reconfiguring.put(player.getUniqueId(), server));
     }
 
+    /** CultAC stopped inspecting {@code playerId}: closes their session and opens none until {@link #awake}. */
+    public void dormant(UUID playerId) {
+        dormant.add(playerId);
+        reconfiguring.remove(playerId);
+        var session = sessions.get(playerId);
+        if (session != null) session.close("player not inspected");
+    }
+
+    /** CultAC inspects {@code playerId} again. */
+    public void awake(UUID playerId) {
+        dormant.remove(playerId);
+    }
+
     @Subscribe
     public void onServerPostConnect(ServerPostConnectEvent event) {
         if (closed) return;
@@ -324,6 +346,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     public void onDisconnect(DisconnectEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
         malformedPlayers.remove(playerId);
+        dormant.remove(playerId);
         reconfiguring.remove(playerId);
         var session = sessions.get(playerId);
         if (session != null
@@ -337,7 +360,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     @Nullable
     ProxyBridgeSession open(UUID playerId, Object connection, BridgeBackend backend) {
         byte[] key = secret;
-        if (closed || key == null) return null;
+        if (closed || key == null || dormant.contains(playerId)) return null;
         var existing = sessions.get(playerId);
         if (existing != null) {
             if (existing.connection() == connection) return existing;

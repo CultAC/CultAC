@@ -86,6 +86,14 @@ public interface PlatformConnection {
         return null;
     }
 
+    /** Counters of compressed frames forwarded from the backend, read on the connection owner; null when off. */
+    @Nullable
+    default String compressedForwardStats() {
+        return null;
+    }
+
+    default void resetCompressedForwardStats() {}
+
     /**
      * Runs connection work that started on a bridge's own thread, such as Geyser's tick loop.
      */

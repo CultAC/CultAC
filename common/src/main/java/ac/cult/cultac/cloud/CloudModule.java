@@ -10,9 +10,8 @@ import java.util.function.Function;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The anticheat's only way into the cloud upload. Until {@code cloud.url} or {@code cloud.api-key}, or
- * {@code CULTAC_CLOUD_URL} or {@code CULTAC_CLOUD_API_KEY}, is set, every call returns at once and no other cloud
- * class is loaded.
+ * The anticheat's only way into the cloud upload. Until {@code cloud.url}, {@code cloud.api-key} or
+ * {@code CULTAC_CLOUD_API_KEY} is set, every call returns at once and no other cloud class is loaded.
  */
 public final class CloudModule {
     /** A config has named the upload: calls reach {@link CloudService} from here on. */
@@ -30,14 +29,18 @@ public final class CloudModule {
         if (!loaded) {
             if (superseded) return;
             ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
-            if (setting(config, System::getenv, "cloud.url", "CULTAC_CLOUD_URL", "")
-                            .isEmpty()
-                    && apiKey(config, System::getenv).isEmpty()) return;
+            if (url(config).isEmpty() && apiKey(config, System::getenv).isEmpty()) return;
             CloudService.listenForTeam();
             loaded = true;
         }
         CloudService.configReloaded();
         PredictionDiagnostics.readServerFields();
+    }
+
+    /** The service's address, {@code cloud.url}; empty is off. */
+    static String url(ConfigManager config) {
+        String value = config.getStringElse("cloud.url", "");
+        return value == null ? "" : value.strip();
     }
 
     /** This server's intake key: {@code CULTAC_CLOUD_API_KEY}, else {@code cloud.api-key}; empty is off. */

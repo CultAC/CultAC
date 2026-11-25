@@ -1,15 +1,28 @@
 package ac.cult.reload.integrations;
 
+import java.util.AbstractQueue;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
+import java.util.Objects;
+import java.util.Queue;
+import java.util.Set;
+import java.util.function.Supplier;
+
 /** Geyser's callback FIFO, with a cursor separating written packets from queued packets.
  * Geyser can register callbacks off the tick loop. Registration also precedes Cloudburst's
  * queued write, so a shared executor alone does not establish the callback's wire order. */
-public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
+public final class GeyserQueue extends AbstractQueue<Runnable> {
+    /** Completed receipts are swept once the set doubles, keeping each write amortized O(1). */
+    private static final int PRUNE_FLOOR = 64;
+
     private static final class Entry {
         Runnable callback;
         Entry next;
 
         Entry(Runnable callback) {
-            this.callback = java.util.Objects.requireNonNull(callback);
+            this.callback = Objects.requireNonNull(callback);
         }
     }
 
@@ -30,14 +43,17 @@ public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
 
     /** One tap's engine callbacks. Closing preserves their wire slots and every native Geyser callback. */
     public final class Scope implements AutoCloseable {
-        private final java.util.Set<Receipt> receipts =
-                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        private final Set<Receipt> receipts = Collections.newSetFromMap(new IdentityHashMap<>());
+        private int pruneAt = PRUNE_FLOOR;
         private boolean closed;
 
         private Receipt receipt(Runnable callback) {
             if (closed) throw new IllegalStateException("Latency scope is closed");
-            receipts.removeIf(value -> value.callback == null);
-            var receipt = new Receipt(java.util.Objects.requireNonNull(callback));
+            if (receipts.size() >= pruneAt) {
+                receipts.removeIf(value -> value.callback == null);
+                pruneAt = Math.max(PRUNE_FLOOR, receipts.size() * 2);
+            }
+            var receipt = new Receipt(Objects.requireNonNull(callback));
             receipts.add(receipt);
             return receipt;
         }
@@ -48,7 +64,7 @@ public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
             }
         }
 
-        public void writeWithReceipt(java.util.function.Supplier<Runnable> writePacket) {
+        public void writeWithReceipt(Supplier<Runnable> writePacket) {
             synchronized (GeyserQueue.this) {
                 GeyserQueue.this.writeWithReceipt(() -> {
                     Runnable callback = writePacket.get();
@@ -70,13 +86,13 @@ public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
         return new Scope();
     }
 
-    private java.util.Queue<Runnable> originalQueue;
+    private Queue<Runnable> originalQueue;
 
-    public void originalQueue(java.util.Queue<Runnable> queue) {
+    public void originalQueue(Queue<Runnable> queue) {
         originalQueue = queue;
     }
 
-    public java.util.Queue<Runnable> originalQueue() {
+    public Queue<Runnable> originalQueue() {
         return originalQueue;
     }
 
@@ -104,7 +120,7 @@ public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
     }
 
     /** Attach an optional local receipt to this exact successful write, before Geyser's callback. */
-    public synchronized void writeWithReceipt(java.util.function.Supplier<Runnable> writePacket) {
+    public synchronized void writeWithReceipt(Supplier<Runnable> writePacket) {
         Entry entry = lastWritten == null ? first : lastWritten.next;
         if (entry == null) throw new IllegalStateException("Latency write has no Geyser callback");
         Runnable receipt = writePacket.get();
@@ -156,10 +172,10 @@ public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
     }
 
     @Override
-    public synchronized java.util.Iterator<Runnable> iterator() {
-        var callbacks = new java.util.ArrayList<Runnable>();
+    public synchronized Iterator<Runnable> iterator() {
+        var callbacks = new ArrayList<Runnable>();
         for (Entry entry = first; entry != null; entry = entry.next) callbacks.add(entry.callback);
-        return java.util.Collections.unmodifiableList(callbacks).iterator();
+        return Collections.unmodifiableList(callbacks).iterator();
     }
 
     @Override

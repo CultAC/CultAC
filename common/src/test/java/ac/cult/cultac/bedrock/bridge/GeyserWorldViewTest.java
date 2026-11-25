@@ -11,6 +11,7 @@ import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.entity.PaintingSize;
 import ac.cult.blocksim.environment.ClientWorldDefaults;
 import ac.cult.blocksim.environment.DimensionData;
+import ac.cult.blocksim.environment.WorldRegistryJson;
 import ac.cult.cultac.network.packet.RegistryData;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder.RegistryEntry;
@@ -61,8 +62,7 @@ class GeyserWorldViewTest {
     }
 
     private static ClientWorldRegistries.Definition definition(String key, NbtValue.Compound data) {
-        var json =
-                ac.cult.blocksim.environment.WorldRegistryJson.dimension(data).toString();
+        var json = WorldRegistryJson.dimension(data).toString();
         return new ClientWorldRegistries.Definition(key, new ClientWorldDefaults.Entry(data, json));
     }
 

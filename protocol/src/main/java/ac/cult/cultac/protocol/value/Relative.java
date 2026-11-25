@@ -1,5 +1,9 @@
 package ac.cult.cultac.protocol.value;
 
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Set;
+
 public enum Relative {
     X(0),
     Y(1),
@@ -17,29 +21,25 @@ public enum Relative {
         this.mask = 1 << bit;
     }
 
-    public int mask() {
-        return mask;
-    }
-
-    public static int pack(java.util.Set<Relative> values) {
+    public static int pack(Set<Relative> values) {
         int mask = 0;
         for (Relative relative : values) mask |= relative.mask;
         return mask;
     }
 
     /** Vanilla ignores bits that do not identify one of the defined flags. */
-    public static java.util.Set<Relative> unpack(int mask) {
-        var result = java.util.EnumSet.noneOf(Relative.class);
+    public static Set<Relative> unpack(int mask) {
+        var result = EnumSet.noneOf(Relative.class);
         for (Relative relative : values()) {
             if ((mask & relative.mask) != 0) result.add(relative);
         }
-        return java.util.Collections.unmodifiableSet(result);
+        return Collections.unmodifiableSet(result);
     }
 
     /** Owned, immutable and in enum order, including the empty set. */
-    public static java.util.Set<Relative> copyOf(java.util.Set<Relative> values) {
-        var copy = java.util.EnumSet.noneOf(Relative.class);
+    public static Set<Relative> copyOf(Set<Relative> values) {
+        var copy = EnumSet.noneOf(Relative.class);
         copy.addAll(values);
-        return java.util.Collections.unmodifiableSet(copy);
+        return Collections.unmodifiableSet(copy);
     }
 }

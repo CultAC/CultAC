@@ -5,6 +5,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import java.util.Objects;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockVehicleControl {
@@ -23,6 +24,12 @@ public final class BedrockVehicleControl {
                 : null;
     }
 
+    /** The controlled vehicle once the client predicts it, from its first tick in it: it ignores its moves. */
+    public static PacketEntity predictedVehicle(CultPlayer player) {
+        var vehicle = controlledVehicle(player);
+        return vehicle != null && vehicle == player.bedrockState.predictedVehicle ? vehicle : null;
+    }
+
     public static boolean isSupported(PacketEntity entity) {
         return entity != null
                 && (entity instanceof PacketEntityHorse && BedrockHorseProperties.supports(entity.type)
@@ -32,8 +39,7 @@ public final class BedrockVehicleControl {
     public static boolean matches(BedrockAuthInputFrame frame, PacketEntity vehicle) {
         return (!vehicle.isBoat()
                         || vehicle.bedrockBoat != null
-                                && java.util.Objects.equals(
-                                        frame.getPredictedVehicleId(), vehicle.bedrockBoat.runtimeId()))
+                                && Objects.equals(frame.getPredictedVehicleId(), vehicle.bedrockBoat.runtimeId()))
                 && frame.hasMinimumStrictData()
                 && Double.isFinite(frame.getPosition().x)
                 && Double.isFinite(frame.getPosition().y)

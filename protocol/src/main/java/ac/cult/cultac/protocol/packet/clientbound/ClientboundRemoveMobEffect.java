@@ -1,7 +1,9 @@
 package ac.cult.cultac.protocol.packet.clientbound;
 
+import java.util.Objects;
+
 public record ClientboundRemoveMobEffect(int entityId, String effect) implements ClientboundPacket {
     public ClientboundRemoveMobEffect {
-        java.util.Objects.requireNonNull(effect);
+        Objects.requireNonNull(effect);
     }
 }

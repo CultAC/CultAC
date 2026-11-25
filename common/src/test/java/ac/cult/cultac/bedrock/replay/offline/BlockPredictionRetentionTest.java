@@ -5,6 +5,7 @@ import static org.junit.Assert.*;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.ClientVersionFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
@@ -29,11 +30,10 @@ public class BlockPredictionRetentionTest {
             for (int i = 0; i < count; i++) {
                 BlockPos pos = position(i);
                 world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), air);
-                world.advanceClientPredictionSequence();
+                world.advanceClientPredictionSequence(0);
                 world.startPredicting();
                 world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), stone);
                 world.stopPredicting(0);
-                world.handlePredictionConfirmation(0, player.lastTransactionSent.get());
             }
             BlockPos oldest = position(0);
             assertEquals(cap, ((Map<?, ?>) field(world, "serverIsCurrentlyProcessingThesePredictions")).size());
@@ -62,7 +62,7 @@ public class BlockPredictionRetentionTest {
                     DataTables.defaults().registry().block("minecraft:stone").defaultState();
             BlockPos pos = position(0);
             world.ensureValidationChunkLoaded(0, 0);
-            world.advanceClientPredictionSequence();
+            world.advanceClientPredictionSequence(1);
             world.startPredicting();
             world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), stone);
             world.stopPredicting(1);
@@ -109,9 +109,7 @@ public class BlockPredictionRetentionTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = javaPlayer();
         try {
-            Field resolved = CultPlayer.class.getDeclaredField("resolvedClientVersion");
-            resolved.setAccessible(true);
-            resolved.set(player, version);
+            ClientVersionFixtures.setClientVersion(player, version);
             var world = player.compensatedWorld;
             int air = DataTables.defaults().registry().block("minecraft:air").defaultState();
             int stone =
@@ -121,7 +119,7 @@ public class BlockPredictionRetentionTest {
             BlockPos oldest = position(0);
             world.updateBlock(oldest.getX(), oldest.getY(), oldest.getZ(), stone);
             moveTo(player, oldest.getX() + 0.5, 70, oldest.getZ() + 0.5);
-            world.advanceClientPredictionSequence();
+            world.advanceClientPredictionSequence(0);
             world.startPredicting();
             world.updateBlock(oldest.getX(), oldest.getY(), oldest.getZ(), air);
             world.stopPredicting(0);
@@ -131,7 +129,7 @@ public class BlockPredictionRetentionTest {
             for (int i = 1; i <= cap; i++) {
                 BlockPos pos = position(i);
                 world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), air);
-                world.advanceClientPredictionSequence();
+                world.advanceClientPredictionSequence(0);
                 world.startPredicting();
                 world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), stone);
                 world.stopPredicting(0);

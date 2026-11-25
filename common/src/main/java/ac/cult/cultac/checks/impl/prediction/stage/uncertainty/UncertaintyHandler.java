@@ -15,6 +15,10 @@ public interface UncertaintyHandler {
         return false;
     }
 
+    /**
+     * By default a handler models a change to the client's Entity#deltaMovement, so its shift moves the trace's
+     * pre-collision velocity too. Handlers whose movement Entity#move never writes to deltaMovement override this.
+     */
     default MovementTrace handleMovementTrace(
             CultPlayer player,
             ValidMovements valid,
@@ -23,7 +27,8 @@ public interface UncertaintyHandler {
             PredictionResult lastResult,
             MovementTrace trace,
             Vec3 end) {
-        return trace.withPosition(handleUncertainty(player, valid, result, context, lastResult, trace.position(), end));
+        return trace.withVelocityShift(handleUncertainty(player, valid, result, context, lastResult, trace.position(), end),
+                context == null ? null : trace.position().collisionStuckSpeedMultiplier(context));
     }
 
     PredVector handleUncertainty(
@@ -34,21 +39,4 @@ public interface UncertaintyHandler {
             PredictionResult lastResult,
             PredVector start,
             Vec3 end);
-
-    /**
-     * Replaces the start in {@code xyz} with the position {@link #handleUncertainty} returns for it, with the same
-     * side effects, for a start whose flags are {@code carrier}'s and whose lineage since {@code carrier} holds only
-     * steps of handlers that implement this method. A handler that does not override it has no such form.
-     */
-    default void positionInto(
-            double[] xyz,
-            CultPlayer player,
-            ValidMovements valid,
-            PredictionResult result,
-            SimulationContext context,
-            PredictionResult lastResult,
-            PredVector carrier,
-            Vec3 end) {
-        throw new UnsupportedOperationException(getClass().getName());
-    }
 }

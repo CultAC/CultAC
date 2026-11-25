@@ -1,16 +1,27 @@
 package ac.cult.cultac.bedrock.player;
 
+import ac.cult.cultac.bedrock.bridge.GeyserWorldView;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockControlInput;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActorBuffer;
 import ac.cult.cultac.bedrock.prediction.model.BedrockBoundingBoxMode;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockRidingJumpState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientAction;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.utils.collisions.BedrockMovingBlockShape;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import java.util.Set;
 import java.util.UUID;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -21,21 +32,80 @@ public final class BedrockPlayerState {
     public boolean acknowledgedSprinting;
     public final BedrockBlockBreakActions blockBreakActions = new BedrockBlockBreakActions();
     public final BedrockMovementEffects movementEffects = new BedrockMovementEffects();
-    public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =
-            new ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections();
+    public final BedrockClientActors clientActors = new BedrockClientActors();
+    public final BedrockClientChunks clientChunks = new BedrockClientChunks();
+    public final BedrockShulkerBoxLids shulkerBoxLids = new BedrockShulkerBoxLids();
+    public final BedrockPistonBlocks pistonBlocks = new BedrockPistonBlocks();
+    public final BedrockMovementCorrections movementCorrections = new BedrockMovementCorrections();
+    public final BedrockSolidActorBuffer solidActorBuffer = new BedrockSolidActorBuffer();
     /** The session's view of its world registries through Geyser. */
-    public final ac.cult.cultac.bedrock.bridge.GeyserWorldView worldView =
-            new ac.cult.cultac.bedrock.bridge.GeyserWorldView();
+    public final GeyserWorldView worldView = new GeyserWorldView();
     // Accessed under the CultPlayer transaction lock.
-    public ac.cult.cultac.player.CultPlayer.BedrockTransaction lastClientboundTransaction;
+    public CultPlayer.BedrockTransaction lastClientboundTransaction;
+    // The vehicle the client predicted on its last tick; null after a tick it predicted none.
+    public PacketEntity predictedVehicle;
+    // The last tick the client ran before it took a link that seated it on a vehicle it was not riding.
+    private long riderSeatedAfterTick = Long.MIN_VALUE;
+    // The angular velocity that link gives the vehicle.
+    private float seatedVehicleAngularVelocity;
     private final UUID playerUuid;
 
     private BedrockProtocolVersion protocolVersion = BedrockProtocolVersion.UNKNOWN;
     private boolean setbacksEnabled = true;
     private BedrockAuthInputFrame lastOfferedFrame;
+    // The last frame of a tick that read the client's movement input. A tick that takes a teleport and the ticks of a
+    // loading screen do not read it: the actor keeps the input it held before them.
+    private BedrockAuthInputFrame controlFrame;
     private BedrockAuthInputFrame lastProcessedFrame;
     private long processedAuthInputSequence;
     private long lastMovementTick = -1;
+    // Unknown until the session's palette is known: which parts of its shapes the client derives from neighbours.
+    private boolean derivedShapesKnown;
+    private boolean stairCornersFromNeighbours;
+    private boolean chorusConnectionsFromNeighbours;
+    private boolean fenceConnectionsFromNeighbours;
+    private BedrockBlockShapeContext.Connections connections = BedrockBlockShapeContext.Connections.NONE;
+
+    public boolean derivedShapesKnown() {
+        return derivedShapesKnown;
+    }
+
+    public boolean derivesShapesFromNeighbours() {
+        return stairCornersFromNeighbours || chorusConnectionsFromNeighbours || fenceConnectionsFromNeighbours;
+    }
+
+    public void derivedShapes(
+            boolean stairCorners,
+            boolean chorusConnections,
+            boolean fenceConnections,
+            BedrockBlockShapeContext.Connections connections) {
+        derivedShapesKnown = true;
+        stairCornersFromNeighbours = stairCorners;
+        chorusConnectionsFromNeighbours = chorusConnections;
+        fenceConnectionsFromNeighbours = fenceConnections;
+        this.connections = connections;
+    }
+
+    /** The client state this player's block collision shapes read, in the coordinate frame of its latest input. */
+    public BedrockBlockShapeContext blockShapeContext(CultPlayer player) {
+        return new BedrockBlockShapeContext(
+                position -> shulkerBoxLids.lift(BlockPos.asLong(position.x(), position.y(), position.z())),
+                position -> BedrockMovingBlockShape.boxes(player, position),
+                position -> pistonBlocks.progress(
+                        new BlockPos(position.x(), position.y(), position.z()),
+                        player.compensatedWorld::getBlockStateIdAt),
+                lastOfferedFrame == null ? BedrockCoordinateFrame.IDENTITY : lastOfferedFrame.getCoordinateFrame(),
+                position -> BedrockMovingBlockShape.carried(player, position),
+                derivesShapesFromNeighbours()
+                        ? new BedrockBlockShapeContext.DerivedShapes(
+                                position -> player.compensatedWorld.getBlockStateIdAt(
+                                        position.x(), position.y(), position.z()),
+                                stairCornersFromNeighbours,
+                                chorusConnectionsFromNeighbours,
+                                fenceConnectionsFromNeighbours,
+                                connections)
+                        : BedrockBlockShapeContext.DerivedShapes.OWN_STATE);
+    }
 
     public long lastMovementTick() {
         return lastMovementTick;
@@ -45,6 +115,14 @@ public final class BedrockPlayerState {
         if (tick <= lastMovementTick) return false;
         lastMovementTick = tick;
         return true;
+    }
+
+    /**
+     * The client answered a marker after it sent the input of {@code tick}, whether or not that input was accepted:
+     * every input it sends from then on carries a later tick.
+     */
+    public void answeredAfterMovementTick(long tick) {
+        if (tick > lastMovementTick) lastMovementTick = tick;
     }
 
     private BedrockMoveFrame lastMoveFrame;
@@ -57,7 +135,6 @@ public final class BedrockPlayerState {
     private long lastVerboseMovementLog = Long.MIN_VALUE;
     private PlayerDimensionsState confirmedBoundingBoxSize;
     private PlayerDimensionsState collisionDefinition;
-    private Long observedActorRuntimeId;
     private BedrockRidingJumpState ridingJump = BedrockRidingJumpState.INITIAL;
     private BedrockAuthInputFrame ridingJumpFrame;
     private int horseJumpRelease = -1;
@@ -66,20 +143,23 @@ public final class BedrockPlayerState {
         this.playerUuid = playerUuid;
     }
 
-    /** Null for older captures whose actor-creation history is unavailable. */
-    public Long observedActorRuntimeId() {
-        return observedActorRuntimeId;
-    }
-
-    public void recordActorCreation(long runtimeEntityId) {
+    public void recordActorCreation() {
         collisionDefinition = null;
         movementCorrections.clear();
+        predictedVehicle = null;
         lastMovementTick = -1;
         movementEffects.clear();
-        observedActorRuntimeId = runtimeEntityId;
+        movementCorrections.clearEffects();
+        clientActors.clear();
         ridingJump = BedrockRidingJumpState.INITIAL;
         ridingJumpFrame = null;
         horseJumpRelease = -1;
+        controlFrame = null;
+    }
+
+    /** The frame whose movement input the actor travels with on the tick of {@code frame}, the latest offered. */
+    public BedrockAuthInputFrame controlFrame(BedrockAuthInputFrame frame) {
+        return frame == lastOfferedFrame && controlFrame != null ? controlFrame : frame;
     }
 
     public void tickRidingJump(BedrockAuthInputFrame frame, boolean canPowerJump) {
@@ -103,6 +183,9 @@ public final class BedrockPlayerState {
             protocolVersion = frame.getProtocolVersion();
         }
         lastOfferedFrame = frame;
+        if (!frame.hasRawInputFlag(PlayerAuthInputData.HANDLE_TELEPORT)
+                && !loadingScreen.active()
+                && BedrockControlInput.validControl(frame)) controlFrame = frame;
         lastAuthInputMatchStatus = "observed auth input tick=" + frame.getClientTick();
         actions.forFrame(frame);
         applyClientPoseFrame(frame);
@@ -140,20 +223,27 @@ public final class BedrockPlayerState {
         return processedAuthInputSequence;
     }
 
+    /**
+     * The client takes a link that seats it on a vehicle it was not riding, before its next tick, and gives the vehicle
+     * the link's angular velocity.
+     */
+    public void seatRider(float vehicleAngularVelocity) {
+        riderSeatedAfterTick = processedClientTick();
+        seatedVehicleAngularVelocity = vehicleAngularVelocity;
+    }
+
+    public float seatedVehicleAngularVelocity() {
+        return seatedVehicleAngularVelocity;
+    }
+
+    /** Whether {@code clientTick} is the client's first tick on the vehicle a link seated it on. */
+    public boolean seatsRider(long clientTick) {
+        return riderSeatedAfterTick != Long.MIN_VALUE && clientTick == riderSeatedAfterTick + 1;
+    }
+
     /** Wire timestamp paired with the latest processed input, not the simulation sequence. */
     public long processedClientTick() {
         return lastProcessedFrame == null ? 0L : lastProcessedFrame.getClientTick();
-    }
-
-    /** Clears packet-local input while retaining confirmed pose and dimensions. */
-    public void clearTransientMovementInputState() {
-        lastOfferedFrame = null;
-        lastProcessedFrame = null;
-        lastMoveFrame = null;
-        lastPoseAppliedFrame = null;
-        lastPoseAppliedState = null;
-        actions.clear();
-        lastAuthInputMatchStatus = "transient auth input state cleared";
     }
 
     public void applyAcknowledgedBoundingBoxMetadata(Float width, Float height) {
@@ -168,10 +258,6 @@ public final class BedrockPlayerState {
         }
         confirmedBoundingBoxSize = new PlayerDimensionsState(
                 width == null ? previous.width() : width, height == null ? previous.height() : height);
-    }
-
-    public void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming) {
-        applyAcknowledgedPoseMetadata(crawling, swimming, null, null, null);
     }
 
     public void applyAcknowledgedPoseMetadata(
@@ -200,10 +286,19 @@ public final class BedrockPlayerState {
         return swimmingRequested;
     }
 
+    /**
+     * The collision definition the client holds at {@code scale}: it multiplies the definition it was given by the
+     * scale in its own entity data. Null until the definition is confirmed.
+     */
+    public PlayerDimensionsState scaledCollisionDefinition(float scale) {
+        return collisionDefinition == null ? null : BedrockActorDimensions.scaledDefinition(collisionDefinition, scale);
+    }
+
+    /** {@code scale} is the player's scale, which for a Bedrock player is the one its client acknowledged. */
     public BedrockMovementState applyConfirmedBoundingBoxSize(
-            BedrockMovementState source, BedrockInputFrame currentFrame) {
+            BedrockMovementState source, BedrockInputFrame currentFrame, float scale) {
         if (source != null && !source.isVehicle() && collisionDefinition != null) {
-            source = source.withCollisionDefinition(collisionDefinition);
+            source = BedrockActorDimensions.withCollisionDefinition(source, scaledCollisionDefinition(scale));
         }
         if (source == null
                 || confirmedBoundingBoxSize == null
@@ -276,7 +371,7 @@ public final class BedrockPlayerState {
         SNEAKING {
             @Override
             BedrockClientPoseState apply(BedrockClientPoseState state, BedrockAuthInputFrame frame) {
-                if (frame.isStopSneaking() || frame.hasRawInputFlag(PlayerAuthInputData.SNEAK_RELEASED_RAW)) {
+                if (frame.isStopSneaking()) {
                     return state.withSneaking(false);
                 }
                 return frame.hasRawInputFlag(PlayerAuthInputData.SNEAKING) ? state.withSneaking(true) : state;

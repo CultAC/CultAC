@@ -11,17 +11,11 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.Nullable;
 
 public class FeatureManagerImpl implements FeatureManager, ConfigReloadObserver {
 
     private static final Map<String, CultFeature> FEATURES;
-
-    @Contract(pure = true)
-    public static Map<String, CultFeature> getFeatures() {
-        return FEATURES;
-    }
 
     static {
         FeatureBuilder builder = new FeatureBuilder();

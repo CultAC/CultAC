@@ -14,13 +14,6 @@ public class BukkitGlobalRegionScheduler implements GlobalRegionScheduler {
     private final BukkitScheduler bukkitScheduler = Bukkit.getScheduler();
 
     @Override
-    public void execute(@NotNull GrimPlugin plugin, @NotNull Runnable task) {
-        final Runnable guarded_task = RuntimeEnvironment.guard(task);
-
-        new BukkitTaskHandle(bukkitScheduler.runTask(CultACBukkitLoaderPlugin.LOADER, guarded_task));
-    }
-
-    @Override
     public TaskHandle run(@NotNull GrimPlugin plugin, @NotNull Runnable task) {
         final Runnable guarded_task = RuntimeEnvironment.guard(task);
 

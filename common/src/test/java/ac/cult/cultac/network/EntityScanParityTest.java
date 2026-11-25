@@ -7,6 +7,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
@@ -40,10 +41,16 @@ class EntityScanParityTest {
         return !(!EntityTypeUtil.isLiving(entity.type) && !hard || entity.type == EntityTypeIds.ARMOR_STAND);
     }
 
-    private static boolean referencePoseCollide(CultPlayer player, PacketEntity riding, PacketEntity entity) {
+    /** Entity#getRootVehicle of entities the model does not track. */
+    private static PacketEntity rootOf(PacketEntity entity) {
+        while (entity.getRiding() != null) entity = entity.getRiding();
+        return entity;
+    }
+
+    /** {@code root} is the root of the player's riding tree: no entity of that tree collides with the player. */
+    private static boolean referencePoseCollide(CultPlayer player, PacketEntity root, PacketEntity entity) {
         if (entity == null || entity.isDead || entity.getEntityId() == player.entityID) return false;
-        if (riding != null && (riding == entity || riding.hasPassenger(entity) || entity.hasPassenger(riding)))
-            return false;
+        if (root != null && rootOf(entity) == root) return false;
         return EntityTypeUtil.isBoat(entity.type)
                 || entity.type == EntityTypeIds.SHULKER
                 || EntityTypeUtil.isHappyGhast(entity.type);
@@ -75,7 +82,7 @@ class EntityScanParityTest {
             for (int id : modelTypes()) {
                 for (int entityId : new int[] {500, player.entityID}) {
                     for (boolean dead : new boolean[] {false, true}) {
-                        for (int ridingState = 0; ridingState < 5; ridingState++) {
+                        for (int ridingState = 0; ridingState < 7; ridingState++) {
                             PacketEntity entity = new PacketEntity(id, entityId);
                             entity.isDead = dead;
                             PacketEntity riding = switch (ridingState) {
@@ -85,10 +92,17 @@ class EntityScanParityTest {
                             };
                             if (ridingState == 2) entity.mount(riding);
                             if (ridingState == 3) riding.mount(entity);
-                            boolean expected = referencePoseCollide(player, riding, entity);
+                            // A pig between them: the vehicle the player rides and the entity share only a root.
+                            if (ridingState >= 5) {
+                                PacketEntity between = new PacketEntity(EntityTypeIds.PIG, 601);
+                                (ridingState == 5 ? entity : riding).mount(between);
+                                between.mount(ridingState == 5 ? riding : entity);
+                            }
+                            PacketEntity root = riding == null ? null : rootOf(riding);
+                            boolean expected = referencePoseCollide(player, root, entity);
                             assertEquals(
                                     expected,
-                                    canCollide.invoke(player, riding, entity),
+                                    canCollide.invoke(player, root, entity),
                                     EntityTypeUtil.getKey(id) + " id=" + entityId + " dead=" + dead + " riding="
                                             + ridingState);
                             if (expected) accepted++;
@@ -115,9 +129,11 @@ class EntityScanParityTest {
                 SimpleCollisionBox.class,
                 SimpleCollisionBox.class);
         pusherBox.setAccessible(true);
-        Method sweepBox = WorldStageBuilder.class.getDeclaredMethod("playerSweep", SimulationContext.class);
+        Method sweepBox = WorldStageBuilder.class.getDeclaredMethod(
+                "playerSweep", SimulationContext.class, SimpleCollisionBox.class, SimpleCollisionBox.class);
         sweepBox.setAccessible(true);
-        Method contactBox = WorldStageBuilder.class.getDeclaredMethod("pusherContactBox", SimpleCollisionBox.class);
+        Method contactBox = WorldStageBuilder.class.getDeclaredMethod(
+                "pusherContactBox", SimpleCollisionBox.class, SimpleCollisionBox.class);
         contactBox.setAccessible(true);
         Method pushes = WorldStageBuilder.class.getDeclaredMethod(
                 "pushesPlayer", PacketEntity.class, SimpleCollisionBox.class, SimpleCollisionBox.class);
@@ -140,8 +156,10 @@ class EntityScanParityTest {
             rider.mount(riddenBoat);
 
             SimulationContext context = prediction.getSimulationContext();
-            SimpleCollisionBox sweep = (SimpleCollisionBox) sweepBox.invoke(null, context);
-            SimpleCollisionBox playerBox = (SimpleCollisionBox) contactBox.invoke(null, sweep);
+            SimpleCollisionBox sweep = (SimpleCollisionBox)
+                    sweepBox.invoke(null, context, new SimpleCollisionBox(), new SimpleCollisionBox());
+            SimpleCollisionBox playerBox =
+                    (SimpleCollisionBox) contactBox.invoke(null, sweep, new SimpleCollisionBox());
             long playerTickOrder = entities.getSelf().getClientTickOrder();
             int expected = 0;
             int colliding = 0;
@@ -161,6 +179,8 @@ class EntityScanParityTest {
                 if (entities.clientTickOrder(entity) < playerTickOrder) continue;
                 // The recount keeps the movement's own count of riders outside the player's riding trees.
                 if (entities.isUntrackedRider(entity)) continue;
+                // A boat that ticks after a Java player on foot pushes it in the velocity the next tick starts from.
+                if (entity.isBoat() && EntityPush.carriesBoatPushAtReport(f.player, context)) continue;
                 if (entityBox != null && (boolean) pushes.invoke(null, entity, entityBox, sweep)) expected++;
             }
             WorldStageBuilder.recountCollidingTickingAfterPlayer(f.player, prediction);

@@ -51,19 +51,4 @@ public class BukkitEntityScheduler implements EntityScheduler {
 
         return new BukkitTaskHandle(scheduler.runTaskLater(CultACBukkitLoaderPlugin.LOADER, guarded_task, delayTicks));
     }
-
-    @Override
-    public TaskHandle runAtFixedRate(
-            @NotNull CultEntity entity,
-            @NotNull GrimPlugin plugin,
-            @NotNull Runnable task,
-            @Nullable Runnable retired,
-            long initialDelayTicks,
-            long periodTicks) {
-        final Runnable guarded_task = RuntimeEnvironment.guard(task);
-        final Runnable guarded_retired = RuntimeEnvironment.guard(retired);
-
-        return BukkitTaskHandle.repeating(
-                scheduler.runTaskTimer(CultACBukkitLoaderPlugin.LOADER, guarded_task, initialDelayTicks, periodTicks));
-    }
 }

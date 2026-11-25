@@ -14,6 +14,7 @@ import static ac.cult.cultac.checks.info.CheckCategory.VEHICLES;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.CheckInfo;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.impl.aim.AimDuplicateLook;
 import ac.cult.cultac.checks.impl.aim.AimModulo360;
 import ac.cult.cultac.checks.impl.autoclicker.AutoclickerLimit;
@@ -35,7 +36,6 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsO;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsP;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsQ;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsR;
-import ac.cult.cultac.checks.impl.badpackets.BadPacketsS;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsT;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsU;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsV;
@@ -49,7 +49,6 @@ import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.breaking.AirLiquidBreak;
 import ac.cult.cultac.checks.impl.breaking.FarBreak;
 import ac.cult.cultac.checks.impl.breaking.FastBreak;
-import ac.cult.cultac.checks.impl.breaking.InvalidBreak;
 import ac.cult.cultac.checks.impl.breaking.MultiBreak;
 import ac.cult.cultac.checks.impl.breaking.NoSwingBreak;
 import ac.cult.cultac.checks.impl.breaking.PositionBreakA;
@@ -82,6 +81,7 @@ import ac.cult.cultac.checks.impl.combat.MultiInteractA;
 import ac.cult.cultac.checks.impl.combat.MultiInteractB;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
+import ac.cult.cultac.checks.impl.combat.RidingInteract;
 import ac.cult.cultac.checks.impl.combat.SelfInteract;
 import ac.cult.cultac.checks.impl.crash.CrashA;
 import ac.cult.cultac.checks.impl.crash.CrashB;
@@ -110,7 +110,6 @@ import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
 import ac.cult.cultac.checks.impl.misc.BrandSpoofA;
 import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
-import ac.cult.cultac.checks.impl.movement.EntityControl;
 import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
@@ -137,6 +136,8 @@ import ac.cult.cultac.checks.impl.multiactions.MultiActionsQ;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsR;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsS;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsT;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsU;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsV;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderA;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderB;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderC;
@@ -163,7 +164,6 @@ import ac.cult.cultac.checks.impl.prediction.checks.psuedo.BoatPseudo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.ElytraPseudo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.HappyGhastPseudo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InvalidStep;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
@@ -179,7 +179,6 @@ import ac.cult.cultac.checks.impl.scaffolding.DuplicateRotPlace;
 import ac.cult.cultac.checks.impl.scaffolding.FabricatedPlace;
 import ac.cult.cultac.checks.impl.scaffolding.FarPlace;
 import ac.cult.cultac.checks.impl.scaffolding.InvalidPlaceA;
-import ac.cult.cultac.checks.impl.scaffolding.InvalidPlaceB;
 import ac.cult.cultac.checks.impl.scaffolding.MultiPlace;
 import ac.cult.cultac.checks.impl.scaffolding.RotationPlace;
 import ac.cult.cultac.checks.impl.sprint.SprintA;
@@ -190,25 +189,31 @@ import ac.cult.cultac.checks.impl.sprint.SprintE;
 import ac.cult.cultac.checks.impl.sprint.SprintF;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.checks.impl.sprint.SprintH;
-import ac.cult.cultac.checks.impl.vehicle.VehicleA;
-import ac.cult.cultac.checks.impl.vehicle.VehicleB;
+import ac.cult.cultac.checks.impl.sprint.SprintI;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.impl.vehicle.VehicleD;
 import ac.cult.cultac.checks.impl.vehicle.VehicleE;
 import ac.cult.cultac.checks.impl.vehicle.VehicleF;
 import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
-import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.AttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
-import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
+import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -219,23 +224,48 @@ public final class CheckCatalog {
     /**
      * One check's identity as the running check reports it.
      *
-     * @param name the check name punishments match and alerts show by default
-     * @param configName the prefix of the check's own config keys
+     * @param names the check's name in each name version; punishments match the name and alerts show it by default
+     * @param declaredConfigName the prefix of the check's own config keys where it is not the check's name; else
+     *     {@code null} or {@code "DEFAULT"}
      * @param altName the second name punishments match; {@link CheckData#NO_ALTERNATIVE_NAME} for a {@code @CheckData}
      *     check without one, {@code null} for a {@code CheckInfo} check without one
+     * @param stableKey the check's identity, the same under every name and in every build
      */
     public record Entry(
-            String name, String configName, @Nullable String altName, boolean experimental, CheckCategory category) {}
+            CheckNames names,
+            @Nullable String declaredConfigName,
+            @Nullable String altName,
+            boolean experimental,
+            CheckCategory category,
+            String stableKey) {
+        /** The check's name in the newest name version; {@code check-info/en.yml} explains the check under it. */
+        public String name() {
+            return names.latest();
+        }
+
+        public String name(int nameVersion) {
+            return names.in(nameVersion);
+        }
+
+        /** The prefix of the check's own config keys in the newest name version. */
+        public String configName() {
+            return configName(CheckNames.LATEST);
+        }
+
+        public String configName(int nameVersion) {
+            return Check.configName(names.in(nameVersion), declaredConfigName);
+        }
+    }
 
     public static final List<Entry> ENTRIES = List.of(
             check(AimDuplicateLook.class, COMBAT),
             check(AimModulo360.class, COMBAT),
             check(ExplosionHandler.INFO, COMBAT),
             check(KnockbackHandler.INFO, COMBAT),
-            check(AttackMobVisibility.class, COMBAT),
+            check(AttackEntityVisibility.class, COMBAT),
             check(AttackPlayerVisibility.class, COMBAT),
             check(AutoclickerLimit.INFO, COMBAT),
-            check(BedrockAttackMobVisibility.class, COMBAT),
+            check(BedrockAttackEntityVisibility.class, COMBAT),
             check(BedrockAttackPlayerVisibility.class, COMBAT),
             check(BedrockEntityHitboxes.class, COMBAT),
             check(BedrockEntityReach.INFO, COMBAT),
@@ -245,6 +275,7 @@ public final class CheckCatalog {
             check(EntityReach.INFO, COMBAT),
             check(FairReach.INFO, COMBAT),
             check(InteractEntityVisibility.class, COMBAT),
+            check(InteractPlayerVisibility.class, COMBAT),
             check(KeepSprint.INFO, COMBAT),
             check(MultiActionsA.class, COMBAT),
             check(MultiActionsE.class, COMBAT),
@@ -253,16 +284,16 @@ public final class CheckCatalog {
             check(MultiInteractB.class, COMBAT),
             check(PlayerHitboxes.class, COMBAT),
             check(PlayerReach.INFO, COMBAT),
+            check(RidingInteract.class, COMBAT),
             check(SelfInteract.class, COMBAT),
             check(Angle.INFO, MOVEMENT),
             check(BedrockMovement.INFO, MOVEMENT),
             check(GhostFriction.INFO, MOVEMENT),
             check(NoFallPseudo.INFO, MOVEMENT),
             check(InputKeys.INFO, MOVEMENT),
-            check(InvalidStep.INFO, MOVEMENT),
             check(ItemUseBurst.INFO, MOVEMENT),
-            check(NegativeTimerCheck.INFO, MOVEMENT),
             check(NoFallExecutor.INFO, MOVEMENT),
+            check(NegativeTimerCheck.INFO, MOVEMENT),
             check(NoSlow.INFO, MOVEMENT),
             check(NoSneakSlow.INFO, MOVEMENT),
             check(OmniSprint.INFO, MOVEMENT),
@@ -278,6 +309,7 @@ public final class CheckCatalog {
             check(SprintF.class, MOVEMENT),
             check(SprintG.class, MOVEMENT),
             check(SprintH.class, MOVEMENT),
+            check(SprintI.class, MOVEMENT),
             check(Strafe.INFO, MOVEMENT),
             check(TickTimer.class, MOVEMENT),
             check(TimerCheck.INFO, MOVEMENT),
@@ -294,12 +326,9 @@ public final class CheckCatalog {
             check(ElytraI.class, ELYTRA),
             check(ElytraJ.class, ELYTRA),
             check(BoatPseudo.INFO, VEHICLES),
-            check(EntityControl.INFO, VEHICLES),
             check(HappyGhastPseudo.INFO, VEHICLES),
             check(MultiActionsG.class, VEHICLES),
             check(VehicleTimer.INFO, VEHICLES),
-            check(VehicleA.class, VEHICLES),
-            check(VehicleB.class, VEHICLES),
             check(VehicleC.class, VEHICLES),
             check(VehicleD.class, VEHICLES),
             check(VehicleE.class, VEHICLES),
@@ -316,9 +345,7 @@ public final class CheckCatalog {
             check(FarBreak.class, BUILDING),
             check(FarPlace.class, BUILDING),
             check(FastBreak.class, BUILDING),
-            check(InvalidBreak.class, BUILDING),
             check(InvalidPlaceA.class, BUILDING),
-            check(InvalidPlaceB.class, BUILDING),
             check(MultiActionsB.class, BUILDING),
             check(MultiBreak.class, BUILDING),
             check(MultiPlace.class, BUILDING),
@@ -344,6 +371,8 @@ public final class CheckCatalog {
             check(MultiActionsR.class, INVENTORY),
             check(MultiActionsS.class, INVENTORY),
             check(MultiActionsT.class, INVENTORY),
+            check(MultiActionsU.class, INVENTORY),
+            check(MultiActionsV.class, INVENTORY),
             check(ChatA.class, CHAT),
             check(ChatB.class, CHAT),
             check(ChatC.class, CHAT),
@@ -367,7 +396,6 @@ public final class CheckCatalog {
             check(BadPacketsP.class, PACKETS),
             check(BadPacketsQ.class, PACKETS),
             check(BadPacketsR.class, PACKETS),
-            check(BadPacketsS.class, PACKETS),
             check(BadPacketsT.class, PACKETS),
             check(BadPacketsU.class, PACKETS),
             check(BadPacketsV.class, PACKETS),
@@ -421,35 +449,142 @@ public final class CheckCatalog {
             check(CloudExploit.class, CLOUD),
             check(CloudExploitExperimental.class, CLOUD));
 
+    private record Query(String name, String latestName, int nameVersion) {}
+
+    // query runs for every alert; the catalog is searched once per name and name version.
+    private static final Map<Query, String> QUERIES = new ConcurrentHashMap<>();
+
     private CheckCatalog() {}
 
     private static Entry check(Class<? extends Check> type, CheckCategory category) {
         CheckData data = type.getAnnotation(CheckData.class);
         if (data == null) throw new IllegalArgumentException(type.getName() + " has no @CheckData");
         return new Entry(
-                data.name(),
-                Check.configName(data.name(), data.configName()),
+                CheckNames.of(data),
+                data.configName(),
                 data.alternativeName(),
                 data.experimental(),
-                category);
+                category,
+                data.stableKey());
     }
 
     private static Entry check(CheckInfo info, CheckCategory category) {
         return new Entry(
-                info.getName(),
-                Check.configName(info.getName(), info.getConfigName()),
+                info.getNames(),
+                info.getConfigName(),
                 info.getAltName(),
                 info.isExperimental(),
-                category);
+                category,
+                info.getStableKey());
     }
 
+    /**
+     * The check {@code query} names, whatever its case: by its name, config name or alternative name in the newest
+     * name version, else by a name it had in an older one.
+     */
     public static @Nullable Entry find(String query) {
         for (Entry entry : ENTRIES) {
-            if (entry.name().equalsIgnoreCase(query)
-                    || entry.configName().equalsIgnoreCase(query)
-                    || (hasAltName(entry) && entry.altName().equalsIgnoreCase(query))) return entry;
+            if (hasName(entry, query, CheckNames.LATEST)) return entry;
+        }
+        for (Entry entry : ENTRIES) {
+            for (int version = CheckNames.FIRST; version < CheckNames.LATEST; version++) {
+                if (hasName(entry, query, version)) return entry;
+            }
         }
         return null;
+    }
+
+    /**
+     * Every check {@code typed} names, whatever its case, as name version {@code nameVersion} names checks: the checks
+     * {@link #find(String, int)} chooses among, else the checks named alike in the name version {@link #find(String)}
+     * finds one in, else the check whose stable key it is. Empty when it names none.
+     */
+    public static List<Entry> named(String typed, int nameVersion) {
+        List<Entry> named = withName(typed, nameVersion);
+        if (!named.isEmpty()) return named;
+        Entry found = find(typed);
+        if (found != null) {
+            int version = CheckNames.LATEST;
+            if (!hasName(found, typed, version)) {
+                version = CheckNames.FIRST;
+                while (!hasName(found, typed, version)) version++;
+            }
+            return withName(typed, version);
+        }
+        for (Entry entry : ENTRIES) {
+            if (entry.stableKey().equalsIgnoreCase(typed)) return List.of(entry);
+        }
+        return List.of();
+    }
+
+    /**
+     * Names in name version {@code nameVersion} that {@link #named(String, int)} reads as exactly the checks of
+     * {@code stableKeys}, in their order and each once: a check's name there when every check the name names is among
+     * them, else its stable key. A key of no check of this build stays as it is.
+     */
+    public static List<String> names(Collection<String> stableKeys, int nameVersion) {
+        Set<String> keys = new HashSet<>(stableKeys);
+        Set<String> names = new LinkedHashSet<>();
+        for (String key : stableKeys) {
+            Entry entry = byStableKey(key);
+            if (entry == null) {
+                names.add(key);
+                continue;
+            }
+            String name = entry.name(nameVersion);
+            boolean whole = true;
+            for (Entry named : named(name, nameVersion)) whole &= keys.contains(named.stableKey());
+            names.add(whole ? name : key);
+        }
+        return List.copyOf(names);
+    }
+
+    /** The check whose stable key is {@code stableKey}; null when this build has none. */
+    public static @Nullable Entry byStableKey(String stableKey) {
+        for (Entry entry : ENTRIES) {
+            if (entry.stableKey().equals(stableKey)) return entry;
+        }
+        return null;
+    }
+
+    /**
+     * The check {@code query} names, whatever its case, as name version {@code nameVersion} names checks; of checks
+     * that version names alike, the one whose newest name it is. Else the check {@link #find(String)} gives.
+     */
+    public static @Nullable Entry find(String query, int nameVersion) {
+        List<Entry> named = withName(query, nameVersion);
+        for (Entry entry : named) {
+            if (entry.name().equalsIgnoreCase(query)) return entry;
+        }
+        return named.isEmpty() ? find(query) : named.getFirst();
+    }
+
+    /**
+     * What {@link #find(String, int)} finds the check named {@code latestName} by: {@code name}, its name in
+     * {@code nameVersion}, unless that finds another check there, else {@code latestName}.
+     */
+    public static String query(String name, String latestName, int nameVersion) {
+        return QUERIES.computeIfAbsent(new Query(name, latestName, nameVersion), CheckCatalog::query);
+    }
+
+    private static String query(Query query) {
+        Entry found = find(query.name(), query.nameVersion());
+        return found != null && found.name().equals(query.latestName()) ? query.name() : query.latestName();
+    }
+
+    /** The checks whose name, config name or alternative name in {@code nameVersion} is {@code query}, in order. */
+    private static List<Entry> withName(String query, int nameVersion) {
+        List<Entry> named = new ArrayList<>();
+        for (Entry entry : ENTRIES) {
+            if (hasName(entry, query, nameVersion)) named.add(entry);
+        }
+        return named;
+    }
+
+    private static boolean hasName(Entry entry, String query, int nameVersion) {
+        return entry.name(nameVersion).equalsIgnoreCase(query)
+                || entry.configName(nameVersion).equalsIgnoreCase(query)
+                || (hasAltName(entry) && entry.altName().equalsIgnoreCase(query));
     }
 
     private static boolean hasAltName(Entry entry) {
@@ -464,11 +599,17 @@ public final class CheckCatalog {
         return entries;
     }
 
+    /** The checks whose name in the newest name version contains {@code query}. */
     public static List<Entry> containing(String query) {
+        return containing(query, CheckNames.LATEST);
+    }
+
+    /** The checks whose name in {@code nameVersion} contains {@code query}. */
+    public static List<Entry> containing(String query, int nameVersion) {
         String lower = query.toLowerCase(Locale.ROOT);
         List<Entry> entries = new ArrayList<>();
         for (Entry entry : ENTRIES) {
-            if (entry.name().toLowerCase(Locale.ROOT).contains(lower)) entries.add(entry);
+            if (entry.name(nameVersion).toLowerCase(Locale.ROOT).contains(lower)) entries.add(entry);
         }
         return entries;
     }

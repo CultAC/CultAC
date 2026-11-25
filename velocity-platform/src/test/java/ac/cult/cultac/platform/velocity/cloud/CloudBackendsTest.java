@@ -14,10 +14,12 @@ import ac.cult.cultac.platform.velocity.bridge.BridgeSessions;
 import ac.cult.cultac.player.CultPlayer;
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
+import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerInfo;
 import io.netty.channel.Channel;
 import io.netty.channel.EventLoop;
@@ -60,6 +62,7 @@ class CloudBackendsTest {
     private final Set<ServerConnection> inPlay = ConcurrentHashMap.newKeySet();
     private final List<String> bound = new CopyOnWriteArrayList<>();
     private volatile ServerConnection current;
+    private volatile boolean uncapturing = true;
     private CloudBackends backends;
 
     @BeforeEach
@@ -84,7 +87,14 @@ class CloudBackendsTest {
             return null;
         });
         backends = new CloudBackends(
-                proxy, new Object(), ignored -> channel, inPlay::contains, POLL_MILLIS, FACTS_WAIT_MILLIS, () -> now);
+                proxy,
+                new Object(),
+                ignored -> channel,
+                inPlay::contains,
+                POLL_MILLIS,
+                FACTS_WAIT_MILLIS,
+                () -> now,
+                () -> uncapturing);
     }
 
     @AfterEach
@@ -485,7 +495,14 @@ class CloudBackendsTest {
 
     private CloudBackends collector() {
         return new CloudBackends(
-                proxy, new Object(), ignored -> channel, inPlay::contains, POLL_MILLIS, FACTS_WAIT_MILLIS, () -> now);
+                proxy,
+                new Object(),
+                ignored -> channel,
+                inPlay::contains,
+                POLL_MILLIS,
+                FACTS_WAIT_MILLIS,
+                () -> now,
+                () -> uncapturing);
     }
 
     @Test
@@ -555,5 +572,91 @@ class CloudBackendsTest {
             if (polls > 1000) fail("never happened");
             advance(POLL_MILLIS);
         }
+    }
+
+    private void connected(String server) {
+        RegisteredServer registered = mock(RegisteredServer.class);
+        when(registered.getServerInfo())
+                .thenReturn(new ServerInfo(server, InetSocketAddress.createUnresolved("127.0.0.1", 25566)));
+        backends.onServerConnected(new ServerConnectedEvent(player, registered, null));
+    }
+
+    @Test
+    void aFirstLoginComesFromTheBackendServerConnectedNamed() {
+        assertNull(backends.upcoming(cult, false));
+        connected("a");
+        assertEquals("a", backends.upcoming(cult, false));
+    }
+
+    @Test
+    void afterASwitchTheLoginComesFromTheBackendNamedSinceItsStartConfiguration() {
+        current = a;
+        inPlay.add(a);
+        connected("a");
+        onLoop(() -> backends.configuring(cult));
+        inPlay.remove(a);
+        connected("b");
+        assertEquals("b", backends.upcoming(cult, false));
+    }
+
+    @Test
+    void afterAFailedSwitchTheLoginComesFromTheFallbackNamedLast() {
+        current = a;
+        connected("a");
+        onLoop(() -> backends.configuring(cult));
+        connected("b");
+        connected("c");
+        assertEquals("c", backends.upcoming(cult, false));
+    }
+
+    @Test
+    void aBackendReconfiguringItsOwnConnectionLogsInAgainItself() {
+        current = a;
+        connected("a");
+        onLoop(() -> backends.configuring(cult));
+        assertEquals("a", backends.upcoming(cult, false));
+    }
+
+    @Test
+    void aSwitchWhoseConnectEventWasMissedNamesNoBackend() {
+        current = a;
+        inPlay.add(a);
+        onLoop(() -> backends.configuring(cult));
+        current = null;
+        assertNull(backends.upcoming(cult, false), "the reconfigured connection is no longer the player's");
+        current = b;
+        assertNull(backends.upcoming(cult, false));
+    }
+
+    @Test
+    void withNoBackendLeftUncapturedNoConnectEventIsKept() {
+        uncapturing = false;
+        connected("a");
+        assertNull(backends.upcoming(cult, false));
+        uncapturing = true;
+        assertNull(backends.upcoming(cult, false), "a list filled later leaves this login to its bind");
+        connected("b");
+        assertEquals("b", backends.upcoming(cult, false));
+    }
+
+    @Test
+    void midPlayTheSegmentIsOnTheBackendThePlayerIsInPlayOn() {
+        connected("b");
+        current = a;
+        assertNull(backends.upcoming(cult, true), "a connection not yet in play names nothing");
+        inPlay.add(a);
+        assertEquals("a", backends.upcoming(cult, true));
+    }
+
+    @Test
+    void aDisconnectOrCloseForgetsTheUpcomingBackend() {
+        connected("a");
+        backends.onDisconnect(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
+        assertNull(backends.upcoming(cult, false));
+        connected("a");
+        backends.close();
+        assertNull(backends.upcoming(cult, false));
+        connected("b");
+        assertNull(backends.upcoming(cult, false));
     }
 }

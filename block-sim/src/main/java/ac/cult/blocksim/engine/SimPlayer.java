@@ -1,6 +1,8 @@
 package ac.cult.blocksim.engine;
 
 import ac.cult.blocksim.interaction.Hand;
+import java.util.Objects;
+import java.util.function.UnaryOperator;
 
 /** Proven tick state and action-local hands. It never reads a server player. */
 public final class SimPlayer {
@@ -31,6 +33,7 @@ public final class SimPlayer {
     private float saturationLevel;
     public record ActiveUse(Hand hand, SimItemStack stack, int remainingTicks) { }
     private ActiveUse activeUse;
+    private boolean yawRead;
 
     public SimPlayer(State state, SimItemStack mainHand, SimItemStack offHand) {
         this(state, mainHand, offHand, null);
@@ -53,8 +56,8 @@ public final class SimPlayer {
     }
     public SimPlayer(State state, SimInventory inventory, ActiveUse activeUse, Sight sight, EntityCollisionContext collision, Movement movement,
                      TridentUse tridentUse) {
-        this.state = java.util.Objects.requireNonNull(state);
-        this.inventory = java.util.Objects.requireNonNull(inventory);
+        this.state = Objects.requireNonNull(state);
+        this.inventory = Objects.requireNonNull(inventory);
         if (state.infiniteMaterials() != inventory.infiniteMaterials()) throw new IllegalArgumentException("Inconsistent ability snapshot");
         foodLevel = state.foodLevel(); saturationLevel = state.saturationLevel();
         this.activeUse = activeUse;
@@ -64,12 +67,22 @@ public final class SimPlayer {
         this.tridentUse = tridentUse;
     }
     public State state() { return state; }
-    public Sight sight() { return java.util.Objects.requireNonNull(sight, "Item raycast requires compensated eye position and interaction range"); }
-    public EntityCollisionContext collision() { return java.util.Objects.requireNonNull(collision, "Collision raycast requires compensated entity facts"); }
-    public Movement movement() { return java.util.Objects.requireNonNull(movement, "Firework use requires compensated gliding state"); }
-    public TridentUse tridentUse() { return java.util.Objects.requireNonNull(tridentUse, "Trident use requires folded effects and compensated wet state"); }
+    /** The yaw an action reads. Reading it marks the action's effects as depending on it. */
+    public float yaw() { yawRead = true; return state.yaw(); }
+    /** Whether the action simulated on this player read its yaw. */
+    public boolean yawRead() { return yawRead; }
+    /** This unsimulated snapshot looking along another yaw. */
+    public SimPlayer withYaw(float yaw) {
+        var turned = new State(state.position(), yaw, state.pitch(), state.secondaryUseActive(), state.infiniteMaterials(),
+            state.mayBuild(), state.gameMaster(), state.gameMode(), state.invulnerable(), state.foodLevel(), state.saturationLevel());
+        return new SimPlayer(turned, inventory, activeUse, sight, collision, movement, tridentUse);
+    }
+    public Sight sight() { return Objects.requireNonNull(sight, "Item raycast requires compensated eye position and interaction range"); }
+    public EntityCollisionContext collision() { return Objects.requireNonNull(collision, "Collision raycast requires compensated entity facts"); }
+    public Movement movement() { return Objects.requireNonNull(movement, "Firework use requires compensated gliding state"); }
+    public TridentUse tridentUse() { return Objects.requireNonNull(tridentUse, "Trident use requires folded effects and compensated wet state"); }
     /** Copy one action using a shared stack copier, including aliases in active use and breaking. */
-    public SimPlayer copy(java.util.function.UnaryOperator<SimItemStack> copy) {
+    public SimPlayer copy(UnaryOperator<SimItemStack> copy) {
         var slots = inventory.slots().stream().map(copy).toList();
         var copiedInventory = new SimInventory(slots, inventory.selected(), state.infiniteMaterials(), copy.apply(inventory.empty()));
         var use = activeUse == null ? null : new ActiveUse(activeUse.hand(), copy.apply(activeUse.stack()), activeUse.remainingTicks());
@@ -78,7 +91,6 @@ public final class SimPlayer {
         return result;
     }
     public int foodLevel() { return foodLevel; }
-    public float saturationLevel() { return saturationLevel; }
     public ActiveUse activeUse() { return activeUse; }
     public void stopUsingItem() { activeUse = null; }
     public void startUsingItem(Hand hand, int duration) {

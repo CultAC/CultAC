@@ -2,62 +2,56 @@ package ac.cult.cultac.checks.impl.badpackets;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
-import ac.cult.cultac.checks.DeadCheck;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
-import ac.cult.cultac.protocol.value.BlockPos;
-import ac.cult.cultac.utils.math.Vec3;
-import ac.grim.grimac.api.storage.verbose.Verbose;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 
+/**
+ * LocalPlayer#sendChanges sends PLAYER_INPUT only when the keys differ from lastSentInput, so a packet repeating the
+ * last one's keys needs a new LocalPlayer in between: ClientPacketListener#handleLogin and #handleRespawn can start
+ * one from Input.EMPTY, which makes the keys still held differ again.
+ */
 @CheckData(
         name = "BadPacketsU",
-        stableKey = "cult.badpackets.invalid_block_placement",
-        description = "Sent impossible use item packet")
-@DeadCheck(
-        reason = DeadCheck.Reason.VERSION_GATED,
-        detail = "Early-returns for clients >= 1.9; the trigger is the pre-1.9 use-item encoding.")
+        stableKey = "cult.badpackets.unchanged_player_input",
+        description = "Sent a player input packet without changing any key",
+        experimental = true)
 public class BadPacketsU extends Check implements CheckListener {
-    private static final Verbose V = Verbose.of("xyz={mcpos}, cursor={cursor}, item={bool}, sequence={sint}");
+    private static final ServerboundPlayerInput EMPTY =
+            new ServerboundPlayerInput(false, false, false, false, false, false, false);
+
+    // Null until the first packet: the keys a client sent before this player was tracked are unknown.
+    private ServerboundPlayerInput last;
+    // Whether lastSentInput may be Input.EMPTY instead of last.
+    private boolean emptyPossible;
+    // The transaction whose pong proves the client handled every login and respawn sent so far.
+    private int replacementProof = Integer.MIN_VALUE;
 
     public BadPacketsU(CultPlayer player) {
         super(player);
     }
 
+    /**
+     * A login or respawn was sent, answered no later than {@code proof}. Until that pong a packet may come from the
+     * LocalPlayer on either side of it.
+     */
+    public void localPlayerMayBeReplaced(int proof) {
+        emptyPossible = true;
+        replacementProof = proof;
+    }
+
     @CultPacketHandler
-    public void onUseItemOn(
-            final PacketReceiveEvent<ServerboundUseItemOn> event, CultPlayer player, ServerboundUseItemOn packet) {
-        // Supported clients cannot express legacy face-255 item use with this packet.
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) return;
-        if (true) return; // TODO: this only works on 1.8 servers?
-
-        // This packet is always sent at (-1, -1, -1) at (0, 0, 0) on the block
-        // except y gets wrapped?
-        final int expectedY = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8) ? 4095 : 255;
-
-        final BlockPos pos = packet.blockPosition();
-        final Vec3 cursor = SpigotConversionUtil.fromProtocolVec(packet.cursor());
-
-        if (pos.getX() != -1
-                || pos.getY() != expectedY
-                || pos.getZ() != -1
-                || cursor.x != 0
-                || cursor.y != 0
-                || cursor.z != 0
-                || packet.sequence() != 0) {
-            var buf = V.write(verbose())
-                    .mcPos(pos.getX(), pos.getY(), pos.getZ())
-                    .cursor((float) cursor.x, (float) cursor.y, (float) cursor.z)
-                    .bool(true)
-                    .sint(packet.sequence());
-            if (flag(buf) && shouldModifyPackets()) {
-                player.onPacketCancel();
-                event.setCancelled(true);
-            }
-        }
+    public void onPlayerInput(
+            PacketReceiveEvent<ServerboundPlayerInput> event, CultPlayer player, ServerboundPlayerInput packet) {
+        // An older client's input reaches the server as a translator writes it, each ridden tick.
+        if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return;
+        // Input.EMPTY is never sent again: every LocalPlayer that did not keep lastSentInput starts from it.
+        if (packet.equals(last) && (!emptyPossible || packet.equals(EMPTY))) flag();
+        last = packet;
+        // A replacement still ahead of the client resets lastSentInput after this packet.
+        emptyPossible = player.lastTransactionReceived.get() < replacementProof;
     }
 }

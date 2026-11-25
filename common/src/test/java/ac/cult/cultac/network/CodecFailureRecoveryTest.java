@@ -7,7 +7,6 @@ import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
-import ac.cult.cultac.protocol.netty.ChannelInitializationBarrier;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
@@ -15,11 +14,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.UnpooledByteBufAllocator;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -127,31 +122,6 @@ class CodecFailureRecoveryTest {
             assertTrue(fixture.channel.isOpen());
             assertSame(encoder, fixture.channel.pipeline().get(CultEncoder.NAME));
             assertSame(decoder, fixture.channel.pipeline().get(CultDecoder.NAME));
-        }
-    }
-
-    @Test
-    void initializationFailureStillRegistersTheNativeChannel() {
-        var registered = new AtomicInteger();
-        var channel = new EmbeddedChannel(new ChannelInboundHandlerAdapter() {
-            @Override
-            public void channelRegistered(ChannelHandlerContext ctx) {
-                registered.incrementAndGet();
-                ctx.fireChannelRegistered();
-            }
-        });
-        try {
-            int initial = registered.get();
-            ChannelInitializationBarrier.install(channel, () -> {
-                throw new IllegalStateException("Cult initializer");
-            });
-            channel.pipeline().fireChannelRegistered();
-            channel.checkException();
-            assertEquals(initial + 1, registered.get());
-            assertTrue(channel.isOpen());
-            assertNull(channel.pipeline().get("cult-initializer"));
-        } finally {
-            channel.finishAndReleaseAll();
         }
     }
 

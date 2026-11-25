@@ -1,12 +1,13 @@
 package ac.cult.blocksim.behavior;
 
+import ac.cult.blocksim.data.BlockDefinition;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.shapes.SupportType;
-import java.util.Locale;
-import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.interaction.PlacementContext;
+import java.util.Locale;
 
 public final class MultifaceBehavior extends BlockBehavior {
     private static boolean hasAnyVacantFace(SimLevel level, int state) {
@@ -77,7 +78,7 @@ public final class MultifaceBehavior extends BlockBehavior {
     private static boolean canSpreadInto(SimLevel level, int source, BlockPos pos, Direction face) {
         int state = level.stateAt(pos);
         boolean same = level.registry().sameBlock(source, state);
-        if (!(same || level.registry().facts(state).has(ac.cult.blocksim.data.StateFacts.AIR)
+        if (!(same || level.registry().facts(state).has(StateFacts.AIR)
                 || level.registry().block(state).key().equals("minecraft:water") && level.fluidAt(pos).isSourceOfType("minecraft:water"))) return false;
         return (!same || !hasFace(level, state, face)) && canAttachTo(level, pos, face);
     }

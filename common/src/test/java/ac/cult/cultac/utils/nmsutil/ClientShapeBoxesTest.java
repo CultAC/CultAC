@@ -5,16 +5,21 @@ import static org.junit.jupiter.api.Assertions.*;
 import ac.cult.blocksim.data.Box;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Random;
 import org.junit.jupiter.api.Test;
 
 class ClientShapeBoxesTest {
     @Test
     void directCachedComparisonRetainsOrderedNormalizedComparison() {
         var registry = DataTables.defaults().registry();
-        var random = new java.util.Random(1680527);
+        var random = new Random(1680527);
         for (int i = 0; i < 10_000; i++) {
             var first = registry.shapes().collision(random.nextInt(registry.stateCount()));
             var second = registry.shapes().collision(random.nextInt(registry.stateCount()));
@@ -27,8 +32,7 @@ class ClientShapeBoxesTest {
     @Test
     void fixedIndexReusesGeneratedListsAndRetainsExactOrder() {
         var registry = DataTables.defaults().registry();
-        var existing =
-                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<java.util.List<Box>, Boolean>());
+        var existing = Collections.newSetFromMap(new IdentityHashMap<List<Box>, Boolean>());
         for (int state = 0; state < registry.stateCount(); state++) {
             var facts = registry.facts(state);
             existing.add(facts.collision());
@@ -38,7 +42,7 @@ class ClientShapeBoxesTest {
         }
         for (int state = 0; state < registry.stateCount(); state++) {
             var shapes = registry.shapes();
-            for (var shape : new ac.cult.blocksim.engine.shapes.VoxelShape[] {
+            for (var shape : new VoxelShape[] {
                 shapes.collision(state), shapes.outline(state), shapes.support(state), shapes.interaction(state)
             }) {
                 var boxes = ClientShapeBoxes.cached(shape);
@@ -57,8 +61,8 @@ class ClientShapeBoxesTest {
         assertFalse(ClientShapeBoxes.comparison(shape).matches(shape.move(1, 0, 0)));
         assertFalse(ClientShapeBoxes.comparison(Shapes.empty()).matches(shape));
         assertFalse(ClientShapeBoxes.comparison(shape).matches(Shapes.empty()));
-        var infinite = Shapes.fromBoxes(
-                java.util.List.of(new Box(0, 0, 0, 1, 1, 1), new Box(2, 0, 0, Double.POSITIVE_INFINITY, 1, 1)));
+        var infinite =
+                Shapes.fromBoxes(List.of(new Box(0, 0, 0, 1, 1, 1), new Box(2, 0, 0, Double.POSITIVE_INFINITY, 1, 1)));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> ClientShapeBoxes.comparison(Shapes.empty())
@@ -85,7 +89,7 @@ class ClientShapeBoxesTest {
 
     @Test
     void scalarOverlapMatchesMaterializedPartsAtTouchingAndEpsilonBoundaries() {
-        var shape = Shapes.fromBoxes(java.util.List.of(new Box(-0.0, 0, 0, .3, .5, .7), new Box(.6, .2, .1, 1, 1, 1)));
+        var shape = Shapes.fromBoxes(List.of(new Box(-0.0, 0, 0, .3, .5, .7), new Box(.6, .2, .1, 1, 1, 1)));
         var voxel = new VoxelShapeCollisionBox(shape).offset(.1, -.25, .3);
         var parts = new ArrayList<SimpleCollisionBox>();
         voxel.downCast(parts);

@@ -9,13 +9,18 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsF;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsG;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsU;
 import ac.cult.cultac.checks.impl.breaking.AirLiquidBreak;
 import ac.cult.cultac.checks.impl.breaking.FastBreak;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.elytra.ElytraC;
+import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.RegistryGenerationAlerts;
+import ac.cult.cultac.manager.player.ActionManager;
+import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -23,6 +28,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerCombatKill;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -34,25 +40,31 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
+import org.jetbrains.annotations.Nullable;
 
 public class PacketPlayerRespawn {
+
+    @CultPacketHandler
+    public void onPlayerCombatKill(
+            PacketSendEvent<ClientboundPlayerCombatKill> event, CultPlayer player, ClientboundPlayerCombatKill packet) {
+        if (packet.playerId() == player.entityID) player.blockActionReconciler.deathSent();
+    }
 
     // HIGH
     @CultPacketHandler
     public void onSetHealth(
             PacketSendEvent<ClientboundSetHealth> event, CultPlayer player, ClientboundSetHealth packet) {
-        //
-        player.packetStateData.lastFood = packet.food();
-        player.packetStateData.lastHealth = packet.health();
-        player.packetStateData.lastSaturation = packet.saturation();
-
         player.sendTransaction();
         int preceding = player.lastTransactionSent.get();
 
-        final PacketEntitySelf healthSelf = player.compensatedEntities.getSelf();
+        final int level = player.compensatedWorld.level();
         if (packet.health() <= 0) {
             player.latencyUtils.addRealTimeTaskNow(() -> {
-                healthSelf.isDead = true;
+                PacketEntitySelf self = healthTarget(player, level);
+                if (self != null) self.isDead = true;
+                if (self != null && player.isBedrockMovement()) {
+                    player.checkManager.getSimulationProcessor().markBedrockDeath();
+                }
                 player.checkManager.getListener(BadPacketsM.class).onDeath();
             });
         }
@@ -61,13 +73,26 @@ public class PacketPlayerRespawn {
         boolean bundled = player.runAtTrailingProof(event, () -> {
             player.food = packet.food();
             player.clientItemUse.foodReceived();
-            if (packet.health() > 0) healthSelf.isDead = false;
-            player.compensatedEntities.getSelf().setHealth(packet.health());
+            PacketEntitySelf self = healthTarget(player, level);
+            if (self == null) return;
+            if (packet.health() > 0) self.isDead = false;
+            self.setHealth(packet.health());
         });
         // A higher food level refuses more starts and permits more sprinting.
         if (!bundled) {
             player.latencyUtils.addRealTimeTask(preceding, () -> player.food = Math.max(player.food, packet.food()));
         }
+    }
+
+    /**
+     * The self ClientPacketListener#handleSetHealth writes when the client reads health sent in {@code level}, or null.
+     * A respawn replaces the self only once the client reads it, so health sent after the respawn reaches the new
+     * player. A LOGIN replaces it when sent: Java's handleLogin LocalPlayer starts at full health, so health sent
+     * before it reaches no current self, while Geyser's session player keeps its health across a LOGIN.
+     */
+    private static @Nullable PacketEntitySelf healthTarget(CultPlayer player, int level) {
+        if (!player.isBedrockMovement() && level != player.compensatedWorld.level()) return null;
+        return player.compensatedEntities.getSelf();
     }
 
     @CultPacketHandler("clientbound.start_configuration")
@@ -87,6 +112,7 @@ public class PacketPlayerRespawn {
         // handles transaction split between JOIN_GAME and server teleport
 
         player.packetStateData.showsDeathScreen = packet.showDeathScreen();
+        if (!player.isBedrockMovement()) player.openWindow.onLoginSent();
         final boolean newJavaLocalPlayer =
                 !player.isBedrockMovement() && !player.packetStateData.javaLocalPlayerPresent;
         event.getTasksAfterSend().add(() -> {
@@ -95,26 +121,33 @@ public class PacketPlayerRespawn {
             // before new self metadata can start another use; receipt resets only client state.
             // reset() preserves accumulated debt.
             if (newJavaLocalPlayer) player.itemUseBurst.reset();
+            // A Java login places a new LocalPlayer, whose ticks start with it.
+            if (!player.isBedrockMovement()) player.checkManager.getListener(DumbTimer.class).resetTimerWindow();
         });
 
         var spawnInfo = packet.spawnInfo();
-        player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
-                spawnInfo.gameMode().name());
+        player.gamemode = GameMode.valueOf(spawnInfo.gameMode().name());
         player.serverGamemode = player.gamemode;
-        player.canInstabuild = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE;
-        player.isInvulnerable = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE
-                || player.gamemode == ac.cult.cultac.protocol.value.GameMode.SPECTATOR;
+        player.canInstabuild = player.gamemode == GameMode.CREATIVE;
+        player.isInvulnerable = player.gamemode == GameMode.CREATIVE || player.gamemode == GameMode.SPECTATOR;
         final GameMode loginMode = player.gamemode;
         // ClientPacketListener.handleLogin sets the local player's ID from this packet.
         // A proxy may rewrite it independently of the backend's native entity ID.
         player.entityID = packet.playerId();
+        player.compensatedEntities.vehicles.clearSentRiding();
+        ridingChangesProvenAfter(event, player);
         if (!player.isBedrockMovement()) {
             player.compensatedEntities.serverPositionsMap.clear();
+            player.compensatedEntities.onSentLevelDrop();
             player.getSetbackTeleportUtil().loginSent();
         }
         clearFairReachLevel(player);
         player.compensatedEntities.vehicles.clearServerVehicle();
         final PacketEntitySelf freshSelf = new PacketEntitySelf(player);
+        // Geyser's JavaLoginTranslator keeps the session player for a server switch and resends only its movement
+        // speed (SessionPlayerEntity#resetAttributes). The first LOGIN precedes the actor's creation.
+        if (player.isBedrockMovement()) freshSelf.keepBedrockActorFrom(player.compensatedEntities.playerEntity);
+        player.compensatedEntities.loginsSent++;
         player.compensatedEntities.playerEntity = freshSelf;
         // ClientPacketListener#handleLogin clears clientLoaded until ServerboundPlayerLoadedPacket.
         player.packetStateData.playerLoadedIntoLevel = false;
@@ -123,7 +156,7 @@ public class PacketPlayerRespawn {
         player.packetStateData.lastSentTickPitch = Float.NaN;
         player.packetStateData.lastSendPositionYaw = Float.NaN;
         player.packetStateData.lastSendPositionPitch = Float.NaN;
-        if (!player.isBedrockMovement()) player.onLocalPlayerCreated();
+        if (!player.isBedrockMovement()) player.onLocalPlayerCreated(spawnInfo.portalCooldown());
         if (!player.isBedrockMovement()) {
             // Minecraft#clearClientLevel discards the LocalPlayer before a reconfiguration login.
             player.isSprinting = false;
@@ -137,13 +170,8 @@ public class PacketPlayerRespawn {
         // identity-compared deque with the constructor-time instance, so re-seed it from the
         // replacement or isSelf() stays false forever after every login.
         player.cameraEntity.reset();
-        // Preserve the current Bedrock jump strength across Geyser backend switches.
-        // Geyser's SessionPlayerEntity.resetAttributes only sends movement speed
-        // (SessionPlayerEntity.java:462-471), so the Bedrock player keeps this value.
         player.compensatedEntities.resetClientTickOrder();
-        player.compensatedEntities
-                .getSelf()
-                .onGameModeChange(player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE);
+        player.compensatedEntities.getSelf().onGameModeChange(player.gamemode == GameMode.CREATIVE);
         player.compensatedEntities.selfTrackedEntity =
                 new TrackerData(0, 0, 0, 0, 0, EntityTypeIds.PLAYER, player.lastTransactionSent.get());
         player.dimension = HolderSets.identifier(spawnInfo.dimension());
@@ -155,12 +183,16 @@ public class PacketPlayerRespawn {
         // Its replacement player has no prior travel carry, ground state or active use.
         // Apply only when the ping after LOGIN proves that ordered client processing.
         if (!player.isBedrockMovement()) {
+            // ClientPacketListener#handleLogin can create the LocalPlayer.
+            player.checkManager
+                    .getListener(BadPacketsU.class)
+                    .localPlayerMayBeReplaced(player.lastTransactionSent.get() + 1);
             player.latencyUtils.addRealTimeTaskNext(() -> {
                 player.compensatedWorld.clearChunks();
+                player.compensatedWorld.initializeClientChunkCache(packet.chunkRadius());
                 player.compensatedWorld.clearPistonLikeState();
                 player.compensatedEntities.clearClientLevel();
                 // ClientPacketListener#handleLogin's LocalPlayer#resetPos zeroes the new player's velocity.
-                player.compensatedFireworks.localPlayerReplaced(false);
                 player.compensatedWorld.isRaining = false;
                 player.checkManager.getListener(BadPacketsA.class).resetCarriedIndex();
                 player.checkManager.getListener(AirLiquidBreak.class).resetPending();
@@ -183,13 +215,21 @@ public class PacketPlayerRespawn {
                     player.packetStateData.respawnShiftPending = false;
                     player.isGliding = false;
                     player.isInBed = false;
+                    // A fresh LocalPlayer starts with default living flags and no spin attack.
+                    player.isRiptidePose = false;
+                    player.riptideSpinAttackTicks = 0;
+                    player.riptideSpinCertain = false;
+                    // Its synched data starts at the defaults: DATA_TICKS_FROZEN is 0 until the server sends more.
+                    player.powderSnowFrozenTicks = 0;
                     player.packetStateData.packetPlayerOnGround = false;
+                    player.packetStateData.sentPositionCache.onNewLocalPlayer();
                     player.checkManager.getSimulationProcessor().handleRespawn();
                 }
             });
             event.getTasksAfterSend().add(player::sendTransaction);
         }
         player.serverSentSelfSharedFlags = null;
+        player.serverSentSelfLivingFlags = null;
         player.compensatedWorld.onClientLogin();
         var dimensionType = dimensionType(player, spawnInfo.dimensionTypeId());
         if (dimensionType != null) {
@@ -202,10 +242,9 @@ public class PacketPlayerRespawn {
         player.compensatedWorld.clientSeaLevel(spawnInfo.seaLevel());
         player.compensatedWorld.clientBiomeZoomSeed(spawnInfo.biomeZoomSeed());
         player.compensatedWorld.resetClientPredictions();
+        player.blockActionReconciler.loginSent();
         player.checkManager.getListener(BadPacketsH.class).resetLevel();
         player.getGhostBlockMitigator().clearLevel();
-        final long joinedAt = System.currentTimeMillis();
-        player.lastJoinedWorld = joinedAt;
     }
 
     /**
@@ -224,6 +263,13 @@ public class PacketPlayerRespawn {
     private static void clearFairReachLevel(CultPlayer player) {
         FairReach fairReach = player.checkManager.getListener(FairReach.class);
         if (fairReach != null) fairReach.clearLevel();
+    }
+
+    // A login or respawn drops riding links; the first ping written after it proves the client dropped them.
+    private static void ridingChangesProvenAfter(PacketSendEvent<?> event, CultPlayer player) {
+        event.getTasksAfterSend()
+                .add(() -> player.compensatedEntities.vehicles.sentRidingChangesProvenAt(
+                        player.lastTransactionSent.get() + 1));
     }
 
     @CultPacketHandler
@@ -246,20 +292,29 @@ public class PacketPlayerRespawn {
         if (dimensionType != null)
             player.compensatedWorld.setLastClientboundDimension(worldName, dimensionType.dimension());
         else player.compensatedWorld.setLastClientboundUnresolved(worldName);
-        // The server's new player entity starts from default shared flags.
+        // The server's new player entity starts from default shared and living flags.
         player.serverSentSelfSharedFlags = null;
+        player.serverSentSelfLivingFlags = null;
 
         // Force the player to accept a teleport before respawning
         // (We won't process movements until they accept a teleport, we won't let movements though either)
         // Also invalidate previous positions
-        final ac.cult.cultac.manager.player.SetbackTeleportUtil setbacks = player.getSetbackTeleportUtil();
+        final SetbackTeleportUtil setbacks = player.getSetbackTeleportUtil();
         setbacks.respawnSent();
 
         if (worldChange) {
             player.compensatedEntities.serverPositionsMap.clear();
+            player.compensatedEntities.onSentLevelDrop();
+            player.compensatedEntities.vehicles.clearSentRiding();
             clearFairReachLevel(player);
             player.compensatedWorld.serverWorldChangeSent();
+        } else if (!player.isBedrockMovement()) {
+            // In the same level, ClientLevel#addEntity of ClientPacketListener#handleRespawn's new LocalPlayer
+            // discards the old one under its ID: Entity#setRemoved stops it riding and ejects its passengers.
+            // KEEP_ENTITY_DATA copies synched data, delta movement and rotation, never a riding link.
+            player.compensatedEntities.vehicles.onSentRemoval(player.entityID);
         }
+        ridingChangesProvenAfter(event, player);
         // ClientPacketListener#handleRespawn creates a LocalPlayer with full food, adjusts its abilities to the
         // game mode, and on a dimension change starts a ClientLevel whose block predictions count from 1.
         BadPacketsH sequences = player.checkManager.getListener(BadPacketsH.class);
@@ -275,33 +330,51 @@ public class PacketPlayerRespawn {
             });
         }
         event.getTasksAfterSend().add(player::sendTrailingTransaction);
+        if (player.blockActionReconciler.isServerRespawn()) {
+            event.getTasksAfterSend().add(() -> player.blockActionReconciler.serverRespawned(!worldChange));
+        }
 
         final boolean keepEntityData = packet.shouldKeep(ClientboundRespawn.KEEP_ENTITY_DATA);
         final boolean keepAttributeModifiers = packet.shouldKeep(ClientboundRespawn.KEEP_ATTRIBUTE_MODIFIERS);
-        // TODO: What does keep all metadata do?
         // A later login replaces this level; its respawn must not touch the new one.
         int level = player.compensatedWorld.level();
+        final int vehicleSends = player.compensatedEntities.vehicles.serverVehicleSends();
         final Runnable applyRespawnState = () -> {
             setbacks.respawnRead();
             if (level != player.compensatedWorld.level()) return;
-            // From 1.21.6 ClientPacketListener#handleRespawn gives the new LocalPlayer the old lastSentInput with
-            // KEEP_ENTITY_DATA; otherwise the new LocalPlayer starts from Input.EMPTY.
+            // KEEP_ENTITY_DATA preserves lastSentInput from 1.21.6, but every new KeyboardInput starts empty.
             if (!keepEntityData || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_6)) {
                 player.packetStateData.knownInput = KnownInput.DEFAULT;
             }
-            // LocalPlayer#sendChanges resends no key a kept lastSentInput holds; the fresh KeyboardInput reads a held
-            // shift at the first LocalPlayer#aiStep.
             player.packetStateData.respawnShiftPending =
                     !player.isBedrockMovement() && player.packetStateData.knownInput.shift();
-            // KEEP_ENTITY_DATA copies the old pose, which refreshPlayerPose below takes from the old shift key.
-            if (!keepEntityData || player.isBedrockMovement()) player.isSneaking = false;
+            if (!player.isBedrockMovement()) player.boatData.onNewKeyboardInput();
+            // LocalPlayer#isShiftKeyDown reads the fresh KeyboardInput's Input.EMPTY until the first aiStep.
+            player.isSneaking = false;
+            if (!keepEntityData) {
+                player.powderSnowFrozenTicks = 0;
+            }
             // ClientPacketListener#handleRespawn gives every new LocalPlayer a fresh KeyboardInput.
             FlightToggle.reset(player.packetStateData, keepEntityData);
             final BadPacketsF badPacketsF = player.checkManager.getListener(BadPacketsF.class);
             badPacketsF.exemptNext = true;
             player.lastOnGround = false;
-            player.isGliding = false;
-            player.isInBed = false;
+            // ClientPacketListener#handleRespawn copies the old shared flags, fall flying included, only for
+            // KEEP_ENTITY_DATA.
+            if (!keepEntityData || player.isBedrockMovement()) player.isGliding = false;
+            if (!player.isBedrockMovement()) {
+                // The copied living flags keep a riptide pose, and the copied sleeping position keeps the player
+                // asleep until the server wakes it; LivingEntity only checks the bed on the server. A new
+                // LocalPlayer's autoSpinAttackTicks always start at 0.
+                if (!keepEntityData) {
+                    player.isRiptidePose = false;
+                    player.isInBed = false;
+                }
+                player.riptideSpinAttackTicks = 0;
+                player.riptideSpinCertain = false;
+            } else {
+                player.isInBed = false;
+            }
             // Respawn permits one glide-state re-entry.
             ElytraC elytraC = player.checkManager.getListener(ElytraC.class);
             if (elytraC != null) {
@@ -313,7 +386,7 @@ public class PacketPlayerRespawn {
             player.packetStateData.lastClientTickEndTransaction = Integer.MIN_VALUE;
             player.packetStateData.lastDeltaConsumedTickEndTransaction = Integer.MIN_VALUE;
             player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
-            final ac.cult.cultac.manager.player.ActionManager actions = player.actionManager;
+            final ActionManager actions = player.actionManager;
             actions.onRespawn();
             player.checkManager.getListener(BadPacketsM.class).onRespawn();
 
@@ -322,7 +395,6 @@ public class PacketPlayerRespawn {
             simulation.handleRespawn();
             // ClientPacketListener#handleRespawn copies the old delta movement only with KEEP_ENTITY_DATA.
             if (!keepEntityData && !player.isBedrockMovement()) simulation.seedStartingVelocity(Vec3.ZERO);
-            player.compensatedFireworks.localPlayerReplaced(keepEntityData);
             final BadPacketsE badPacketsE = player.checkManager.getListener(BadPacketsE.class);
             badPacketsE.handleRespawn(); // Reminder ticks reset
             player.checkManager.getListener(BadPacketsG.class).handleRespawn();
@@ -343,19 +415,23 @@ public class PacketPlayerRespawn {
                 player.compensatedWorld.resetClientPredictions();
                 player.getGhostBlockMitigator().clearLevel();
                 player.compensatedWorld.isRaining = false;
-                final long worldJoinTime = System.currentTimeMillis();
-                player.lastJoinedWorld = worldJoinTime;
             }
             player.dimension = dimension;
             player.world = worldName;
 
-            player.compensatedEntities.vehicles.clearServerVehicle(); // All entities get removed on respawn
-            final PacketEntitySelf respawnedSelf =
-                    new PacketEntitySelf(player, player.compensatedEntities.playerEntity);
+            // All entities get removed on respawn. A mount sent after this respawn already replaced the state this
+            // clears: Entity#teleportCrossDimension seats its passengers on the vehicle's copy in the same server
+            // tick, and that copy's pairing mounts the player before the client can answer the respawn.
+            if (player.compensatedEntities.vehicles.serverVehicleSends() == vehicleSends) {
+                player.compensatedEntities.vehicles.clearServerVehicle();
+            }
+            final PacketEntitySelf oldSelf = player.compensatedEntities.playerEntity;
+            final PacketEntitySelf respawnedSelf = new PacketEntitySelf(player, oldSelf);
             if (player.isBedrockMovement()) {
-                // Java replaces its player here; the Bedrock actor keeps attributes until wire updates replace them.
-                respawnedSelf.bedrockRuntimeId = player.compensatedEntities.playerEntity.bedrockRuntimeId;
-                respawnedSelf.bedrockAttributes = player.compensatedEntities.playerEntity.bedrockAttributes;
+                // Geyser's JavaRespawnTranslator restores the actor's health on every respawn.
+                respawnedSelf.keepBedrockActorFrom(oldSelf);
+            } else if (keepEntityData) {
+                respawnedSelf.keepEntityDataFrom(oldSelf);
             }
             player.compensatedEntities.playerEntity = respawnedSelf;
             // Same self-instance replacement as login: re-seed the identity-compared camera
@@ -363,12 +439,8 @@ public class PacketPlayerRespawn {
             player.cameraEntity.reset();
             if (!player.isBedrockMovement()) {
                 player.openWindow.closeFromRespawn();
-                player.checkManager
-                        .getListener(ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump.class)
-                        .reset();
-                player.checkManager
-                        .getCheck(ac.cult.cultac.checks.impl.badpackets.BadPacketsV.class)
-                        .onNewLocalPlayer();
+                player.checkManager.getListener(JavaAutoJump.class).reset();
+                player.packetStateData.sentPositionCache.onNewLocalPlayer();
             }
             if (worldChange || player.isBedrockMovement()) player.compensatedEntities.resetClientTickOrder();
             else player.compensatedEntities.appendSelfToClientTickOrder();
@@ -384,7 +456,7 @@ public class PacketPlayerRespawn {
             player.packetStateData.lastSentTickPitch = Float.NaN;
             player.packetStateData.lastSendPositionYaw = Float.NaN;
             player.packetStateData.lastSendPositionPitch = Float.NaN;
-            if (!player.isBedrockMovement()) player.onLocalPlayerCreated();
+            if (!player.isBedrockMovement()) player.onLocalPlayerCreated(spawnInfo.portalCooldown());
             player.sprintState.onRespawn(keepEntityData, keepAttributeModifiers);
             player.swimState.onRespawn(keepEntityData);
             player.attackStrength.reset();
@@ -392,23 +464,24 @@ public class PacketPlayerRespawn {
             player.isSprinting = !player.isBedrockMovement() && player.sprintState.flag();
             player.vehicleData.camelSprintingState = SprintingState.STOPPED;
             badPacketsF.lastSprinting = player.isSprinting;
-            if (!keepEntityData) player.pose = Pose.STANDING;
-            player.refreshPlayerPose();
-            // LocalPlayer#isShiftKeyDown reads the fresh KeyboardInput's Input.EMPTY until the first aiStep.
-            player.isSneaking = false;
-            player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
-                    spawnInfo.gameMode().name());
-            player.canInstabuild = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE;
-            player.isInvulnerable = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE
-                    || player.gamemode == ac.cult.cultac.protocol.value.GameMode.SPECTATOR;
+            if (player.isBedrockMovement()) {
+                player.refreshPlayerPose();
+            } else {
+                // KEEP_ENTITY_DATA copies the old pose; a fresh LocalPlayer starts STANDING. Player#updatePlayerPose
+                // replaces it only after the first aiStep, so a kept FALL_FLYING pose without fall flying still
+                // makes LocalPlayer#isMovingSlowly crawl for that tick.
+                player.refreshPlayerPose(keepEntityData ? player.pose : Pose.STANDING);
+            }
+            player.gamemode = GameMode.valueOf(spawnInfo.gameMode().name());
+            player.canInstabuild = player.gamemode == GameMode.CREATIVE;
+            player.isInvulnerable = player.gamemode == GameMode.CREATIVE || player.gamemode == GameMode.SPECTATOR;
             // ClientPacketListener#handleRespawn runs MultiPlayerGameMode#setLocalMode on its new LocalPlayer.
             if (!player.isBedrockMovement()) {
                 PacketChangeGameState.applyGameModeAbilities(player, player.gamemode, true);
                 // A new LocalPlayer's Abilities start at the default flying speed.
                 player.flySpeed = 0.05F;
             }
-            respawnedSelf.onRespawn(
-                    keepAttributeModifiers, player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE);
+            respawnedSelf.onRespawn(keepAttributeModifiers, player.gamemode == GameMode.CREATIVE);
             if (dimensionType != null) player.compensatedWorld.setDimension(worldName, dimensionType);
             else player.compensatedWorld.setUnresolvedDimension(worldName);
             // ClientPacketListener creates a new ClientLevel only when the dimension key changes.
@@ -419,6 +492,10 @@ public class PacketPlayerRespawn {
         };
         // The respawned LocalPlayer carries no passengers.
         player.compensatedEntities.markSelfPassengersChange(player.lastTransactionSent.get() + 1);
+        // ClientPacketListener#handleRespawn creates a LocalPlayer.
+        player.checkManager
+                .getListener(BadPacketsU.class)
+                .localPlayerMayBeReplaced(player.lastTransactionSent.get() + 1);
         player.latencyUtils.addRealTimeTaskNext(applyRespawnState);
     }
 }

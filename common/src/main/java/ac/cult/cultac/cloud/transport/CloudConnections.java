@@ -69,7 +69,7 @@ public final class CloudConnections {
     }
 
     /**
-     * Applies {@code settings}. Sockets on another service, key, protocol, perf or team offer close; the rest
+     * Applies {@code settings}. Sockets on another service, key, protocol or team offer close; the rest
      * reconnect if the agent they announced has changed. With the upload on, zstd is loaded and the shared transport
      * made here, so {@link #forServer} does map work only.
      */
@@ -88,7 +88,6 @@ public final class CloudConnections {
                     && previous.url().equals(settings.url())
                     && previous.apiKey().equals(settings.apiKey())
                     && previous.protocols().equals(settings.protocols())
-                    && previous.perf() == settings.perf()
                     && previous.team() == settings.team();
             if (same) {
                 for (CloudConnection connection : connections.values()) connection.reloaded();
@@ -147,7 +146,6 @@ public final class CloudConnections {
                     current.apiKey(),
                     id,
                     current.protocols(),
-                    current.perf(),
                     current.team(),
                     shared,
                     owner,

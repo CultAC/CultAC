@@ -25,10 +25,19 @@ public class SprintH extends Check implements PostPredictionListener, ClientTick
 
     private static final Verbose V = Verbose.of("tick").or("start");
 
+    private boolean movementKeySent;
+
+    @CultPacketHandler
+    public void onPlayerInput(
+            PacketReceiveEvent<ServerboundPlayerInput> event, CultPlayer player, ServerboundPlayerInput packet) {
+        movementKeySent |= packet.forward() || packet.backward() || packet.left() || packet.right() || packet.jump();
+    }
+
     @CultPacketHandler
     public void onPlayerCommand(
             PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
         if (packet.action() == PlayerCommandAction.START_SPRINTING
+                && moving()
                 && player.openWindow.mustBeOpen()
                 && flag(V.write(verbose(), 1))
                 && shouldModifyPackets()) player.closeInventorySafely();
@@ -37,9 +46,16 @@ public class SprintH extends Check implements PostPredictionListener, ClientTick
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
         onTick();
+        movementKeySent = false;
+    }
+
+    // LocalPlayer sends player_input only when its keys change.
+    private boolean moving() {
+        return movementKeySent || player.packetStateData.knownInput.moving();
     }
 
     private void onTick() {
+        if (!moving()) return;
         boolean sprinting = player.packetStateData.knownInput.sprint()
                         && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_9)
                 || MultiActionsC.isVerboseSprinting(player);

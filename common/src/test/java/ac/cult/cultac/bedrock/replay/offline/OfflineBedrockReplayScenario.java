@@ -49,10 +49,6 @@ final class OfflineBedrockReplayScenario {
         return root.resolve("region.schem");
     }
 
-    Properties fixtureProperties() {
-        return fixtureProperties;
-    }
-
     JsonObject manifest() {
         return manifest;
     }
@@ -64,18 +60,6 @@ final class OfflineBedrockReplayScenario {
     String name() {
         String propertyName = fixtureProperties.getProperty("scenario", "").trim();
         return propertyName.isEmpty() ? root.getFileName().toString() : propertyName;
-    }
-
-    double spawnX() {
-        return doubleProperty("spawn-x", 0.0D);
-    }
-
-    double spawnY() {
-        return doubleProperty("spawn-y", 64.0D);
-    }
-
-    double spawnZ() {
-        return doubleProperty("spawn-z", 0.0D);
     }
 
     int minX() {
@@ -96,13 +80,5 @@ final class OfflineBedrockReplayScenario {
             return fallback;
         }
         return Integer.parseInt(value.trim());
-    }
-
-    private double doubleProperty(String key, double fallback) {
-        String value = fixtureProperties.getProperty(key);
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        return Double.parseDouble(value.trim());
     }
 }

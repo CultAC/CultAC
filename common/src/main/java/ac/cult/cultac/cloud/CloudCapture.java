@@ -9,6 +9,7 @@ import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
+import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.cloud.capture.ActionRef;
 import ac.cult.cultac.cloud.capture.CaptureStream;
 import ac.cult.cultac.cloud.capture.ChunkIds;
@@ -22,6 +23,7 @@ import ac.cult.cultac.cloud.diag.PredictionDiagnostics;
 import ac.cult.cultac.cloud.intake.v3.Outcome;
 import ac.cult.cultac.cloud.transport.CloudConnection;
 import ac.cult.cultac.cloud.wire.IntakeWire;
+import ac.cult.cultac.manager.player.setback.SetbackReason;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -76,6 +78,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -92,7 +95,8 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>A segment starts at each clientbound play {@code login} and ends at the next {@code start_configuration} or the
  * disconnect. The {@link SegmentBinder} names the backend a segment belongs to, and the segment uploads on that
- * backend's socket; frames wait until it is bound and the service has answered its JOIN. Java clients are streamed;
+ * backend's socket; frames wait until it is bound and the service has answered its JOIN. A segment of a backend in
+ * {@code cloud.uncaptured-servers} never joins: the taps pass its packets by unread. Java clients are streamed;
  * Bedrock players are only announced, with a JOIN saying why and a LEAVE.
  */
 public final class CloudCapture implements PlayerObserver {
@@ -129,9 +133,12 @@ public final class CloudCapture implements PlayerObserver {
     private static final LogThrottle THROTTLE = new LogThrottle();
     private static final List<Class<? extends ReachCheck>> REACH_CHECKS =
             List.of(PlayerReach.class, EntityReach.class, BedrockPlayerReach.class, BedrockEntityReach.class);
+    /** The checks whose flags carry their verbose; none of their verbose holds text a player wrote. */
+    static final Set<String> VERBOSE_CHECKS = Set.of("BadPacketsH", "PacketOrderO", "Timer");
 
     private static volatile SegmentBinder binder = SegmentBinder.NONE;
     private static volatile Uplinks uplinks = Uplinks.NONE;
+    private static volatile UncapturedServers uncaptured = UncapturedServers.NONE;
 
     private final CultPlayer player;
     private final TickFlags tickFlags = new TickFlags();
@@ -143,6 +150,8 @@ public final class CloudCapture implements PlayerObserver {
     private EngineVerdicts engine;
     /** Whether the stream holds or sends frames, as last seen on the event loop. */
     private volatile boolean capturing;
+    /** Whether the open segment's backend is one of {@code cloud.uncaptured-servers}; written on the event loop. */
+    private volatile boolean idle;
     /** Runs of this tick-end handler; behind the received count when a tick end's handlers were skipped. */
     private final AtomicLong handledTickEnds = new AtomicLong();
     /** Received minus handled tick ends when the segment started, so both count frames from the same start. */
@@ -257,6 +266,23 @@ public final class CloudCapture implements PlayerObserver {
         uplinks = Objects.requireNonNull(sockets);
     }
 
+    /**
+     * The backends whose segments capture nothing; a capture applies them to its open segment at its next
+     * reconfigure.
+     */
+    static void uncaptured(UncapturedServers servers) {
+        uncaptured = Objects.requireNonNull(servers);
+    }
+
+    static UncapturedServers uncaptured() {
+        return uncaptured;
+    }
+
+    /** Whether {@code cloud.uncaptured-servers} names any backend. Any thread. */
+    public static boolean uncapturesAny() {
+        return !uncaptured.isEmpty();
+    }
+
     /** Loads every streamed protocol's packet ids and player text codecs ahead of the first capture. */
     static void warm() {
         for (int protocol = FIRST_PROTOCOL; protocol <= LAST_PROTOCOL; protocol++) {
@@ -296,15 +322,70 @@ public final class CloudCapture implements PlayerObserver {
 
     @Override
     public void flagged(Check check, double violations) {
+        flagged(check, violations, null);
+    }
+
+    @Override
+    public void flagged(Check check, double violations, Supplier<String> verbose) {
         // Cloud checks' violations are not captured.
-        if (channel == null || check instanceof Cloud || check instanceof CloudFlagCheck) return;
+        if (channel == null || idle || check instanceof Cloud || check instanceof CloudFlagCheck) return;
         try {
-            String name = check.getCheckName();
-            if (name == null || name.isEmpty()) name = check.getClass().getSimpleName();
-            tickFlags.add(name, violations);
+            String name = checkName(check);
+            String text = verbose != null && VERBOSE_CHECKS.contains(name) && streaming() && tickFlags.verboseRoom()
+                    ? render(verbose)
+                    : null;
+            tickFlags.add(name, violations, text);
         } catch (Throwable failure) {
             failed("flag", failure);
         }
+    }
+
+    /** {@code verbose} rendered; null when rendering it fails, which leaves the flag without one. */
+    private String render(Supplier<String> verbose) {
+        try {
+            return verbose.get();
+        } catch (Throwable failure) {
+            failed("verbose", failure);
+            return null;
+        }
+    }
+
+    @Override
+    public boolean recordsVerbose(Check check) {
+        if (!streaming() || check instanceof Cloud || check instanceof CloudFlagCheck) return false;
+        try {
+            return VERBOSE_CHECKS.contains(checkName(check));
+        } catch (Throwable failure) {
+            failed("verbose", failure);
+            return false;
+        }
+    }
+
+    @Override
+    public void setbackSent(SetbackReason reason, String cause, Check check) {
+        if (!streaming()) return;
+        try {
+            tickFlags.setback(setbackKind(reason), cause, check == null ? null : checkName(check));
+        } catch (Throwable failure) {
+            failed("setback", failure);
+        }
+    }
+
+    /** The wire's SetbackKind of {@code reason}. */
+    static int setbackKind(SetbackReason reason) {
+        return switch (reason) {
+            case VIOLATION -> IntakeWire.SETBACK_VIOLATION;
+            case NON_SIMULATING -> IntakeWire.SETBACK_NON_SIMULATING;
+            case RESYNC -> IntakeWire.SETBACK_RESYNC;
+            case LATENCY -> IntakeWire.SETBACK_LATENCY;
+            case RESEND -> IntakeWire.SETBACK_RESEND;
+        };
+    }
+
+    // The cloud reads one name per check from every server, whichever name version a server's files are written in.
+    private static String checkName(Check check) {
+        String name = check.getLatestName();
+        return name == null || name.isEmpty() ? check.getClass().getSimpleName() : name;
     }
 
     @Override
@@ -313,7 +394,7 @@ public final class CloudCapture implements PlayerObserver {
                 && action.action() == PlayerAction.SWAP_ITEM_WITH_OFFHAND;
         if (!swap && !(packet instanceof InventoryClick || packet instanceof ServerboundSetCarriedItem)) return;
         Channel tapped = channel;
-        if (tapped == null || !tapped.eventLoop().inEventLoop()) return;
+        if (tapped == null || !tapped.eventLoop().inEventLoop() || idle) return;
         try {
             if (!swap && !cancelled) actions.handsMoved();
             if (unstreamed || !swap && !binder.marks(player)) return;
@@ -335,7 +416,7 @@ public final class CloudCapture implements PlayerObserver {
     @Override
     public void sent(Object packet) {
         Channel tapped = channel;
-        if (tapped == null || !tapped.eventLoop().inEventLoop()) return;
+        if (tapped == null || !tapped.eventLoop().inEventLoop() || idle) return;
         try {
             actions.sent(packet, System.nanoTime());
         } catch (Throwable failure) {
@@ -346,7 +427,7 @@ public final class CloudCapture implements PlayerObserver {
     @Override
     public void totemPopped() {
         Channel tapped = channel;
-        if (tapped == null || unstreamed || !tapped.eventLoop().inEventLoop()) return;
+        if (tapped == null || unstreamed || !tapped.eventLoop().inEventLoop() || idle) return;
         try {
             actions.popped(player.getInventory().inventory.selected, System.nanoTime());
         } catch (Throwable failure) {
@@ -382,7 +463,7 @@ public final class CloudCapture implements PlayerObserver {
     public static void factsChanged(CultPlayer player) {
         CloudCapture capture = of(player);
         Channel tapped = capture == null ? null : capture.channel;
-        if (tapped == null || capture.unstreamed) return;
+        if (tapped == null || capture.unstreamed || capture.idle) return;
         try {
             Map<String, String> settings = capture.facts().settings();
             capture.onLoop(tapped, () -> {
@@ -494,6 +575,15 @@ public final class CloudCapture implements PlayerObserver {
         Segment current = segment;
         if (current == null) {
             resume(channel);
+            return;
+        }
+        if (!unstreamed && current.serverName != null && current.uncaptured != uncaptured.matches(current.serverName)) {
+            endSegment();
+            if (current.uncaptured) resume(channel);
+            else {
+                segment = uncapturedSegment(current.serverName, current.resumed);
+                idled();
+            }
             return;
         }
         if (current.uplink == null) return;
@@ -652,6 +742,16 @@ public final class CloudCapture implements PlayerObserver {
         if (tapped == null) return;
         if (segment != null) endSegment();
         actions.forget();
+        UncapturedServers servers = uncaptured;
+        if (!unstreamed && !servers.isEmpty()) {
+            String upcoming = binder.upcoming(player, playing);
+            if (servers.matches(upcoming)) {
+                segment = uncapturedSegment(upcoming, playing);
+                idled();
+                mirror();
+                return;
+            }
+        }
         Segment started = new Segment();
         segment = started;
         started.resumed = playing;
@@ -659,6 +759,8 @@ public final class CloudCapture implements PlayerObserver {
         handledOffset = received - handledTickEnds.get();
         if (!unstreamed) {
             stream.start(received);
+            SuperDebug debug = player.checkManager.getListener(SuperDebug.class);
+            if (debug != null) debug.framesStart();
             started.initialSession = session();
             started.initiallyLoggedIn = loggedIn;
             if (playing) bounds(started);
@@ -688,8 +790,26 @@ public final class CloudCapture implements PlayerObserver {
         started.bounded = true;
     }
 
+    /**
+     * A segment of backend {@code server}, one of {@code cloud.uncaptured-servers}: it holds and sends nothing, and the
+     * taps pass every packet by until the next segment starts.
+     */
+    private static Segment uncapturedSegment(String server, boolean resumed) {
+        Segment uncaptured = new Segment();
+        uncaptured.serverName = server;
+        uncaptured.resumed = resumed;
+        uncaptured.uncaptured = true;
+        return uncaptured;
+    }
+
+    /** The open segment captures nothing from here; flags raised for a verdict not yet cut go with it. */
+    private void idled() {
+        idle = true;
+        tickFlags.drain();
+    }
+
     private void unbound(Segment started) {
-        if (segment != started || started.uplink != null) return;
+        if (segment != started || started.uplink != null || started.uncaptured) return;
         unbound.incrementAndGet();
         segment = null;
         stream.reset();
@@ -700,6 +820,15 @@ public final class CloudCapture implements PlayerObserver {
     private void bind(Segment started, String serverName) {
         if (segment != started || started.uplink != null || started.serverName != null) return;
         started.serverName = serverName;
+        if (!unstreamed && uncaptured.matches(serverName)) {
+            started.uncaptured = true;
+            idled();
+            if (started.timeout != null) started.timeout.cancel(false);
+            actions.forget();
+            stream.reset();
+            mirror();
+            return;
+        }
         Uplink uplink = serverName == null || serverName.isBlank() ? null : uplinks.open(serverName);
         if (uplink == null) {
             unbound(started);
@@ -716,8 +845,10 @@ public final class CloudCapture implements PlayerObserver {
         Segment ended = segment;
         if (ended == null) return;
         segment = null;
+        if (ended.uncaptured) idle = false;
         actions.forget();
         if (ended.timeout != null) ended.timeout.cancel(false);
+        if (ended.uncaptured) return;
         if (ended.uplink == null) {
             stream.reset();
             mirror();
@@ -865,8 +996,6 @@ public final class CloudCapture implements PlayerObserver {
             case IntakeWire.DiagCutReply cut ->
                 PredictionDiagnostics.INSTANCE.cut(player, uplink.diagnostics(), cut.cut());
             case IntakeWire.DiagLimitsReply ignored -> {}
-            case IntakeWire.PerfLimitsReply ignored -> {}
-            case IntakeWire.PerfStartReply ignored -> {}
             case IntakeWire.TeamStateReply ignored -> {}
             case IntakeWire.TeamSweepReply ignored -> {}
             case IntakeWire.Event ignored -> {}
@@ -1095,9 +1224,14 @@ public final class CloudCapture implements PlayerObserver {
 
     @Override
     public void tickEnded() {
+        if (idle) {
+            if (sightOrigin != null) sightOrigin = null;
+            return;
+        }
         long index = player.clientTickEnds.get();
         long handled = handledTickEnds.incrementAndGet() + handledOffset;
         List<IntakeWire.Flag> flags = tickFlags.drain();
+        List<IntakeWire.Setback> setbacks = tickFlags.drainSetbacks();
         boolean streaming = streaming();
         List<IntakeWire.Geometry> measured = List.of();
         IntakeWire.Target seen = null;
@@ -1119,9 +1253,9 @@ public final class CloudCapture implements PlayerObserver {
             long bits = conditions() | engine.conditions();
             EventLoop loop = tapped.eventLoop();
             if (loop.inEventLoop()) {
-                verdict(index, handled, bits, flags, sight, attacks, state);
+                verdict(index, handled, bits, flags, setbacks, sight, attacks, state);
             } else {
-                loop.execute(() -> verdict(index, handled, bits, flags, sight, attacks, state));
+                loop.execute(() -> verdict(index, handled, bits, flags, setbacks, sight, attacks, state));
             }
         } catch (Throwable failure) {
             failed("tick end", failure);
@@ -1190,7 +1324,8 @@ public final class CloudCapture implements PlayerObserver {
             sightCheck = null;
             return null;
         }
-        if (sightOrigin == null || player.compensatedEntities.isUntrackedRider(entity)) return null;
+        if (sightOrigin == null || player.isBedrockMovement() && player.compensatedEntities.isUntrackedRider(entity))
+            return null;
         List<Vec3> origins = player.compensatedEntities.getSelf().getRiding() == null
                 ? List.of(sightOrigin)
                 : sightCheck.getAttackOrigins();
@@ -1217,12 +1352,13 @@ public final class CloudCapture implements PlayerObserver {
             long handled,
             long bits,
             List<IntakeWire.Flag> flags,
+            List<IntakeWire.Setback> setbacks,
             IntakeWire.Target sight,
             List<IntakeWire.Geometry> attacks,
             IntakeWire.Engine state) {
         try {
             if (segment == null) return;
-            stream.verdict(index, handled, bits, flags, sight, attacks, state);
+            stream.verdict(index, handled, bits, flags, setbacks, sight, attacks, state);
             if (flags.isEmpty()) return;
             List<String> checks = new ArrayList<>(flags.size());
             for (IntakeWire.Flag flag : flags) checks.add(flag.check());
@@ -1267,7 +1403,7 @@ public final class CloudCapture implements PlayerObserver {
     private final class InboundTap extends ChannelInboundHandlerAdapter {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object message) throws Exception {
-            if (stream != null && message instanceof ByteBuf buf && buf.isReadable()) {
+            if (stream != null && !idle && message instanceof ByteBuf buf && buf.isReadable()) {
                 int id = packetId(buf);
                 try {
                     if (stream.capturing()
@@ -1309,7 +1445,8 @@ public final class CloudCapture implements PlayerObserver {
     private final class OutboundTap extends ChannelOutboundHandlerAdapter {
         @Override
         public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) throws Exception {
-            if (message instanceof ByteBuf buf
+            if (!idle
+                    && message instanceof ByteBuf buf
                     && buf.isReadable()
                     && player.user.getEncoderState() == ConnectionPhase.PLAY) {
                 try {
@@ -1355,7 +1492,7 @@ public final class CloudCapture implements PlayerObserver {
     @Override
     public void serverTickEnded(int serverTick) {
         Channel tapped = channel;
-        if (tapped == null) return;
+        if (tapped == null || idle) return;
         onLoop(tapped, () -> {
             CaptureStream current = stream;
             if (segment == null || current == null || !current.capturing()) return;
@@ -1399,6 +1536,8 @@ public final class CloudCapture implements PlayerObserver {
 
     /** The simulation world, read on the event loop, which owns it: protocol 5's terrain. */
     private final class SimulationTerrain implements Sections.Terrain {
+        private final SectionRecord record = new SectionRecord();
+
         @Override
         public long position() {
             return Sections.pack(
@@ -1418,15 +1557,59 @@ public final class CloudCapture implements PlayerObserver {
         /** Only loaded columns of the dimension the client was last sent; none while its dimension type is unknown. */
         @Override
         public byte[] section(int x, int y, int z) {
+            CompensatedWorld.CachedChunk column = column(x, y, z);
+            if (column == null) return null;
+            return SectionBytes.record(x, y, z, column.getSection(index(y)));
+        }
+
+        @Override
+        public Sections.Body record(int x, int y, int z) {
+            CompensatedWorld.CachedChunk column = column(x, y, z);
+            if (column == null) return null;
+            return record.of(x, y, z, column.getSection(index(y)));
+        }
+
+        /** The loaded column holding section {@code y} at {@code x}, {@code z}; null when there is none. */
+        private CompensatedWorld.CachedChunk column(int x, int y, int z) {
             CompensatedWorld world = player.compensatedWorld;
             if (world.isClientboundUnresolved() || world.isLevelUnresolved()) return null;
             CompensatedWorld.CachedChunk column = world.getChunk(x, z);
             if (column == null) return null;
             CompensatedWorld.ClientboundDimensionData dimension = world.getLastClientboundDimension();
             if (!dimension.dimension().equals(world.dimensionForChunk(x, z))) return null;
-            int index = y - (dimension.minHeight() >> 4);
+            int index = index(y);
             if (index < 0 || index >= column.sectionCount()) return null;
-            return SectionBytes.record(x, y, z, column.getSection(index));
+            return column;
+        }
+
+        private int index(int y) {
+            return y - (player.compensatedWorld.getLastClientboundDimension().minHeight() >> 4);
+        }
+    }
+
+    /** A simulation section's {@code SECTION} record, rewritten for each one the terrain hands out. */
+    private static final class SectionRecord implements Sections.Body {
+        private int x;
+        private int y;
+        private int z;
+        private CompensatedWorld.CachedSection section;
+
+        SectionRecord of(int x, int y, int z, CompensatedWorld.CachedSection section) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.section = section;
+            return this;
+        }
+
+        @Override
+        public int length() {
+            return SectionBytes.recordLength(x, y, z, section);
+        }
+
+        @Override
+        public void write(byte[] into, int offset) {
+            SectionBytes.record(x, y, z, section, into, offset);
         }
     }
 
@@ -1493,6 +1676,9 @@ public final class CloudCapture implements PlayerObserver {
     private static final class Segment {
         @Nullable
         String serverName;
+
+        /** Its backend is one of {@code cloud.uncaptured-servers}: it never joins and holds nothing. */
+        boolean uncaptured;
 
         @Nullable
         Uplink uplink;

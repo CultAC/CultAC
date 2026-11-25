@@ -3,7 +3,10 @@ package ac.cult.cultac.utils.data.packetentity;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.math.VanillaMath;
 
-/** Client ItemBasedSteering state, advanced by a tick-produced vehicle packet. */
+/**
+ * Client ItemBasedSteering state, advanced on each client tick that runs tickRidden: the local controller's tick
+ * produces a vehicle packet, and a remote controller's runs in the mount's own entity tick.
+ */
 public final class RideableBoostState {
     private boolean boosting;
     private int elapsed;

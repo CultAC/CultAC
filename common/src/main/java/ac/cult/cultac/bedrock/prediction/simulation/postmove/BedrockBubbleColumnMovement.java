@@ -4,33 +4,29 @@ import ac.cult.cultac.bedrock.prediction.world.BubbleColumnLayer;
 import ac.cult.cultac.bedrock.prediction.world.BubbleColumnLayerType;
 import ac.cult.cultac.bedrock.prediction.world.BubbleColumnState;
 
+/** Each bubble column block the box touches after the move pushes the actor once. */
 final class BedrockBubbleColumnMovement {
     private BedrockBubbleColumnMovement() {}
 
-    static double velocityY(
-            BubbleColumnState bubbleColumn, double currentVelocityY, double feetY, long simulationTick) {
-        if (!Double.isFinite(currentVelocityY)) {
-            throw new IllegalArgumentException("bubble column vertical velocity must be finite");
-        }
-        int minBlockY = (int) Math.floor(feetY + 0.001D);
-        int maxBlockY = (int) Math.floor(feetY + bubbleColumn.playerHeight() - 0.001D);
-        double velocityY = currentVelocityY;
+    static double velocityY(BubbleColumnState bubbleColumn, double velocityY) {
         for (BubbleColumnLayer layer : bubbleColumn.layers()) {
-            if (!layer.activeAt(simulationTick) || layer.blockY() < minBlockY || layer.blockY() > maxBlockY) {
-                continue;
-            }
-            velocityY = applyLayer(velocityY, layer);
+            boolean above = layer.type() == BubbleColumnLayerType.ABOVE;
+            velocityY = layer.dragDown()
+                    ? Math.max(velocityY - 0.03D, above ? -0.9D : -0.3D)
+                    : Math.min(velocityY + (above ? 0.1D : 0.06D), above ? 1.8D : 0.7D);
         }
         return velocityY;
     }
 
-    private static double applyLayer(double velocityY, BubbleColumnLayer layer) {
-        boolean above = layer.type() == BubbleColumnLayerType.ABOVE;
-        if (layer.dragDown()) {
-            // The vanilla entity-inside handling applies -0.03 with caps
-            // -0.9/-0.3.
-            return Math.max(velocityY - 0.03D, above ? -0.9D : -0.3D);
+    /** A boat is pushed in float steps, and only by the blocks it is submerged in. */
+    static float boatVelocityY(BubbleColumnState bubbleColumn, float velocityY) {
+        for (BubbleColumnLayer layer : bubbleColumn.layers()) {
+            if (layer.type() == BubbleColumnLayerType.INSIDE) {
+                velocityY = layer.dragDown()
+                        ? Math.max(velocityY - 0.03F, -0.3F)
+                        : Math.min(velocityY + 0.06F, 0.7F);
+            }
         }
-        return Math.min(velocityY + (above ? 0.1D : 0.06D), above ? 1.8D : 0.7D);
+        return velocityY;
     }
 }

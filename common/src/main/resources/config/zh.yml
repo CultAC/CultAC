@@ -21,8 +21,6 @@ alerts:
 verbose:
     # 是否在控制台中打印verbose信息
     print-to-console: false
-# 是否检查更新
-check-for-updates: true
 
 client-brand:
     # 这意味着如果客户端型号匹配以下正则表达式，它将不会将其客户端版本显示在聊天栏中
@@ -56,29 +54,23 @@ launch-safety:
 # 在你不知道你在干什么的情况下，不要启用。
 disable-pong-cancelling: false
 
-# 是否应禁用默认的方块重新同步处理程序？
-# 默认情况下，Cult 会从服务器世界读取方块并将它们发送给客户端以修复不同步问题。
-# 如果您使用通过数据包创建虚假方块（在服务器世界中不存在）的插件，
-# 您应将其设置为 true，以防止 Cult用空气/真实方块覆盖它们。
-# 除非通过 API 提供了自定义处理程序，否则这将强制使用 "NoOp"（无操作）处理程序。
-disable-default-resync-handler: false
-
-# 是否对重复的移动数据包进行撤销?
-# 这可以修复 "bucket desync"（桶不同步问题）. https://bugs.mojang.com/browse/MC-12363,不过Mojang已经在1.21修复了这个问题
-# 这仅仅适用于1.8服务器中使用1.17-1.20.5版本的玩家
-cancel-duplicate-packet: true
-
-# 是否忽视重复的数据包中的玩家转头
-ignore-duplicate-packet-rotation: false
-
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
 max-clicks-per-tick: 3
 
 # Flag and alert without acting: no punishment commands, setbacks, packet cancels or kicks. Client packets reach the server as sent.
-# CULTAC_OBSERVE_ONLY wins over this key when it is true, 1 or yes, or false, 0 or no. /cult reload applies a change.
+# /cult reload applies a change.
 observe-only: false
+
+# CultAC checks no one and frees the memory checking uses.
+dormant: false
+
+# Checks that neither flag nor set back, by name.
+checks-off: []
+
+# Withhold the punishment commands of punishments.yml; flags, alerts and setbacks keep running.
+pause-punishments: false
 
 Simulation:
     # 这个检查通过仿真玩家的移动，并与玩家的实际移动进行比较
@@ -107,9 +99,6 @@ Simulation:
     # 例如：总移动优势为4.2，会被强制重置到4
     # 这是为了防止玩家的总移动优势过大，并且永远无法清除总移动优势
     max-ceiling: 4
-    # 设置回弹的违规等级阈值
-    # 1 为旧行为
-    setback-violation-threshold: 1
 
 # 检查玩家是否穿墙
 Phase:
@@ -174,24 +163,10 @@ TimerA:
     setbackvl: 10
     drift: 120
     # 玩家卡顿时，可以累积以供以后使用的时间（单位：毫秒）
-    # 如果设置得太高，可能会允许 1.8版本的快速使用/快速回血/快速射弓绕过，120毫秒似乎是一个很好的平衡
-
-# 此项是config是用来防止玩家移动与实时差距过大，来限制对 TimerA 平衡机制的滥用。
-TimerLimit:
-    # 在检查玩家的延迟时对timer balance进行限制, 防止滥用
-    # 在合法玩家的延迟超过这个延迟阈值时可能会造成误拉回
-    # 填写-1则关闭
-    ping-abuse-limit-threshold: 1000
 
 NegativeTimer:
     # 玩家的移动丢失了多少毫秒？
     drift: 1200
-
-# 与 TimerA 相同的检查方法，但适用于坐骑
-VehicleTimer:
-    # 实体的1.0005Timer 检查
-    setbackvl: 10
-    # VL达到多少时回弹？
 
 PacketOrderI:
     # 如果玩家因使用1.7动画模组而误判，则启用此项
@@ -206,14 +181,6 @@ Reach:
     block-impossible-hits: true
     # 我们应该取消不合法的攻击吗？
     # 攻击距离为3.00-3.03可能不会被取消，但仍会被作弊标记，因为有数据包顺序限制
-    enable-post-packet: false
-    # 这将在每个游戏刻（tick）结束时发送一个额外的数据包，以检查更多的作弊
-    # 这会注入服务器的连接列表以在服务器刷新之前发送最终数据
-    # 启用这将增加所有玩家的带宽占用
-    # 但这不会降低整体服务器性能
-    # 启用此功能将检查到更多作弊者。
-    # 禁用此功能仍会检查到作弊者，不会导致误报
-    # 除非你是专注于1.8版本的PvP服务器，否则不建议使用这个额外的数据包
 
 exploit:
     allow-sprint-jumping-when-using-elytra: true
@@ -224,33 +191,17 @@ exploit:
     # 检查假方块的距离。
     # 范围限制为 2 到 4
 
-# 启用在加入时注入 netty 的日志插件以调试兼容性问题
-debug-pipeline-on-join: false
-
 # 启用实验性检查
 experimental-checks: false
-
-# 取消有问题的格挡
-reset-item-usage-on-item-update: true
-reset-item-usage-on-attack: true
-reset-item-usage-on-slot-change: true
-reset-item-usage-on-item-use: true
 
 # Cult有时会取消非法的数据包，比如Timer。
 # 在一秒钟内取消了多少个数据包后，我们应该踢掉这个玩家？
 # 我们认为你应该启用此项，因为有些数据包限制器并不记录被Cult取消的数据包。
 packet-spam-threshold: 100
-# 启用此项可在玩家因 packet-spam-threshold 被踢时打印堆栈追踪
-debug-packet-cancel: false
 
 # 在玩家处于非飞行状态，且ping（延迟）大于多少毫秒后，Cult会踢出这个玩家？
 # 填写-1则关闭
 max-ping-out-of-flying: 1000
-
-# 当玩家使用鞘翅飞行，且ping（延迟）大于多少毫秒后，Cult会取消这个玩家正在使用的烟花火箭？
-# 可以避免高延迟玩家使用一个烟花火箭就可以一直飞行
-# 填写-1则关闭
-max-ping-firework-boost: 1000
 
 # 模式标记 — 除非你清楚自己在做什么，否则不要修改。
 #   config-flavor:  V2 = Cult 2.x 构建，V3 = Cult 3.x。如果配置的 flavor
@@ -269,15 +220,16 @@ update-permission-ticks: -1
 # Velocity only: shared secret for the bridge to the CultAC companion on backend servers.
 # Leave empty to use Velocity's modern-forwarding secret; the companion must use the same value.
 # Use a long random value (at least 32 characters): a short one can be guessed offline.
+# Set enabled to false to open no bridge and send backend servers nothing on its channel; a change needs a proxy restart.
 bridge:
+  enabled: true
   secret: ""
 
 # Upload of captured play to an intake service, which analyses it. Off while url or api-key is empty;
-# your intake service provides both. CULTAC_CLOUD_URL and CULTAC_CLOUD_API_KEY win over url and api-key when
-# set and not blank, and an empty proxy-id takes CULTAC_PROXY_ID. docs/cloud-upload.md in CultAC's source says
-# what is uploaded.
+# your intake service provides both. CULTAC_CLOUD_API_KEY wins over api-key when set and not blank.
+# docs/cloud-upload.md in CultAC's source says what is uploaded.
 cloud:
-  # false stops the upload, whatever CULTAC_CLOUD_* says; /cult reload applies it.
+  # false stops the upload, whatever CULTAC_CLOUD_API_KEY says; /cult reload applies it.
   enabled: true
   url: ""
   api-key: ""
@@ -288,15 +240,15 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
-  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
-  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
-  perf: false
-  # The most minutes of perf recording a socket runs an hour.
-  perf-max-minutes-per-hour: 45
+  # Backends whose players are not captured for the intake service while they are on them, such as lobbies: names
+  # as velocity.toml gives them, ignoring case, where * stands for any characters (hub-*). Local checks, alerts and
+  # punishments run there as everywhere else. On a server, a name matching proxy-id stops the capture on the whole
+  # server. Empty captures every backend.
+  uncaptured-servers: []
   # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
   # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
   # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
-  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  # sync on. Off by default.
   team-sync: false
   # Panel bans: staff ban a player from the cloud panel, and the one server that claims the ban runs it once, as
   # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %reason_label% (the reason as staff
@@ -320,7 +272,10 @@ cloud:
 
 # 让管理命令、Tab 补全和警报在你所有的代理和服务器之间通用。
 # 设置指南：CultAC 源码中的 docs/network.md。修改后用 /cult reload 生效。
-# 这里的每项设置也可以用 CULTAC_NETWORK_* 环境变量来设置，环境变量优先。
+# 以下环境变量在已设置且非空时优先于对应的键：
+#   CULTAC_NETWORK_TYPE, CULTAC_NETWORK_SECRET
+#   CULTAC_NETWORK_REDIS_ADDRESS, _USERNAME, _PASSWORD, _SSL
+#   CULTAC_NETWORK_NATS_ADDRESS, _USERNAME, _PASSWORD, _TOKEN, _CREDENTIALS_FILE, _SSL
 network:
   # 你的服务器之间如何通信：
   #   none         关闭。命令和警报只会发给本服务器上的玩家。
@@ -345,25 +300,158 @@ network:
   # 本服务器在网络中的名称。每台服务器都需要一个不同的名称。
   # 留空则使用 RedisBungee 的代理 ID，其次是 cloud.proxy-id，再其次是本服务器的 IP 和端口。
   instance-id: ""
+  # /cult net <target> <command> runs a command on several servers at once.
+  commands:
+    # Whether this server runs network commands sent from other servers.
+    enabled: true
+    # The network commands this server runs; it refuses the others.
+    accept: [status, reload, observe, toggle, check, punish, update]
+    # What goes to update.webhook: summary (the sending server posts each command and its summary), every (each
+    # server posts the command it ran) or none.
+    webhook: summary
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
-# /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
+# /cult update builds [branch]. CULTAC_UPDATE_TOKEN wins over token when set and not blank.
 update:
-  # owner/repo whose GitHub releases hold the builds. Empty is the repository this jar was built from.
-  # CULTAC_UPDATE_REPOSITORY.
-  repository: ""
-  # X.509 base64 Ed25519 key that build manifests must be signed with. Empty is CultAC's own build key.
-  # CULTAC_UPDATE_PUBKEY.
-  public-key: ""
   # File remembering the installed build, which the next start fetches again. Relative to this folder; empty is
-  # update-state.json. CULTAC_UPDATE_STATE.
+  # update-state.json.
   state-file: ""
-  # Build to start on while no build is remembered. Empty starts the bundled jar. CULTAC_UPDATE_BUILD.
+  # Build to start on while no build is remembered. Empty starts the bundled jar.
   build: ""
-  # Sent to api.github.com only, raising the hourly limit for latest and builds. CULTAC_UPDATE_TOKEN.
+  # Sent to api.github.com only, raising the hourly limit for latest and builds.
   token: ""
-  # URL that receives each update result line. CULTAC_UPDATE_WEBHOOK.
+  # URL that receives each update result line.
   webhook: ""
 
+# CultAC 专属配置。
+cult:
+  # 跳过对 Bedrock 玩家（Geyser/Floodgate）或 Java 玩家的所有检查。
+  # 默认两个版本都会检查。
+  exempt-bedrock-players: false
+  exempt-java-players: false
+
+  checks:
+    bedrock-movement:
+      # Bedrock 验证偏差达到此值时记录违规。
+      # 包含垂直移动误差和超出允许范围的水平输入。
+      position-flag-threshold: 0.001
+
+      # 每个移动 tick 最多将下一 tick 的模拟位置向客户端报告的位置移动此距离。
+      # 设置为 0 可禁用。
+      position-reconciliation-step: 0.0005
+
+      # 目前仅显示在诊断信息中；此值不会触发违规。
+      velocity-flag-threshold: 0.001
+
+      # 允许对 Bedrock 玩家进行位置纠正。
+      # 目前在玩家连接时应用；修改后需要重新连接。
+      enable-setbacks: true
+
+    fair-reach:
+      # FairReach 的 50 毫秒跟踪更新间隔所允许的时间浮动。
+      # 单位为毫秒；设为 15 时，更新时间窗口为 35～65 毫秒。
+      max-position-packet-jitter-ms: 15
+
+      # 应用目标位置更新前的最长等待时间，单位为毫秒。
+      # 客户端已确认接收的更新会提前应用。
+      max-ping-compensation-ms: 300
+
+      # 攻击目标为玩家时，若其最近可能的命中箱距离超过攻击者的原版触及距离
+      # (entity_interaction_range) 加上此值，则取消攻击。单位为方块。
+      reach-leniency: 0.1
+
+    autoclicker-limit:
+      # 平均每秒点击次数超过此值时，自动点击检测的累计值会增加。
+      # 每组 50 次符合检测条件的挥手动作计算一次。
+      max-cps: 25
+
+    explosion:
+      # 因爆炸进行位置纠正时，还必须超过该检测设置的位置纠正违规等级。
+
+      # 尝试进行位置纠正所需的爆炸移动累计误差。
+      max-advantage: 1
+
+      # 单次爆炸误差达到此值时即可尝试位置纠正，
+      # 无需等待累计误差达到 max-advantage。
+      immediate-setback-threshold: 0.01
+
+      # 当爆炸响应的误差低于 Explosion.threshold 时，将累计误差乘以此值。
+      # 越接近 1，累计误差消退得越慢。
+      setback-decay-multiplier: 0.98
+
+      # 该检测保留的爆炸累计误差上限。
+      max-ceiling: 2
+
+  prediction:
+    # 仅用于移动纠正；超过此比例不会被记为作弊违规。
+    # 停止或重新开始使用物品，以及发生位置纠正时，历史记录都会保留。
+    item-use-desync:
+      max-percent: 20
+      history-ticks: 100
+
+    # 比较服务器使用物品（进食、饮用、蓄力）所用的真实时间，与客户端在此期间
+    # 声明的减速 tick 数。超过 max-debt-ticks 的欠账会触发 ItemUseBurst；默认值
+    # 允许一次延迟的客户端帧（10 tick）加上取整误差。盈余只来自额外的减速 tick。
+    item-use-burst:
+      max-debt-ticks: 11
+      max-credit-ticks: 2
+      # 每个预期使用 tick 中需要用减速 tick 支付的百分比。
+      charge-percent: 95
+
+    # 等待击退响应期间，允许的最大事务确认延迟或未收到移动数据包的时长，单位为毫秒。
+    # 因延迟进行位置纠正前，会额外给予固定的 50 毫秒余量。
+    max-knockback-ping-ms: 1000
+
+    # 未收到移动数据包达到此时长后，检查是否需要因延迟进行位置纠正，单位为毫秒。
+    # 只有模拟结果表明玩家不可能保持静止时，才会进行纠正。
+    max-freeze-time-ms: 5000
+
+  networking:
+    # 将发送给玩家的其他存活实体生命值替换为 1 点生命值。
+    # 保留接收者自身、当前坐骑以及死亡实体的真实生命值。
+    # 拥有 cult.showhealth 权限的接收者会收到真实生命值。
+    spoof-health: false
+
+  client-brand:
+    # 从接收到的客户端品牌字符串中删除此正则表达式的第一个匹配项。
+    # 默认删除末尾的 " (Velocity)" 后缀。
+    # 设为空字符串可禁用。
+    strip-pattern: ' \(Velocity\)$'
+
+  diagnostics:
+
+    # 将传送、位置纠正和重新同步的诊断信息写入控制台。
+    teleports: false
+
+    bedrock-movement:
+      # 启用详细的 Bedrock 移动报告及相关预测日志，
+      # 并遵循下方的筛选条件和最小报告间隔。
+      enabled: false
+
+      # 同时报告未触发违规但验证偏差达到 min-offset 的移动。
+      log-clean-offsets: false
+
+      # 报告未触发违规的移动所需的最小验证偏差。
+      # 仅在 log-clean-offsets 为 true 时使用。
+      min-offset: 1.0e-7
+
+      # 每位玩家的 Bedrock 移动报告之间的最小间隔，单位为秒。
+      # 设为 0 可取消等待间隔。
+      cooldown-seconds: 10
+
+# The version of the check names this server uses outside punishments.yml: the names each check's
+# own settings are written under in this file (AttackEntityVisibility.setbackvl), the names in its
+# permission nodes (cult.exempt.attackentityvisibility), and the names alerts, logs, placeholders
+# and the API show.
+# Cult never changes it. Raise it yourself, after you have renamed those settings and permission nodes:
+#   1: AttackMobVisibility, bAttackMobVisibility. InteractEntityVisibility covers players too.
+#   2: AttackEntityVisibility, bAttackEntityVisibility. InteractPlayerVisibility covers players,
+#      InteractEntityVisibility everything else.
+#   3: MultiActionsC, D and H are InventoryA, B and C. MultiActionsI, J, K, L and S are one
+#      check, InventoryD, whose verbose names the action. MultiActionsM, N, O, P, Q, R and T
+#      are InventoryE to K. MultiActionsE, F and G are MultiActionsC, D and E.
+# A file without this line is read as version 1.
+check-name-version: 3
+
 config-flavor: V2
-config-version: 18
+config-version: 20

@@ -10,6 +10,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameSystems;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInput;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInputControl;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelOptions;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
@@ -106,10 +107,15 @@ public final class BedrockImmobileTick {
                         nextSneaking ? current.sneakingTicks() + 1L : 0L,
                         prepared.control().itemUseSlowdownTicks(),
                         prepared.dolphinBoost().endTick(),
-                        prepared.cameraWater()),
-                false,
+                        prepared.cameraWater(),
+                        BedrockTravelInputControl.sneakMoveScaleAfterTick(
+                                current, facts.context().equipmentState().swiftSneakLevel()),
+                        current.penetratingMoves(),
+                        current.geyserBoostTicks(),
+                        current.oneWayBoxes()),
+                BedrockMovementState.TickStart.MOVE,
                 prepared.input().previousState().attributes());
-        return new Result(next, prepared.mobJumpComponent());
+        return new Result(next, mobJumpComponent.afterHeldTick(frame.jumping()));
     }
 
     public record Result(BedrockMovementState state, BedrockMobJumpComponentState mobJumpComponent) {

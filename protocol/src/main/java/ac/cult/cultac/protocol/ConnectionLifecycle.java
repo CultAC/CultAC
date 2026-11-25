@@ -2,6 +2,8 @@ package ac.cult.cultac.protocol;
 
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundIntention;
+import ac.cult.cultac.protocol.value.ConnectionIntent;
 import java.util.List;
 
 /** Wire terminal boundaries; each direction remains independent until its own terminal. */
@@ -29,10 +31,8 @@ public final class ConnectionLifecycle {
     public static ConnectionPhase nextPhase(
             PacketDirection direction, ConnectionPhase current, PacketType<?> type, Object packet) {
         if (type == ServerboundPackets.INTENTION) {
-            var intention = (ac.cult.cultac.protocol.packet.serverbound.ServerboundIntention) packet;
-            return intention.intention() == ac.cult.cultac.protocol.value.ConnectionIntent.STATUS
-                    ? ConnectionPhase.STATUS
-                    : ConnectionPhase.LOGIN;
+            var intention = (ServerboundIntention) packet;
+            return intention.intention() == ConnectionIntent.STATUS ? ConnectionPhase.STATUS : ConnectionPhase.LOGIN;
         }
         if (direction == PacketDirection.CLIENTBOUND) {
             if (type == ClientboundPackets.LOGIN_FINISHED || type == ClientboundPackets.START_CONFIGURATION)

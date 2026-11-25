@@ -3,17 +3,18 @@ package ac.cult.blocksim.behavior;
 import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
-import ac.cult.blocksim.engine.Offsets;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.blocksim.interaction.PlacementContext;
+import java.util.Locale;
 import java.util.Set;
 
 public final class SpeleothemBehavior extends BlockBehavior {
     private final Set<String> speleothems;
+    private final OffsetShapeTable collisions = new OffsetShapeTable(SpeleothemBehavior::shape);
     public SpeleothemBehavior(Set<String> speleothems) { this.speleothems = Set.copyOf(speleothems); }
-    private static Direction tip(SimLevel level, int state) { return Direction.valueOf(level.registry().value(state, "vertical_direction").toUpperCase(java.util.Locale.ROOT)); }
+    private static Direction tip(SimLevel level, int state) { return Direction.valueOf(level.registry().value(state, "vertical_direction").toUpperCase(Locale.ROOT)); }
 
     private boolean sameDirection(SimLevel level, int state, Direction direction) {
         return speleothems.contains(level.registry().block(state).key()) && tip(level, state) == direction;
@@ -57,20 +58,21 @@ public final class SpeleothemBehavior extends BlockBehavior {
         SimLevel level = context.level(); var pos = context.clickedPos(); int state = block.defaultState();
         Direction direction = placementDirection(level, state, pos, context.nearestLookingVerticalDirection().opposite());
         if (direction == null) return -1;
-        state = level.registry().with(state, "vertical_direction", direction.name().toLowerCase(java.util.Locale.ROOT));
+        state = level.registry().with(state, "vertical_direction", direction.name().toLowerCase(Locale.ROOT));
         state = level.registry().with(state, "thickness", thickness(level, state, pos, direction, !context.secondaryUseActive()));
         return level.registry().with(state, "waterlogged", Boolean.toString(level.fluidAt(pos).is("minecraft:water")));
     }
 
     @Override
-    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos) {
+    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos) { return collisions.get(level, state, pos); }
+
+    private static VoxelShape shape(SimLevel level, int state) {
         String thickness = level.registry().value(state, "thickness");
         int width = switch (thickness) { case "tip", "tip_merge" -> 6; case "frustum" -> 8; case "middle" -> 10; case "base" -> 12; default -> throw new IllegalStateException(thickness); };
         double minY = 0, maxY = 1;
         if (thickness.equals("tip")) { if (tip(level, state) == Direction.DOWN) minY = 5.0 / 16; else maxY = 11.0 / 16; }
-        var offset = Offsets.offset(level.registry().block(state), pos);
         return Shapes.create((8.0 - width / 2.0) / 16, minY, (8.0 - width / 2.0) / 16,
-            (8.0 + width / 2.0) / 16, maxY, (8.0 + width / 2.0) / 16).move(offset.x(), offset.y(), offset.z());
+            (8.0 + width / 2.0) / 16, maxY, (8.0 + width / 2.0) / 16);
     }
 
     @Override

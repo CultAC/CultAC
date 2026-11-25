@@ -142,7 +142,6 @@ class NetworkSettingsTest {
         Map<String, String> env = new HashMap<>();
         env.put("CULTAC_NETWORK_TYPE", "redis");
         env.put("CULTAC_NETWORK_SECRET", "env-secret");
-        env.put("CULTAC_NETWORK_INSTANCE_ID", "p9");
         env.put("CULTAC_NETWORK_REDIS_ADDRESS", "env-cache:6390");
         env.put("CULTAC_NETWORK_REDIS_USERNAME", "env-user");
         env.put("CULTAC_NETWORK_REDIS_PASSWORD", "env-pw");
@@ -154,7 +153,7 @@ class NetworkSettingsTest {
                         new Redis("env-cache:6390", "env-user", "env-pw", false),
                         null,
                         "env-secret",
-                        "p9",
+                        "p3",
                         "edge-1"),
                 settings);
 
@@ -335,9 +334,6 @@ class NetworkSettingsTest {
         assertEquals("edge-1", read(unnamed, Map.of()).resolveInstanceId(() -> null, noAddress));
 
         unnamed.remove("cloud.proxy-id");
-        assertEquals(
-                "edge-env",
-                read(unnamed, Map.of("CULTAC_PROXY_ID", "edge-env")).resolveInstanceId(() -> " ", noAddress));
         assertEquals("host-25577", read(unnamed, Map.of()).resolveInstanceId(() -> null, () -> "host:25577"));
         assertEquals(
                 "mc-example-com-25577",

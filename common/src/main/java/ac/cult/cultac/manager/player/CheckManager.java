@@ -31,6 +31,7 @@ import ac.cult.cultac.checks.impl.combat.MultiInteractA;
 import ac.cult.cultac.checks.impl.combat.MultiInteractB;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
+import ac.cult.cultac.checks.impl.combat.RidingInteract;
 import ac.cult.cultac.checks.impl.combat.SelfInteract;
 import ac.cult.cultac.checks.impl.crash.*;
 import ac.cult.cultac.checks.impl.elytra.*;
@@ -44,7 +45,6 @@ import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.misc.GhostBlockMitigation;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
-import ac.cult.cultac.checks.impl.movement.EntityControl;
 import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
@@ -75,14 +75,15 @@ import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.scaffolding.*;
 import ac.cult.cultac.checks.impl.sprint.*;
 import ac.cult.cultac.checks.impl.vehicle.*;
-import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.AttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
-import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
+import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.checks.type.*;
 import ac.cult.cultac.events.packets.*;
@@ -101,7 +102,9 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.PacketTypeTable;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
@@ -115,6 +118,7 @@ import ac.cult.cultac.utils.latency.KeepAliveProcessor;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
+import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import com.google.common.collect.ClassToInstanceMap;
 import com.google.common.collect.ImmutableClassToInstanceMap;
@@ -174,8 +178,12 @@ public class CheckManager {
     private final NoSlow noSlow;
     private final JavaAutoJump javaAutoJump;
     private final NoFallPseudo noFallPseudo;
-    private final InvalidStep invalidStep;
     private final VerticalOffset verticalOffset;
+    private final CompensatedCooldown compensatedCooldown;
+    private final DebugHandler debugHandler;
+    private final NoFallExecutor noFallExecutor;
+    private final OffsetHandler offsetHandler;
+    private final FairReach fairReach;
     private final Speed speed;
     private final Strafe strafe;
 
@@ -195,6 +203,7 @@ public class CheckManager {
 
     private PacketTypeTable<PacketReceiveRoute<Object>> earlyReceiveRoutes = PacketTypeTable.empty();
     private final List<DecodedPacketReceiveListener> decodedReceiveListeners = new ArrayList<>();
+    private final List<CameraDetachListener> cameraDetachListeners = new ArrayList<>();
     private final List<PacketReceiveHandler<ServerboundPacket>> nonAsyncReceiveHandlers = new ArrayList<>();
     private PacketTypeTable<PacketReceiveRoute<Object>> prePredictionReceiveRoutes = PacketTypeTable.empty();
     private PacketTypeTable<PacketReceiveRoute<Object>> receiveRoutes = PacketTypeTable.empty();
@@ -243,8 +252,12 @@ public class CheckManager {
         noSlow = getListener(NoSlow.class);
         javaAutoJump = getListener(JavaAutoJump.class);
         noFallPseudo = getListener(NoFallPseudo.class);
-        invalidStep = getListener(InvalidStep.class);
         verticalOffset = getListener(VerticalOffset.class);
+        compensatedCooldown = getListener(CompensatedCooldown.class);
+        debugHandler = getListener(DebugHandler.class);
+        noFallExecutor = getListener(NoFallExecutor.class);
+        offsetHandler = getListener(OffsetHandler.class);
+        fairReach = getListener(FairReach.class);
 
         List<CheckListener> positionUpdates = new ArrayList<>();
         for (var checks : List.of(prePredictionChecks, positionCheck, packetChecks)) {
@@ -267,7 +280,11 @@ public class CheckManager {
             if (overridesPredictionComplete(check)) predictions.add(check);
         }
         predictionListeners = predictions.toArray(PostPredictionListener[]::new);
-        pseudoListeners = pseudoCheck.values().toArray(PostPredictionListener[]::new);
+        List<PostPredictionListener> pseudos = new ArrayList<>();
+        for (PostPredictionListener check : pseudoCheck.values()) {
+            if (overridesPredictionComplete(check)) pseudos.add(check);
+        }
+        pseudoListeners = pseudos.toArray(PostPredictionListener[]::new);
 
         for (CheckListener listener : allCheckListeners.values()) {
             if (listener instanceof BlockBreakListener) {
@@ -323,14 +340,16 @@ public class CheckManager {
                 new PlaceVisibility(player, visibility),
                 new BreakVisibility(player, visibility),
                 new AttackPlayerVisibility(player, visibility),
-                new AttackMobVisibility(player, visibility),
+                new AttackEntityVisibility(player, visibility),
                 new InteractEntityVisibility(player, visibility),
+                new InteractPlayerVisibility(player, visibility),
+                new RidingInteract(player, visibility),
                 new PlayerHitboxes(player),
                 new EntityHitboxes(player),
                 new BedrockPlayerHitboxes(player),
                 new BedrockEntityHitboxes(player),
                 new BedrockAttackPlayerVisibility(player),
-                new BedrockAttackMobVisibility(player),
+                new BedrockAttackEntityVisibility(player),
                 new BedrockPlaceVisibility(player),
                 new BedrockBreakVisibility(player),
                 new FairReach(player, visibility),
@@ -371,7 +390,6 @@ public class CheckManager {
                 new BadPacketsP(player),
                 new BadPacketsQ(player),
                 new BadPacketsR(player),
-                new BadPacketsS(player),
                 new BadPacketsT(player),
                 new BadPacketsU(player),
                 new BadPacketsV(player),
@@ -387,7 +405,7 @@ public class CheckManager {
                 new PacketOrderF(player),
                 new PacketOrderG(player),
                 new PacketOrderH(player),
-                new PacketOrderJ(player),
+                new PacketOrderJ(player, visibility),
                 new PacketOrderK(player),
                 new PacketOrderL(player),
                 new PacketOrderM(player),
@@ -409,11 +427,11 @@ public class CheckManager {
                 new MultiActionsR(player),
                 new MultiActionsS(player),
                 new MultiActionsT(player),
+                new MultiActionsU(player),
+                new MultiActionsV(player),
                 new MultiInteractA(player),
                 new MultiInteractB(player),
                 player.openWindow,
-                new VehicleA(player),
-                new VehicleB(player),
                 new VehicleGround(player),
                 new VehicleD(player),
                 new VehicleE(player),
@@ -424,7 +442,6 @@ public class CheckManager {
                 new FastBreak(player),
                 new NoSwingBreak(player),
                 new FarBreak(player, visibility),
-                new InvalidBreak(player),
                 new PositionBreakA(player, visibility),
                 new PositionBreakB(player),
                 new MultiBreak(player),
@@ -479,10 +496,9 @@ public class CheckManager {
                 player.itemUseBurst,
                 new Phase(player),
                 new PostCheck(player),
-                new NegativeTimerCheck(player),
                 new OffsetHandler(player),
+                new NegativeTimerCheck(player),
                 new DebugHandler(player),
-                new EntityControl(player), // registered listener is currently a no-op
                 new SetbackTeleportUtil(player), // setback state depends on current friction
                 player.knockbackHandler,
                 player.explosionHandler,
@@ -501,7 +517,8 @@ public class CheckManager {
                 new SprintF(player),
                 new SprintG(player),
                 new SprintH(player),
-                new ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump(player),
+                new SprintI(player),
+                new JavaAutoJump(player),
                 new ElytraA(player),
                 new ElytraB(player),
                 new ElytraC(player),
@@ -519,7 +536,6 @@ public class CheckManager {
         return listenerMap(List.<BlockPlaceCheck>of(
                 new BadPacketsH(player),
                 new InvalidPlaceA(player),
-                new InvalidPlaceB(player),
                 new AirLiquidPlace(player),
                 new MultiPlace(player),
                 new MultiActionsF(player),
@@ -555,7 +571,6 @@ public class CheckManager {
 
     private static ClassToInstanceMap<PostPredictionListener> buildPseudoChecks(CultPlayer player) {
         return listenerMap(List.<PostPredictionListener>of(
-                new InvalidStep(player),
                 new NoSneakSlow(player),
                 new InputKeys(player),
                 new OmniSprint(player),
@@ -575,6 +590,8 @@ public class CheckManager {
         // These callbacks were pre-Via in the committed listener. The raw
         // packet identity is unavailable here, but decoded cancellation and
         // relative ordering are preserved ahead of every ordinary processor.
+        // Non-finite movement is rejected before any handler writes player state.
+        registerEarlyReceive(registrations, prePredictionChecks.get(CrashC.class));
         registerEarlyReceive(registrations, packetChecks.get(ChatA.class));
         registerEarlyReceive(registrations, packetChecks.get(ChatB.class));
         registerEarlyReceive(registrations, packetChecks.get(ChatC.class));
@@ -588,10 +605,13 @@ public class CheckManager {
                 MultiActionsP.class,
                 MultiActionsQ.class,
                 MultiActionsR.class,
-                MultiActionsT.class)) {
+                MultiActionsT.class,
+                MultiActionsU.class,
+                MultiActionsV.class)) {
             registerEarlyReceive(registrations, packetChecks.get(type));
         }
         registerEarlyReceive(registrations, postPredictionCheck.get(SprintH.class));
+        registerEarlyReceive(registrations, postPredictionCheck.get(SprintI.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsA.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsC.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsF.class));
@@ -599,6 +619,7 @@ public class CheckManager {
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsI.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsK.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsM.class));
+        registerEarlyReceive(registrations, packetChecks.get(BadPacketsU.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsW.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsY.class));
         registerEarlyReceive(registrations, packetChecks.get(BadPacketsZ.class));
@@ -616,10 +637,10 @@ public class CheckManager {
         var packetOrder = packetChecks.getInstance(PacketOrderO.class);
         registerNonAsyncReceive(packetOrder, packetOrder::onNonAsyncPacket);
         registerDecodedReceive(packetChecks.get(MultiActionsS.class));
-        registerDecodedReceive(packetChecks.get(BadPacketsJ.class));
+        registerCameraDetach(packetChecks.get(BadPacketsJ.class));
         registerDecodedReceive(packetChecks.get(PacketOrderProcessor.class));
-        registerDecodedReceive(postPredictionCheck.get(BadPacketsX.class));
-        registerDecodedReceive(postPredictionCheck.get(ElytraC.class));
+        registerCameraDetach(postPredictionCheck.get(BadPacketsX.class));
+        registerCameraDetach(postPredictionCheck.get(ElytraC.class));
 
         registerPreReceive(registrations, prePredictionChecks.get(TimerCheck.class));
         registerPreReceive(registrations, prePredictionChecks.get(TickTimer.class));
@@ -634,8 +655,10 @@ public class CheckManager {
         registerEarlyReceive(registrations, packetChecks.get(PlaceVisibility.class));
         registerEarlyReceive(registrations, packetChecks.get(BreakVisibility.class));
         registerEarlyReceive(registrations, packetChecks.get(AttackPlayerVisibility.class));
-        registerEarlyReceive(registrations, packetChecks.get(AttackMobVisibility.class));
+        registerEarlyReceive(registrations, packetChecks.get(AttackEntityVisibility.class));
         registerEarlyReceive(registrations, packetChecks.get(InteractEntityVisibility.class));
+        registerEarlyReceive(registrations, packetChecks.get(InteractPlayerVisibility.class));
+        registerEarlyReceive(registrations, packetChecks.get(RidingInteract.class));
 
         registerReceive(registrations, packetChecks.get(SimulationProcessor.class));
         registerReceive(registrations, packetChecks.get(ActionManager.class));
@@ -664,13 +687,11 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(BadPacketsQ.class));
         registerReceive(registrations, packetChecks.get(BadPacketsR.class));
         registerReceive(registrations, packetChecks.get(BadPacketsT.class));
-        registerReceive(registrations, packetChecks.get(BadPacketsU.class));
         registerReceive(registrations, packetChecks.get(BadPacketsV.class));
         registerReceive(registrations, blockPlaceCheck.get(BadPacketsH.class));
         registerReceive(registrations, packetChecks.get(PacketOrderProcessor.class));
         registerReceive(registrations, packetChecks.get(MultiActionsC.class));
         registerReceive(registrations, packetChecks.get(MultiActionsD.class));
-        registerReceive(registrations, packetChecks.get(VehicleA.class));
         registerReceive(registrations, packetChecks.get(VehicleD.class));
         registerReceive(registrations, packetChecks.get(VehicleE.class));
         registerReceive(registrations, packetChecks.get(VehicleF.class));
@@ -704,15 +725,16 @@ public class CheckManager {
         registerTickEnd(positionCheck.get(CompensatedCooldown.class));
         registerTickEnd(packetChecks.get(MultiActionsH.class));
         registerTickEnd(postPredictionCheck.get(SprintH.class));
+        registerTickEnd(postPredictionCheck.get(SprintI.class));
         registerTickEnd(rotationCheck.get(MultiActionsO.class));
         registerTickEnd(packetChecks.get(BadPacketsJ.class));
         registerTickEnd(player.openWindow);
 
         registerReceive(registrations, postPredictionCheck.get(Phase.class));
         registerReceive(registrations, postPredictionCheck.get(PostCheck.class));
-        registerReceive(registrations, postPredictionCheck.get(NegativeTimerCheck.class));
         // AimDuplicateLook (rotation listener) declares no packet handlers; registering it for
         // receive dispatch would throw in registerReceive at CheckManager construction.
+        registerReceive(registrations, postPredictionCheck.get(NegativeTimerCheck.class));
 
         for (Class<? extends CheckListener> type : List.of(
                 PacketOrderA.class,
@@ -726,8 +748,6 @@ public class CheckManager {
                 PacketOrderL.class,
                 PacketOrderM.class,
                 BadPacketsX.class,
-                SprintD.class,
-                SprintE.class,
                 MultiInteractA.class,
                 MultiInteractB.class,
                 ElytraB.class,
@@ -800,6 +820,16 @@ public class CheckManager {
                     listener.getClass().getName() + " is not a decoded packet receive listener");
         }
         decodedReceiveListeners.add(decodedListener);
+    }
+
+    private void registerCameraDetach(CheckListener listener) {
+        if (listener == null || !shouldRegister(listener)) {
+            return;
+        }
+        if (!(listener instanceof CameraDetachListener cameraListener)) {
+            throw new IllegalStateException(listener.getClass().getName() + " is not a camera detach listener");
+        }
+        cameraDetachListeners.add(cameraListener);
     }
 
     private void registerReceive(PacketRegistrations registrations, CheckListener listener) {
@@ -944,6 +974,11 @@ public class CheckManager {
         return shouldRegister(listener);
     }
 
+    /** {@link #shouldDispatch} for a player on Bedrock movement; for any other player it is true. */
+    private static boolean dispatchesOnBedrock(CheckListener listener) {
+        return !(listener instanceof Check check) || check.isBedrockSupported();
+    }
+
     /** {@link #shouldDispatch} of {@code listener} as a route gate; null where it is true whatever the player. */
     private BooleanSupplier dispatchGate(CheckListener listener) {
         if (!(listener instanceof Check check) || ALWAYS_BEDROCK_SUPPORTED.get(check.getClass())) return null;
@@ -978,6 +1013,9 @@ public class CheckManager {
         getListener(BedrockPlayerReach.class).endClientTick();
         getListener(BedrockEntityReach.class).endClientTick();
         getListener(BedrockPlaceVisibility.class).endClientTick();
+        // The lids step once the tick's move is predicted: the next tick's move meets this step.
+        player.bedrockState.shulkerBoxLids.tick(position -> ClientBlockProperties.isShulkerBox(
+                player.compensatedWorld.getBlockStateIdAt(BlockPos.of(position))));
         getListener(PacketEntityReplication.class).tickBedrockClient();
     }
 
@@ -1005,6 +1043,12 @@ public class CheckManager {
         if (route != null) route.dispatch(event, player, routedPacket);
     }
 
+    /** An early handler cancelled {@code packet}, which skips every ordinary handler, the sequence check included. */
+    public void onEarlyCancel(Object packet) {
+        BadPacketsH sequences = getListener(BadPacketsH.class);
+        if (shouldDispatch(sequences)) sequences.onEarlyCancel(packet);
+    }
+
     public void dispatchReceiveHandlers(final PacketReceiveEvent packet) {
         dispatchDecodedReceiveObservers(packet);
 
@@ -1016,7 +1060,7 @@ public class CheckManager {
 
         dispatchNonAsyncReceive(packet);
 
-        if (packet.getPacketType() == ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END) {
+        if (packet.getPacketType() == ServerboundPackets.CLIENT_TICK_END) {
             // MCP-Reborn Minecraft#tick sends ServerboundClientTickEndPacket only
             // after ClientLevel#tickEntities and Level#tickBlockEntities have
             // both finished. Tick-end handlers that simulate the completed client
@@ -1043,10 +1087,19 @@ public class CheckManager {
         if (event.getPhase() != ConnectionPhase.PLAY) {
             return;
         }
-        for (DecodedPacketReceiveListener listener : decodedReceiveListeners) {
-            if (shouldDispatch(listener)) {
+        boolean bedrock = player.isBedrockMovement();
+        for (int i = 0, n = decodedReceiveListeners.size(); i < n; i++) {
+            DecodedPacketReceiveListener listener = decodedReceiveListeners.get(i);
+            if (!bedrock || dispatchesOnBedrock(listener)) {
                 listener.onDecodedPacketReceive(event);
             }
+        }
+        // No decoded observer writes camera state.
+        for (int i = 0, n = cameraDetachListeners.size(); i < n; i++) {
+            CameraDetachListener listener = cameraDetachListeners.get(i);
+            if (bedrock && !dispatchesOnBedrock(listener)) continue;
+            if (player.cameraEntity.isSelf()) break;
+            listener.onCameraDetached();
         }
     }
 
@@ -1073,12 +1126,14 @@ public class CheckManager {
     }
 
     public void doChecksWithKnownLook() {
-        for (BlockPlace place : placesToCheck) {
-            for (BlockPlaceCheck check : blockPlaceListeners) {
-                if (!shouldDispatch(check)) {
-                    continue;
+        if (!placesToCheck.isEmpty()) {
+            for (BlockPlace place : placesToCheck) {
+                for (BlockPlaceCheck check : blockPlaceListeners) {
+                    if (!shouldDispatch(check)) {
+                        continue;
+                    }
+                    check.onPostFlyingBlockPlace(place);
                 }
-                check.onPostFlyingBlockPlace(place);
             }
         }
         placesToCheck.clear();
@@ -1119,8 +1174,9 @@ public class CheckManager {
     }
 
     public void onPositionUpdate(final PositionUpdate position) {
+        boolean bedrock = player.isBedrockMovement();
         for (CheckListener check : positionUpdateListeners) {
-            if (!shouldDispatch(check)) {
+            if (bedrock && !dispatchesOnBedrock(check)) {
                 continue;
             }
             check.onPositionUpdate(position);
@@ -1128,8 +1184,9 @@ public class CheckManager {
     }
 
     public void onRotationUpdate(final RotationUpdate rotation) {
+        boolean bedrock = player.isBedrockMovement();
         for (RotationListener check : rotationListeners) {
-            if (!shouldDispatch(check)) {
+            if (bedrock && !dispatchesOnBedrock(check)) {
                 continue;
             }
             check.process(rotation);
@@ -1150,14 +1207,15 @@ public class CheckManager {
         // A tick predicted without a movement packet is the client's movement for that tick as well.
         setbacks.movementReceived();
         try {
+            boolean bedrock = player.isBedrockMovement();
             for (PostPredictionListener check : predictionListeners) {
-                if (!shouldDispatch(check)) {
+                if (bedrock && !dispatchesOnBedrock(check)) {
                     continue;
                 }
                 check.onPredictionComplete(complete);
             }
             for (PostPredictionListener check : pseudoListeners) {
-                if (!shouldDispatch(check)) {
+                if (bedrock && !dispatchesOnBedrock(check)) {
                     continue;
                 }
                 if (!MovementProfiles.forPlayer(player).shouldRunPseudoCheck(check.getClass())) {
@@ -1227,11 +1285,6 @@ public class CheckManager {
         return noFallPseudo;
     }
 
-    /** {@code getListener(InvalidStep.class)}. */
-    public InvalidStep getInvalidStep() {
-        return invalidStep;
-    }
-
     /** {@code getListener(VerticalOffset.class)}. */
     public VerticalOffset getVerticalOffset() {
         return verticalOffset;
@@ -1280,7 +1333,7 @@ public class CheckManager {
     }
 
     public NoFallExecutor getNoFall() {
-        return getListener(NoFallExecutor.class);
+        return noFallExecutor;
     }
 
     private KnockbackHandler knockbackHandlerCache;
@@ -1309,15 +1362,20 @@ public class CheckManager {
     }
 
     public CompensatedCooldown getCompensatedCooldown() {
-        return getListener(CompensatedCooldown.class);
+        return compensatedCooldown;
     }
 
     public DebugHandler getDebugHandler() {
-        return getListener(DebugHandler.class);
+        return debugHandler;
     }
 
     public OffsetHandler getOffsetHandler() {
-        return getListener(OffsetHandler.class);
+        return offsetHandler;
+    }
+
+    /** {@code getListener(FairReach.class)}, read on every tracked player's movement. */
+    public FairReach getFairReach() {
+        return fairReach;
     }
 
     /** Construction data only: callbacks retain their listener, never these collections. */

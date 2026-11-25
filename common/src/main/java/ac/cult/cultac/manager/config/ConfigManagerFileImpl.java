@@ -7,17 +7,22 @@ import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.common.BasicReloadable;
 import ac.grim.grimac.api.config.ConfigManager;
+import alexh.weak.Dynamic;
 import github.scarsz.configuralize.DynamicConfig;
 import github.scarsz.configuralize.Language;
+import github.scarsz.configuralize.Provider;
+import github.scarsz.configuralize.Source;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -27,6 +32,8 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
     private final DynamicConfig config;
     private boolean initialized = false;
     private final File snapshotDirectory;
+    private final Path canonicalDirectory;
+    private @Nullable Source legacyCultSource;
 
     // reload() replaces this; a lookup stores into the cache it read first, so one racing a reload is discarded.
     private volatile Lookups lookups = new Lookups();
@@ -37,6 +44,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         final Map<String, LongLookup> longs = new ConcurrentHashMap<>();
         final Map<String, DoubleLookup> doubles = new ConcurrentHashMap<>();
         final Map<String, BooleanLookup> booleans = new ConcurrentHashMap<>();
+        final Map<String, Optional<Object>> written = new ConcurrentHashMap<>();
     }
 
     private record StringLookup(String otherwise, String value) {}
@@ -62,7 +70,12 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
     }
 
     public ConfigManagerFileImpl(File snapshotDirectory) {
+        this(snapshotDirectory, snapshotDirectory == null ? null : RuntimeEnvironment.host().directory());
+    }
+
+    ConfigManagerFileImpl(File snapshotDirectory, Path canonicalDirectory) {
         this.snapshotDirectory = snapshotDirectory;
+        this.canonicalDirectory = canonicalDirectory;
         config = new DynamicConfig();
     }
 
@@ -77,7 +90,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
     /** Backend ids whose per-backend yml gets loaded + auto-updated alongside the user-facing files. */
     static final List<String> BACKEND_IDS = List.of("sqlite", "mysql", "postgres", "mongo", "redis");
 
-    private void runConfigUpdates() {
+    private void runConfigUpdates(boolean configFresh) {
         Logger logger = Logger.getLogger("cult-config");
         ConfigUpdater updater = new ConfigUpdater(CultAPI.class, logger);
         // Use the multi-file API so cross-file migrations (e.g. config.yml
@@ -86,7 +99,6 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // ctx.otherFile(...). Open-ended punishments use only the Cult chain below.
         Map<File, ConfigUpdater.Spec> batch = new LinkedHashMap<>();
         batch.put(getConfigFile("config.yml"), CultConfigSpecs.mainConfig());
-        batch.put(getConfigFile("cult.yml"), CultConfigSpecs.cultSettings());
         batch.put(getConfigFile("discord.yml"), CultConfigSpecs.discord());
         batch.put(getConfigFile("messages.yml"), CultConfigSpecs.messages());
         batch.put(getConfigFile("database.yml"), CultConfigSpecs.database());
@@ -97,6 +109,13 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // all-or-nothing availability check above) so a zh operator gets
         // ZH-comment bundled defaults stamped on disk to match.
         String langCode = config.getLanguage().getCode().toLowerCase();
+        try {
+            updater.foldLegacyCultFile(getConfigFile("config.yml"), configFresh, langCode);
+        } catch (Exception e) {
+            LogUtil.warn("Cannot move " + ConfigUpdater.LEGACY_CULT_FILE + " into config.yml, so it is read after"
+                    + " config.yml: " + e);
+        }
+        if (snapshotDirectory != null) publishMergeBackup();
         try {
             updater.updateAll(batch, langCode);
             Map<File, ConfigUpdater.Spec> cultBatch = new LinkedHashMap<>();
@@ -113,9 +132,11 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         getDataFolder().mkdirs();
         if (!initialized) {
             if (snapshotDirectory != null) {
-                var canonical = RuntimeEnvironment.host().directory();
-                for (var name : configurationNames()) {
-                    var source = canonical.resolve(name);
+                var names = configurationNames();
+                names.add(ConfigUpdater.CULT_MERGE_BACKUP);
+                if (readsCanonicalCultFile()) names.add(ConfigUpdater.LEGACY_CULT_FILE);
+                for (var name : names) {
+                    var source = canonicalDirectory.resolve(name);
                     var target = snapshotDirectory.toPath().resolve(name);
                     try {
                         if (Files.exists(source)) {
@@ -129,7 +150,6 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
             }
             initialized = true;
             config.addSource(CultAPI.class, "config", getConfigFile("config.yml"));
-            config.addSource(CultAPI.class, "cult", getConfigFile("cult.yml"));
             config.addSource(CultAPI.class, "messages", getConfigFile("messages.yml"));
             config.addSource(CultAPI.class, "discord", getConfigFile("discord.yml"));
             config.addSource(CultAPI.class, "punishments", getConfigFile("punishments.yml"));
@@ -158,6 +178,11 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
             config.setLanguage(Language.EN);
         }
 
+        if (legacyCultSource != null) {
+            config.removeSource(legacyCultSource);
+            legacyCultSource = null;
+        }
+        boolean configFresh = !getConfigFile("config.yml").exists();
         try {
             // Save bundled defaults BEFORE the updater runs so any cross-file
             // migration (e.g. config.yml v9 → v10 lifting history.database.*
@@ -173,7 +198,13 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // missing files. Idempotent on already-current configs. Versioned
         // backups (<name>.v<oldVersion>.bak) preserve operator-rollback
         // evidence across stacked migration steps.
-        runConfigUpdates();
+        runConfigUpdates(configFresh);
+        File legacyCult = getConfigFile(ConfigUpdater.LEGACY_CULT_FILE);
+        if (legacyCult.isFile()) {
+            // Registered last, it answers only the keys config.yml lacks; its defaults are config.yml's.
+            legacyCultSource = new Source(config, CultAPI.class, "config", legacyCult);
+            config.addSource(legacyCultSource);
+        }
 
         try {
             config.loadAll();
@@ -184,9 +215,39 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         }
     }
 
+    /**
+     * Whether the canonical cult.yml still counts. Builds that predate the fold read only cult.yml, and staff can roll
+     * back to one in place, so it stays on disk and is ignored once config.yml owns its cult section.
+     */
+    private boolean readsCanonicalCultFile() {
+        if (!Files.isRegularFile(canonicalDirectory.resolve(ConfigUpdater.LEGACY_CULT_FILE))) return false;
+        try {
+            if (!new ConfigUpdater(CultAPI.class, Logger.getLogger("cult-config"))
+                    .ownsCultSection(canonicalDirectory.resolve("config.yml").toFile(), false)) return true;
+        } catch (IOException failure) {
+            LogUtil.warn("Cannot compare config.yml's cult section with the bundled default, so "
+                    + ConfigUpdater.LEGACY_CULT_FILE + " is read: " + failure);
+            return true;
+        }
+        LogUtil.info(ConfigUpdater.LEGACY_CULT_FILE + " is no longer read, since config.yml holds its settings; it can"
+                + " be deleted once no build older than this one will run");
+        return false;
+    }
+
+    private void publishMergeBackup() {
+        var backup = getConfigFile(ConfigUpdater.CULT_MERGE_BACKUP).toPath();
+        var published = canonicalDirectory.resolve(ConfigUpdater.CULT_MERGE_BACKUP);
+        try {
+            if (Files.exists(backup) && !Files.exists(published)) Files.copy(backup, published);
+        } catch (IOException failure) {
+            LogUtil.warn("Cannot copy " + ConfigUpdater.CULT_MERGE_BACKUP + " to " + canonicalDirectory + ": "
+                    + failure);
+        }
+    }
+
     private static List<String> configurationNames() {
         var names = new ArrayList<>(
-                List.of("config.yml", "cult.yml", "messages.yml", "discord.yml", "punishments.yml", "database.yml"));
+                List.of("config.yml", "messages.yml", "discord.yml", "punishments.yml", "database.yml"));
         for (var id : BACKEND_IDS) names.add("databases/" + id + ".yml");
         return names;
     }
@@ -199,6 +260,28 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
             if (Files.exists(path)) files.put(name, Files.readAllBytes(path));
         }
         return files;
+    }
+
+    /**
+     * The operator's own value of {@code key}, or null when no file has the key. Every getter answers a key the files
+     * lack from the bundled default; this never does.
+     */
+    public @Nullable Object written(String key) {
+        Map<String, Optional<Object>> cache = lookups.written;
+        Optional<Object> cached = cache.get(key);
+        if (cached != null) return cached.orElse(null);
+        Object value = null;
+        for (Provider provider : config.getSources().values()) {
+            Dynamic values = provider.getValues();
+            if (values == null) continue;
+            Dynamic found = values.dget(key);
+            if (found.isPresent()) {
+                value = found.asObject();
+                break;
+            }
+        }
+        cache.put(key, Optional.ofNullable(value));
+        return value;
     }
 
     @Override

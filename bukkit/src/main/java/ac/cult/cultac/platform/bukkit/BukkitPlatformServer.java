@@ -53,14 +53,6 @@ public class BukkitPlatformServer implements PlatformServer {
     }
 
     @Override
-    public void registerOutgoingPluginChannel(String name) {
-        CultACBukkitLoaderPlugin.LOADER
-                .getServer()
-                .getMessenger()
-                .registerOutgoingPluginChannel(CultACBukkitLoaderPlugin.LOADER, name);
-    }
-
-    @Override
     public void forwardAlert(String message) {
         ProxyAlertMessenger.sendPluginMessage(message);
     }
@@ -105,13 +97,7 @@ public class BukkitPlatformServer implements PlatformServer {
     }
 
     @Override
-    public void applyValidationBlock(
-            ac.cult.cultac.platform.api.player.PlatformPlayer player,
-            int x,
-            int y,
-            int z,
-            String state,
-            Runnable applied) {
+    public void applyValidationBlock(PlatformPlayer player, int x, int y, int z, String state, Runnable applied) {
         BukkitValidationBlocks.apply(player, x, y, z, state, applied);
     }
 
@@ -122,25 +108,6 @@ public class BukkitPlatformServer implements PlatformServer {
             return Double.NaN;
         }
         return Bukkit.getTPS()[0];
-    }
-
-    @Override
-    public int onlinePlayers() {
-        try {
-            return Bukkit.getOnlinePlayers().size();
-        } catch (RuntimeException | LinkageError unsupported) {
-            return -1;
-        }
-    }
-
-    @Override
-    public long[] recentTickNanos() {
-        try {
-            long[] times = Bukkit.getServer().getTickTimes();
-            return times == null ? null : times.clone();
-        } catch (RuntimeException | LinkageError unsupported) {
-            return null;
-        }
     }
 
     /** The server's software, target tick length and combat settings, read once. */

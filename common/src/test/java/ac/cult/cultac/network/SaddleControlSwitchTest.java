@@ -6,11 +6,11 @@ import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ac.cult.blocksim.data.Components;
-import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
@@ -22,6 +22,8 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.InventoryPackets;
+import ac.cult.cultac.network.packet.PacketCodecUtil;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -32,6 +34,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -44,11 +47,13 @@ import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.latency.CompensatedVehicleState;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -64,6 +69,7 @@ class SaddleControlSwitchTest {
     private static final int DONKEY = 100;
     private static final int NAUTILUS = 101;
     private static final int OTHER_DONKEY = 102;
+    private static final int HORSE = 103;
     /** How far a first controlled move lands from where the model puts the root. */
     private static final double NEAR = 0.025;
 
@@ -73,6 +79,11 @@ class SaddleControlSwitchTest {
     private static final short STEP = 600;
 
     private static final double PATH = STEP / 4096.0;
+    /**
+     * The passive root stood without velocity, and LivingEntity#travel moves before its gravity: the Entity#move of
+     * its first controlled tick does not collide below, so that tick alone reports it off the ground.
+     */
+    private static final int FIRST_CONTROLLED = 0;
 
     @Test
     void theRootFinishesTheServerPathItWasFollowing() throws Exception {
@@ -105,12 +116,22 @@ class SaddleControlSwitchTest {
         }
     }
 
-    /** Controlled ticks from interpolation step {@code first} of 3: no ridden input, so the path alone moves it. */
+    /**
+     * Controlled ticks from interpolation step {@code first} of 3: no ridden input, so the path alone moves it. The
+     * passive root carried no velocity, so the Entity#move of its first controlled travel does not collide below and
+     * reports it off the ground.
+     */
     private static void assertFinishesPath(JavaTickFixture f, int first) {
         for (int step = first; step <= 3; step++) {
             assertTrue(controls(f), "step " + step);
-            PredictionResult result = f.rideTick(START.add(PATH * step / 3, 0, 0), true);
+            // MoveVehicle.fromEntity reports the path target while interpolation is active.
+            PredictionResult result = f.rideTick(START.add(PATH, 0, 0), step != first);
             assertTrue(exact(result), "step " + step + ": " + describe(result));
+            assertEquals(
+                    START.x + PATH * ((float) step / 3.0F),
+                    f.player.compensatedEntities.getEntity(DONKEY).clientPhysicalPosition.x,
+                    1e-10,
+                    "the reported target must not replace the physical interpolation step");
         }
         PredictionResult settled = f.rideTick(START.add(PATH, 0, 0), true);
         assertTrue(exact(settled), describe(settled));
@@ -124,7 +145,7 @@ class SaddleControlSwitchTest {
             assertTrue(controls(f));
 
             for (int tick = 0; tick < 3; tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
             assertEquals(0, badPackets.violations);
@@ -145,7 +166,7 @@ class SaddleControlSwitchTest {
             assertTrue(controls(f));
 
             for (int tick = 0; tick < 3; tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
             saddle(f);
@@ -175,7 +196,7 @@ class SaddleControlSwitchTest {
         try (var f = ridden()) {
             BadPacketsVehicle badPackets = enabled(f, BadPacketsVehicle.class);
             saddle(f);
-            PredictionResult controlled = f.rideTick(START, true);
+            PredictionResult controlled = f.rideTick(START, false);
             assertTrue(exact(controlled), describe(controlled));
             openMountScreen(f, saddleItem());
             click(f, 0, 0, WindowClickType.PICKUP, Map.of(0, SimItemStack.EMPTY), saddleItem());
@@ -196,7 +217,7 @@ class SaddleControlSwitchTest {
             BadPacketsVehicle badPackets = enabled(f, BadPacketsVehicle.class);
             openMountScreen(f, SimItemStack.EMPTY);
             SaddleClick.SHIFT.perform(f);
-            PredictionResult controlled = f.rideTick(START, true);
+            PredictionResult controlled = f.rideTick(START, false);
             assertTrue(exact(controlled), describe(controlled));
 
             setSlot(f, 0, SimItemStack.EMPTY);
@@ -259,7 +280,7 @@ class SaddleControlSwitchTest {
             assertTrue(controls(f));
 
             for (int tick = 0; tick < 3; tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
             assertEquals(0, badPackets.violations);
@@ -317,6 +338,70 @@ class SaddleControlSwitchTest {
     }
 
     /**
+     * LivingEntity#recreateFromPacket absSnapTo's a spawned horse to the packet position and starts no
+     * SteppedInterpolationHandler path, even where its box's centre misses that position by an ulp. With no
+     * interpolation target, Entity#getClientPositionAndRotation is the physical position, so the first controlled
+     * tick's ServerboundMoveVehiclePacket#fromEntity reports the move the spawn velocity carries.
+     */
+    @Test
+    void aSpawnedRootReportsTheMoveItsSpawnVelocityCarries() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 spawn = new Vec3(255.50211240720833, FLOOR_Y, 167.18699414555957);
+            stoneAround(f, spawn);
+            f.place(spawn.add(0, 1, 0), Vec3.ZERO);
+            // 0.25 forward as LpVec3 encodes it: 0.2500152597204419.
+            Vec3 velocity = PacketCodecUtil.quantizeLpVec3(new Vec3(0, 0, 0.25));
+            send(
+                    f,
+                    ClientboundPackets.ADD_ENTITY,
+                    new ClientboundAddEntity(
+                            HORSE,
+                            "minecraft:horse",
+                            JavaTickFixture.vec3d(spawn),
+                            0,
+                            0,
+                            0,
+                            new UUID(0, 0),
+                            JavaTickFixture.vec3d(velocity)));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            PacketEntity horse = f.player.compensatedEntities.getEntity(HORSE);
+            var box = GetBoundingBox.getPacketEntityBoundingBox(f.player, spawn.x, spawn.y, spawn.z, horse);
+            assertNotEquals(spawn.x, (box.minX + box.maxX) / 2.0D, "the box must not rebuild the spawn position");
+            // AbstractHorse's DATA_ID_FLAGS with FLAG_TAME: AbstractHorse#canUseSlot opens the saddle slot.
+            f.player.compensatedEntities.updateEntityMetadata(
+                    HORSE, List.of(new EntityMetadata.Entry(18, (byte) 0x02, ByteBuffer.allocate(0))));
+
+            f.setPassengers(HORSE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            sendSaddle(f, HORSE, saddleItem());
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertTrue(controls(f));
+
+            // No ridden input: LivingEntity#travelInAir moves it by its velocity alone, and the level move leaves it
+            // off the ground.
+            PredictionResult result = f.rideTick(spawn.add(velocity), false);
+            assertTrue(exact(result), describe(result));
+        }
+    }
+
+    /** Stone on the floor layer within five blocks of {@code at}, settled past the block-change timing. */
+    private static void stoneAround(JavaTickFixture f, Vec3 at) {
+        int blockX = (int) Math.floor(at.x);
+        int blockZ = (int) Math.floor(at.z);
+        for (int chunkX = (blockX >> 4) - 1; chunkX <= (blockX >> 4) + 1; chunkX++) {
+            for (int chunkZ = (blockZ >> 4) - 1; chunkZ <= (blockZ >> 4) + 1; chunkZ++) {
+                f.player.compensatedWorld.ensureValidationChunkLoaded(chunkX, chunkZ);
+            }
+        }
+        for (int x = blockX - 5; x <= blockX + 5; x++) {
+            for (int z = blockZ - 5; z <= blockZ + 5; z++) {
+                f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.STONE.defaultState());
+            }
+        }
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+    }
+
+    /**
      * Controlled ticks from interpolation step 2 of 3 under {@code input} forward at {@code speed}, as
      * LivingEntity#travelInAir moves them on stone. The passive root stood still, so its first move is horizontal only
      * and Entity#move leaves it off the ground for the next tick.
@@ -330,7 +415,12 @@ class SaddleControlSwitchTest {
 
         double velocity = onGround;
         double z = START.z + velocity;
-        assertExactTick(f, new Vec3(START.x + PATH * 2 / 3, START.y, z), false, "tick 1");
+        // The first controlled travel runs while the path is still active. Its own input is
+        // physical movement; ServerboundMoveVehiclePacket still reports the path's target.
+        assertExactTick(f, START.add(PATH, 0, 0), false, "tick 1");
+        var root = f.player.compensatedEntities.getSelf().getRiding();
+        assertEquals(START.x + PATH * (2.0F / 3.0F), root.clientPhysicalPosition.x, 1e-10);
+        assertEquals(z, root.clientPhysicalPosition.z, 1e-10, "the first input must remain in physical travel");
         velocity = velocity * groundFriction + inAir;
         z += velocity;
         assertExactTick(f, new Vec3(START.x + PATH, START.y, z), true, "tick 2");
@@ -361,7 +451,7 @@ class SaddleControlSwitchTest {
         try (var f = ridden()) {
             BadPacketsVehicle badPackets = enabled(f, BadPacketsVehicle.class);
             saddle(f);
-            PredictionResult controlled = f.rideTick(START, true);
+            PredictionResult controlled = f.rideTick(START, false);
             assertTrue(exact(controlled), describe(controlled));
 
             sendSaddle(f, SimItemStack.EMPTY);
@@ -426,7 +516,7 @@ class SaddleControlSwitchTest {
             BadPacketsVehicle badPackets = enabled(f, BadPacketsVehicle.class);
             saddle(f);
             for (int tick = 0; tick < switchWindowTicks(); tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
             handBack.prepare(f);
@@ -450,7 +540,7 @@ class SaddleControlSwitchTest {
             saddle(f);
             for (int tick = 0; tick < switchWindowTicks(); tick++) {
                 assertTrue(switchWindowOpen(f, DONKEY), "tick " + tick);
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
 
@@ -481,6 +571,7 @@ class SaddleControlSwitchTest {
                     new ClientboundAddEntity(
                             OTHER_DONKEY, "minecraft:donkey", new Vec3d(START.x + 3, START.y, START.z), 0, 0, 0));
             f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.compensatedEntities.updateEntityMetadata(OTHER_DONKEY, horseFlags(18, 0x02));
             sendSaddle(f, OTHER_DONKEY, saddleItem());
             f.pongThrough(f.player.lastTransactionSent.get());
 
@@ -521,7 +612,117 @@ class SaddleControlSwitchTest {
     }
 
     private static List<EntityMetadata.Entry> horseFlags(int flags) {
-        return List.of(new EntityMetadata.Entry(17, (byte) flags, ByteBuffer.allocate(0)));
+        return horseFlags(17, flags);
+    }
+
+    private static List<EntityMetadata.Entry> horseFlags(int index, int flags) {
+        return List.of(new EntityMetadata.Entry(index, (byte) flags, ByteBuffer.allocate(0)));
+    }
+
+    /**
+     * AbstractNautilus#getControllingPassenger needs Mob#isSaddled, whose LivingEntity#isEquippableInSlot reads
+     * AbstractNautilus#canUseSlot: a live, adult, tamed nautilus. Entity data that ends any of those takes control
+     * from the rider without new equipment, so the client stops sending MoveVehicle.
+     */
+    @ParameterizedTest
+    @EnumSource(SaddleSlotLoss.class)
+    void aNautilusThatCanNoLongerUseItsSaddleHandsControlBack(SaddleSlotLoss loss) throws Exception {
+        try (var f = ridden("minecraft:nautilus", false)) {
+            CompensatedVehicleState vehicles = f.player.compensatedEntities.vehicles;
+            PacketEntity nautilus = f.player.compensatedEntities.getEntity(DONKEY);
+            // TamableAnimal's DATA_FLAGS_ID with its tame bit.
+            f.player.compensatedEntities.updateEntityMetadata(DONKEY, horseFlags(18, 0x04));
+            saddle(f);
+            assertTrue(vehicles.mustEchoMoveVehicle(nautilus));
+            f.player.packetStateData.acceptedClientTick += switchWindowTicks();
+            assertFalse(switchWindowOpen(f, DONKEY));
+
+            f.player.compensatedEntities.updateEntityMetadata(DONKEY, loss.entry);
+            assertFalse(((PacketEntityNautilus) nautilus).hasSaddle);
+            assertFalse(vehicles.mustEchoMoveVehicle(nautilus));
+            assertTrue(switchWindowOpen(f, DONKEY));
+        }
+    }
+
+    enum SaddleSlotLoss {
+        /** AgeableMob's DATA_BABY_ID. */
+        BABY(new EntityMetadata.Entry(16, true, ByteBuffer.allocate(0))),
+        /** TamableAnimal's DATA_FLAGS_ID without its tame bit. */
+        UNTAMED(new EntityMetadata.Entry(18, (byte) 0, ByteBuffer.allocate(0))),
+        /** LivingEntity's DATA_HEALTH_ID, which LivingEntity#isAlive reads. */
+        DEAD(new EntityMetadata.Entry(9, 0.0F, ByteBuffer.allocate(0)));
+
+        final List<EntityMetadata.Entry> entry;
+
+        SaddleSlotLoss(EntityMetadata.Entry entry) {
+            this.entry = List.of(entry);
+        }
+    }
+
+    /** Taming the mount opens its saddle slot to the saddle it already wears, handing the rider control. */
+    @Test
+    void tamingASaddledDonkeyHandsTheRiderControl() throws Exception {
+        try (var f = ridden(false)) {
+            CompensatedVehicleState vehicles = f.player.compensatedEntities.vehicles;
+            PacketEntity donkey = f.player.compensatedEntities.getEntity(DONKEY);
+            saddle(f);
+            assertFalse(vehicles.mustEchoMoveVehicle(donkey));
+            assertFalse(switchWindowOpen(f, DONKEY));
+
+            f.player.compensatedEntities.updateEntityMetadata(DONKEY, horseFlags(18, 0x02));
+            assertTrue(vehicles.mustEchoMoveVehicle(donkey));
+            assertTrue(switchWindowOpen(f, DONKEY));
+        }
+    }
+
+    /**
+     * LivingEntity#isEquippableInSlot needs an EQUIPPABLE component for the SADDLE slot that admits the mount. Any
+     * other item the server puts in the slot leaves the mount unsaddled.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"minecraft:diamond_horse_armor", "minecraft:stick"})
+    void aSaddleSlotItemThatIsNoSaddleGivesNoControl(String item) throws Exception {
+        try (var f = ridden()) {
+            PacketEntity donkey = f.player.compensatedEntities.getEntity(DONKEY);
+            sendSaddle(f, ItemUtil.modelItems().stack(item, 1));
+            f.pongThrough(f.player.lastTransactionSent.get());
+
+            assertFalse(((PacketEntityHorse) donkey).hasSaddle);
+            assertFalse(f.player.compensatedEntities.vehicles.mustEchoMoveVehicle(donkey));
+            assertFalse(switchWindowOpen(f, DONKEY));
+        }
+    }
+
+    /** 1.21.5's Mob#isSaddled is Mob#hasItemInSlot: any item in the slot saddles even an untamed mount. */
+    @Test
+    void aV1215SaddleSlotSaddlesWithAnyItem() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_5, ClientVersion.V_1_21_5)) {
+            f.place(START.add(0, 1, 0), Vec3.ZERO);
+            send(
+                    f,
+                    ClientboundPackets.ADD_ENTITY,
+                    new ClientboundAddEntity(
+                            DONKEY, "minecraft:donkey", new Vec3d(START.x, START.y, START.z), 0, 0, 0));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.setPassengers(DONKEY, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            sendSaddle(f, ItemUtil.modelItems().stack("minecraft:stick", 1));
+            f.pongThrough(f.player.lastTransactionSent.get());
+
+            PacketEntity donkey = f.player.compensatedEntities.getEntity(DONKEY);
+            assertTrue(((PacketEntityHorse) donkey).hasSaddle);
+            assertTrue(f.player.compensatedEntities.vehicles.mustEchoMoveVehicle(donkey));
+        }
+    }
+
+    /** SkeletonHorse#canUseSlot opens every slot from 1.21.11, so its saddle needs no tamed rider. */
+    @Test
+    void anUntamedSkeletonHorseTakesItsSaddle() throws Exception {
+        try (var f = ridden("minecraft:skeleton_horse", false)) {
+            saddle(f);
+            assertTrue(controls(f));
+            assertTrue(switchWindowOpen(f, DONKEY));
+        }
     }
 
     enum HandOver {
@@ -782,11 +983,7 @@ class SaddleControlSwitchTest {
     }
 
     private static void sendSaddle(JavaTickFixture f) {
-        var item = DataTables.defaults().items().stream()
-                .filter(definition -> definition.key().equals("minecraft:saddle"))
-                .findFirst()
-                .orElseThrow();
-        sendSaddle(f, new SimItemStack(item, 1, Components.EMPTY));
+        sendSaddle(f, saddleItem());
     }
 
     private static void sendSaddle(JavaTickFixture f, SimItemStack saddle) {

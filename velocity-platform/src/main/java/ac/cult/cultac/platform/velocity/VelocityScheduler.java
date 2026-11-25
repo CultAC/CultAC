@@ -84,11 +84,6 @@ final class VelocityScheduler
         }
         return new TaskHandle() {
             @Override
-            public boolean isCancelled() {
-                return future.isCancelled();
-            }
-
-            @Override
             public void cancel() {
                 future.cancel(false);
             }
@@ -111,11 +106,6 @@ final class VelocityScheduler
             throw new IllegalArgumentException("Non-positive task period");
         }
         return schedule(global, plugin, task, delay, period, unit);
-    }
-
-    @Override
-    public void execute(GrimPlugin plugin, Runnable task) {
-        runNow(plugin, task);
     }
 
     @Override
@@ -194,15 +184,6 @@ final class VelocityScheduler
     @Override
     public TaskHandle runDelayed(CultEntity entity, GrimPlugin plugin, Runnable task, Runnable retired, long delay) {
         return entity(entity, plugin, task, retired, delay, 0);
-    }
-
-    @Override
-    public TaskHandle runAtFixedRate(
-            CultEntity entity, GrimPlugin plugin, Runnable task, Runnable retired, long delay, long period) {
-        if (period <= 0) {
-            throw new IllegalArgumentException("Non-positive task period");
-        }
-        return entity(entity, plugin, task, retired, delay, period);
     }
 
     @Override

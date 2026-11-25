@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -68,11 +67,6 @@ class RiddenHorseInputTest {
     void setUp() throws ClassNotFoundException {
         OfflineCultTestBootstrap.installConfig();
         Class.forName(VerboseCodecs.class.getName());
-        Mockito.when(CultAPI.INSTANCE
-                        .getConfigManager()
-                        .getConfig()
-                        .getLongElse(Mockito.anyString(), Mockito.anyLong()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     /** LivingEntity#aiStep zeroes the carried axis below 0.003 before travelRidden adds the input. */

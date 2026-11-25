@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 
 import ac.cult.cultac.bedrock.bridge.GeyserPlayerSleepMetadata;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.utils.math.Vec3;
 import org.cloudburstmc.math.vector.Vector3i;
@@ -54,7 +55,7 @@ public class BedrockPlayerSleepMetadataTest {
                         .moveVector(1, 1)
                         .build();
                 assertNull(processor.processBedrockAuthInputFrame(forged, BedrockPredictionTrigger.OFFLINE_REPLAY));
-                var held = ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.previousState(
+                var held = BedrockProfileState.previousState(
                         processor.getCurrentPredictionCommit().carry());
                 assertNotNull(held);
                 assertEquals(2145.5, held.physicalFeetPosition().x(), 0);

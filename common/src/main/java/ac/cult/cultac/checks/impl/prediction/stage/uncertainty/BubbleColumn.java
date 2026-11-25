@@ -12,11 +12,13 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.cult.cultac.utils.nmsutil.JavaBubbleColumnVelocity;
 
 public class BubbleColumn implements UncertaintyHandler {
     @Override
     public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
-        return lastResult == null
+        return carriesTickEndVelocity(player, context)
+                || lastResult == null
                 || !lastResult
                         .getSimulationContext()
                         .getWorldData()
@@ -33,48 +35,22 @@ public class BubbleColumn implements UncertaintyHandler {
             PredictionResult lastResult,
             PredVector start,
             Vec3 end) {
-        if (context.getVehicle() != null
-                && !player.isBedrockMovement()
-                && JavaMovementEngine.contextUsesExactEffects(context)) return start;
-        if (beforeElytra(context)) return start;
+        if (carriesTickEndVelocity(player, context)) return start;
         return apply(context, lastResult, start, end.y);
     }
 
-    @Override
-    public void positionInto(
-            double[] xyz,
-            CultPlayer player,
-            ValidMovements valid,
-            PredictionResult result,
-            SimulationContext context,
-            PredictionResult lastResult,
-            PredVector carrier,
-            Vec3 end) {
-        if (context.getVehicle() != null
-                && !player.isBedrockMovement()
-                && JavaMovementEngine.contextUsesExactEffects(context)) return;
-        if (beforeElytra(context)) return;
-        xyz[1] = applyY(context, lastResult, xyz[1], end.y);
+    private static boolean carriesTickEndVelocity(CultPlayer player, SimulationContext context) {
+        return !player.isBedrockMovement() && JavaMovementEngine.contextUsesExactEffects(context)
+                || JavaBubbleColumnVelocity.carries(player, context);
     }
 
-    static boolean beforeElytra(SimulationContext context) {
-        return context.getVehicle() == null
-                && context.usesFallFlyingMovement()
-                && !context.getWorldData().mustBeInLiquid();
-    }
-
-    static PredVector apply(SimulationContext context, PredictionResult lastResult, PredVector start, double targetY) {
-        return start.withXYZOrSelf(start.x, applyY(context, lastResult, start.y, targetY), start.z, "bubble column");
-    }
-
-    /** The y {@link #apply} moves a start at {@code startY} to. */
-    private static double applyY(
-            SimulationContext context, PredictionResult lastResult, double startY, double targetY) {
-        if (lastResult == null) return startY;
+    private static PredVector apply(
+            SimulationContext context, PredictionResult lastResult, PredVector start, double targetY) {
+        if (lastResult == null) return start;
 
         WorldData lastWorldData = lastResult.getSimulationContext().getWorldData();
         BubbleColumnData bubbleColumnData = lastWorldData.getBubbleColumn();
-        if (!bubbleColumnData.hasBubbleColumn()) return startY;
+        if (!bubbleColumnData.hasBubbleColumn()) return start;
 
         double increaseAirUp = bubbleColumnData.getUpAir() * 0.1;
         double increaseUp = bubbleColumnData.getUp() * 0.06;
@@ -91,23 +67,23 @@ public class BubbleColumn implements UncertaintyHandler {
             decreaseDown *= 2;
         }
 
-        double bestY = startY;
+        double bestY = start.y;
 
         // Downwards velocity can be applied when in an upwards bubble column above 0.7 blocks/tick
-        if ((increaseUp != 0 || increaseAirUp != 0) && startY > 0.7 * 0.8) {
+        if ((increaseUp != 0 || increaseAirUp != 0) && start.y > 0.7 * 0.8) {
             bestY = CultMath.clamp(targetY, bestY, 0.7 * 0.8);
         }
         // Upwards velocity can be applied when in a downwards bubble column below -0.3 blocks/tick
-        if ((decreaseDown != 0 || decreaseAirDown != 0) && startY < -0.3 * 0.8) {
+        if ((decreaseDown != 0 || decreaseAirDown != 0) && start.y < -0.3 * 0.8) {
             bestY = CultMath.clamp(targetY, bestY, -0.3 * 0.8);
         }
         // Upwards velocity is applied when in an upwards bubble column up to a certain limit
-        double totalUp = Math.min(startY + increaseUp + increaseAirUp, increaseAirUp > 0 ? 1.8 : 0.7);
+        double totalUp = Math.min(start.y + increaseUp + increaseAirUp, increaseAirUp > 0 ? 1.8 : 0.7);
         bestY = CultMath.clamp(targetY, bestY, totalUp);
         // Downwards velocity is applied when in a downwards bubble column up to a certain limit
-        double totalDown = Math.max(startY + decreaseDown + decreaseAirDown, decreaseAirDown < 0 ? -0.9 : -0.3);
+        double totalDown = Math.max(start.y + decreaseDown + decreaseAirDown, decreaseAirDown < 0 ? -0.9 : -0.3);
         bestY = CultMath.clamp(targetY, bestY, totalDown);
 
-        return bestY;
+        return start.withXYZOrSelf(start.x, bestY, start.z, "bubble column");
     }
 }

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
@@ -36,7 +37,7 @@ public class BedrockRewindDebugTest {
         EmbeddedChannel channel = new EmbeddedChannel();
         UUID uuid = UUID.randomUUID();
         var player = new CultPlayer(
-                ac.cult.cultac.network.TestUsers.create(new User.Profile(uuid, ".Rewind_Test"), channel),
+                TestUsers.create(new User.Profile(uuid, ".Rewind_Test"), channel),
                 MovementPlatform.BEDROCK,
                 new BedrockPlayerState(uuid));
         try {

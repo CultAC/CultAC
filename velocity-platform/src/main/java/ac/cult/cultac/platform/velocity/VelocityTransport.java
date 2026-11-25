@@ -6,6 +6,8 @@ import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.network.ConnectionContinuation;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
+import ac.cult.cultac.network.DormancyController;
+import ac.cult.cultac.network.DormantWatch;
 import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -23,11 +25,13 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.channel.Channel;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import net.kyori.adventure.text.Component;
+import org.jetbrains.annotations.Nullable;
 
 /** Intercepts client-facing frames, after Velocity's entity-ID rewriting and before compression. */
 final class VelocityTransport {
@@ -46,6 +50,8 @@ final class VelocityTransport {
     private final Method connectionMethod;
     private final Method channelMethod;
     private final VelocityClientSupport clients;
+    private final @Nullable VelocityCompressedForward compressedForward;
+    private volatile @Nullable VelocityDormancy dormancy;
     private volatile boolean running;
 
     VelocityTransport(
@@ -53,8 +59,10 @@ final class VelocityTransport {
             Object plugin,
             CultNetworkManager manager,
             AdapterFactory platform,
-            Function<Channel, PacketOwner> bedrockOwners) {
+            Function<Channel, PacketOwner> bedrockOwners,
+            @Nullable VelocityCompressedForward compressedForward) {
         this.proxy = proxy;
+        this.compressedForward = compressedForward;
         this.plugin = plugin;
         this.manager = manager;
         this.platform = platform;
@@ -108,7 +116,7 @@ final class VelocityTransport {
             boolean translated = bedrock != null || clients.isBedrock(player.getUniqueId());
             // A Bedrock session needs the Geyser bridge's tap; never inspect it as a Java client.
             if (translated && bedrock == null) {
-                refuse(player, REFUSED, "Bedrock session without a Geyser bridge", null);
+                refuseUnbridged(player);
                 return null;
             }
         } catch (Throwable failure) {
@@ -120,7 +128,7 @@ final class VelocityTransport {
             attached = CompletableFuture.runAsync(
                     () -> {
                         if (running && channel.isActive()) {
-                            attach(player, channel, bedrock, null);
+                            join(player, channel, bedrock);
                         }
                     },
                     channel.eventLoop());
@@ -134,6 +142,12 @@ final class VelocityTransport {
             }
             return null;
         }));
+    }
+
+    /** A Bedrock session without a Geyser bridge joins uninspected where Bedrock players are exempt, else not at all. */
+    static void refuseUnbridged(Player player) {
+        if (CultAPI.INSTANCE.getConfigManager().isExemptBedrockPlayers()) return;
+        refuse(player, REFUSED, "Bedrock session without a Geyser bridge", null);
     }
 
     /** Disconnects a client CultAC cannot inspect unless failing open lets it join uninspected. */
@@ -160,7 +174,35 @@ final class VelocityTransport {
         }
     }
 
+    void dormancy(VelocityDormancy dormancy) {
+        this.dormancy = dormancy;
+    }
+
+    boolean running() {
+        return running;
+    }
+
+    /**
+     * A connection at its PostLogin: a dormant Java player gets only a watch, a dormant Bedrock player CultAC's handlers
+     * and no CultAC player, everyone else is attached.
+     */
+    void join(Player player, Channel channel, PacketOwner bedrock) {
+        VelocityDormancy dormant = dormancy;
+        if (running && dormant != null && dormant.joined(player, channel, bedrock)) return;
+        attach(player, channel, bedrock, null);
+    }
+
     synchronized void attach(Player player, Channel channel, PacketOwner bedrock, ConnectionContinuation continued) {
+        attach(player, channel, bedrock, continued, false);
+    }
+
+    /** Attaches a Bedrock connection whose player is dormant: CultAC's handlers and no CultAC player. */
+    synchronized void attachDormant(Player player, Channel channel, PacketOwner bedrock) {
+        attach(player, channel, bedrock, null, true);
+    }
+
+    private void attach(
+            Player player, Channel channel, PacketOwner bedrock, ConnectionContinuation continued, boolean dormant) {
         if (!running) {
             return;
         }
@@ -178,24 +220,30 @@ final class VelocityTransport {
         var connection = manager.createConnection(adapter, channel);
         adapter.attach(connection);
         connection.continuation(continued);
+        if (dormant) DormancyController.joinedDormant(connection);
         connection.phase(PacketDirection.SERVERBOUND, ConnectionPhase.CONFIGURATION);
         connection.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.CONFIGURATION);
         connection.resolveOwner();
         // Authentication enables compression (including Via's relocation) before
         // PostLogin CONFIG. Keep these handlers stable for the whole session.
         VelocityPacketPipeline.install(connection);
+        if (compressedForward != null) compressedForward.installClient(connection, adapter, player);
         connection.execute(connection::prepare);
     }
 
     synchronized CompletionStage<Void> remove() {
         running = false;
         if (RuntimeEnvironment.host() == null) proxy.getEventManager().unregisterListener(plugin, this);
-        return CompletableFuture.allOf(
+        VelocityDormancy dormant = dormancy;
+        CompletableFuture<Void> detached = CompletableFuture.allOf(
                 manager.connections().stream().map(this::detach).toArray(CompletableFuture[]::new));
+        return dormant == null ? detached : detached.thenCompose(ignored -> dormant.remove());
     }
 
     /**
-     * Releases a connection on its packet owner, before the acknowledgement reaches Velocity.
+     * Releases a connection on its packet owner, before the acknowledgement reaches Velocity. A dormant connection's
+     * state carries {@link DormantWatch#DORMANT} and its retired pings; a dormant Bedrock connection, with its Geyser
+     * session, stays with this engine until it closes.
      *
      * @return the client state to continue, or null when this engine keeps the connection
      */
@@ -205,8 +253,12 @@ final class VelocityTransport {
                 || !connection.owner().inEventLoop()
                 || connection.phase(PacketDirection.SERVERBOUND) != ConnectionPhase.PLAY
                 || connection.phase(PacketDirection.CLIENTBOUND) != ConnectionPhase.CONFIGURATION) return null;
-        var state = ConnectionContinuation.capture(connection);
-        if (connection.bedrockBridge() != null) {
+        var dormant = connection.dormant();
+        if (dormant != null && connection.bedrockBridge() != null) return null;
+        Map<String, Object> state =
+                dormant == null ? ConnectionContinuation.capture(connection) : new HashMap<>(dormant);
+        if (dormant != null) state.put(DormantWatch.DORMANT, true);
+        else if (connection.bedrockBridge() != null) {
             var bedrock = GeyserBedrockBridgeRuntime.releaseSession(connection.bedrockBridge());
             if (bedrock == null) return null;
             state.put("bedrock-session", connection.bedrockBridge());
@@ -214,14 +266,11 @@ final class VelocityTransport {
         }
         CloudModule.released(connection.player());
         connection
-                .removeHandlers(() -> {
-                    ((VelocityConnectionAdapter) connection.platform()).closeBackendTicks();
-                    CultDecoder.uninstall(channel);
-                    CultEncoder.uninstall(channel);
-                })
+                .removeHandlers(() -> removeHandlers(connection))
                 .toCompletableFuture()
                 .join();
         manager.release(channel);
+        if (dormant != null) state.put(DormantWatch.RETIRED, connection.drainRetiredPings());
         return state;
     }
 
@@ -229,15 +278,20 @@ final class VelocityTransport {
         try {
             // Enter I/O before requesting removal; removal waits for accepted packet work.
             return CompletableFuture.supplyAsync(
-                            () -> connection.removeHandlers(() -> {
-                                ((VelocityConnectionAdapter) connection.platform()).closeBackendTicks();
-                                CultDecoder.uninstall(connection.channel());
-                                CultEncoder.uninstall(connection.channel());
-                            }),
+                            () -> connection.removeHandlers(() -> removeHandlers(connection)),
                             connection.channel().eventLoop())
                     .thenCompose(CompletionStage::toCompletableFuture);
         } catch (RuntimeException failure) {
             return CompletableFuture.failedFuture(failure);
         }
+    }
+
+    /** Removes Cult's handlers and backend tick observer from {@code connection}; inside its removal. */
+    void removeHandlers(CultConnection connection) {
+        Channel channel = connection.channel();
+        ((VelocityConnectionAdapter) connection.platform()).closeBackendTicks();
+        if (compressedForward != null) VelocityCompressedForward.uninstall(channel);
+        CultDecoder.uninstall(channel);
+        CultEncoder.uninstall(channel);
     }
 }

@@ -77,12 +77,15 @@ final class ComponentValues {
         private final ValueContext context;
         private final CompoundTag patch = new CompoundTag(), layouts = new CompoundTag();
         private final ArrayList<ValueContext> forks;
+        /** The namespaced key of each present component, in the order of {@link #forks}. */
+        private final ArrayList<String> keys;
 
         private ItemComponents(Item item, ValueContext context) {
             this.item = item;
             this.context = context;
             var values = item.dataContainer().data().values();
             forks = new ArrayList<>(values.size());
+            keys = new ArrayList<>(values.size());
             for (var data : values) {
                 String name = Key.stripMinecraftNamespace(data.key().identifier());
                 if (data.isEmpty()) {
@@ -90,13 +93,15 @@ final class ComponentValues {
                     continue;
                 }
                 var fork = context.fork();
-                patch.put(Key.namespaced(name), component(data, fork));
+                String key = Key.namespaced(name);
+                patch.put(key, component(data, fork));
                 forks.add(fork);
+                keys.add(key);
             }
             int next = 0;
             for (var data : values) {
                 if (data.isEmpty()) continue;
-                String key = Key.namespaced(data.key().identifier());
+                String key = keys.get(next);
                 var detail = valueLayout(data, patch.get(key), forks.get(next++));
                 if (!detail.isEmpty()) layouts.put(key, detail);
             }
@@ -111,17 +116,21 @@ final class ComponentValues {
             return layouts;
         }
 
-        /** The present components' encodings, keyed by namespaced component name. */
-        Map<String, WireValueDecoder.ComponentEncoding> encodings() {
+        /**
+         * The present components' encodings, keyed by namespaced component name; {@code capacity} sizes the scratch
+         * buffer, which grows past it as needed.
+         */
+        Map<String, WireValueDecoder.ComponentEncoding> encodings(int capacity) {
             var encodings = new HashMap<String, WireValueDecoder.ComponentEncoding>();
-            ByteBuf scratch = Unpooled.buffer();
+            if (keys.isEmpty()) return encodings;
+            ByteBuf scratch = Unpooled.buffer(capacity);
             try {
                 int next = 0;
                 for (var data : item.dataContainer().data().values()) {
-                    if (!data.isEmpty())
-                        encodings.put(
-                                Key.namespaced(data.key().identifier()),
-                                wireEncoding(data, context, forks.get(next++), scratch));
+                    if (!data.isEmpty()) {
+                        String key = keys.get(next);
+                        encodings.put(key, wireEncoding(data, context, forks.get(next++), scratch));
+                    }
                 }
             } finally {
                 scratch.release();

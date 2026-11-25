@@ -1,12 +1,16 @@
 package ac.cult.cultac.network.codec;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.packet.SectionSnapshot;
 import ac.cult.cultac.network.packet.WorldPackets;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.CodecState;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.RegistryNames;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.latency.CompensatedWorld.ClientboundDimensionData;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import java.nio.ByteBuffer;
@@ -60,12 +64,40 @@ final class ModelWorldValues {
         return new WorldPackets.BlockEntityUpdate(pos, type, NbtValueCodec.readBlockEntity(input, type));
     }
 
-    static WorldPackets.Chunk chunk(ByteBuf input, RegistryNames names) {
+    /**
+     * A pinned 26.3 chunk, its sections decoded in the dimension of the attached player when {@code state} lends the
+     * frame and that dimension is resolved, see {@link #chunk(ByteBuf, RegistryNames, ClientboundDimensionData)}.
+     */
+    static WorldPackets.Chunk chunk(ByteBuf input, RegistryNames names, CodecState state) {
+        if (!(state instanceof CultConnection connection)) return chunk(input, names, (ClientboundDimensionData) null);
+        CultPlayer player = connection.player();
+        boolean decodes =
+                player != null && !player.compensatedWorld.isClientboundUnresolved() && connection.lease(input) != null;
+        return chunk(input, names, decodes ? player.compensatedWorld.getLastClientboundDimension() : null);
+    }
+
+    /**
+     * A pinned 26.3 chunk; without a {@code dimension} the sections stay bytes. With one, once the rest of the packet
+     * has read and nothing trails it, the sections decode as the world reader decodes them in that dimension; a column
+     * that does not decode keeps its bytes, which the reader then decodes.
+     */
+    static WorldPackets.Chunk chunk(ByteBuf input, RegistryNames names, ClientboundDimensionData dimension) {
         IntFunction<String> types = blockEntityTypes(names);
         int x = input.readInt(), z = input.readInt();
         long[] motionBlocking = MotionHeightmapValues.read(input, ProtocolVersion.V26_3);
-        byte[] model = ByteBufUtil.getBytes(input.readSlice(Wire.readLength(input, 2097152)));
-        return finishChunk(input, ProtocolVersion.V26_3, types, x, z, motionBlocking, model, null);
+        ByteBuf sections = input.readSlice(Wire.readLength(input, 2097152));
+        if (dimension == null)
+            return finishChunk(
+                    input, ProtocolVersion.V26_3, types, x, z, motionBlocking, ByteBufUtil.getBytes(sections), null);
+        var tickers = new ArrayList<BlockPos>();
+        var entities = blockEntities(input, types, x, z, tickers);
+        LightValueCodec.skip(input, ProtocolVersion.V26_3);
+        var decoded = input.isReadable()
+                ? null
+                : SectionProjection.modelSections(
+                        sections, dimension.sectionCount(), names, dimension.dimension(), x, z);
+        var model = decoded == null ? ByteBuffer.wrap(ByteBufUtil.getBytes(sections)) : null;
+        return new WorldPackets.Chunk(x, z, model, tickers, entities, motionBlocking, decoded);
     }
 
     static WorldPackets.Chunk chunkDecoded(
@@ -85,8 +117,17 @@ final class ModelWorldValues {
             long[] motionBlocking,
             byte[] model,
             List<SectionSnapshot> decoded) {
-        int count = Wire.readLength(input, input.readableBytes());
         var tickers = new ArrayList<BlockPos>();
+        var entities = blockEntities(input, types, x, z, tickers);
+        LightValueCodec.skip(input, version);
+        return new WorldPackets.Chunk(
+                x, z, model == null ? null : ByteBuffer.wrap(model), tickers, entities, motionBlocking, decoded);
+    }
+
+    /** The column's block entities; each ticker candidate's position is added to {@code tickers}. */
+    private static List<WorldPackets.BlockEntityUpdate> blockEntities(
+            ByteBuf input, IntFunction<String> types, int x, int z, List<BlockPos> tickers) {
+        int count = Wire.readLength(input, input.readableBytes());
         var entities = new ArrayList<WorldPackets.BlockEntityUpdate>(count);
         for (int i = 0; i < count; i++) {
             int xz = input.readUnsignedByte(), y = input.readShort();
@@ -95,9 +136,7 @@ final class ModelWorldValues {
             if (type.equals("minecraft:potent_sulfur")) tickers.add(pos);
             entities.add(new WorldPackets.BlockEntityUpdate(pos, type, NbtValueCodec.readBlockEntity(input, type)));
         }
-        LightValueCodec.skip(input, version);
-        return new WorldPackets.Chunk(
-                x, z, model == null ? null : ByteBuffer.wrap(model), tickers, entities, motionBlocking, decoded);
+        return entities;
     }
 
     static WorldPackets.ChunkBiomes biomes(ByteBuf input) {

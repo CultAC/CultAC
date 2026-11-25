@@ -9,8 +9,12 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
+import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -26,15 +30,19 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
@@ -89,20 +97,20 @@ class EntityInteractionVisibilityTest {
                 setup.wall(wall);
                 for (var action : actions) {
                     for (var hand : Hand.values()) {
-                        double before = setup.check.violations;
+                        double before = setup.owner(type).violations;
                         assertFalse(setup.fixture.channel.writeInbound(setup.encode(42, action, hand)));
                         assertNull(setup.fixture.channel.readInbound());
-                        assertEquals(before + 1, setup.check.violations);
+                        assertEquals(before + 1, setup.owner(type).violations);
                     }
                 }
             }
             setup.tickEnd();
             setup.wall("air");
-            double before = setup.check.violations;
+            double before = setup.check.violations + setup.players.violations;
             for (var action : actions) {
                 for (var hand : Hand.values()) setup.fixture.forward(setup.encode(42, action, hand));
             }
-            assertEquals(before, setup.check.violations);
+            assertEquals(before, setup.check.violations + setup.players.violations);
         }
     }
 
@@ -273,6 +281,53 @@ class EntityInteractionVisibilityTest {
         }
     }
 
+    @ParameterizedTest
+    @MethodSource("clients")
+    void aFallingBlockInACobwebFallsAtTheCobwebsStuckSpeed(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            // A block spawned in a two-high cobweb, 3992 and 13020 nearer the origin. Stuck from its first move on, it
+            // falls 0.002 a tick between the server's positions, so the eye of the player in the same cobweb stays
+            // inside its box; dropped at full gravity it lands on the stone, behind the cobweb's outline.
+            stuckInCobweb(setup);
+            setup.place(.388561503484, 62.064619825150615, .762475956988);
+            assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            assertEquals(
+                    62.762752727413970 - 6 * .0020000000298023224,
+                    setup.player.compensatedEntities.getEntity(42).clientPhysicalPosition.y,
+                    1.0E-9);
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("clients")
+    void aFallingBlockStuckInACobwebIsStillOutOfRangeFromBelowIt(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            // The eye is 3.48 from the stuck block's box and 2.83 from where the block lands at full gravity.
+            stuckInCobweb(setup);
+            setup.place(2.6853687570533, 57.98, .66041931685);
+            assertTrue(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+        }
+    }
+
+    private static void stuckInCobweb(Setup setup) throws Exception {
+        var world = setup.player.compensatedWorld;
+        world.applyBlockChangeRawDANGER(0, 61, 0, state("stone"));
+        world.applyBlockChangeRawDANGER(0, 62, 0, state("cobweb"));
+        world.applyBlockChangeRawDANGER(0, 63, 0, state("cobweb"));
+        setup.spawn(
+                42,
+                "minecraft:falling_block",
+                new Vec3d(.6953687475166, 62.88453983678897, .66041931685),
+                Vec3d.ZERO,
+                14845);
+        setup.sync(42, new Vec3d(.6953687475166, 62.84453983678897, .66041931685));
+        for (int tick = 0; tick < 20; tick++) setup.clientTick();
+        setup.sync(42, new Vec3d(.6953687475166, 62.80254764928897, .66041931685));
+        for (int tick = 0; tick < 21; tick++) setup.clientTick();
+        setup.sync(42, new Vec3d(.6953687475166, 62.76275272741397, .66041931685));
+        for (int tick = 0; tick < 6; tick++) setup.clientTick();
+    }
+
     @Test
     void aFallingBlockThatHitsAWallLosesThatAxisOfItsDeltaMovementExceptOn26_2() throws Exception {
         // Stopped by the wall on the second tick, the block rises past the wall's top on the fourth. 1.21.11's
@@ -378,17 +433,23 @@ class EntityInteractionVisibilityTest {
 
     @ParameterizedTest
     @MethodSource("clients")
-    void anInteractionRidingAnAreaEffectCloudOutsideTheOwnTreeIsNeverHidden(ProtocolVersion version) throws Exception {
+    void anInteractionRidingAnAreaEffectCloudOutsideTheOwnTreeIsPickedAtItsSeat(ProtocolVersion version)
+            throws Exception {
         try (var setup = new Setup(version)) {
+            // The cloud stands before the wall and the interaction behind it.
             setup.entity(
                     41,
                     EntityTypes.defaults().byKey("minecraft:area_effect_cloud").id(),
-                    1.5);
+                    -.6);
             setup.entity(
                     42, EntityTypes.defaults().byKey("minecraft:interaction").id(), 1.5);
             setup.wall("stone");
             assertTrue(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            // Entity#startRiding leaves the passenger where it is; Entity#rideTick seats it at the vehicle's
+            // positionRider on its next tick.
             setup.player.compensatedEntities.vehicles.applyVehiclePassengers(41, new int[] {42});
+            assertTrue(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            setup.clientTick();
             assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
         }
     }
@@ -568,6 +629,60 @@ class EntityInteractionVisibilityTest {
         }
     }
 
+    /** Minecraft picks before ClientLevel#tickEntities, including after a same-level player replacement. */
+    @ParameterizedTest
+    @MethodSource("clients")
+    void aRetainedClosingShulkerKeepsItsCommittedInteractionBoxAfterRespawn(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            var player = setup.player;
+            var entities = player.compensatedEntities;
+            setup.place(.5, 64, -1.48);
+            entities.addEntity(42, EntityTypeIds.SHULKER, new Vec3(.5, 65, 2.5), 0, 0, 0);
+            var shulker = (PacketEntityShulker) entities.getEntity(42);
+            shulker.onShapeData(Direction.SOUTH, (byte) 50);
+            for (int tick = 0; tick < 10; tick++) {
+                shulker.onMovement(player);
+                player.packetStateData.acceptedClientTick++;
+            }
+            shulker.onShapeData(null, (byte) 0);
+            double committedFace = shulker.getExactMovementCollisionBox().minZ;
+            assertEquals(1.5, committedFace, 1.0E-5);
+            assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+
+            var spawnInfo = new PlayerSpawnInfo(
+                    ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:overworld"),
+                    "minecraft:overworld",
+                    GameMode.SURVIVAL);
+            var packet = new ClientboundRespawn(spawnInfo, (byte) 0);
+            var event = new PacketSendEvent<>(
+                    setup.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.RESPAWN, packet, false);
+            new PacketPlayerRespawn().onRespawn(event, player, packet);
+            event.tasksAfter().forEach(Runnable::run);
+            for (int id = player.lastTransactionReceived.get() + 1; id <= player.lastTransactionSent.get() + 1; id++) {
+                player.lastTransactionReceived.set(id);
+                player.latencyUtils.handleNettySyncTransaction(id);
+            }
+            assertSame(shulker, entities.getEntity(42));
+            assertTrue(entities.clientTickOrder(shulker) < entities.clientTickOrder(entities.getSelf()));
+            assertFalse(entities.readingMovementPositions());
+
+            // The committed shell is 2.98 blocks away; one closing tick would put it about 3.058 away.
+            var visibility = new ClientVisibility(player);
+            assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            assertEquals(ClientVisibility.Sight.VISIBLE, visibility.entitySight(shulker, 0));
+            assertEquals(committedFace, shulker.getExactMovementCollisionBox().minZ);
+            assertEquals(0, setup.check.violations);
+
+            shulker.onMovement(player);
+            player.packetStateData.acceptedClientTick++;
+            setup.tickEnd();
+            assertTrue(shulker.getExactMovementCollisionBox().minZ > committedFace + .07);
+            assertEquals(ClientVisibility.Sight.OUT_OF_RANGE, visibility.entitySight(shulker, 0));
+            assertTrue(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            assertEquals(1, setup.check.violations);
+        }
+    }
+
     @Test
     void attacksAndMissingTargetsAreOwnedByOtherChecks() throws Exception {
         try (var setup = new Setup(ProtocolVersion.V26_3)) {
@@ -624,6 +739,7 @@ class EntityInteractionVisibilityTest {
         final CultPlayer player;
         final ProtocolVersion version;
         final InteractEntityVisibility check;
+        final InteractPlayerVisibility players;
 
         Setup(ProtocolVersion version) throws Exception {
             this.version = version;
@@ -636,6 +752,8 @@ class EntityInteractionVisibilityTest {
             player.checkManager.allChecks.values().forEach(check -> check.setEnabled(false));
             check = player.checkManager.getCheck(InteractEntityVisibility.class);
             check.setEnabled(true);
+            players = player.checkManager.getCheck(InteractPlayerVisibility.class);
+            players.setEnabled(true);
             player.gamemode = GameMode.SURVIVAL;
             player.x = .5;
             player.y = 64;
@@ -649,6 +767,11 @@ class EntityInteractionVisibilityTest {
             world.ensureValidationChunkLoaded(0, -1);
             fixture.registrar.register(routes -> new CheckManagerListener()
                     .registerForwardingEarlyReceivePackets(routes, PacketListenerPriority.LOW));
+        }
+
+        /** The check a right-click on an entity of {@code type} belongs to. */
+        Check owner(int type) {
+            return type == EntityTypeIds.PLAYER ? players : check;
         }
 
         void entity(int id, int type, double z) {

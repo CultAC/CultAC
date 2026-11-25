@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.prediction.integration;
 
 import static org.junit.Assert.*;
 
+import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.*;
@@ -11,8 +12,13 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockAerialMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.*;
+import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
+import ac.cult.cultac.player.CultPlayer;
 import java.util.List;
+import java.util.UUID;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 public final class BedrockFireworkFlightTest {
     private static final float[][] CAPTURE = {
@@ -94,7 +100,7 @@ public final class BedrockFireworkFlightTest {
                     true);
             var candidate = BedrockForwardTick.simulate(input).getFirst();
             var result = candidate.movementResult();
-            state = BedrockForwardTick.finish(result, result.predictedState()).getFirst();
+            state = BedrockForwardTick.finish(result, result.predictedState());
             jump = candidate.mobJumpComponent();
             assertTrue(
                     "position tick " + frame.clientTick() + ": " + state.physicalFeetPosition(),
@@ -175,27 +181,25 @@ public final class BedrockFireworkFlightTest {
         var beforeReceipt = forward(entry, 391, captured[1], true);
         history.record(beforeReceipt);
 
-        var player = org.mockito.Mockito.mock(ac.cult.cultac.player.CultPlayer.class);
-        player.bedrockState = new ac.cult.cultac.bedrock.player.BedrockPlayerState(new java.util.UUID(0, 1));
+        var player = Mockito.mock(CultPlayer.class);
+        player.bedrockState = new BedrockPlayerState(new UUID(0, 1));
         player.bedrockState.movementEffects.setGlideBoost(0, 391);
         var rewind = new BedrockMovementRewind(history);
         rewind.queue(390, true, new BedrockReplayEvent.Boost(0));
-        var current = new ac.cult.cultac.checks.impl.prediction.PredictionCommit(
+        var current = new PredictionCommit(
                 new BedrockNextTickStates(history.current()),
                 BedrockNextTickVelocityDerivation.profileStateVelocities(history.current()));
         var commit = rewind.apply(player, current, (previous, world) -> world);
         var previous = BedrockProfileState.profileEntries(commit.carry()).getFirst();
         assertCaptured(previous.state(), captured[1]);
 
-        var receipt = ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame.builder(new java.util.UUID(0, 1))
-                .clientTick(392)
-                .build();
+        var receipt =
+                BedrockAuthInputFrame.builder(new UUID(0, 1)).clientTick(392).build();
         assertTrue(player.bedrockState.movementEffects.glideBoost(receipt, true));
         var finalFrame = forward(previous, 392, captured[2], true);
         assertCaptured(finalFrame.end().getFirst().state(), captured[2]);
-        var following = ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame.builder(new java.util.UUID(0, 1))
-                .clientTick(393)
-                .build();
+        var following =
+                BedrockAuthInputFrame.builder(new UUID(0, 1)).clientTick(393).build();
         assertFalse(player.bedrockState.movementEffects.glideBoost(following, true));
         assertCaptured(
                 forward(finalFrame.end().getFirst(), 393, captured[3], false)
@@ -203,6 +207,52 @@ public final class BedrockFireworkFlightTest {
                         .getFirst()
                         .state(),
                 captured[3]);
+    }
+
+    // A rocket's start and stop replayed together: the stop the client already took ends the boost.
+    @Test
+    public void aStopReplayedWithItsStartStillEndsTheBoost() {
+        float[][] captured = {
+            {6.3363037F, -20.35318F, 1953.7145F, 122.664246F, 19.238552F, 0.5888684F, -0.18111311F, 1.5667931F},
+            {6.0764465F, -19.703552F, 1954.2899F, 122.486984F, 20.8107F, 0.57539713F, -0.17726061F, 1.5721464F},
+        };
+        var seed = captured[0];
+        var state = BedrockMovementState.fromPhysicalFeet(
+                        position(seed), velocity(seed), BedrockInputFrame.idle(390), BedrockCollisionFlags.AIR)
+                .withGliding(true);
+        var entry = new BedrockProfileState.Entry(state, BedrockMobJumpComponentState.DEFAULT);
+        var history = new BedrockActorHistory();
+        history.record(new BedrockActorHistory.Frame(
+                390,
+                request(entry, 390, seed, true),
+                List.of(entry),
+                List.of(entry),
+                null,
+                Vec3d.ZERO,
+                Vec3d.ZERO,
+                position(seed),
+                velocity(seed),
+                List.of()));
+        history.record(forward(entry, 391, captured[1], true));
+
+        var player = Mockito.mock(CultPlayer.class);
+        player.bedrockState = new BedrockPlayerState(new UUID(0, 1));
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(390, true, new BedrockReplayEvent.Boost(1_000_000));
+        player.bedrockState.movementEffects.setGlideBoost(1_000_000, 390);
+        rewind.queue(390, true, new BedrockReplayEvent.Boost(0));
+        player.bedrockState.movementEffects.setGlideBoost(0, 391);
+        var current = new PredictionCommit(
+                new BedrockNextTickStates(history.current()),
+                BedrockNextTickVelocityDerivation.profileStateVelocities(history.current()));
+        rewind.apply(player, current, (previous, world) -> world);
+
+        var receipt =
+                BedrockAuthInputFrame.builder(new UUID(0, 1)).clientTick(392).build();
+        assertTrue(player.bedrockState.movementEffects.glideBoost(receipt, true));
+        var following =
+                BedrockAuthInputFrame.builder(new UUID(0, 1)).clientTick(393).build();
+        assertFalse(player.bedrockState.movementEffects.glideBoost(following, true));
     }
 
     @Test
@@ -244,18 +294,17 @@ public final class BedrockFireworkFlightTest {
             history.record(frame);
             entry = frame.end().getFirst();
         }
-        var player = org.mockito.Mockito.mock(ac.cult.cultac.player.CultPlayer.class);
-        player.bedrockState = new ac.cult.cultac.bedrock.player.BedrockPlayerState(new java.util.UUID(0, 1));
+        var player = Mockito.mock(CultPlayer.class);
+        player.bedrockState = new BedrockPlayerState(new UUID(0, 1));
         var rewind = new BedrockMovementRewind(history);
         rewind.queue(0, true, new BedrockReplayEvent.Boost(1_000_000));
-        var current = new ac.cult.cultac.checks.impl.prediction.PredictionCommit(
+        var current = new PredictionCommit(
                 new BedrockNextTickStates(history.current()),
                 BedrockNextTickVelocityDerivation.profileStateVelocities(history.current()));
         var commit = rewind.apply(player, current, (previous, world) -> world);
         var previous = BedrockProfileState.profileEntries(commit.carry()).getFirst();
-        var received = ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame.builder(new java.util.UUID(0, 1))
-                .clientTick(1053)
-                .build();
+        var received =
+                BedrockAuthInputFrame.builder(new UUID(0, 1)).clientTick(1053).build();
         var result = forward(
                 previous,
                 1053,
@@ -295,9 +344,8 @@ public final class BedrockFireworkFlightTest {
         var input = request(entry, tick, observed, boost);
         var candidate = BedrockForwardTick.simulate(input).getFirst();
         var result = candidate.movementResult();
-        var entries = BedrockForwardTick.finish(result, result.predictedState()).stream()
-                .map(state -> new BedrockProfileState.Entry(state, candidate.mobJumpComponent()))
-                .toList();
+        var entries = List.of(new BedrockProfileState.Entry(
+                BedrockForwardTick.finish(result, result.predictedState()), candidate.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 input,

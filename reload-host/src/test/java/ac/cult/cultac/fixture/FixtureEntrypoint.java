@@ -36,6 +36,7 @@ public final class FixtureEntrypoint implements RuntimeEntrypoint, RuntimeInstan
         if (controls.containsKey("unlinked:" + variant)) throw new NoClassDefFoundError("Unlinked fixture");
         ac.grim.grimac.api.storage.verbose.Verbose.of("fixture={str}");
         controls.put("loader:" + variant, new WeakReference<>(getClass().getClassLoader()));
+        controls.put("host:" + variant, new WeakReference<>(host));
         events.add(variant + ":load");
         host.resources().track(this, () -> events.add(variant + ":resources"));
     }

@@ -30,7 +30,12 @@ final class YamlMapImpl implements YamlMap {
 
     @Override
     public @Nullable Object get(@NotNull String dottedPath) {
-        return walkRead(root, dottedPath);
+        return get(YamlMap.keys(dottedPath));
+    }
+
+    @Override
+    public @Nullable Object get(@NotNull List<String> keys) {
+        return walkRead(root, keys);
     }
 
     @Override
@@ -70,19 +75,22 @@ final class YamlMapImpl implements YamlMap {
 
     @Override
     public @NotNull YamlMap put(@NotNull String dottedPath, @NotNull Object value) {
-        walkWrite(root, dottedPath, value);
-        writeLog.recordPut(dottedPath, value);
+        return put(YamlMap.keys(dottedPath), value);
+    }
+
+    @Override
+    public @NotNull YamlMap put(@NotNull List<String> keys, @NotNull Object value) {
+        walkWrite(root, keys, value);
+        writeLog.recordPut(List.copyOf(keys), value);
         return this;
     }
 
     // ----- internals -----
 
     @SuppressWarnings("unchecked")
-    private static @Nullable Object walkRead(Map<String, Object> root, String dottedPath) {
-        if (dottedPath.isEmpty()) return root; // empty path = root map view
-        String[] parts = dottedPath.split("\\.");
-        Object cursor = root;
-        for (String part : parts) {
+    private static @Nullable Object walkRead(Map<String, Object> root, List<String> keys) {
+        Object cursor = root; // empty path = root map view
+        for (String part : keys) {
             if (!(cursor instanceof Map<?, ?> m)) return null;
             cursor = ((Map<String, Object>) m).get(part);
             if (cursor == null) return null;
@@ -91,11 +99,10 @@ final class YamlMapImpl implements YamlMap {
     }
 
     @SuppressWarnings("unchecked")
-    private static void walkWrite(Map<String, Object> root, String dottedPath, Object value) {
-        String[] parts = dottedPath.split("\\.");
+    private static void walkWrite(Map<String, Object> root, List<String> keys, Object value) {
         Map<String, Object> cursor = root;
-        for (int i = 0; i < parts.length - 1; i++) {
-            String part = parts[i];
+        for (int i = 0; i < keys.size() - 1; i++) {
+            String part = keys.get(i);
             Object next = cursor.get(part);
             if (!(next instanceof Map<?, ?>)) {
                 next = new LinkedHashMap<>();
@@ -103,6 +110,6 @@ final class YamlMapImpl implements YamlMap {
             }
             cursor = (Map<String, Object>) next;
         }
-        cursor.put(parts[parts.length - 1], value);
+        cursor.put(keys.get(keys.size() - 1), value);
     }
 }

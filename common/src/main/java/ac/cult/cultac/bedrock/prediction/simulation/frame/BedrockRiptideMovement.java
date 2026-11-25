@@ -10,6 +10,7 @@ public final class BedrockRiptideMovement {
     private static final long RELEASE_CHARGE_THRESHOLD_TICKS = 9L;
     private static final long GROUNDED_SPIN_TICKS = 5L;
     private static final long MAX_SPIN_TICKS = 19L;
+    private static final float MOB_REBOUND = -0.2F;
 
     private BedrockRiptideMovement() {}
 
@@ -39,11 +40,36 @@ public final class BedrockRiptideMovement {
                     current.wasInWaterFlag(),
                     current.cameraWater().headInWater()));
         }
+        // A spin that began the tick, or launches in it, meets the mobs around the box the tick starts with, before
+        // anything else ends it. Each one turns the velocity back at a fifth of its speed, and the first ends the spin.
+        int mobHits = current.riptideSpinActive() || releaseStartsSpinAttack ? context.spinHits() : 0;
+        if (mobHits > 0) {
+            float x = (float) nextVelocity.x(), y = (float) nextVelocity.y(), z = (float) nextVelocity.z();
+            for (int hit = 0; hit < mobHits; hit++) {
+                x *= MOB_REBOUND;
+                y *= MOB_REBOUND;
+                z *= MOB_REBOUND;
+            }
+            nextVelocity = new Vec3d(x, y, z);
+            spin = SpinState.INACTIVE;
+        }
 
         return new ActorNormalTick(
-                new Step(nextChargeTicks(current, intent, usable, wet, releaseRequested), spin.active(), spin.ticks()),
+                new Step(
+                        nextChargeTicks(current, intent, usable, wet, releaseRequested),
+                        spin.active(),
+                        spin.ticks(),
+                        mobHits > 0),
                 nextVelocity,
                 releaseStartsSpinAttack);
+    }
+
+    /** The charge after a tick the actor does not move in: an item use still starts, runs on and ends in it. */
+    public static long chargeTicksWithoutActorTick(
+            BedrockMovementState current, BedrockInputIntent intent, BedrockMovementContext context) {
+        boolean usable = context.riptideAvailable() && context.equipmentState().riptideLevel() > 0;
+        boolean wet = current.wasInWaterFlag() || context.rainContact();
+        return nextChargeTicks(current, intent, usable, wet, usable && intent.itemUse().release());
     }
 
     private static long nextChargeTicks(
@@ -88,7 +114,12 @@ public final class BedrockRiptideMovement {
 
     record ActorNormalTick(Step step, Vec3d velocity, boolean spinAttackStarted) {}
 
-    public record Step(long nextChargeTicks, boolean spinActive, long spinTicks) {}
+    /** {@code mobRebound}: the spin met a mob this tick, which also clears the fall the tick began with. */
+    public record Step(long nextChargeTicks, boolean spinActive, long spinTicks, boolean mobRebound) {
+        public Step(long nextChargeTicks, boolean spinActive, long spinTicks) {
+            this(nextChargeTicks, spinActive, spinTicks, false);
+        }
+    }
 
     private record SpinState(boolean active, long ticks) {
         private static final SpinState INACTIVE = new SpinState(false, 0L);

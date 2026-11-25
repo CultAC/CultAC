@@ -4,6 +4,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.bridge.protocol.BridgeMessage;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.aim.processor.AimProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -13,27 +14,32 @@ import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderProcessor;
 import ac.cult.cultac.checks.impl.ping.TransactionOrder;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UnknownCollisionProvider;
 import ac.cult.cultac.checks.verdict.FlagArbiter;
 import ac.cult.cultac.events.packets.PacketEntityReplication;
 import ac.cult.cultac.manager.LastInstanceManager;
 import ac.cult.cultac.manager.PunishmentManager;
 import ac.cult.cultac.manager.player.ActionManager;
 import ac.cult.cultac.manager.player.CheckManager;
-import ac.cult.cultac.manager.player.MovementData;
 import ac.cult.cultac.manager.player.PluginChannelManager;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.manager.player.features.FeatureManagerImpl;
 import ac.cult.cultac.manager.player.handlers.NoOpResyncHandler;
+import ac.cult.cultac.manager.tick.BackendTickEstimator;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
+import ac.cult.cultac.network.routing.NetSettings;
+import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.protocol.ConnectionLifecycle;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -41,9 +47,13 @@ import ac.cult.cultac.protocol.PacketBundlePolicy;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.MovementEffect;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.anticheat.NettyScheduler;
+import ac.cult.cultac.utils.blockplace.LookPlaceRecheck;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BoatData;
 import ac.cult.cultac.utils.data.ClientAttackStrength;
@@ -51,27 +61,39 @@ import ac.cult.cultac.utils.data.ClientCombatAttributes;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.ClientSwimState;
+import ac.cult.cultac.utils.data.LocalPortalProcess;
 import ac.cult.cultac.utils.data.PacketStateData;
+import ac.cult.cultac.utils.data.RidingJumpCharge;
 import ac.cult.cultac.utils.data.ServerSwingEcho;
 import ac.cult.cultac.utils.data.VehicleData;
+import ac.cult.cultac.utils.data.packetentity.HorseMountLook;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.latency.BlockActionReconciler;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
+import ac.cult.cultac.utils.latency.ClientWorldView;
 import ac.cult.cultac.utils.latency.CompensatedCameraEntity;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.latency.CompensatedFireworks;
 import ac.cult.cultac.utils.latency.CompensatedInventory;
+import ac.cult.cultac.utils.latency.CompensatedOpenWindow;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
+import ac.cult.cultac.utils.latency.InteractionPause;
 import ac.cult.cultac.utils.latency.KeepAliveProcessor;
 import ac.cult.cultac.utils.latency.LatencyUtils;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.TrigHandler;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoatRiderYaw;
+import ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.EntityCollisionSelection;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.JavaLoaderFluids;
+import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import ac.cult.cultac.utils.visibility.VisibilityDebug;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.GrimUser;
@@ -85,14 +107,15 @@ import com.viaversion.viaversion.api.protocol.packet.PacketTracker;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Queue;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -138,7 +161,7 @@ public class CultPlayer implements GrimUser {
     // Only Bedrock entries carry native receipt state and callbacks.
     public static final class BedrockTransaction extends SentTransaction {
         private boolean acknowledged;
-        private java.util.List<Runnable> acknowledgements;
+        private List<Runnable> acknowledgements;
 
         private BedrockTransaction(int transaction, int id) {
             super(transaction, id, System.nanoTime());
@@ -150,14 +173,16 @@ public class CultPlayer implements GrimUser {
     public final long timeJoined;
     public @NotNull MovementPlatform movementPlatform = MovementPlatform.JAVA;
     public @Nullable BedrockPlayerState bedrockState;
-    public long lastJoinedWorld;
 
     public int entityID;
     public @MonotonicNonNull PlatformPlayer platformPlayer;
     // Start transaction handling stuff
     // Determining player ping
     // The difference between keepalive and transactions is that keepalive is async while transactions are sync
-    private Queue<SentTransaction> transactionsSent = new ArrayDeque<>();
+    /** Written pings once a native boundary exists; until then {@link #writtenPings} holds them, and this is null. */
+    private LinkedList<SentTransaction> transactionsSent;
+
+    private final WrittenPings writtenPings = new WrittenPings();
     /** The entries of {@link #transactionsSent} by id; it never holds one id twice. */
     private final Int2ObjectOpenHashMap<SentTransaction> transactionsSentById = new Int2ObjectOpenHashMap<>();
 
@@ -170,6 +195,8 @@ public class CultPlayer implements GrimUser {
     private final IntSupplier nextWireWord = () -> wireIdBlock.next(wireIds);
     /** Backend pings in flight, whose ids a CultAC ping must not take or the backend's pong is swallowed. */
     private final ForeignPings foreignPings = new ForeignPings();
+    /** Set once the connection has taken over this player's ping ids; it writes no ping after that. */
+    private volatile boolean pingsRetired;
 
     public final @NotNull AtomicInteger lastTransactionSent = new AtomicInteger(0);
     public final @NotNull AtomicInteger lastTransactionReceived = new AtomicInteger(0);
@@ -209,10 +236,12 @@ public class CultPlayer implements GrimUser {
     private @MonotonicNonNull PacketTracker packetTracker;
     public final @NotNull PacketOrderProcessor packetOrderProcessor = new PacketOrderProcessor(this);
     // Debug stimulus: drops interactions so the resync paths can be exercised.
-    public final ac.cult.cultac.utils.latency.InteractionPause interactionPause =
-            new ac.cult.cultac.utils.latency.InteractionPause(this);
-    public final ac.cult.cultac.utils.latency.BlockActionReconciler blockActionReconciler =
-            new ac.cult.cultac.utils.latency.BlockActionReconciler(this);
+    public final InteractionPause interactionPause =
+            new InteractionPause(this);
+    public final BlockActionReconciler blockActionReconciler =
+            new BlockActionReconciler(this);
+    public final LookPlaceRecheck lookPlaceRecheck =
+            new LookPlaceRecheck(this);
     public long rawTransactionPing = 0;
     public long lastTransSent = 0;
 
@@ -224,7 +253,9 @@ public class CultPlayer implements GrimUser {
      * The last poll before the first ping or during a protocol switch. A client attached in configuration
      * gets no ping until play traffic starts one, so the timeout runs from no earlier than this.
      */
-    private long pingsHeldAt = playerClockAtLeast;
+    private volatile long pingsHeldAt = playerClockAtLeast;
+    /** When the last Java movement or client tick end arrived, System#nanoTime; 0 before the first. */
+    public volatile long lastClientTickArrivedAt;
 
     public int powderSnowFrozenTicks = 0;
     public double x;
@@ -255,6 +286,7 @@ public class CultPlayer implements GrimUser {
     public float yawBeforeLook;
     // The yaw a first boat mount set before the client's next rotation packet, NaN when none did.
     public float mountYaw = Float.NaN;
+    public final HorseMountLook horseMountLook = new HorseMountLook();
     public boolean onGround;
     public boolean lastOnGround;
     public boolean isSneaking;
@@ -281,9 +313,8 @@ public class CultPlayer implements GrimUser {
     public float dimensionScale = 1.0F;
 
     public boolean isInBed = false;
-    public final ac.cult.cultac.utils.latency.CompensatedOpenWindow openWindow;
+    public final CompensatedOpenWindow openWindow;
     public boolean hasInventoryOpen = false;
-    public long lastOpenedInventory;
     public int food = 20;
     public float flySpeed;
     public final ClientItemUseState clientItemUse = new ClientItemUseState();
@@ -300,6 +331,15 @@ public class CultPlayer implements GrimUser {
     public final @NotNull KeepAliveProcessor keepAliveProcessor;
     public final @NotNull NettyScheduler nettyScheduler;
     public @NotNull TrigHandler trigHandler;
+    public final JavaLoaderFluids loaderFluids =
+            new JavaLoaderFluids(this);
+    /** Scoped to one complete Java simulation state; null before a fluid-tag order is needed. */
+    public ClientFluidTagOrder clientFluidTagOrder;
+    /** The client's JVM order, once an accepted movement distinguishes it; survives world/vehicle changes. */
+    public ClientFluidTagOrder provenClientFluidTagOrder;
+    /** A protocol 773 client's bubble-column rule, once an accepted movement distinguishes 1.21.9 from 1.21.10. */
+    public JavaMovementPatch provenMovementPatch;
+
     public @NotNull PacketStateData packetStateData;
     public ClientComponentRegistries registryState;
     public final @NotNull KnockbackHandler knockbackHandler;
@@ -307,7 +347,7 @@ public class CultPlayer implements GrimUser {
     public final @NotNull KeepSprint keepSprint;
     public final @NotNull PluginChannelManager pluginChannelManager;
     /** The Lunar Client mods the player's server last reported through Apollo; null before any report. */
-    public volatile ac.cult.cultac.bridge.protocol.BridgeMessage.@Nullable ClientMods clientMods;
+    public volatile BridgeMessage.@Nullable ClientMods clientMods;
 
     public final @NotNull PacketEntityReplication packetEntityReplication;
     private final @NotNull GhostBlockMitigator ghostBlockMitigator;
@@ -323,18 +363,22 @@ public class CultPlayer implements GrimUser {
 
     public long lastRotated;
     public final @NotNull VehicleData vehicleData = new VehicleData();
+    public final RidingJumpCharge ridingJumpCharge = new RidingJumpCharge();
     public boolean serverOpenedInventoryThisTick;
     // Whether this tick's movement intersected a nether portal block (see MultiActionsD)
     public boolean intersectedWithNetherPortal;
-
-    @Getter
-    private final @NotNull MovementData movementData;
+    public final LocalPortalProcess localPortalProcess = new LocalPortalProcess();
 
     public int minPlayerAttackSlow = 0;
     public int maxPlayerAttackSlow = 0;
+    // Certain dampings from attacks after this tick's travel, which the next travel carries.
+    public int attackSlowsAfterTravel = 0;
+    // A prediction committed since the last tick end packet, accepted or not.
+    public boolean travelPredictedThisClientTick = false;
     public @MonotonicNonNull GameMode gamemode;
     /** The mode of the last packet the server sent, which the client only adopts once it acknowledges that packet. */
     public @MonotonicNonNull GameMode serverGamemode;
+
     public @MonotonicNonNull String dimension;
     public @Nullable String world;
     public @Nullable Vec3 bedPosition;
@@ -347,6 +391,11 @@ public class CultPlayer implements GrimUser {
      * cannot shift the count.
      */
     public final @NotNull AtomicLong clientTickEnds = new AtomicLong();
+    /**
+     * Client tick ends that reached the tick-end listener, counted before the timers judge them, so a tick end a timer
+     * rejects still counts. The watchdog's synthetic tick end is not one. Owned by the packet executor.
+     */
+    public long receivedClientTickEnds;
 
     public final @NotNull ClientTickEndTimeout clientTickEndTimeout = new ClientTickEndTimeout(this);
     /** Follows this player's engine events; null while nothing does. */
@@ -366,24 +415,18 @@ public class CultPlayer implements GrimUser {
      */
     public boolean localPlayerTicks() {
         return !isBedrockMovement()
-                && !packetStateData.localPlayerRemoved
-                && (packetStateData.playerLoadedIntoLevel || getClientVersion().isOlderThan(ClientVersion.V_1_21_4));
-    }
-
-    /** LocalPlayer#tickDeath reaches deathTime 20 in this client tick, whose LivingEntity#tick then skips aiStep. */
-    public boolean localPlayerRemovedThisTick() {
-        return localPlayerTicks()
-                && packetStateData.localPlayerDeathTime == 19
-                && !compensatedEntities.getSelf().actionAlive;
+                && (packetStateData.playerLoadedIntoLevel || getClientVersion().isOlderThan(ClientVersion.V_1_21_4))
+                && !compensatedEntities.getSelf().isRemovedFromLevel();
     }
 
     /**
-     * Advances LocalPlayer#deathTime for a client tick that ran LocalPlayer#tick, from the health its packets left;
-     * ServerboundClientTickEndPacket marks every client tick from 1.21.2.
+     * LocalPlayer#tickDeath reached deathTime 20 in this client tick, whose LivingEntity#tick then skips aiStep.
+     * PacketEntitySelf#tickDeath counts the ticks, applied where the client tick's LocalPlayer#tick starts.
      */
-    public void tickLocalPlayerDeath() {
-        if (compensatedEntities.getSelf().actionAlive || getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return;
-        if (++packetStateData.localPlayerDeathTime == 20) packetStateData.localPlayerRemoved = true;
+    public boolean localPlayerRemovedThisTick() {
+        return packetStateData.localPlayerTickStarted
+                && packetStateData.localPlayerTickRan
+                && compensatedEntities.getSelf().isRemovedFromLevel();
     }
 
     /** A client tick the model counts ended: a Java tick end, or a Bedrock auth-input frame. */
@@ -401,17 +444,35 @@ public class CultPlayer implements GrimUser {
     }
 
     /** A login or respawn replaced the LocalPlayer, which has not ticked yet. */
-    public void onLocalPlayerCreated() {
+    public void onLocalPlayerCreated(int portalCooldown) {
+        localPortalProcess.onLocalPlayerCreated(portalCooldown);
         packetStateData.localPlayerTickedSinceSpawn = false;
-        packetStateData.localPlayerDeathTime = 0;
-        packetStateData.localPlayerRemoved = false;
+        packetStateData.localPlayerNoPhysics = false;
         packetStateData.lastSentTickYaw = 0;
         packetStateData.lastSentTickPitch = 0;
         packetStateData.lastSendPositionYaw = 0;
         packetStateData.lastSendPositionPitch = 0;
+        packetStateData.lastSendPositionOnGround = false;
         headArcFrom = Float.NaN;
         unclampedHeadYaw = Float.NaN;
         boatYawBeforeTurn = Float.NaN;
+        ridingJumpCharge.forget();
+    }
+
+    /**
+     * Entity#absSnapRotationTo's look, its last-tick look with it, replacing a boat mount's yaw. Entity#setYRot and
+     * Entity#setXRot keep a rotation that is not finite out.
+     */
+    public void snapLook(float yaw, float pitch) {
+        if (Float.isFinite(yaw)) {
+            xRot = yaw;
+            lastTickXRot = yaw;
+            mountYaw = Float.NaN;
+        }
+        if (Float.isFinite(pitch)) {
+            yRot = pitch;
+            lastTickYRot = pitch;
+        }
     }
 
     /**
@@ -516,7 +577,7 @@ public class CultPlayer implements GrimUser {
 
     public void onPacketCancel() {
         if (spamThreshold != -1 && cancelledPackets.incrementAndGet() > spamThreshold) {
-            if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            if (isObserveOnly()) {
                 if (!loggedPacketSpam) {
                     loggedPacketSpam = true;
                     LogUtil.info("Not disconnecting " + getName() + " for spamming invalid packets in observe-only");
@@ -529,14 +590,6 @@ public class CultPlayer implements GrimUser {
             disconnect(MessageUtil.miniMessage(MessageUtil.replacePlaceholders(
                     this, CultAPI.INSTANCE.getConfigManager().getDisconnectClosed())));
             cancelledPackets.set(0);
-
-            if (debugPacketCancel) {
-                try {
-                    throw new Exception();
-                } catch (Exception e) {
-                    LogUtil.error("Stacktrace for onPacketCancel (debug-packet-cancel=true)", e);
-                }
-            }
         }
     }
 
@@ -573,14 +626,6 @@ public class CultPlayer implements GrimUser {
     public static final int PING_TRAILING = 2;
     public static final int PING_LEADING = 3;
 
-    public void updateDisabled() {
-        if (platformPlayer == null) return;
-        boolean current = platformPlayer.hasPermission(DISABLED_PERMISSION, false);
-        if (current != disabled) {
-            disabled = current;
-        }
-    }
-
     public CultPlayer(@NotNull User user) {
         this(user, MovementPlatform.JAVA, null);
     }
@@ -595,13 +640,12 @@ public class CultPlayer implements GrimUser {
         this.timeJoined = System.currentTimeMillis();
         onReload();
 
-        this.openWindow = new ac.cult.cultac.utils.latency.CompensatedOpenWindow(this);
+        this.openWindow = new CompensatedOpenWindow(this);
         this.nettyScheduler = new NettyScheduler(this);
         this.packetEntityReplication = new PacketEntityReplication(this);
         this.ghostBlockMitigator = new GhostBlockMitigator(this);
         this.itemUseDesync = new ItemUseDesync(this);
         this.itemUseBurst = new ItemUseBurst(this);
-        this.movementData = new MovementData(this);
         this.knockbackHandler = new KnockbackHandler(this);
         this.explosionHandler = new ExplosionHandler(this);
         this.keepSprint = new KeepSprint(this);
@@ -648,37 +692,47 @@ public class CultPlayer implements GrimUser {
         else {
             try {
                 owner.execute(cleanup);
-            } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            } catch (RejectedExecutionException rejected) {
                 owner.terminationFuture().addListener(ignored -> cleanup.run());
             }
         }
     }
-
-    private long lastCheckedFlying = 0;
 
     // Players can get 0 ping by repeatedly sending invalid transaction packets, but that will only hurt them
     // The design is allowing players to miss transaction packets, which shouldn't be possible
     // But if some error made a client miss a packet, then it won't hurt them too bad.
     // Also it forces players to take knockback
     public synchronized boolean addTransactionResponse(int id) {
-        SentTransaction answered = transactionsSentById.get(id);
-        if (answered == null) {
-            return false;
+        SentTransaction answered = null;
+        int sequence = -1;
+        if (transactionsSent == null) {
+            sequence = writtenPings.sequence(id);
+            if (sequence < 0) return false;
+        } else {
+            answered = transactionsSentById.get(id);
+            if (answered == null) {
+                return false;
+            }
         }
 
         // A skipped transaction is only suspicious with a valid keep alive baseline;
         // switching servers can legitimately drop transaction responses.
-        if (!isBedrockMovement() && keepAliveProcessor.lastKeepAlivePing > 0 && transactionsSent.peek() != answered) {
+        if (!isBedrockMovement()
+                && keepAliveProcessor.lastKeepAlivePing > 0
+                && (answered == null ? sequence != writtenPings.headSequence() : transactionsSent.peek() != answered)) {
             // Count how many unacknowledged transactions this response jumps past. Each is acknowledged below.
             int skipped = 0;
-            for (SentTransaction pending : transactionsSent) {
-                if (pending == answered) break;
-                skipped++;
-            }
+            if (answered == null) skipped = writtenPings.before(sequence);
+            else
+                for (SentTransaction pending : transactionsSent) {
+                    if (pending == answered) break;
+                    skipped++;
+                }
             checkManager.getCheck(TransactionOrder.class).skipped(skipped);
         }
 
-        SentTransaction acknowledged = acknowledgeThrough(id);
+        boolean acknowledged =
+                transactionsSent == null ? acknowledgeWrittenThrough(id) : acknowledgeThrough(id) != null;
         if (!isBedrockMovement() && getSetbackTeleportUtil().javaTeleports().hasWithheldJavaTeleport()) {
             withheld("answered a ping sent after a teleport it did not answer");
         }
@@ -688,11 +742,27 @@ public class CultPlayer implements GrimUser {
             packetTracker.setIntervalPackets(packetTracker.getIntervalPackets() - 1);
         }
 
-        pruneStalePistonStateWhenIdle();
-
         // A transaction response marks a new tick boundary for latency-compensated tasks
         latencyUtils.handleNettySyncTransaction(lastTransactionReceived.get());
-        return acknowledged != null;
+        return acknowledged;
+    }
+
+    /** As {@link #acknowledgeThrough}, over {@link #writtenPings}; whether ping {@code id} was among them. */
+    private boolean acknowledgeWrittenThrough(int id) {
+        int current;
+        do {
+            if (transactionsSent != null) return acknowledgeThrough(id) != null;
+            if (writtenPings.isEmpty()) return false;
+            current = writtenPings.headId();
+            int transaction = writtenPings.headTransaction();
+            long sentAt = writtenPings.headSentAt();
+            writtenPings.removeHead();
+            lastTransactionReceived.set(transaction);
+            rawTransactionPing = System.nanoTime() - sentAt;
+            playerClockAtLeast = sentAt;
+            if (usesModernJavaItemUse()) itemUseBurst.acknowledge(transaction);
+        } while (current != id);
+        return true;
     }
 
     private SentTransaction acknowledgeThrough(int id) {
@@ -719,16 +789,6 @@ public class CultPlayer implements GrimUser {
         return current;
     }
 
-    private void pruneStalePistonStateWhenIdle() {
-        long now = System.currentTimeMillis();
-        // When flying packets stop for 2s, the cleanup they normally trigger never runs
-        if (now - lastCheckedFlying <= 2000 || now - actionManager.lastFlyingPacketTime <= 2000) {
-            return;
-        }
-        lastCheckedFlying = now;
-        compensatedWorld.removeInvalidPistonLikeStuff(lastTransactionReceived.get());
-    }
-
     public float getMaxUpStep() {
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
         if (riding == null) {
@@ -736,15 +796,18 @@ public class CultPlayer implements GrimUser {
             return stepHeight == null ? 0.6f : stepHeight.floatValue();
         }
 
+        // Entity#maxUpStep: a boat is not a LivingEntity.
         if (EntityTypeUtil.isBoat(riding.type)) {
             return 0f;
         }
 
+        // LivingEntity#maxUpStep: the vehicle's STEP_HEIGHT, at least 1.0 while a player controls it, which it does
+        // for any vehicle the player moves. A step_height update below 1.0 therefore cannot lower it.
         if (riding.stepHeightAttribute != null) {
-            return riding.stepHeightAttribute.floatValue();
+            return Math.max(riding.stepHeightAttribute.floatValue(), 1.0f);
         }
 
-        // Pigs, horses, striders, and other vehicles all have 1 stepping height
+        // No controllable vehicle's type default exceeds 1.0; the camel family carries its 1.5 as the attribute.
         return 1.0f;
     }
 
@@ -779,11 +842,18 @@ public class CultPlayer implements GrimUser {
      * needs the tick's own ping.
      */
     private void endServerTick(int kind, int serverTick) {
-        user.executeAfterWrites(() -> {
-            PlayerObserver observer = this.observer;
-            if (kind == PING_END_OF_TICK && observer != null) observer.serverTickEnded(serverTick);
-            if (user.getCultConnection().provingPing() <= 0) sendTransaction(false, kind, serverTick);
-        });
+        user.executeAfterWrites(
+                kind == PING_LEADING && serverTick == 0
+                        ? endEstimatedServerTick
+                        : () -> endServerTickAfterWrites(kind, serverTick));
+    }
+
+    private final Runnable endEstimatedServerTick = () -> endServerTickAfterWrites(PING_LEADING, 0);
+
+    private void endServerTickAfterWrites(int kind, int serverTick) {
+        PlayerObserver observer = this.observer;
+        if (kind == PING_END_OF_TICK && observer != null) observer.serverTickEnded(serverTick);
+        if (user.getCultConnection().provingPing() <= 0) sendTransaction(false, kind, serverTick);
     }
 
     private int sendTransaction(boolean async, int kind, int serverTick) {
@@ -815,6 +885,7 @@ public class CultPlayer implements GrimUser {
     private boolean canSendTransactionNow() {
         var phase = user.getEncoderState();
         return user.getPlayer() != null
+                && !pingsRetired
                 && !protocolSwitchPending()
                 && (phase == ConnectionPhase.PLAY || phase == ConnectionPhase.CONFIGURATION);
     }
@@ -931,6 +1002,13 @@ public class CultPlayer implements GrimUser {
         return writeTrailingProofTransaction(event, List.of());
     }
 
+    /** As {@link #appendResponseProofTransaction(PacketSendEvent)}, after {@code packetsBeforeProof}. */
+    @Nullable
+    public TrackedTransaction appendResponseProofTransaction(
+            PacketSendEvent<?> event, List<CultWrite> packetsBeforeProof) {
+        return writeTrailingProofTransaction(event, packetsBeforeProof);
+    }
+
     @Nullable
     private TrackedTransaction writeTrailingProofTransaction(
             PacketSendEvent<?> event, List<CultWrite> packetsBeforeProof) {
@@ -969,6 +1047,7 @@ public class CultPlayer implements GrimUser {
         CultWrite packet = new CultWrite(new ClientboundPing(transactionID), false);
         TrackedTransaction transaction = new TrackedTransaction(lastTransactionSent.incrementAndGet(), packet);
         transactionsPendingSend.put(transactionID, transaction);
+        if (pingsRetired) user.getCultConnection().retirePing(transactionID);
         if (recordProvenance) {
             int slot = Math.floorMod(transaction.transaction(), RECENT_WIRE_IDS);
             recentTransactions[slot] = transaction.transaction();
@@ -1025,9 +1104,7 @@ public class CultPlayer implements GrimUser {
         // Replacement bundles created inside a packet-send handler are flattened
         // after handler dispatch, so the generated ping sub-packet may not pass
         // through the outbound ping listener. Mirror the send-side tracking here.
-        if (markTransactionPacketSent(transaction.packet())) {
-            packetStateData.lastServerTransWasValid = true;
-        }
+        markTransactionPacketSent(transaction.packet());
     }
 
     public boolean markTransactionPacketSent(CultWrite packet) {
@@ -1049,14 +1126,17 @@ public class CultPlayer implements GrimUser {
         if (isBedrockMovement()) {
             sent = new BedrockTransaction(transaction.transaction(), transaction.id());
             bedrockTransactions().add(sent);
+            transactionsSentById.put(sent.id(), sent);
+        } else if (transactionsSent == null) {
+            writtenPings.add(transaction.transaction(), transaction.id(), System.nanoTime());
         } else {
             sent = new SentTransaction(transaction.transaction(), transaction.id(), System.nanoTime());
             transactionsSent.add(sent);
+            transactionsSentById.put(sent.id(), sent);
         }
-        transactionsSentById.put(sent.id(), sent);
         if (!TransactionChannels.SEND.isEmpty()) {
             TransactionChannels.SEND.fire(
-                    ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(this), transaction.id(), timestamp);
+                    RuntimeEnvironment.outwardUser(this), transaction.id(), timestamp);
         }
         return transaction.transaction();
     }
@@ -1070,9 +1150,23 @@ public class CultPlayer implements GrimUser {
         foreignPings.remove(id);
     }
 
+    /**
+     * Hands the ids of every ping this player wrote or queued and has no pong for to its connection, before the
+     * player is detached from a connection that stays open; the player writes no ping afterwards.
+     */
+    public synchronized void retirePings() {
+        pingsRetired = true;
+        var connection = user.getCultConnection();
+        connection.retirePings(transactionsSentById.keySet());
+        connection.retirePings(writtenPings.ids());
+        connection.retirePings(transactionsPendingSend.keySet());
+    }
+
     /** Whether {@code id} is a ping CultAC created whose response has not arrived yet. */
     public synchronized boolean awaitsTransactionResponse(int id) {
-        return transactionsPendingSend.containsKey(id) || transactionsSentById.containsKey(id);
+        return transactionsPendingSend.containsKey(id)
+                || transactionsSentById.containsKey(id)
+                || writtenPings.contains(id);
     }
 
     private int nextTransactionId() {
@@ -1085,8 +1179,10 @@ public class CultPlayer implements GrimUser {
         do {
             id = nextWireId(random);
             used = transactionsSentById.containsKey(id);
+            used |= writtenPings.contains(id);
             used |= transactionsPendingSend.containsKey(id);
             used |= foreignPings.contains(id);
+            used |= user.getCultConnection().holdsRetiredPing(id);
         } while (used);
         return id;
     }
@@ -1109,11 +1205,19 @@ public class CultPlayer implements GrimUser {
         }
     }
 
-    private java.util.LinkedList<SentTransaction> bedrockTransactions() {
-        if (!(transactionsSent instanceof java.util.LinkedList)) {
-            transactionsSent = new java.util.LinkedList<>(transactionsSent);
+    private LinkedList<SentTransaction> bedrockTransactions() {
+        if (transactionsSent == null) {
+            LinkedList<SentTransaction> sent = new LinkedList<>();
+            while (!writtenPings.isEmpty()) {
+                var written = new SentTransaction(
+                        writtenPings.headTransaction(), writtenPings.headId(), writtenPings.headSentAt());
+                writtenPings.removeHead();
+                sent.add(written);
+                transactionsSentById.put(written.id(), written);
+            }
+            transactionsSent = sent;
         }
-        return (java.util.LinkedList<SentTransaction>) transactionsSent;
+        return transactionsSent;
     }
 
     public synchronized BedrockTransaction getLastClientboundBedrockTransaction() {
@@ -1143,7 +1247,7 @@ public class CultPlayer implements GrimUser {
         if (transaction == null || transaction.acknowledged) {
             latencyUtils.runQueuedTask(task);
         } else {
-            if (transaction.acknowledgements == null) transaction.acknowledgements = new java.util.ArrayList<>(2);
+            if (transaction.acknowledgements == null) transaction.acknowledgements = new ArrayList<>(2);
             transaction.acknowledgements.add(task);
         }
     }
@@ -1169,7 +1273,12 @@ public class CultPlayer implements GrimUser {
     }
 
     public void refreshPlayerPose() {
-        pose = determineCurrentPoseLikeVanilla();
+        refreshPlayerPose(determineCurrentPoseLikeVanilla());
+    }
+
+    /** Installs the pose Player#updatePlayerPose already chose before a later block-entity move. */
+    public void refreshPlayerPose(Pose chosenPose) {
+        pose = chosenPose;
         dimensionScale = getScale();
 
         if (isInBed) {
@@ -1189,7 +1298,12 @@ public class CultPlayer implements GrimUser {
 
     /** Player#updatePlayerPose with the player at {@code (x, y, z)} and Entity#isSwimming {@code swimming}. */
     public Pose updatedPose(boolean swimming, double x, double y, double z) {
-        Pose desiredPose = getDesiredPoseLikeVanilla(swimming);
+        return updatedPose(swimming, isGliding, x, y, z);
+    }
+
+    /** The pose update after travel uses the fall-flying flag that travel left. */
+    public Pose updatedPose(boolean swimming, boolean gliding, double x, double y, double z) {
+        Pose desiredPose = getDesiredPoseLikeVanilla(swimming, gliding);
         if (compensatedWorld == null || compensatedEntities == null) {
             return desiredPose;
         }
@@ -1198,6 +1312,7 @@ public class CultPlayer implements GrimUser {
         // swimming box, then falls back from the desired pose to crouching and finally
         // to swimming based on exact collision tests at the current position.
         if (!canPlayerFitWithinBlocksAndEntitiesWhen(Pose.SWIMMING, x, y, z)) {
+            // Player#updatePlayerPose does not call setPose at all in this case.
             return isBedrockMovement() ? desiredPose : pose;
         }
 
@@ -1214,7 +1329,11 @@ public class CultPlayer implements GrimUser {
         return Pose.SWIMMING;
     }
 
-    private Pose getDesiredPoseLikeVanilla(boolean swimming) {
+    private Pose getDesiredPoseLikeVanilla(boolean swimming, boolean gliding) {
+        // Through 1.21.4 Player#updatePlayerPose tests fall flying before sleeping and swimming.
+        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_21_5) && gliding) {
+            return Pose.FALL_FLYING;
+        }
         if (isInBed) {
             return Pose.SLEEPING;
         }
@@ -1222,7 +1341,7 @@ public class CultPlayer implements GrimUser {
         if (swimming && !isFlying && gamemode != GameMode.SPECTATOR) {
             return Pose.SWIMMING;
         }
-        if (isGliding) {
+        if (gliding) {
             return Pose.FALL_FLYING;
         }
         if (isRiptidePose) {
@@ -1233,8 +1352,6 @@ public class CultPlayer implements GrimUser {
 
     // Fit-query scratch: read only within one query on the player's thread, never stored or returned.
     private final SimpleCollisionBox fitBox = new SimpleCollisionBox();
-    private final SimpleCollisionBox fitStandingBox = new SimpleCollisionBox();
-    private final SimpleCollisionBox fitBandBox = new SimpleCollisionBox();
     private final SimpleCollisionBox fitEntityBox = new SimpleCollisionBox();
     private final SimpleCollisionBox fitEntityScratch = new SimpleCollisionBox();
 
@@ -1246,67 +1363,31 @@ public class CultPlayer implements GrimUser {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
                         fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
-        return Collisions.isEmpty(this, box, y) && hasNoEntityCollision(box);
+        return Collisions.isEmpty(this, box, y) && hasNoEntityCollision(box, new Vec3(x, y, z));
     }
 
     /**
-     * Whether the {@code newPose} box at the position may fit within blocks and entities: false when blocks or an
-     * entity at each of its possible positions overlap it.
+     * Whether the {@code newPose} box fits. Java uses the same exact test as vanilla pose selection; Bedrock keeps
+     * its existing candidate test.
      * Call on this player's packet thread only: the query uses per-player scratch boxes.
      */
     public boolean mayPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
+        if (!isBedrockMovement()) return canPlayerFitWithinBlocksAndEntitiesWhen(newPose, x, y, z);
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
                         fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
         if (!Collisions.isEmpty(this, box, y)) return false;
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        PacketEntity rootOfSelf = compensatedEntities.rootOfSelf();
         SimpleCollisionBox entityBox = fitEntityBox;
-        SimpleCollisionBox scratch = fitEntityScratch;
         List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
         for (int i = 0, size = candidates.size(); i < size; i++) {
             PacketEntity entity = candidates.get(i);
-            if (canCollideWithForPoseCheck(riding, entity)
-                    && collidesWithPoseBox(entity, box, entityBox, scratch)
+            if (canCollideWithForPoseCheck(rootOfSelf, entity)
                     && overlapsAtEachPossiblePosition(entity, box, entityBox)) {
                 return false;
             }
         }
         return true;
-    }
-
-    /**
-     * Whether at some possible position of each entity the crouching box at the position fits blocks and entities while
-     * the standing box does not: the standing box is the crouching one with a band above it, so something must overlap
-     * that band without overlapping the crouching box.
-     * Call on this player's packet thread only: the query uses per-player scratch boxes.
-     */
-    public boolean mayFitOnlyCrouchingWhen(double x, double y, double z) {
-        if (!mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, x, y, z)) return false;
-        SimpleCollisionBox crouching = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        fitBox, x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
-                .expand(-1.0E-7D);
-        SimpleCollisionBox standing = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        fitStandingBox, x, y, z, Pose.STANDING.width * getScale(), Pose.STANDING.height * getScale())
-                .expand(-1.0E-7D);
-        SimpleCollisionBox band = fitBandBox.set(
-                standing.minX, crouching.maxY, standing.minZ, standing.maxX, standing.maxY, standing.maxZ);
-        if (!Collisions.isEmpty(this, band, y)) return true;
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = fitEntityBox;
-        SimpleCollisionBox scratch = fitEntityScratch;
-        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
-        for (int c = 0, size = candidates.size(); c < size; c++) {
-            PacketEntity entity = candidates.get(c);
-            if (!canCollideWithForPoseCheck(riding, entity)
-                    || !collidesWithPoseBox(entity, standing, entityBox, scratch)) {
-                continue;
-            }
-            for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
-                SimpleCollisionBox candidate = entity.possibleMovementCollisionBoxCandidate(i, entityBox);
-                if (candidate.isIntersected(band) && !candidate.isIntersected(crouching)) return true;
-            }
-        }
-        return false;
     }
 
     private static boolean overlapsAtEachPossiblePosition(
@@ -1318,14 +1399,21 @@ public class CultPlayer implements GrimUser {
     }
 
     private boolean hasNoEntityCollision(SimpleCollisionBox playerBox) {
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        return hasNoEntityCollision(playerBox, new Vec3(x, y, z));
+    }
+
+    private boolean hasNoEntityCollision(SimpleCollisionBox playerBox, Vec3 position) {
+        if (!isBedrockMovement())
+            return RootVehicleInterpolationCollision.noEntityCollision(
+                            this, compensatedEntities.getSelf(), position, playerBox)
+                    == DesyncStatus.TRUE;
+        PacketEntity rootOfSelf = compensatedEntities.rootOfSelf();
         SimpleCollisionBox entityBox = fitEntityBox;
         SimpleCollisionBox scratch = fitEntityScratch;
         List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
         for (int i = 0, size = candidates.size(); i < size; i++) {
             PacketEntity entity = candidates.get(i);
-            if (!canCollideWithForPoseCheck(riding, entity)
-                    || !collidesWithPoseBox(entity, playerBox, entityBox, scratch)) {
+            if (!canCollideWithForPoseCheck(rootOfSelf, entity)) {
                 continue;
             }
 
@@ -1337,16 +1425,6 @@ public class CultPlayer implements GrimUser {
         return true;
     }
 
-    /** Whether the entity collides with this player in {@code playerBox}, which HappyGhast#canBeCollidedWith limits. */
-    private static boolean collidesWithPoseBox(
-            PacketEntity entity, SimpleCollisionBox playerBox, SimpleCollisionBox entityBox, SimpleCollisionBox scratch) {
-        if (!(entity instanceof PacketEntityHappyGhast ghast)) return true;
-        Vec3 position = new Vec3(
-                (playerBox.minX + playerBox.maxX) / 2.0D, playerBox.minY, (playerBox.minZ + playerBox.maxZ) / 2.0D);
-        return UnknownCollisionProvider.canBeCollidedWith(
-                ghast, ghast.getPossibleMovementCollisionBoxes(entityBox, scratch), null, position);
-    }
-
     private static boolean overlapsAtAPossiblePosition(
             PacketEntity entity, SimpleCollisionBox playerBox, SimpleCollisionBox entityBox) {
         for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
@@ -1355,12 +1433,27 @@ public class CultPlayer implements GrimUser {
         return false;
     }
 
-    /** The box at each possible position of each entity Entity#collide stops this player against. */
+    /** The exact box of each entity Entity#collide stops a Java player against. */
     public List<SimpleCollisionBox> entityCollisionBoxes() {
-        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        if (!isBedrockMovement()) {
+            List<SimpleCollisionBox> boxes = new ArrayList<>();
+            var selection = new EntityCollisionSelection(this, compensatedEntities.getSelf(), new Vec3(x, y, z));
+            for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+                if (!selection.mayCollide(entity)) continue;
+                // A rider outside the player's riding trees collides at the place its vehicle chain gives it.
+                SimpleCollisionBox position = compensatedEntities.isUntrackedRider(entity)
+                        ? compensatedEntities.untrackedRiderCollisionBox(entity)
+                        : entity.getClientMovementCollisionBox();
+                if (position == null) continue;
+                SimpleCollisionBox box = selection.collisionBox(entity, position);
+                if (selection.collidesAt(entity, box)) boxes.add(box);
+            }
+            return boxes;
+        }
+        PacketEntity rootOfSelf = compensatedEntities.rootOfSelf();
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
-            if (canCollideWithForPoseCheck(riding, entity)) {
+            if (canCollideWithForPoseCheck(rootOfSelf, entity)) {
                 boxes.addAll(entity.getPossibleMovementCollisionBoxCandidates());
             }
         }
@@ -1369,9 +1462,10 @@ public class CultPlayer implements GrimUser {
 
     /**
      * Entity#canBeCollidedWith admits this player for boats, shulkers and happy ghasts; AbstractMinecart keeps its
-     * false, so a minecart never blocks a pose or a move.
+     * false, so a minecart never blocks a pose or a move. An entity of the player's own riding tree, whose root is
+     * {@code rootOfSelf}, never does either, however many vehicles lie between them.
      */
-    private boolean canCollideWithForPoseCheck(@Nullable PacketEntity riding, PacketEntity entity) {
+    private boolean canCollideWithForPoseCheck(@Nullable PacketEntity rootOfSelf, PacketEntity entity) {
         if (entity == null || !(entity.isBoat() || entity.type == EntityTypeIds.SHULKER || entity.isHappyGhast())) {
             return false;
         }
@@ -1384,7 +1478,7 @@ public class CultPlayer implements GrimUser {
             return false;
         }
 
-        return riding == null || !(riding == entity || riding.hasPassenger(entity) || entity.hasPassenger(riding));
+        return !compensatedEntities.sharesRootVehicleWithSelf(entity, rootOfSelf);
     }
 
     public void closeInventorySafely() {
@@ -1400,7 +1494,7 @@ public class CultPlayer implements GrimUser {
     /** A client withholding a packet a vanilla client always sends is treated as one withholding its pongs. */
     public void withheld(String what) {
         // Not failsOpen(): the client decides whether to answer a ping, so withholding them must not buy an exemption.
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+        if (isObserveOnly()) {
             LogUtil.warn("Not inspecting " + getName() + " any more; " + what);
             CultAPI.INSTANCE.getPlayerDataManager().exemptUser(user);
             return;
@@ -1476,6 +1570,7 @@ public class CultPlayer implements GrimUser {
         if (this.platformPlayer == null && user.getPlayer() != null) {
             this.platformPlayer = user.getPlayer();
             updatePermissions();
+            runSafely(this::applyNetworkSettings);
         }
 
         // Datastore session heartbeat — throttled internally to once per
@@ -1490,8 +1585,6 @@ public class CultPlayer implements GrimUser {
 
     public boolean noModifyPacketPermission = false;
     public boolean noSetbackPermission = false;
-    public boolean immunePermission = false;
-    public boolean chatBypass = false;
     public boolean healthPermission = false;
 
     // TODO: Create a configurable timer for this
@@ -1501,9 +1594,7 @@ public class CultPlayer implements GrimUser {
         try {
             boolean noModifyPacket = platformPlayer.hasPermission("cult.nomodifypacket");
             boolean noSetback = platformPlayer.hasPermission("cult.nosetback");
-            boolean immune = platformPlayer.hasPermission("cult.immune");
             boolean showHealth = platformPlayer.hasPermission("cult.showhealth");
-            boolean bypassChat = platformPlayer.hasPermission("cult.chatbypass");
             boolean cultDisabled = platformPlayer.hasPermission(DISABLED_PERMISSION, false);
 
             for (AbstractCheck check : getChecks()) {
@@ -1514,9 +1605,7 @@ public class CultPlayer implements GrimUser {
 
             this.noModifyPacketPermission = noModifyPacket;
             this.noSetbackPermission = noSetback;
-            this.immunePermission = immune;
             this.healthPermission = showHealth;
-            this.chatBypass = bypassChat;
             this.disabled = cultDisabled;
         } catch (Exception e) {
             LogUtil.error("Failed to update permissions for " + getName() + "!", e);
@@ -1525,13 +1614,18 @@ public class CultPlayer implements GrimUser {
 
     // start config
     private int spamThreshold = 100;
-    private boolean debugPacketCancel;
     private int maxTransactionTime = 60;
-    private boolean observeOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
+    /** The network's observe-only value for this player's backend server; null where the instance's own mode applies. */
+    private volatile @Nullable Boolean observeOnlySet;
+    /** The mode last applied, against which a change of mode is told. */
+    private volatile boolean observeOnly = NetworkModule.setting(NetSettings.OBSERVE).on();
+    private volatile boolean punishmentsPaused;
     public boolean spoofHealth = false;
     public boolean throwError = false;
     public boolean chunkDebug = false;
-    public boolean debugNoSlow = false;
+    // Temporary command override, owned by the player's model thread and discarded on reconnect.
+    public Vec3 debugUncertainty = Vec3.ZERO;
+    public double debugUncertaintyChancePercent = 100.0D;
     // end config
 
     public void onReload() {
@@ -1540,24 +1634,12 @@ public class CultPlayer implements GrimUser {
         spoofHealth = config.getBooleanElse("cult.networking.spoof-health", false);
     }
 
-    // TODO: Create a configurable timer for this
     @Override
     public final void reload(ConfigManager config) {
         updatePermissions();
         featureManager.onReload(config);
-        debugPacketCancel = config.getBooleanElse("debug-packet-cancel", false);
         maxTransactionTime = CultMath.clamp(config.getIntElse("max-transaction-time", 60), 1, 180);
-        boolean nowObserveOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
-        if (nowObserveOnly != observeOnly) {
-            observeOnly = nowObserveOnly;
-            if (nowObserveOnly) getSetbackTeleportUtil().policy().observeOnlyStarted();
-            else {
-                // Violations counted while nothing acted would otherwise set back on the next flag.
-                for (AbstractCheck check : getChecks()) {
-                    if (check instanceof Check c) c.violations = 0;
-                }
-            }
-        }
+        applyNetworkSettings();
         onReload();
         // reload all checks
         for (AbstractCheck value : getChecks()) value.reload();
@@ -1571,29 +1653,54 @@ public class CultPlayer implements GrimUser {
         reload(CultAPI.INSTANCE.getConfigManager().getConfig());
     }
 
+    /**
+     * Whether CultAC only observes this player: as the network's shared settings set it for their backend server, else
+     * the instance's own mode.
+     */
+    public boolean isObserveOnly() {
+        Boolean set = observeOnlySet;
+        return set != null ? set : CultAPI.INSTANCE.getConfigManager().isObserveOnly();
+    }
+
+    /** Whether the punishment commands of punishments.yml are withheld for this player. */
+    public boolean isPunishmentsPaused() {
+        return punishmentsPaused;
+    }
+
+    /**
+     * Applies the network's shared settings for the backend server this player is on, else the instance's: observe-only,
+     * paused punishments and the checks switched off. Runs on the player's packet owner.
+     */
+    public void applyNetworkSettings() {
+        String backend = NetworkModule.backend(playerUUID, platformPlayer == null ? null : platformPlayer.serverName());
+        punishmentsPaused = !NetworkModule.setting(NetSettings.PUNISH, backend).on();
+        Set<String> off = NetworkModule.checksOff(backend);
+        for (AbstractCheck check : getChecks()) {
+            if (check instanceof Check c) c.setSwitchedOff(off.contains(c.getStableKey()));
+        }
+        NetSettings.Value observe = NetworkModule.setting(NetSettings.OBSERVE, backend);
+        observeOnlySet = observe.source() == NetSettings.Source.CONFIG ? null : observe.on();
+        boolean nowObserveOnly = isObserveOnly();
+        if (nowObserveOnly == observeOnly) return;
+        observeOnly = nowObserveOnly;
+        if (nowObserveOnly) getSetbackTeleportUtil().policy().observeOnlyStarted();
+        else {
+            // Violations counted while nothing acted would otherwise set back on the next flag.
+            for (AbstractCheck check : getChecks()) {
+                if (check instanceof Check c) c.violations = 0;
+            }
+        }
+    }
+
     public double getMovementThreshold() {
         // LocalPlayer reports coordinates only after squared displacement exceeds
         // (2.0E-4)^2; a status/rotation packet is not zero movement.
         return 0.0002;
     }
 
-    // Alright, someone at mojang decided to not send a flying packet every tick with 1.9
-    // Thanks for wasting my time to save 1 MB an hour
-    //
-    // MEANING, to get an "acceptable" 1.9+ reach check, we must only treat it like a 1.8 clients
-    // when it is acting like one and sending a packet every tick.
-    //
-    // There are two predictable scenarios where this happens:
-    // 1. The player moves more than 0.03/0.0002 blocks every tick
-    //     - This code runs after the prediction engine to prevent a false when immediately switching back to 1.9-like
-    // movements
-    //     - 3 ticks is a magic value, but it should buffer out incorrect predictions somewhat.
-    // 2. The player is in a vehicle
+    /** Supported Java clients close every tick with CLIENT_TICK_END; Bedrock reports every authored tick. */
     public boolean isTickingReliablyFor(int ticks) {
-        if (compensatedEntities.getSelf().inVehicle()) {
-            return true;
-        }
-        return !checkManager.getSimulationProcessor().getLastTickSkip().hasOccurredSince(ticks);
+        return true;
     }
 
     @Contract(pure = true)
@@ -1607,11 +1714,11 @@ public class CultPlayer implements GrimUser {
                 : packetStateData.isSlowedByUsingItem();
     }
 
-    public ac.cult.cultac.protocol.value.Hand getClientItemUseHand() {
+    public Hand getClientItemUseHand() {
         return usesModernJavaItemUse() ? clientItemUse.hand() : packetStateData.itemInUseHand;
     }
 
-    public ac.cult.cultac.utils.latency.ClientWorldRegistries getWorldRegistries() {
+    public ClientWorldRegistries getWorldRegistries() {
         return registryState().worldRegistries(user.getCultConnection().platform()::initialWorldData);
     }
 
@@ -1620,7 +1727,7 @@ public class CultPlayer implements GrimUser {
         if (registryState == null)
             registryState = new ClientComponentRegistries(
                     bedrockState == null || !isBedrockMovement()
-                            ? ac.cult.cultac.utils.latency.ClientWorldView.RECEIVED
+                            ? ClientWorldView.RECEIVED
                             : bedrockState.worldView);
         return registryState;
     }
@@ -1679,6 +1786,16 @@ public class CultPlayer implements GrimUser {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - playerClockAtLeast);
     }
 
+    /** Since when a Java client owes its oldest unanswered ping, as {@link #pollData} times it; 0 while it owes none. */
+    public synchronized long oldestPendingPingSince() {
+        if (isBedrockMovement() || protocolSwitchPending()) return 0;
+        if (transactionsSent == null) {
+            return writtenPings.isEmpty() ? 0 : Math.max(writtenPings.headSentAt(), pingsHeldAt);
+        }
+        SentTransaction oldest = transactionsSent.peek();
+        return oldest == null ? 0 : Math.max(oldest.sentAt(), pingsHeldAt);
+    }
+
     public SetbackTeleportUtil getSetbackTeleportUtil() {
         return checkManager.getSetbackUtil();
     }
@@ -1711,15 +1828,27 @@ public class CultPlayer implements GrimUser {
      * then handles both in one task, and the client is never in the packet's state before the proof's pong.
      */
     public boolean runAtTrailingProof(PacketSendEvent<?> event, Runnable task) {
+        return runAtTrailingProof(event, task, task);
+    }
+
+    /**
+     * As {@link #runAtTrailingProof(PacketSendEvent, Runnable)}, but {@code bundled} runs only at a proof that shares
+     * the packet's bundle, where the client applied the packet exactly before the proof's pong. Otherwise
+     * {@code unbundled} runs at the proof, or at the ping sent after it, and false is returned.
+     */
+    public boolean runAtTrailingProof(PacketSendEvent<?> event, Runnable bundled, Runnable unbundled) {
         TrackedTransaction proof = appendTrailingProofTransaction(event);
         if (proof == null) {
-            latencyUtils.addRealTimeTaskNext(task);
+            latencyUtils.addRealTimeTaskNext(unbundled);
             event.getTasksAfterSend().add(this::sendTransaction);
             return false;
         }
-        latencyUtils.addRealTimeTask(proof.transaction(), task);
         if (PacketBundlePolicy.requiresStandalone(event.getPacketType())
-                || !MovementProfiles.forPlayer(this).shouldUseBundledPacketProof(this)) return false;
+                || !MovementProfiles.forPlayer(this).shouldUseBundledPacketProof(this)) {
+            latencyUtils.addRealTimeTask(proof.transaction(), unbundled);
+            return false;
+        }
+        latencyUtils.addRealTimeTask(proof.transaction(), bundled);
         if (!event.isInsideBundle()) event.bundle();
         return true;
     }
@@ -1773,18 +1902,18 @@ public class CultPlayer implements GrimUser {
 
     @Override
     public String getBrand() {
-        var check = checkManager.getCheck(ac.cult.cultac.checks.impl.misc.ClientBrand.class);
+        var check = checkManager.getCheck(ClientBrand.class);
         return check == null ? "Unknown" : check.getBrand();
     }
 
     private volatile ClientVersion resolvedClientVersion;
 
-    public ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
+    public ProtocolVersion getObservedProtocol() {
         return user.getObservedProtocol();
     }
 
-    @org.jetbrains.annotations.Nullable
-    public ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+    @Nullable
+    public ProtocolVersion getClientProtocol() {
         return user.getCultConnection().getClientProtocol();
     }
 
@@ -1840,22 +1969,44 @@ public class CultPlayer implements GrimUser {
     }
 
     /**
-     * Whether the client's sprint flag is set. LocalPlayer#aiStep clears it for a passenger whose vehicle cannot
-     * sprint or that it does not control, and LocalPlayer#sendChanges sends no STOP_SPRINTING for a vehicle it does
-     * not control, so {@link #isSprinting} keeps the last START_SPRINTING. A tick on foot or on a camel the player
-     * controls ends in LocalPlayer#sendIsSprintingIfNeeded, after which the flag is the last command sent.
+     * Whether the client's sprint flag is set. LocalPlayer#aiStep can clear it for a passenger whose vehicle cannot
+     * sprint or that it does not control ({@link #onMountedClientTick}), and LocalPlayer#sendChanges sends no
+     * STOP_SPRINTING for a vehicle it does not control, so {@link #isSprinting} keeps the last START_SPRINTING. A tick
+     * on foot or on a camel the player controls ends in LocalPlayer#sendIsSprintingIfNeeded, after which the flag is the
+     * last command sent.
      */
     public boolean isClientSprinting() {
         return isSprinting && !sprintClearedAsPassenger;
     }
 
     /**
-     * A client tick mounted on {@code vehicle}. Every other vehicle ends the tick with the flag cleared (only
-     * Camel#canSprint); a camel the player controls ends it in LocalPlayer#sendIsSprintingIfNeeded. Control follows
-     * the passenger list the client has applied.
+     * A client tick mounted on {@code vehicle}. A camel the player controls ends it in
+     * LocalPlayer#sendIsSprintingIfNeeded (only Camel#canSprint); on any other vehicle aiStep may clear the flag, which
+     * then stays clear: canStartSprinting needs vehicleCanSprint. Control follows the passenger list the client has
+     * applied.
      */
     public void onMountedClientTick(PacketEntity vehicle) {
-        sprintClearedAsPassenger = !compensatedEntities.vehicles.vehicleCanSprint(vehicle);
+        if (compensatedEntities.vehicles.vehicleCanSprint(vehicle)) {
+            sprintClearedAsPassenger = false;
+        } else if (!sprintClearedAsPassenger) {
+            sprintClearedAsPassenger = passengerStopsSprinting(vehicle);
+        }
+    }
+
+    /**
+     * Whether a passenger's LocalPlayer#aiStep cleared its flag on a vehicle it cannot sprint. From 1.21.5
+     * shouldStopRunSprinting does for every such vehicle, and 1.21.4's shouldStopSprinting for every vehicle but a
+     * camel, or when blind. Otherwise only the on-foot stop runs, which clears a flag without forward impulse; the
+     * rider's water and collision it also reads are not modelled at the seat, so forward keeps the flag. Without
+     * reported keys the flag counts as cleared.
+     */
+    private boolean passengerStopsSprinting(PacketEntity vehicle) {
+        ClientVersion version = getClientVersion();
+        if (version.isNewerThanOrEquals(ClientVersion.V_1_21_5) || !JavaTravelInputs.reportsKeys(this)) return true;
+        if (version == ClientVersion.V_1_21_4
+                && (!EntityTypeUtil.isCamelFamily(vehicle.type)
+                        || compensatedEntities.hasPotionEffect(MovementEffect.BLINDNESS))) return true;
+        return packetStateData.knownInput.forwardImpulse() <= 0;
     }
 
     /** A client tick on foot: LocalPlayer#sendPosition ends it in LocalPlayer#sendIsSprintingIfNeeded. */
@@ -1886,7 +2037,7 @@ public class CultPlayer implements GrimUser {
     }
 
     // The player's own shared-flags metadata entry as most recently sent by the server.
-    public volatile ac.cult.cultac.network.packet.EntityMetadata.Entry serverSentSelfSharedFlags;
+    public volatile EntityMetadata.Entry serverSentSelfSharedFlags;
 
     /**
      * Resends the server's shared flags for this player. The client keeps its locally predicted
@@ -1897,16 +2048,59 @@ public class CultPlayer implements GrimUser {
             if (!canSendPlayPackets()) return;
             var flags = serverSentSelfSharedFlags;
             if (flags == null) {
-                flags = ac.cult.cultac.network.packet.EntityMetadata.Entry.byteValue(
-                        ac.cult.cultac.utils.nmsutil.WatchableIndexUtil.ENTITY_SHARED_FLAGS, (byte) 0);
+                flags = EntityMetadata.Entry.byteValue(
+                        WatchableIndexUtil.ENTITY_SHARED_FLAGS, (byte) 0);
             }
-            user.write(new ac.cult.cultac.network.packet.EntityMetadata(entityID, List.of(flags)));
+            user.write(new EntityMetadata(entityID, List.of(flags)));
         });
     }
 
+    // The player's own DATA_LIVING_ENTITY_FLAGS entry as most recently sent by the server.
+    public volatile EntityMetadata.Entry serverSentSelfLivingFlags;
+    // Whether the self living flags being written are resyncItemUse's resend rather than the server's.
+    public boolean resendingSelfLivingFlags;
+
+    /**
+     * Resends the server's living flags for this player. SynchedEntityData#assignValues calls
+     * LocalPlayer#onSyncedDataUpdated even for an unchanged byte, which starts or stops the client's use to match the
+     * server's, so an item use the client and Cult disagree on ends at this packet's proof.
+     */
+    public void resyncItemUse() {
+        runSafely(this::writeSelfLivingFlags);
+    }
+
+    /** Dispatches at the outbound position, where the send handlers run inside the write and see the flag. */
+    private void writeSelfLivingFlags() {
+        if (!canSendPlayPackets()) return;
+        if (!user.isPreparingWrites()) {
+            user.executeAfterWrites(this::writeSelfLivingFlags);
+            return;
+        }
+        var flags = serverSentSelfLivingFlags;
+        if (flags == null) {
+            flags = EntityMetadata.Entry.byteValue(
+                    WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 0);
+        }
+        resendingSelfLivingFlags = true;
+        try {
+            user.write(new EntityMetadata(entityID, List.of(flags)));
+        } finally {
+            resendingSelfLivingFlags = false;
+        }
+    }
+
     @Nullable
-    public ac.cult.cultac.manager.tick.BackendTickEstimator backendTicks() {
+    public BackendTickEstimator backendTicks() {
         return user.getCultConnection().platform().backendTicks();
+    }
+
+    @Nullable
+    public String compressedForwardStats() {
+        return user.getCultConnection().platform().compressedForwardStats();
+    }
+
+    public void resetCompressedForwardStats() {
+        user.getCultConnection().platform().resetCompressedForwardStats();
     }
 
     /** True when a debug interaction pause drops this serverbound packet. Owner thread only. */

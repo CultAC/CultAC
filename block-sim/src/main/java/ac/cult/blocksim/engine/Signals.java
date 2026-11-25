@@ -1,5 +1,8 @@
 package ac.cult.blocksim.engine;
 
+import ac.cult.blocksim.behavior.DiodeBehavior;
+import ac.cult.blocksim.data.StateFacts;
+
 
 /** SignalGetter queries only compensated states; it never runs neighborChanged. */
 public final class Signals {
@@ -7,10 +10,10 @@ public final class Signals {
     public Signals(SimLevel level) { this.level = level; }
     public int controlInputSignal(BlockPos pos, Direction direction, boolean onlyDiodes) {
         int state = level.stateAt(pos);
-        if (onlyDiodes) return level.behavior(state) instanceof ac.cult.blocksim.behavior.DiodeBehavior ? directSignal(pos, direction) : 0;
+        if (onlyDiodes) return level.behavior(state) instanceof DiodeBehavior ? directSignal(pos, direction) : 0;
         if (level.registry().block(state).key().equals("minecraft:redstone_block")) return 15;
         if (level.registry().block(state).key().equals("minecraft:redstone_wire")) return Integer.parseInt(level.registry().value(state, "power"));
-        return level.registry().facts(state).has(ac.cult.blocksim.data.StateFacts.SIGNAL_SOURCE) ? directSignal(pos, direction) : 0;
+        return level.registry().facts(state).has(StateFacts.SIGNAL_SOURCE) ? directSignal(pos, direction) : 0;
     }
 
     public int directSignal(BlockPos pos, Direction direction) {

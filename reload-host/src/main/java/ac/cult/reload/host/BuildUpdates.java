@@ -173,7 +173,32 @@ public final class BuildUpdates {
      * {@code needs a proxy restart} or why it was refused.
      */
     public CompletionStage<String> install(GenerationManager engine, long number, Executor executor) {
-        return exclusive(() -> installBuild(engine, number, null), executor, updateLimit);
+        return install(engine, number, null, executor);
+    }
+
+    /** {@link #install(GenerationManager, long, Executor)}, refusing a build not signed for {@code branch} unless null. */
+    public CompletionStage<String> install(GenerationManager engine, long number, String branch, Executor executor) {
+        return exclusive(() -> installBuild(engine, number, branch), executor, updateLimit);
+    }
+
+    /** The newest build number of {@code branch}, from one GitHub API request; fails with the refusal. */
+    public CompletionStage<Long> newest(String branch, Executor executor) {
+        return CompletableFuture.supplyAsync(
+                () -> {
+                    try {
+                        var newest = list(branch).stream().findFirst();
+                        if (newest.isEmpty())
+                            throw new Refused("no build of " + branch + " among the newest " + LISTED_RELEASES
+                                    + " releases of " + settings.repository());
+                        return newest.get().number();
+                    } catch (Refused refused) {
+                        throw new CompletionException(refused);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new CompletionException(new Refused("interrupted"));
+                    }
+                },
+                executor);
     }
 
     /** Installs the newest build of {@code branch}, as {@link #install} does. */
@@ -594,7 +619,7 @@ public final class BuildUpdates {
 
     private String repository() throws Refused {
         if (!REPOSITORY.matcher(settings.repository()).matches())
-            throw new Refused("update.repository " + settings.repository() + " is not owner/repo");
+            throw new Refused("the update repository " + settings.repository() + " is not owner/repo");
         return settings.repository();
     }
 

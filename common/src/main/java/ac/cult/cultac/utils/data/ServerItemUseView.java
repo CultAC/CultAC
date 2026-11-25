@@ -31,7 +31,9 @@ import java.util.function.Supplier;
  * with its flag clear, or refutes it by sending the used item back into that hand.
  * ServerGamePacketListenerImpl#handleContainerClick corrects a rejected click claim before its
  * next tick, and the client does not resume using a returned item, so a refuted stop leaves the
- * server using an item the client is not slowed by: those ticks are charged.
+ * server using an item the client is not slowed by: those ticks are charged. The caller resends the
+ * server's use flag behind the returned item ({@link #serverReturnedItem}), which restarts the client's
+ * use (LocalPlayer#onSyncedDataUpdated), so that state lasts only until the client handles the flag.
  *
  * <p>LocalPlayer#onSyncedDataUpdated stops a started use when it processes a flag clear, so a clear
  * acknowledged after the next use packet arrived stops the client's new use while the server, already
@@ -40,6 +42,14 @@ import java.util.function.Supplier;
  * proof. Packets reach the client in send order, so the pause excludes at most the server's send gap
  * between that clear and the confirming flag; time past it is charged. A release during the pause,
  * which a vanilla client that is not using never sends, refutes it.
+ *
+ * <p>A use the server starts without a use packet (a plugin) is charged from its flag's send, like any
+ * other server time. A client's own use starts in Minecraft#handleKeybinds, where a release also ends it,
+ * so it spans whole client ticks; this one starts wherever the flag lands between two ticks
+ * (LocalPlayer#onSyncedDataUpdated, while the client handles packets), and an unheld one is released by the
+ * next handleKeybinds before that tick travels. Its span is therefore whole ticks plus less than one period
+ * no tick could pay, so up to one period of such a use's unpaid time is not charged. That only lowers a
+ * debt; it never becomes credit.
  *
  * <p>Owner-thread only. Times are local nanoseconds at this connection, never client claims.
  */
@@ -112,6 +122,8 @@ public final class ServerItemUseView {
         int proof = NO_PROOF;
         // The client-view hand held the used item; only then can it stop by losing it.
         boolean clientHeld;
+        // The used hand held or was sent another item, so the client may have stopped while the server uses on.
+        boolean handDisturbed;
         // Tentative local stop, after the client's last tick that could still be using.
         long stopTime = Long.MIN_VALUE;
         int stopTicks;
@@ -224,7 +236,8 @@ public final class ServerItemUseView {
     public void period(long period) {
         this.period = period;
         if (session != null) session.maxPeriod = Math.max(session.maxPeriod, period);
-        for (Candidate candidate : candidates) candidate.maxPeriod = Math.max(candidate.maxPeriod, period);
+        if (!candidates.isEmpty())
+            for (Candidate candidate : candidates) candidate.maxPeriod = Math.max(candidate.maxPeriod, period);
     }
 
     /** The server's selected hotbar slot, or {@code fallback} before the first observation. */
@@ -422,6 +435,7 @@ public final class ServerItemUseView {
             session.stopTime = Math.max(session.start, lastTickEnd);
             session.stopTicks = session.ticks;
             session.stopUnslowed = session.unslowed;
+            session.handDisturbed = true;
             trace(() -> "client view lost " + item(session.profile) + ": tentative local stop at "
                     + at(session.stopTime) + " after ticks=" + session.stopTicks);
         }
@@ -439,6 +453,28 @@ public final class ServerItemUseView {
         // Until the client view holds the item again (the correction at its proof), it cannot
         // claim another local stop; withholding that proof keeps every tick charged.
         session.clientHeld = false;
+    }
+
+    /**
+     * The server sent another item into the used hand. The client stops at its next entity tick that still
+     * sees it there (LivingEntity#updatingUsingItem); the server stops only if its own tick does.
+     */
+    public void serverTookItem(String cause) {
+        if (session == null || !session.serverActive() || session.handDisturbed) return;
+        trace(() -> cause + ": the used hand no longer holds " + item(session.profile));
+        session.handDisturbed = true;
+    }
+
+    /**
+     * {@link #serverKeepsItem} for a slot the server sent. Returns whether the used hand was disturbed since
+     * the use began or the item was last returned: the client may have stopped, and does not resume by itself.
+     */
+    public boolean serverReturnedItem(String cause) {
+        if (session == null || !session.serverActive()) return false;
+        serverKeepsItem(cause);
+        boolean disturbed = session.handDisturbed;
+        session.handDisturbed = false;
+        return disturbed;
     }
 
     /** A transaction the client acknowledged, in client order, at its arrival. */
@@ -569,8 +605,14 @@ public final class ServerItemUseView {
             return;
         }
         int unslowed = finished.unslowed - (lastTickMayBeLocal && finished.lastUnslowed ? 1 : 0);
-        double expected = Math.max(0, finished.serverEnd - finished.start) * charge / finished.maxPeriod;
-        onFinished.accept(new Outcome(expected, finished.ticks, unslowed, false));
+        double charged = Math.max(0, finished.serverEnd - finished.start) * charge / finished.maxPeriod;
+        // The part of a server-started use that falls between two client ticks, at most one period.
+        double unaligned =
+                finished.clientStarted ? 0 : Math.min(Math.max(0, charged - (finished.ticks - unslowed)), charge);
+        if (unaligned > 0)
+            trace(() -> String.format(
+                    Locale.ROOT, "server-started use: %.3f of its unpaid time is not tick aligned", unaligned));
+        onFinished.accept(new Outcome(charged - unaligned, finished.ticks, unslowed, false));
     }
 
     private void trace(Supplier<String> message) {

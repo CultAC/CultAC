@@ -18,6 +18,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import java.util.OptionalInt;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -56,7 +57,7 @@ class ProtocolSubversionTest {
                 bytes.clear()
                         .writeByte(version.atLeast(ProtocolVersion.V1_21_4) ? 128 : 0)
                         .writeByte(1);
-                Wire.writeUuid(bytes, new java.util.UUID(1, 2));
+                Wire.writeUuid(bytes, new UUID(1, 2));
                 if (version.atLeast(ProtocolVersion.V1_21_4)) bytes.writeBoolean(true);
                 var info = read(version, ClientboundPackets.PLAYER_INFO_UPDATE, bytes);
                 assertEquals(
@@ -118,10 +119,10 @@ class ProtocolSubversionTest {
                         };
                 for (int ordinal = 0; ordinal < expected.length; ordinal++) {
                     bytes.clear().writeByte(7).writeByte(ordinal).writeByte(90);
-                    assertEquals(
-                            expected[ordinal],
-                            read(version, ServerboundPackets.PLAYER_COMMAND, bytes)
-                                    .action());
+                    var command = read(version, ServerboundPackets.PLAYER_COMMAND, bytes);
+                    assertEquals(expected[ordinal], command.action());
+                    bytes.readerIndex(0);
+                    assertWrittenBytes(version, ServerboundPackets.PLAYER_COMMAND, command, bytes);
                 }
                 bytes.clear().writeByte(7).writeByte(expected.length).writeByte(0);
                 assertThrows(
@@ -144,7 +145,7 @@ class ProtocolSubversionTest {
                 assertWrittenBytes(version, ClientboundPackets.ENTITY_MOTION, motion, bytes);
 
                 bytes.clear().writeByte(7);
-                Wire.writeUuid(bytes, new java.util.UUID(1, 2));
+                Wire.writeUuid(bytes, new UUID(1, 2));
                 Wire.writeVarInt(
                         bytes,
                         ProtocolData.load(version)

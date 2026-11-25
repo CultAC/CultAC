@@ -37,10 +37,11 @@ import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
-import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.AttackEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
+import ac.cult.cultac.checks.impl.visibility.InteractPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -65,6 +66,7 @@ import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
@@ -95,7 +97,7 @@ class InteractionVisibilityTest {
             try (var setup = new Setup()) {
                 setup.wall("stone");
                 var players = setup.check(AttackPlayerVisibility.class);
-                var mobs = setup.check(AttackMobVisibility.class);
+                var mobs = setup.check(AttackEntityVisibility.class);
                 var placing = setup.check(PlaceVisibility.class);
                 var breaking = setup.check(BreakVisibility.class);
                 setup.fixture.player.compensatedEntities.addEntity(42, type, new Vec3(.5, 64, 1.5), 0, 0, 0);
@@ -116,7 +118,7 @@ class InteractionVisibilityTest {
         try (var setup = new Setup()) {
             setup.wall("stone");
             var players = setup.check(AttackPlayerVisibility.class);
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             setup.fixture.player.compensatedEntities.addEntity(42, EntityTypeIds.COW, new Vec3(.5, 64, 1.5), 0, 0, 0);
             var interaction =
                     new ServerboundInteract(42, InteractAction.INTERACT, Hand.MAIN_HAND, Optional.empty(), false);
@@ -151,7 +153,7 @@ class InteractionVisibilityTest {
         try (var setup = new Setup()) {
             setup.wall("stone");
             var players = setup.check(AttackPlayerVisibility.class);
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             var entities = setup.fixture.player.compensatedEntities;
             entities.addEntity(42, EntityTypeIds.PLAYER, new Vec3(.5, 64, 1.5), 0, 0, 0);
             entities.addEntity(43, EntityTypeIds.COW, new Vec3(.5, 64, 1.5), 0, 0, 0);
@@ -171,7 +173,7 @@ class InteractionVisibilityTest {
             setup.check(PlaceVisibility.class);
             setup.check(BreakVisibility.class);
             setup.check(AttackPlayerVisibility.class);
-            setup.check(AttackMobVisibility.class);
+            setup.check(AttackEntityVisibility.class);
             var player = setup.fixture.player;
             player.compensatedEntities.addEntity(42, EntityTypeIds.PLAYER, new Vec3(.5, 64, 1.5), 0, 0, 0);
             player.compensatedEntities.addEntity(43, EntityTypeIds.COW, new Vec3(.5, 64, 1.5), 0, 0, 0);
@@ -230,8 +232,9 @@ class InteractionVisibilityTest {
         try (var setup = new Setup()) {
             setup.wall("stone");
             setup.check(AttackPlayerVisibility.class);
-            setup.check(AttackMobVisibility.class);
+            setup.check(AttackEntityVisibility.class);
             setup.check(InteractEntityVisibility.class);
+            setup.check(InteractPlayerVisibility.class);
             setup.check(PlaceVisibility.class);
             setup.check(BreakVisibility.class);
             var entities = setup.fixture.player.compensatedEntities;
@@ -261,7 +264,8 @@ class InteractionVisibilityTest {
                     List.of(
                             "AttackPlayerVisibility: ",
                             "AttackMobVisibility: type=minecraft:cow",
-                            "InteractEntityVisibility: action=INTERACT_AT, type=minecraft:player",
+                            // The player half of the split check, under the one name both have in name version 1.
+                            "InteractEntityVisibility: action=INTERACT_AT",
                             "InteractEntityVisibility: action=INTERACT_AT, type=minecraft:cow",
                             "PlaceVisibility: block=minecraft:stone, pos=0, 64, 2, face=NORTH",
                             "BreakVisibility: action=START_DESTROY_BLOCK, block=minecraft:stone, pos=0, 64, 2, face=NORTH"),
@@ -275,7 +279,7 @@ class InteractionVisibilityTest {
         try (var setup = new Setup()) {
             var player = setup.fixture.player;
             for (int x = 5; x <= 8; x++) for (int y = 64; y <= 67; y++) setup.block(x, y, 5, "stone");
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             var interact = setup.check(InteractEntityVisibility.class);
             var painting = EntityTypes.defaults().byKey("minecraft:painting").id();
             // Painting#getAddEntityPacket sends the block position with SOUTH's 3D data value.
@@ -314,7 +318,7 @@ class InteractionVisibilityTest {
                 setup.block(x, 64, 0, "stone");
                 setup.block(x, 65, 0, "smooth_stone_slab");
             }
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             var interact = setup.check(InteractEntityVisibility.class);
             player.compensatedEntities.addEntity(42, EntityTypeIds.SHULKER, new Vec3(.5, 64, -.5), 0, 0, 0);
             player.x = .5;
@@ -331,13 +335,13 @@ class InteractionVisibilityTest {
             assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
             peek(player, 100);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
-            for (int tick = 0; tick < 20; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 20; tick++) tickEntities(player);
             assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
             assertEquals(2, mobs.violations);
             assertEquals(1, interact.violations);
             peek(player, 0);
-            for (int tick = 0; tick < 20; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 20; tick++) tickEntities(player);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertEquals(3, mobs.violations);
         }
@@ -352,7 +356,7 @@ class InteractionVisibilityTest {
                 setup.block(x, 65, 0, "stone");
             }
             setup.block(2, 64, 1, "smooth_stone_slab");
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             var interact = setup.check(InteractEntityVisibility.class);
             var type = EntityTypes.defaults().byKey("minecraft:polar_bear").id();
             player.compensatedEntities.addEntity(42, type, new Vec3(2.5, 64, -.7), 0, 0, 0);
@@ -369,18 +373,18 @@ class InteractionVisibilityTest {
                     false);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             data(player, 18, true);
-            for (int tick = 0; tick < 3; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 3; tick++) tickEntities(player);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
-            bear.onMovement(player, true);
+            tickEntities(player);
             assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
             assertEquals(2, mobs.violations);
             assertEquals(1, interact.violations);
             data(player, 18, false);
-            for (int tick = 0; tick < 2; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 2; tick++) tickEntities(player);
             assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
-            bear.onMovement(player, true);
+            tickEntities(player);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertEquals(3, mobs.violations);
         }
@@ -394,15 +398,20 @@ class InteractionVisibilityTest {
             player.compensatedEntities.addEntity(42, type, new Vec3(2.5, 64, -.7), 0, 0, 0);
             var bear = (PacketEntityPolarBear) player.compensatedEntities.getEntity(42);
             data(player, 18, true);
-            for (int tick = 0; tick < 2; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 2; tick++) tickEntities(player);
             assertEquals(1, bear.standAnimation());
             player.packetStateData.serverTicksFrozen = true;
-            for (int tick = 0; tick < 10; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 10; tick++) tickEntities(player);
             assertEquals(1, bear.standAnimation());
             player.packetStateData.serverTicksFrozen = false;
-            bear.onMovement(player, true);
+            tickEntities(player);
             assertEquals(2, bear.standAnimation());
         }
+    }
+
+    private static void tickEntities(CultPlayer player) {
+        player.packetStateData.acceptedClientTick++;
+        player.compensatedEntities.tickClientEntities(entity -> entity.onMovement(player));
     }
 
     private static void peek(CultPlayer player, int peek) {
@@ -425,6 +434,47 @@ class InteractionVisibilityTest {
 
     private static ServerboundInteract attack(int entityId) {
         return new ServerboundInteract(entityId, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
+    }
+
+    /**
+     * A plugin's ClientboundSetCameraPacket puts the camera on a shulker attached to the wall west of it and open
+     * towards the east. Minecraft#pick rays from the camera's Entity#getEyePosition, its position plus its eye height,
+     * however far Shulker#makeBoundingBox opens the shell: the target's near corner is 4.30 from it, inside the block
+     * interaction range, although 4.61 from the open shell's centre. A block beyond the range stays rejected.
+     */
+    @Test
+    void aShulkerCameraPicksFromItsPositionNotItsOpenShell() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            var placing = setup.check(PlaceVisibility.class);
+            setup.block(0, 64, 2, "air");
+            setup.block(2, 64, 0, "stone");
+            setup.block(0, 64, 4, "stone");
+            setup.block(0, 64, 6, "stone");
+            player.compensatedEntities.addEntity(42, EntityTypeIds.SHULKER, new Vec3(3.5, 64, .5), 0, 0, 0);
+            var shulker = (PacketEntityShulker) player.compensatedEntities.getEntity(42);
+            shulker.onShapeData(Direction.WEST, (byte) 100);
+            for (int tick = 0; tick < 20; tick++) {
+                shulker.onMovement(player);
+                player.packetStateData.acceptedClientTick++;
+            }
+            assertEquals(5.0, shulker.getPossibleMovementCollisionBoxes().maxX);
+            player.cameraEntity.onSetCamera(42);
+            for (int id = player.lastTransactionReceived.get() + 1; id <= player.lastTransactionSent.get() + 1; id++) {
+                player.lastTransactionReceived.set(id);
+                player.latencyUtils.handleNettySyncTransaction(id);
+            }
+            assertFalse(player.cameraEntity.isSelf());
+
+            var near = new ServerboundUseItemOn(
+                    Hand.MAIN_HAND, new BlockPos(0, 64, 4), Direction.NORTH, new Vec3d(.9, .5, 0), false, false, 1);
+            assertFalse(setup.route(ServerboundPackets.USE_ITEM_ON, near).isCancelled());
+            assertEquals(0, placing.violations);
+            var far = new ServerboundUseItemOn(
+                    Hand.MAIN_HAND, new BlockPos(0, 64, 6), Direction.NORTH, new Vec3d(.9, .5, 0), false, false, 2);
+            assertTrue(setup.route(ServerboundPackets.USE_ITEM_ON, far).isCancelled());
+            assertEquals(1, placing.violations);
+        }
     }
 
     private static ServerboundUseItemOn use() {
@@ -529,7 +579,7 @@ class InteractionVisibilityTest {
         for (int type : new int[] {EntityTypeIds.PLAYER, EntityTypeIds.COW, EntityTypeIds.OAK_BOAT}) {
             try (var setup = new Setup()) {
                 var players = setup.check(AttackPlayerVisibility.class);
-                var mobs = setup.check(AttackMobVisibility.class);
+                var mobs = setup.check(AttackEntityVisibility.class);
                 setup.check(PlayerReach.class);
                 setup.check(EntityReach.class);
                 setup.block(0, 64, 2, "air");
@@ -545,7 +595,7 @@ class InteractionVisibilityTest {
     void targetsReachDoesNotEnforceStayHiddenBeyondRange() throws Exception {
         for (int type : new int[] {EntityTypeIds.SHULKER, EntityTypeIds.ARMOR_STAND}) {
             try (var setup = new Setup()) {
-                var mobs = setup.check(AttackMobVisibility.class);
+                var mobs = setup.check(AttackEntityVisibility.class);
                 setup.check(EntityReach.class);
                 setup.block(0, 64, 2, "air");
                 setup.fixture.player.compensatedEntities.addEntity(42, type, new Vec3(.5, 64, 2.5), 0, 0, 0);
@@ -780,7 +830,7 @@ class InteractionVisibilityTest {
     }
 
     @Test
-    void aBedrockClientKeepsAHitInThePickMarginOnlyWhenItsRayMeetsNoBlock() throws Exception {
+    void aBedrockClientKeepsAHitInThePickMarginWhateverBlocksLieAlongItsRay() throws Exception {
         try (var setup = new Setup()) {
             var entities = setup.check(BedrockEntityReach.class);
             var hitboxes = setup.check(BedrockEntityHitboxes.class);
@@ -790,46 +840,23 @@ class InteractionVisibilityTest {
             var player = bedrockAttacker(setup);
             player.compensatedEntities.addEntity(
                     42, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 2.5), 0, 0, 0);
-            // Where views 0.35 and 0.25 to the side of the zombie's centre enter its box grown by the pick margin,
-            // 0.15 above its feet; only the second crosses its box without the margin.
-            Vec3 margin = new Vec3(player.x + 0.35, player.y + 0.15, player.z + 2.1);
-            Vec3 crossing = new Vec3(player.x + 0.25, player.y + 0.15, player.z + 2.1);
+            // Where views 0.35 to the side of the zombie's centre enter its box grown by the pick margin, 0.15 above
+            // its feet and at eye height; neither crosses its box without the margin.
+            Vec3 low = new Vec3(player.x + 0.35, player.y + 0.15, player.z + 2.1);
+            Vec3 level = new Vec3(player.x + 0.35, player.y + 1.62, player.z + 2.1);
 
-            bedrockAttackAt(player, entities, margin);
-            assertEquals(0, hitboxes.violations, "the view met no block");
-
-            // A floor every view toward the hits meets, from any eye height, within the pick ray.
+            // A floor every view toward the low hit meets, from any eye height, and a wall 3.5 blocks ahead.
             for (int x = -1; x <= 2; x++) {
                 for (int z = -2; z <= 4; z++) setup.block(x, 63, z, "stone");
             }
-            bedrockAttackAt(player, entities, crossing);
-            assertEquals(0, hitboxes.violations, "the view crossed the zombie's box before the floor");
-            bedrockAttackAt(player, entities, margin);
-            assertEquals(1, hitboxes.violations, "the client keeps the floor its view met");
-            assertEquals(0, entities.violations);
-        }
-    }
-
-    @Test
-    void aBedrockTouchClientKeepsAHitInThePickMarginWhateverBlocksLieAlongItsRay() throws Exception {
-        try (var setup = new Setup()) {
-            var entities = setup.check(BedrockEntityReach.class);
-            var hitboxes = setup.check(BedrockEntityHitboxes.class);
-            setup.fixture.player.x = .5;
-            setup.fixture.player.y = 64;
-            setup.fixture.player.z = -1.5;
-            var player = bedrockAttacker(setup);
-            player.compensatedEntities.addEntity(
-                    42, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 2.5), 0, 0, 0);
-            // Where a ray 0.35 to the side of the zombie's centre enters its box grown by the pick margin, at eye
-            // height; it never crosses the box without the margin, and meets a wall 3.5 blocks ahead.
-            Vec3 margin = new Vec3(player.x + 0.35, player.y + 1.62, player.z + 2.1);
             wall(setup, 2);
 
-            touchAttackAt(player, entities, margin);
+            bedrockAttackAt(player, entities, low);
+            assertEquals(0, hitboxes.violations, "a mouse keeps the hit past the floor");
+            bedrockAttackAt(player, entities, level);
+            assertEquals(0, hitboxes.violations, "a mouse keeps the hit past the wall");
+            touchAttackAt(player, entities, level);
             assertEquals(0, hitboxes.violations, "a touch screen keeps the hit past the wall");
-            bedrockAttackAt(player, entities, margin);
-            assertEquals(1, hitboxes.violations, "a mouse keeps the wall its view met");
             assertEquals(0, entities.violations);
         }
     }
@@ -960,7 +987,7 @@ class InteractionVisibilityTest {
     @Test
     void anOccludedEyeInRangeIsNotRescuedByAnotherEyeBeyondRange() throws Exception {
         try (var setup = new Setup()) {
-            var mobs = setup.check(AttackMobVisibility.class);
+            var mobs = setup.check(AttackEntityVisibility.class);
             // Standing and crouching eyes are within 2.95 blocks; the crawling eye is 3.08 blocks away.
             setup.fixture.player.compensatedEntities.addEntity(
                     42, EntityTypeIds.SILVERFISH, new Vec3(.5, 65.3, 1.65), 0, 0, 0);
@@ -1113,7 +1140,7 @@ class InteractionVisibilityTest {
                 }
                 Check check = type == EntityTypeIds.PLAYER
                         ? setup.check(AttackPlayerVisibility.class)
-                        : setup.check(AttackMobVisibility.class);
+                        : setup.check(AttackEntityVisibility.class);
                 assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
                 assertEquals(1, check.violations);
             }
@@ -1397,6 +1424,34 @@ class InteractionVisibilityTest {
             assertEquals(ac.cult.blocksim.engine.Direction.UP, pick.face());
             assertTrue(pick.inside());
             assertFalse(setup.visibility.blockFaceHidden(TARGET, Direction.UP, 0));
+        }
+    }
+
+    @Test
+    void anEyeInsideScaffoldingTakesTheInteractionShapesInsideFace() throws Exception {
+        try (var setup = new Setup()) {
+            for (int y = 64; y <= 66; y++) setup.block(4, y, 4, "scaffolding[distance=0,bottom=false]");
+            var eyeBlock = new BlockPos(4, 65, 4);
+            var player = setup.fixture.player;
+            player.x = 4.5;
+            player.y = 64;
+            player.z = 4.5;
+            // Issue #192: yaw -129.2, pitch 42.5 aims at the south face of this block's north-east pole, but the
+            // full-block interaction shape's inside sample makes the client report the face opposite DOWN.
+            double yaw = Math.toRadians(-129.2), pitch = Math.toRadians(42.5);
+            var look = new Vec3(-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+            var eye = new Vec3(player.x, player.y + player.getEyeHeight(), player.z);
+            var pick =
+                    player.compensatedWorld.geometry().clipOutline(eye, eye.add(look.scale(4.5)), player, s -> false);
+            assertNotNull(pick);
+            assertEquals(
+                    List.of(4, 65, 4),
+                    List.of(pick.pos().x(), pick.pos().y(), pick.pos().z()));
+            assertEquals(ac.cult.blocksim.engine.Direction.UP, pick.face());
+            assertFalse(setup.visibility.blockFaceHidden(eyeBlock, Direction.UP, 0));
+            // Below the poles' reach, a downward ray leaves this block first: its own UP face stays impossible.
+            player.y = 63.75;
+            assertTrue(setup.visibility.blockFaceHidden(eyeBlock, Direction.UP, 0));
         }
     }
 

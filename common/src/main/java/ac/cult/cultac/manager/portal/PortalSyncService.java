@@ -20,8 +20,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Runs {@link PortalSync} on the async scheduler: the join check, every tick and every sweep run there, never on the
- * main thread or a connection's event loop. The intake sockets offer team sync while {@code cloud.team-sync} (or
- * {@code CULTAC_CLOUD_TEAM_SYNC}) is on; without an answering socket nothing is sent.
+ * main thread or a connection's event loop. The intake sockets offer team sync while {@code cloud.team-sync} is on;
+ * without an answering socket nothing is sent.
  */
 public final class PortalSyncService implements StartableInitable, StoppableInitable {
     private volatile @Nullable PortalSync sync;

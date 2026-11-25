@@ -102,6 +102,7 @@ public class CloudCommandService implements CommandService {
         manager = commandManager;
         roots = rootsSupplier.get();
         new CultDebug().register(commandManager, commandArguments);
+        new CultDebugUncertainty().register(commandManager, commandArguments);
         new CultDebugVelocity().register(commandManager, commandArguments);
         new CultDebugExplosion().register(commandManager, commandArguments);
         new CultGeyserPacketLog().register(commandManager, commandArguments);
@@ -130,6 +131,7 @@ public class CloudCommandService implements CommandService {
         new CultFindings().register(commandManager, commandArguments);
         new CultTop().register(commandManager, commandArguments);
         new CultLabel().register(commandManager, commandArguments);
+        new CultNet().register(commandManager, commandArguments);
         NetworkPlayerArguments.register(commandManager.commands());
 
         final RequirementPostprocessor<Sender, SenderRequirement> senderRequirementPostprocessor =

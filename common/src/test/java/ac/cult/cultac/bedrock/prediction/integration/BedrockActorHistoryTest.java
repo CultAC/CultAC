@@ -11,13 +11,19 @@ import ac.cult.cultac.bedrock.prediction.model.*;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties;
+import ac.cult.cultac.bedrock.prediction.state.BedrockBoatState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.*;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 public final class BedrockActorHistoryTest {
     @Test
@@ -166,19 +172,18 @@ public final class BedrockActorHistoryTest {
     public void horseAndBoatReplayRetainValuesWithoutLiveActorHandles() {
         var base = BedrockMovementState.fromPhysicalFeet(
                 new Vec3d(289, 82, -86), Vec3d.ZERO, BedrockInputFrame.idle(0), BedrockCollisionFlags.ON_GROUND);
-        var horse = org.mockito.Mockito.mock(ac.cult.cultac.utils.data.packetentity.PacketEntityHorse.class);
-        var boat = org.mockito.Mockito.mock(ac.cult.cultac.utils.data.packetentity.PacketEntity.class);
-        var horseState = base.withHorse(new ac.cult.cultac.bedrock.prediction.state.BedrockHorseState(
-                horse, false, 0, false, false, 0, -1, false, 0));
-        var boatState = base.withBoat(new ac.cult.cultac.bedrock.prediction.state.BedrockBoatState(
+        var horse = Mockito.mock(PacketEntityHorse.class);
+        var boat = Mockito.mock(PacketEntity.class);
+        var horseState = base.withHorse(new BedrockHorseState(horse, false, 0, false, false, 0, -1, false, 0));
+        var boatState = base.withBoat(new BedrockBoatState(
                 boat,
-                ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties.initial(12),
+                BedrockBoatProperties.initial(12),
                 0,
                 0,
                 0,
-                ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.Paddle.INITIAL,
-                ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.Paddle.INITIAL,
-                true));
+                BedrockBoatState.Paddle.INITIAL,
+                BedrockBoatState.Paddle.INITIAL,
+                BedrockBoatState.PaddleInput.ANALOG));
         for (var initial : List.of(horseState, boatState)) {
             var history = new BedrockActorHistory();
             var entry = new Entry(initial, BedrockMobJumpComponentState.DEFAULT);
@@ -233,9 +238,8 @@ public final class BedrockActorHistoryTest {
                 controls);
         var movement = BedrockForwardTick.simulate(request).getFirst();
         var state = movement.movementResult().predictedState();
-        var entries = BedrockForwardTick.finish(movement.movementResult(), state).stream()
-                .map(next -> new Entry(next, movement.mobJumpComponent()))
-                .toList();
+        var entries = List.of(new Entry(
+                BedrockForwardTick.finish(movement.movementResult(), state), movement.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 request,

@@ -75,22 +75,10 @@ zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstd-
 jedis = { group = "redis.clients", name = "jedis", version.ref = "jedis" }
 jnats = { group = "io.nats", name = "jnats", version.ref = "jnats" }
 
-# --- Gradle Plugin Definitions ---
-# These are referenced by the [plugins] section or applied directly in build scripts
-gradle-lombok = { group = "io.freefair.gradle", name = "lombok-plugin", version.ref = "lombok" }
-gradle-shadow = { group = "com.gradleup.shadow", name = "shadow-gradle-plugin", version.ref = "shadow"}
-gradle-spotless = { group = "com.diffplug.spotless", name = "spotless-plugin-gradle", version.ref = "spotless" }
-
+# --- Gradle Plugins (buildSrc classpath) ---
 spotless = { group = "com.diffplug.spotless", name = "spotless-plugin-gradle", version.ref = "spotless" }
 lombok = { group = "io.freefair.gradle", name = "lombok-plugin", version.ref = "lombok" }
 shadow = { "group" = "com.gradleup.shadow", name = "shadow-gradle-plugin", version.ref = "shadow"}
 
-[bundles]
-# Bundles group common dependencies together for cleaner build scripts
-cloud-api = ["cloud-core", "cloud-processors-requirements"]
-
 [plugins]
-lombok = { id = "io.freefair.lombok", version.ref = "lombok" }
-shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
-spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 protobuf = { id = "com.google.protobuf", version.ref = "protobuf-plugin" }

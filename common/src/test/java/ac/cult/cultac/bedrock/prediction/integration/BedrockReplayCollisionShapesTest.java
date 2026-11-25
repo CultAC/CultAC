@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.prediction.integration;
 
 import static org.junit.Assert.*;
 
+import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
@@ -12,10 +13,14 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.*;
+import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
+import ac.cult.cultac.player.CultPlayer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.BiFunction;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 /** Captured glide whose tick-4635 firework boost is replayed into a wall beyond the recorded fetch boxes. */
 public final class BedrockReplayCollisionShapesTest {
@@ -63,7 +68,8 @@ public final class BedrockReplayCollisionShapesTest {
                 new BlockCollisionWorld(List.of(removed, stone(5, 0, 0))),
                 new BlockCollisionWorld(List.of(placedInside, placedOutside, straddling)),
                 fetched);
-        assertEquals(List.of(removed, placedOutside, straddling), world.blocks());
+        // In the order the client gathers cells: X, then Z, then Y.
+        assertEquals(List.of(removed, straddling, placedOutside), world.blocks());
     }
 
     private static BedrockProfileState.Entry replay(
@@ -92,11 +98,11 @@ public final class BedrockReplayCollisionShapesTest {
             history.record(frame);
             entry = frame.end().getFirst();
         }
-        var player = org.mockito.Mockito.mock(ac.cult.cultac.player.CultPlayer.class);
-        player.bedrockState = new ac.cult.cultac.bedrock.player.BedrockPlayerState(new java.util.UUID(0, 1));
+        var player = Mockito.mock(CultPlayer.class);
+        player.bedrockState = new BedrockPlayerState(new UUID(0, 1));
         var rewind = new BedrockMovementRewind(history);
         rewind.queue(FIRST_TICK, true, new BedrockReplayEvent.Boost(1_000_000));
-        var current = new ac.cult.cultac.checks.impl.prediction.PredictionCommit(
+        var current = new PredictionCommit(
                 new BedrockNextTickStates(history.current()),
                 BedrockNextTickVelocityDerivation.profileStateVelocities(history.current()));
         var commit = rewind.apply(player, current, liveWorld);
@@ -125,9 +131,8 @@ public final class BedrockReplayCollisionShapesTest {
         var input = request(entry, tick, observed, world, boost);
         var candidate = BedrockForwardTick.simulate(input).getFirst();
         var result = candidate.movementResult();
-        var entries = BedrockForwardTick.finish(result, result.predictedState()).stream()
-                .map(state -> new BedrockProfileState.Entry(state, candidate.mobJumpComponent()))
-                .toList();
+        var entries = List.of(new BedrockProfileState.Entry(
+                BedrockForwardTick.finish(result, result.predictedState()), candidate.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 input,

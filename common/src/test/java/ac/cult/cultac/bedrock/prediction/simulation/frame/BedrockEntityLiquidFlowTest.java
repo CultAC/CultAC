@@ -12,10 +12,7 @@ import org.junit.Test;
 public class BedrockEntityLiquidFlowTest {
     @Test
     public void entityGeometryDoesNotBecomeAFluidNeighborMaterial() {
-        for (String identifier : List.of(
-                "minecraft:boat_entity_collision",
-                "minecraft:minecart_entity_collision",
-                "minecraft:hard_entity_collision")) {
+        for (String identifier : List.of(PlacedBlockCollision.SOLID_ACTOR)) {
             var water = PlacedBlockCollision.manual(
                     new BlockPosition(0, 0, 0), "minecraft:water[level=8]", "minecraft:water", List.of());
             var box = new WorldCollisionBox(1, 0, 0, 2, 1, 1);
@@ -26,14 +23,19 @@ public class BedrockEntityLiquidFlowTest {
             assertSame(entity, world.collisions().getFirst().block().orElseThrow());
             assertEquals(
                     BedrockLiquidFlowVector.NONE,
-                    BedrockLiquidFlowResolver.flowVector(water, BedrockLiquidKind.WATER, world.blocksByPosition()));
+                    BedrockLiquidFlowResolver.flowVector(
+                            water, BedrockLiquidKind.WATER, world.blocksByPosition(), world.liquidBlocksByPosition()));
 
             var stone = PlacedBlockCollision.manual(entity.position(), "minecraft:stone", "minecraft:stone", List.of());
             var overlapping = new BlockCollisionWorld(List.of(water, entity, stone));
             assertSame(stone, overlapping.blockAt(stone.position()).orElseThrow());
             assertEquals(
                     -1.0D,
-                    BedrockLiquidFlowResolver.flowVector(water, BedrockLiquidKind.WATER, overlapping.blocksByPosition())
+                    BedrockLiquidFlowResolver.flowVector(
+                                    water,
+                                    BedrockLiquidKind.WATER,
+                                    overlapping.blocksByPosition(),
+                                    overlapping.liquidBlocksByPosition())
                             .y(),
                     0.0D);
         }

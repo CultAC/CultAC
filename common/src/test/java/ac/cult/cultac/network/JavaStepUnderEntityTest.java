@@ -55,7 +55,8 @@ class JavaStepUnderEntityTest {
     void aClientBefore26_3StoppingAtABoatUnderAnotherBoatIsRejected() throws Exception {
         try (var f = new JavaTickFixture()) {
             boatUnderBoat(f, ClientVersion.V_26_2);
-            assertRejected(f.tick(START.add(FACE_GAP, 0.0, 0.0), true), "InputKeys");
+            // The client's only move steps onto the boat, so the stop misses its height.
+            assertRejected(f.tick(START.add(FACE_GAP, 0.0, 0.0), true), "VerticalOffset");
         }
     }
 
@@ -81,7 +82,7 @@ class JavaStepUnderEntityTest {
         try (var f = new JavaTickFixture()) {
             version(f, ClientVersion.V_26_2);
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), STONE_SLAB);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 from = new Vec3(1.0 - 0.3 - FACE_GAP, FLOOR_Y, START.z);
             f.player.compensatedEntities.addEntity(
                     100, EntityTypeIds.HAPPY_GHAST, new Vec3(from.x, FLOOR_Y + ABOVE_HEAD, from.z), 0, 0, 0);

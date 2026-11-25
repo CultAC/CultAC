@@ -4,9 +4,12 @@ import static org.junit.Assert.*;
 
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.prediction.FlagCaller;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.Test;
@@ -83,10 +86,7 @@ public class BedrockMovementFlaggingTest {
             assertEquals(2, check.violations, 0);
 
             var teleports = player.getSetbackTeleportUtil();
-            teleports
-                    .javaTeleports()
-                    .addSentTeleport(
-                            Vec3.ZERO, 10, new ac.cult.cultac.network.protocol.teleport.RelativeFlag(0), false, 1);
+            teleports.javaTeleports().addSentTeleport(Vec3.ZERO, 10, new RelativeFlag(0), false, 1);
             teleports
                     .bedrockTeleports()
                     .addImmediateBedrockTransportTeleport(
@@ -94,8 +94,7 @@ public class BedrockMovementFlaggingTest {
                             false,
                             BedrockCoordinateFrame.IDENTITY,
                             null,
-                            new ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation(
-                                    1, ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance.CULT_SETBACK, 10),
+                            new BedrockTeleportOperation(1, BedrockTeleportProvenance.CULT_SETBACK, 10),
                             10);
             assertTrue(teleports.isPendingSetback());
             assertFalse(check.canFlagMovement());
