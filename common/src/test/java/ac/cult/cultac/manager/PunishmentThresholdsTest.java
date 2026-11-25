@@ -269,6 +269,42 @@ class PunishmentThresholdsTest {
     }
 
     @Test
+    void aConnectionThatEndsDuringAReloadLeavesNothingFromBeforeIt() throws Exception {
+        List<String> ran = new ArrayList<>();
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        try (var ignored = platform(ran, new AtomicBoolean(true))) {
+            PunishmentManager first = punishments("3:0 ban probe");
+            flag(first);
+            flag(first);
+            ledger.clear();
+            first.release();
+
+            PunishmentManager second = punishments("3:0 ban probe");
+            flag(second);
+
+            assertEquals(List.of(), ran);
+        }
+    }
+
+    @Test
+    void overlappingConnectionsCountInOneWindowAfterAReload() throws Exception {
+        List<String> ran = new ArrayList<>();
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        try (var ignored = platform(ran, new AtomicBoolean(true))) {
+            PunishmentManager first = punishments("2:0 ban probe");
+            PunishmentManager second = punishments("2:0 ban probe");
+            ledger.clear();
+            first.reload(config);
+            second.reload(config);
+
+            flag(first);
+            flag(second);
+
+            assertEquals(List.of("ban probe"), ran);
+        }
+    }
+
+    @Test
     void departedPlayersAreKeptOnlyWithFlagsInTheWindowAndUpToTheCap() {
         when(player.getUniqueId()).thenReturn(UUID.randomUUID());
         punishments("3:0 [alert]").release();

@@ -30,6 +30,8 @@ public class PunishmentManager implements ConfigReloadable {
     private final PunishmentLedger ledger;
     private final List<PunishGroup> groups = new ArrayList<>();
     private volatile @Nullable UUID ledgerId;
+    // The state the groups count in, as the ledger last handed it out.
+    private List<GroupState> states = List.of();
     private volatile boolean released;
     private String experimentalSymbol = "*";
     private String alertString;
@@ -64,17 +66,16 @@ public class PunishmentManager implements ConfigReloadable {
         if (id == null || released) return fresh;
         if (ledgerId == null) {
             ledgerId = id;
-            return ledger.attach(id, rules, fresh, clock.getAsLong());
+            return states = ledger.attach(id, this, rules, fresh, clock.getAsLong());
         }
-        ledger.replace(id, rules, fresh);
-        return fresh;
+        return states = ledger.restart(id, this, states, rules, fresh);
     }
 
     /** Ends this connection's share of the player's punishment state. */
     public void release() {
         if (released) return;
         released = true;
-        if (ledgerId != null) ledger.detach(ledgerId, clock.getAsLong());
+        if (ledgerId != null) ledger.detach(ledgerId, this, clock.getAsLong());
     }
 
     @Override
