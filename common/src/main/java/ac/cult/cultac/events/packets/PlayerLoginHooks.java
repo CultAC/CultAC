@@ -1,7 +1,7 @@
 package ac.cult.cultac.events.packets;
 
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.cloud.settings.CloudStaffSettings;
+import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.manager.datastore.PlayerToggleStore;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import java.util.function.BiConsumer;
@@ -86,7 +86,7 @@ public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHoo
                 (p, silent) -> CultAPI.INSTANCE.getAlertManager().toggleBrands(p, silent),
                 (p, value) -> CultAPI.INSTANCE.getAlertManager().setBrandsEnabled(p, value, true));
         if (staff) {
-            CloudStaffSettings.join(platformPlayer);
+            CloudModule.staffJoined(platformPlayer);
         }
 
         var config = CultAPI.INSTANCE.getConfigManager();

@@ -11,8 +11,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BiConsumer;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -26,41 +24,6 @@ public final class CloudStaffSettings {
     private static final Map<UUID, CompletableFuture<Void>> WRITES = new ConcurrentHashMap<>();
 
     private CloudStaffSettings() {}
-
-    /** {@code local}, each toggle also sent to the cloud. */
-    public static PlayerToggleStore sending(PlayerToggleStore local) {
-        return sending(local, CloudStaffSettings::send);
-    }
-
-    static PlayerToggleStore sending(PlayerToggleStore local, BiConsumer<UUID, Map<String, String>> send) {
-        return new PlayerToggleStore() {
-            @Override
-            public void prefetch(@NotNull UUID uuid, @NotNull UUID connectionId) {
-                local.prefetch(uuid, connectionId);
-            }
-
-            @Override
-            public @Nullable Boolean current(@NotNull UUID uuid, @NotNull String key) {
-                return local.current(uuid, key);
-            }
-
-            @Override
-            public void applyUserToggle(@NotNull UUID uuid, @NotNull String key, boolean value) {
-                local.applyUserToggle(uuid, key, value);
-                send.accept(uuid, Map.of(key, Boolean.toString(value)));
-            }
-
-            @Override
-            public void evict(@NotNull UUID uuid, @NotNull UUID connectionId) {
-                local.evict(uuid, connectionId);
-            }
-
-            @Override
-            public void shutdown() {
-                local.shutdown();
-            }
-        };
-    }
 
     /** Sends {@code changes} to {@code player}'s settings in the cloud, after their earlier changes. */
     public static void send(UUID player, Map<String, String> changes) {
