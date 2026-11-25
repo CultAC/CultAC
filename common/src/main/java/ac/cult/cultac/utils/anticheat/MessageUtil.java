@@ -20,7 +20,10 @@ import net.kyori.adventure.text.TextReplacementConfig;
 import net.kyori.adventure.text.TranslatableComponent;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
+import net.kyori.adventure.text.minimessage.Context;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.Tag;
+import net.kyori.adventure.text.minimessage.tag.resolver.ArgumentQueue;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.jetbrains.annotations.Contract;
@@ -36,6 +39,8 @@ public class MessageUtil {
     private final String TEXT_CHARS = "<>\\'\":&%";
 
     private final String TEXT_STAND_INS = "\uFDD0\uFDD1\uFDD2\uFDD3\uFDD4\uFDD5\uFDD6\uFDD7";
+    /** The click tag with the characters {@link #plainText} stood in for put back in its value. */
+    private final TagResolver WRITTEN_CLICK = TagResolver.resolver("click", MessageUtil::writtenClick);
 
     /** Preserve Cult's existing disconnect conversion: plain text or an argument-free key. */
     public ClientboundDisconnect disconnectPacket(Component reason) {
@@ -199,8 +204,37 @@ public class MessageUtil {
                 .replace("§n", "<underlined>")
                 .replace("§o", "<italic>");
 
-        Component component = MiniMessage.miniMessage().deserialize(string, resolvers).compact();
-        return hasStandIn(string) ? asWritten(component) : component;
+        if (!hasStandIn(string))
+            return MiniMessage.miniMessage().deserialize(string, resolvers).compact();
+        return asWritten(MiniMessage.miniMessage()
+                .deserialize(string, TagResolver.resolver(TagResolver.resolver(resolvers), WRITTEN_CLICK))
+                .compact());
+    }
+
+    /**
+     * A click with {@code arguments}, its value as written, for the actions every supported Adventure builds from text;
+     * null leaves any other action to the standard click tag.
+     */
+    private @Nullable Tag writtenClick(ArgumentQueue arguments, Context context) {
+        if (!arguments.hasNext()) return null;
+        String action = arguments.pop().lowerValue();
+        if (!arguments.hasNext()) {
+            arguments.reset();
+            return null;
+        }
+        String value = asWritten(arguments.pop().value());
+        ClickEvent<?> click = switch (action) {
+            case "open_url" -> ClickEvent.openUrl(value);
+            case "run_command" -> ClickEvent.runCommand(value);
+            case "suggest_command" -> ClickEvent.suggestCommand(value);
+            case "copy_to_clipboard" -> ClickEvent.copyToClipboard(value);
+            default -> null;
+        };
+        if (click == null) {
+            arguments.reset();
+            return null;
+        }
+        return Tag.styling(click);
     }
 
     private boolean hasStandIn(String string) {
@@ -220,16 +254,13 @@ public class MessageUtil {
         return new String(chars);
     }
 
-    /** {@code component} with the characters {@link #plainText} stood in for put back wherever it shows text. */
-    @SuppressWarnings("unchecked")
+    /**
+     * {@code component} with the characters {@link #plainText} stood in for put back in its text, show_text hovers and
+     * insertions; {@link #writtenClick} puts them back in clicks.
+     */
     private Component asWritten(Component component) {
         Component written =
                 component instanceof TextComponent text ? text.content(asWritten(text.content())) : component;
-        ClickEvent<?> click = written.clickEvent();
-        if (click != null && click.payload() instanceof ClickEvent.Payload.Text payload)
-            written = written.clickEvent(ClickEvent.clickEvent(
-                    (ClickEvent.Action<ClickEvent.Payload.Text>) click.action(),
-                    ClickEvent.Payload.string(asWritten(payload.value()))));
         HoverEvent<?> hover = written.hoverEvent();
         if (hover != null && hover.value() instanceof Component shown)
             written = written.hoverEvent(HoverEvent.showText(asWritten(shown)));

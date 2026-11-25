@@ -143,6 +143,15 @@ class AlertPlaceholderTextTest {
     }
 
     @Test
+    void aNameInTheSpectateClickIsRunAsWritten() throws ReflectiveOperationException {
+        String name = "St'e&v%<";
+        Component alert = alert(name, "vanilla");
+        assertTrue(clicks(alert).stream()
+                .anyMatch(click -> click.action() == ClickEvent.Action.RUN_COMMAND
+                        && click.toString().contains("spectate " + name)));
+    }
+
+    @Test
     void aBrandInsideAQuotedHoverArgumentStaysInsideIt() throws ReflectiveOperationException {
         String brand = "'><click:run_command:'/cult observe on";
         Component alert = alert("&f<hover:show_text:'Brand: %brand%'>%player%</hover>", "Steve", brand, "verbose");
