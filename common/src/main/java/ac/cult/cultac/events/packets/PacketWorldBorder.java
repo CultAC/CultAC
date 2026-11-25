@@ -1,6 +1,7 @@
 package ac.cult.cultac.events.packets;
 
 import ac.cult.cultac.checks.CultProcessor;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -27,6 +28,8 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     long lerpDurationTicks;
     long lerpElapsedTicks;
     boolean tickBasedLerp;
+    // Until this transaction is answered, the client may hold the border before a packet sent without a flush proof.
+    private volatile int unprovenUntilTransaction;
 
     public PacketWorldBorder(CultPlayer playerData) {
         super(playerData);
@@ -121,7 +124,69 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     private void atProof(PacketSendEvent<?> event, IntConsumer change) {
         if (player.isBedrockMovement()) return;
         int transaction = player.appendFlushProofTransaction(event);
+        if (transaction <= 0) unprovenUntilTransaction = player.lastTransactionSent.get() + 1;
         change.accept(transaction > 0 ? transaction : player.lastTransactionSent.get());
+    }
+
+    /**
+     * WorldBorder#isInsideCloseToBorder for an entity at {@code x}, {@code z} whose bounding box, expanded towards its
+     * movement, gives a bbMax between {@code bbMaxLow} and {@code bbMaxHigh}, for every border the client can hold.
+     */
+    public DesyncStatus isInsideCloseToBorder(double x, double z, double bbMaxLow, double bbMaxHigh) {
+        if (player.lastTransactionReceived.get() < unprovenUntilTransaction) return DesyncStatus.UNKNOWN;
+        double minDiameter;
+        double maxDiameter;
+        if (tickBasedLerp) {
+            // MovingBorderExtent#getMinX(0.0F) reads the size before the last update, one of these two update counts.
+            double updated = lerpDiameter(lerpElapsedTicks);
+            double before = lerpDiameter(Math.max(0L, lerpElapsedTicks - 1L));
+            minDiameter = Math.min(updated, before);
+            maxDiameter = Math.max(updated, before);
+        } else {
+            // A clock lerp's size follows the client's clock.
+            minDiameter = Math.min(oldDiameter, newDiameter);
+            maxDiameter = Math.max(oldDiameter, newDiameter);
+        }
+        // The distance to the border and the bounds both grow with the diameter.
+        if (distanceToBorder(x, z, maxDiameter) < bbMaxLow * 2.0D && isWithinBounds(x, z, minDiameter, bbMaxLow)) {
+            return DesyncStatus.TRUE;
+        }
+        if (distanceToBorder(x, z, minDiameter) >= bbMaxHigh * 2.0D || !isWithinBounds(x, z, maxDiameter, bbMaxHigh)) {
+            return DesyncStatus.FALSE;
+        }
+        return DesyncStatus.UNKNOWN;
+    }
+
+    /** MovingBorderExtent#calculateSize after {@code updates} updates. */
+    private double lerpDiameter(long updates) {
+        if (lerpDurationTicks <= 0L) return newDiameter;
+        double progress = (double) updates / (double) lerpDurationTicks;
+        return progress < 1.0D ? CultMath.lerp(progress, oldDiameter, newDiameter) : newDiameter;
+    }
+
+    /** WorldBorder#getDistanceToBorder against a border of {@code diameter}. */
+    private double distanceToBorder(double x, double z, double diameter) {
+        double fromWest = x - borderMin(centerX, diameter);
+        double fromEast = borderMax(centerX, diameter) - x;
+        double fromNorth = z - borderMin(centerZ, diameter);
+        double fromSouth = borderMax(centerZ, diameter) - z;
+        return Math.min(Math.min(Math.min(fromWest, fromEast), fromNorth), fromSouth);
+    }
+
+    /** WorldBorder#isWithinBounds(x, z, margin) against a border of {@code diameter}. */
+    private boolean isWithinBounds(double x, double z, double diameter, double margin) {
+        return x >= borderMin(centerX, diameter) - margin
+                && x < borderMax(centerX, diameter) + margin
+                && z >= borderMin(centerZ, diameter) - margin
+                && z < borderMax(centerZ, diameter) + margin;
+    }
+
+    private double borderMin(double center, double diameter) {
+        return CultMath.clamp(center - diameter / 2.0D, -absoluteMaxSize, absoluteMaxSize);
+    }
+
+    private double borderMax(double center, double diameter) {
+        return CultMath.clamp(center + diameter / 2.0D, -absoluteMaxSize, absoluteMaxSize);
     }
 
     private void setCenter(int transaction, double x, double z) {

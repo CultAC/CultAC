@@ -37,6 +37,26 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
     // The collision result that replaced this packet's disproven onGround claim.
     private Boolean correctedOnGround;
     private float correctedYaw = Float.NaN;
+    // The vehicle tick whose Entity#move left the vertical deltaMovement exactly 0, its vehicle and its client tick.
+    private PredictionResult zeroVerticalCarry;
+    private PacketEntity zeroVerticalCarryVehicle;
+    private int zeroVerticalCarryTick;
+    // A vehicle velocity the client applies by this transaction's answer.
+    private int vehicleVelocitySettledTransaction;
+
+    /** The vehicle's position or deltaMovement changed outside Entity#move. */
+    public void dropZeroVerticalCarry() {
+        zeroVerticalCarry = null;
+    }
+
+    /** ClientPacketListener#handleSetEntityMotion replaces the vehicle's deltaMovement before the next ping's answer. */
+    public void onVehicleVelocity() {
+        int settled = player.lastTransactionSent.get() + 1;
+        player.latencyUtils.addRealTimeTaskNow(() -> {
+            zeroVerticalCarry = null;
+            vehicleVelocitySettledTransaction = settled;
+        });
+    }
 
     /** The onGround a disproven claim of the last processed packet is replaced with, once; null if none. */
     public Boolean takeCorrectedOnGround() {
@@ -125,6 +145,9 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
     public void process(final VehiclePositionUpdate vehicleUpdate) {
         correctedOnGround = null;
         correctedYaw = Float.NaN;
+        PredictionResult previous = player.checkManager.getSimulationProcessor().getLastPrediction();
+        PredictionResult carried = zeroVerticalCarry;
+        zeroVerticalCarry = null;
         PredictionResult result = player.checkManager.getSimulationProcessor().onVehiclePositionUpdate(vehicleUpdate);
 
         if (result == null) {
@@ -184,6 +207,25 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
                             >= reality.getTarget().y) { // And they recovered by colliding
                 // Must be on the ground
                 lastOnGround = lastOnGround == null ? DesyncStatus.TRUE : lastOnGround.addBoolean(true);
+            }
+        }
+
+        SimpleCollisionBox epsilonMoves = movementsBelowCollisionEpsilon(result, riding);
+        if (epsilonMoves != null) {
+            DesyncStatus gather = VehicleColliderGather.gathers(player, result, epsilonMoves);
+            int tick = player.packetStateData.acceptedClientTick;
+            boolean zeroCarry = carried != null
+                    && carried == previous
+                    && zeroVerticalCarryVehicle == riding
+                    && zeroVerticalCarryTick + 1 == tick;
+            lastOnGround = groundBelowCollisionEpsilon(lastOnGround, gather, zeroCarry, epsilonMoves);
+            // Entity#move zeroes the vertical deltaMovement after a vertical collision; a zero distance leaves it 0.
+            if (gather == DesyncStatus.TRUE
+                    && player.lastTransactionReceived.get() >= vehicleVelocitySettledTransaction
+                    && !VehicleColliderGather.nearBubbleColumn(player, result)) {
+                zeroVerticalCarry = result;
+                zeroVerticalCarryVehicle = riding;
+                zeroVerticalCarryTick = tick;
             }
         }
 
@@ -363,6 +405,46 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
                         || root.type == EntityTypeIds.STRIDER
                         || root instanceof PacketEntityHappyGhast
                         || root instanceof PacketEntityNautilus);
+    }
+
+    /**
+     * The valid pre-collision movements of every reality, when the reported move is exactly 0 vertically, every valid
+     * vertical distance lies in (-1.0E-7, 1.0E-7), the range Shapes#collide returns 0 for once Entity#collide gathers a
+     * collider, and the travel's Entity#move sets the root's ground; else null.
+     */
+    private SimpleCollisionBox movementsBelowCollisionEpsilon(PredictionResult result, PacketEntity riding) {
+        if (riding == null || player.isBedrockMovement()) return null;
+        List<PredictionResult> realities = result.getRealities();
+        if (realities == null || realities.isEmpty()) return null;
+        SimpleCollisionBox moves = null;
+        for (int i = 0, size = realities.size(); i < size; i++) {
+            PredictionResult reality = realities.get(i);
+            // Entity#move multiplies the delta by a stuck speed before Entity#collide.
+            if (reality.getTarget().y != 0.0D || reality.getSimulationContext().consumesStuckSpeed()) return null;
+            var pass = JavaMovementEngine.passAfterTravel(reality);
+            if ((pass != null && pass.result().moved()) || JavaRootGround.floatStriderGrounds(player, reality))
+                return null;
+            SimpleCollisionBox valid = reality.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
+            if (!(valid.minY > -SimpleCollisionBox.COLLISION_EPSILON
+                    && valid.maxY < SimpleCollisionBox.COLLISION_EPSILON)) return null;
+            moves = moves == null ? valid.copy() : moves.union(valid);
+        }
+        return moves;
+    }
+
+    /**
+     * Entity#move's onGround for a move {@link #movementsBelowCollisionEpsilon} holds for: verticalCollisionBelow, which
+     * a distance in (-1.0E-7, 0) sets whenever Entity#collide gathers a collider. The sign is exact only from a
+     * vertical deltaMovement the last tick's collision left at 0; {@code collision} is the result without the gather.
+     */
+    private static DesyncStatus groundBelowCollisionEpsilon(
+            DesyncStatus collision, DesyncStatus gather, boolean zeroCarry, SimpleCollisionBox moves) {
+        if (gather == DesyncStatus.FALSE) return collision;
+        if (gather == DesyncStatus.TRUE && zeroCarry) {
+            if (moves.maxY < 0.0D) return DesyncStatus.TRUE;
+            return moves.minY >= 0.0D ? DesyncStatus.FALSE : DesyncStatus.UNKNOWN;
+        }
+        return moves.minY < 0.0D ? DesyncStatus.UNKNOWN : collision;
     }
 
     private Vec3 uniqueVelocity(Set<Vec3> velocities) {

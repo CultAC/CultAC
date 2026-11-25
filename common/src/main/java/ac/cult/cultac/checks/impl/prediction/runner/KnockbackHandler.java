@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.prediction.runner;
 
 import ac.cult.cultac.checks.BedrockSupported;
 import ac.cult.cultac.checks.CheckInfo;
+import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.player.CultPlayer;
@@ -46,6 +47,9 @@ public class KnockbackHandler extends PacketModHandler {
             return -1;
         }
 
+        if (vehicle != null) {
+            player.checkManager.getListener(VehiclePredictionRunner.class).onVehicleVelocity();
+        }
         if (vehicle != null && vehicle.noAI) {
             return -1;
         }
