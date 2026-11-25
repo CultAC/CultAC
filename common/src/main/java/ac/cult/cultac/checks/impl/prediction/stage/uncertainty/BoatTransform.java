@@ -232,7 +232,7 @@ public class BoatTransform implements UncertaintyHandler {
         }
 
         SimpleCollisionBox boatBox = context.getFromMaximumExtent();
-        double boatHeight = boatBox.maxY - boatBox.minY;
+        float boatHeight = context.getMaxHeight();
         double targetY = getWaterLevelAbove(player, boatBox, state.lastYd()) - boatHeight + 0.101D;
         SimpleCollisionBox movedBox = boatBox.copy().offset(0.0D, targetY - context.getStart().y, 0.0D);
 
@@ -265,7 +265,7 @@ public class BoatTransform implements UncertaintyHandler {
             CultPlayer player, SimulationContext context, Vec3 vector, BoatTickState state) {
         SimpleCollisionBox boatBox = context.getFromMaximumExtent();
         double boatY = context.getStart().y;
-        double boatHeight = boatBox.maxY - boatBox.minY;
+        float boatHeight = context.getMaxHeight();
         boolean doubleGravity = context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
         double gravity = doubleGravity ? 0.04D : (double) 0.04F;
         double d1 = player.compensatedEntities.getEntityInControl().hasGravity ? -gravity : 0;
@@ -388,7 +388,7 @@ public class BoatTransform implements UncertaintyHandler {
         }
 
         SimpleCollisionBox boatBox = context.getFromMaximumExtent();
-        double boatHeight = boatBox.maxY - boatBox.minY;
+        float boatHeight = context.getMaxHeight();
         double targetY = getWaterLevelAbove(player, boatBox, state.lastYd()) - boatHeight + 0.101D;
         SimpleCollisionBox movedBox = boatBox.copy().offset(0.0D, targetY - context.getStart().y, 0.0D);
         SimpleCollisionBox blocker = findFirstWaterEntryIntersection(player, context, movedBox);
