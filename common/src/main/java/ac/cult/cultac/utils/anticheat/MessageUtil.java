@@ -36,9 +36,9 @@ public class MessageUtil {
     private final Pattern HEX_PATTERN = Pattern.compile("([&§]#[A-Fa-f0-9]{6})|([&§]x([&§][A-Fa-f0-9]){6})");
     private final char PLACEHOLDER_ESCAPE_CHAR = '\uFFFF'; // this specific character holds no significance
     /** The characters a template gives meaning to, and the noncharacters {@link #plainText} writes in their place. */
-    private final String TEXT_CHARS = "<>\\'\":&%";
+    private final String TEXT_CHARS = "<>\\'\":&%" + PLACEHOLDER_ESCAPE_CHAR;
 
-    private final String TEXT_STAND_INS = "\uFDD0\uFDD1\uFDD2\uFDD3\uFDD4\uFDD5\uFDD6\uFDD7";
+    private final String TEXT_STAND_INS = "\uFDD0\uFDD1\uFDD2\uFDD3\uFDD4\uFDD5\uFDD6\uFDD7\uFDD8";
     /** The click tag with the characters {@link #plainText} stood in for put back in its value. */
     private final TagResolver WRITTEN_CLICK = TagResolver.resolver("click", MessageUtil::writtenClick);
 
@@ -281,7 +281,7 @@ public class MessageUtil {
     /**
      * {@code string} for a {@link #miniMessage} template, shown as written wherever the template puts it: no tag, quote,
      * colour code or placeholder in it takes effect, alone or with the text around it. Section signs are dropped, since
-     * the client formats them even in plain text.
+     * the client formats them even in plain text, and so are the stand-in noncharacters.
      */
     @Contract("null -> !null; !null -> !null")
     public @NotNull String plainText(@Nullable String string) {
@@ -289,7 +289,7 @@ public class MessageUtil {
         StringBuilder text = new StringBuilder(string.length());
         for (int i = 0; i < string.length(); i++) {
             char c = string.charAt(i);
-            if (c == '§') continue;
+            if (c == '§' || TEXT_STAND_INS.indexOf(c) >= 0) continue;
             int special = TEXT_CHARS.indexOf(c);
             text.append(special >= 0 ? TEXT_STAND_INS.charAt(special) : c);
         }
