@@ -195,7 +195,7 @@ public class PunishmentManager implements ConfigReloadable {
                                             player,
                                             CheckNameLink.link(MessageUtil.miniMessage(listenerCmd), check),
                                             null);
-                        } catch (RuntimeException e) {
+                        } catch (RuntimeException | LinkageError e) {
                             logDeliveryFailure(command, check, e);
                         }
                     }
@@ -206,17 +206,26 @@ public class PunishmentManager implements ConfigReloadable {
                         if (shouldRun) {
                             Supplier<String> text = command.command.equals("[log]") ? logVerbose : verbose;
                             Supplier<String> shown = () -> safeGet(text);
-                            String cmd = replaceAlertPlaceholders(command, vl, check, shown, false);
+                            boolean builtin = BUILTIN_ACTIONS.contains(command.action());
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
-                            boolean withheld = (player.isObserveOnly() || player.isPunishmentsPaused())
-                                    && !BUILTIN_ACTIONS.contains(command.action());
-                            boolean canceled = withheld
-                                    || COMMAND_CHANNEL.fire(
+                            boolean withheld = (player.isObserveOnly() || player.isPunishmentsPaused()) && !builtin;
+                            // The configured line is for the event's listeners and a console command.
+                            String cmd = null;
+                            boolean canceled = withheld;
+                            if (!withheld && (!builtin || !COMMAND_CHANNEL.isEmpty())) {
+                                try {
+                                    cmd = replaceAlertPlaceholders(command, vl, check, shown, false);
+                                    canceled = COMMAND_CHANNEL.fire(
                                             ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
                                             ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(check),
                                             shown,
                                             cmd);
+                                } catch (RuntimeException | LinkageError e) {
+                                    logDeliveryFailure(command, check, e);
+                                    canceled = true;
+                                }
+                            }
                             if (command.interval == 0) {
                                 command.executeCount++;
                             } else {
@@ -267,11 +276,12 @@ public class PunishmentManager implements ConfigReloadable {
                                         }
                                     }
                                     default -> {
+                                        String line = cmd;
                                         double violations = check.getViolations();
                                         // Only where the platform hands it on, such as to a backend plugin.
                                         String renderedVerbose = CultAPI.INSTANCE
                                                         .getPlatformServer()
-                                                        .dispatchesVerbose(cmd, player.platformPlayer)
+                                                        .dispatchesVerbose(line, player.platformPlayer)
                                                 ? safeGet(verbose)
                                                 : "";
                                         CultAPI.INSTANCE
@@ -285,14 +295,14 @@ public class PunishmentManager implements ConfigReloadable {
                                                                         CultAPI.INSTANCE
                                                                                 .getPlatformServer()
                                                                                 .getConsoleSender(),
-                                                                        cmd,
+                                                                        line,
                                                                         player.platformPlayer,
                                                                         check,
                                                                         violations,
                                                                         renderedVerbose));
                                     }
                                 }
-                            } catch (RuntimeException e) {
+                            } catch (RuntimeException | LinkageError e) {
                                 logDeliveryFailure(command, check, e);
                             }
                         }
@@ -332,7 +342,7 @@ public class PunishmentManager implements ConfigReloadable {
         return false;
     }
 
-    private static void logDeliveryFailure(ParsedCommand command, Check check, RuntimeException e) {
+    private static void logDeliveryFailure(ParsedCommand command, Check check, Throwable e) {
         LogUtil.error("Failed to run " + command.command + " for " + check.getCheckName(), e);
     }
 
