@@ -98,6 +98,7 @@ class ObserveOnlyCallSiteTest {
             "rejectDig",
             "rejectEarly",
             "rejectInteract",
+            "abortTranslatedDig",
             "sendServerStates",
             "resyncFromServerView",
             "inject",
@@ -154,7 +155,9 @@ class ObserveOnlyCallSiteTest {
             manager/PunishmentManager.java#handleAlert(CultPlayer,Supplier,Supplier,Check) dispatchCommand
             [REJECT] AbstractTimerCheck rejects only under shouldModifyPackets()
             checks/impl/movement/timer/TimerCheck.java#onBedrockAuthInput(PacketReceiveEvent) setCancelled
-            [] reached only from callers that return first in observe-only            checks/impl/prediction/checks/NoSlow.java#clearFlaggedUse() clearActiveItem
+            [] reached only from callers that return first in observe-only
+            bedrock/bridge/GeyserBedrockBridgeRuntime.java#processAuthInput(CultPlayer,PlayerAuthInputPacket) abortTranslatedDig
+            checks/impl/prediction/checks/NoSlow.java#clearFlaggedUse() clearActiveItem
             events/packets/patch/ResyncWorldUtil.java#resyncOnOwner(CultPlayer,int,int,int,int,int,int) sendServerStates
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData) sendSetback
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData,boolean) sendSetback
