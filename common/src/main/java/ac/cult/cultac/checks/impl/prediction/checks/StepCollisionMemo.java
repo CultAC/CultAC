@@ -109,7 +109,8 @@ public final class StepCollisionMemo {
         }
     }
 
-    private void clear() {
+    /** Drops every entry, for a prediction that changes an unkeyed input; the memo stays open or closed. */
+    public void clear() {
         if (size == 0) return;
         Arrays.fill(values, 0, size, null);
         Arrays.fill(table, 0);

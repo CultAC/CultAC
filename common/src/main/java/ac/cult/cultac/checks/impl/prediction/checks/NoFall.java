@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.prediction.checks;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockVerticalCollisionVerdict;
+import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
@@ -118,7 +119,7 @@ public class NoFall implements EngineCheck {
         Boolean moved = JavaRootGround.after(player, result);
         if (moved == null) return;
         boolean reported = player.packetStateData.vehicleMovementReportedOnGround;
-        if (reported == moved) return;
+        if (reported == moved || VehiclePredictionRunner.groundFollowsClockLerpedBorder(player, result)) return;
         result.addFlag(player.checkManager.getListener(NoFallPseudo.class), () -> String.valueOf(reported), 0.1);
         result.setDesiredOnGround(moved);
     }

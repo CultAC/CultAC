@@ -488,6 +488,24 @@ public class Collisions {
         return addWorldBorder(player, wantedBB, listOfBlocks, onlyCheckCollide, player.lastX, player.lastZ);
     }
 
+    /**
+     * Whether {@link #addWorldBorder} adds the border's planes for Bedrock movement and a border the client may still
+     * lerp on its clock, to a query from {@code entityX}, {@code entityZ} against a border of {@code diameter}: the
+     * entity is strictly inside the planes and within 16 blocks of one.
+     */
+    public static boolean gathersBorderWithinSixteen(
+            PacketWorldBorder border, double diameter, double entityX, double entityZ) {
+        double size = diameter / 2;
+        double absoluteMaxSize = border.getAbsoluteMaxSize();
+        double minX = Math.floor(CultMath.clamp(border.getCenterX() - size, -absoluteMaxSize, absoluteMaxSize));
+        double minZ = Math.floor(CultMath.clamp(border.getCenterZ() - size, -absoluteMaxSize, absoluteMaxSize));
+        double maxX = Math.ceil(CultMath.clamp(border.getCenterX() + size, -absoluteMaxSize, absoluteMaxSize));
+        double maxZ = Math.ceil(CultMath.clamp(border.getCenterZ() + size, -absoluteMaxSize, absoluteMaxSize));
+        double distanceToBorder =
+                Math.min(Math.min(entityX - minX, maxX - entityX), Math.min(entityZ - minZ, maxZ - entityZ));
+        return entityX > minX && entityX < maxX && entityZ > minZ && entityZ < maxZ && distanceToBorder < 16;
+    }
+
     /** The same border shape queried by an autonomously moving entity at its own feet. */
     public static boolean addWorldBorder(
             CultPlayer player,
@@ -504,7 +522,8 @@ public class Collisions {
         double centerZ = border.getCenterZ();
 
         // For some reason, the game limits the border to 29999984 blocks wide
-        double size = border.getCurrentDiameter() / 2;
+        double diameter = border.getCurrentDiameter();
+        double size = diameter / 2;
         double absoluteMaxSize = border.getAbsoluteMaxSize();
 
         double minX = Math.floor(CultMath.clamp(centerX - size, -absoluteMaxSize, absoluteMaxSize));
@@ -512,19 +531,18 @@ public class Collisions {
         double maxX = Math.ceil(CultMath.clamp(centerX + size, -absoluteMaxSize, absoluteMaxSize));
         double maxZ = Math.ceil(CultMath.clamp(centerZ + size, -absoluteMaxSize, absoluteMaxSize));
 
-        // If the player is fully within the worldborder
-        double toMinX = entityX - minX;
-        double toMaxX = maxX - entityX;
-        double minimumInXDirection = Math.min(toMinX, toMaxX);
-
-        double toMinZ = entityZ - minZ;
-        double toMaxZ = maxZ - entityZ;
-        double minimumInZDirection = Math.min(toMinZ, toMaxZ);
-
-        double distanceToBorder = Math.min(minimumInXDirection, minimumInZDirection);
-
-        // If the player's is within 16 blocks of the worldborder, add the worldborder to the collisions (optimization)
-        if (distanceToBorder < 16 && entityX > minX && entityX < maxX && entityZ > minZ && entityZ < maxZ) {
+        // Entity#collectCollidersIgnoringWorldBorder gathers the border by the queried box; Bedrock, and a border the
+        // client may still lerp on its clock, reach 16 blocks.
+        if (player.isBedrockMovement() || border.holdsClockLerp()
+                ? gathersBorderWithinSixteen(border, diameter, entityX, entityZ)
+                : entityX > minX
+                        && entityX < maxX
+                        && entityZ > minZ
+                        && entityZ < maxZ
+                        && border.gathers(
+                                entityX,
+                                entityZ,
+                                Math.max(wantedBB.maxX - wantedBB.minX, wantedBB.maxZ - wantedBB.minZ))) {
             if (listOfBlocks == null) {
                 return onlyCheckCollide
                         && (isIntersected(
@@ -638,6 +656,29 @@ public class Collisions {
             double entityBottom,
             JavaCollisionState actor,
             CollisionBoxPool pool) {
+        return getCollisionBoxes(
+                player,
+                wantedBB,
+                listOfBlocks,
+                onlyCheckCollide,
+                entityBottom,
+                actor,
+                pool,
+                player.lastX,
+                player.lastZ);
+    }
+
+    /** The same colliders queried by an autonomously moving entity at {@code entityX}, {@code entityZ}. */
+    public static boolean getCollisionBoxes(
+            CultPlayer player,
+            SimpleCollisionBox wantedBB,
+            List<SimpleCollisionBox> listOfBlocks,
+            boolean onlyCheckCollide,
+            double entityBottom,
+            JavaCollisionState actor,
+            CollisionBoxPool pool,
+            double entityX,
+            double entityZ) {
         boolean modernJava = !player.isBedrockMovement();
         if (modernJava)
             Box.validateBounds(
@@ -646,7 +687,7 @@ public class Collisions {
         boolean direct = false;
         var registry = DataTables.defaults().registry();
 
-        boolean collided = addWorldBorder(player, wantedBB, listOfBlocks, onlyCheckCollide);
+        boolean collided = addWorldBorder(player, wantedBB, listOfBlocks, onlyCheckCollide, entityX, entityZ);
         if (onlyCheckCollide && collided) return true;
 
         int minBlockX = (int) Math.floor(wantedBB.minX - COLLISION_EPSILON) - 1;

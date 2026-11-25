@@ -9,10 +9,14 @@ import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.environment.ClientWorldDefaults;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
+import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.RegistryTags;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundInitializeBorder;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
@@ -26,6 +30,7 @@ import ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder;
 import ac.cult.cultac.utils.nmsutil.FluidCurrent;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -229,6 +234,40 @@ class JavaReleaseGapRegressionTest {
                     order,
                     f.player.provenClientFluidTagOrder,
                     "A replacement entity does not change the client's JVM Set order");
+        }
+    }
+
+    /**
+     * MovingBorderExtent#getMinX(0.0F) reads the size before or after WorldBorder#tick's last update: shrinking from 21
+     * to 5 over 2 ticks around x -1, one update count puts the player within twice its box of the east edge and the
+     * other more than its box outside it, so WorldBorder#isInsideCloseToBorder goes either way for the first move, and
+     * that move shows no tag order.
+     */
+    @Test
+    void aMoveWhoseBorderGatherIsEitherWayShowsNoFluidTagOrder() throws Exception {
+        try (var f = fixture(ClientVersion.V_26_3)) {
+            var names = ClientWorldDefaults.defaults().initialNames("minecraft:fluid");
+            var members = List.of(names.indexOf("minecraft:water"), names.indexOf("minecraft:flowing_water"));
+            tags(f, "minecraft:fluid", Map.of("minecraft:water", members, "minecraft:lava", members));
+            var at = new BlockPos(8, 72, 8);
+            f.player.compensatedWorld.updateBlock(at, BlockIds.WATER.defaultState());
+            f.player.compensatedWorld.updateBlock(at.east().below(), BlockIds.WATER.defaultState());
+            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+            var packet = new ClientboundInitializeBorder(-1.0, 8.5, 21.0, 5.0, 2L, 29_999_984);
+            var event = new PacketSendEvent<>(
+                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.INITIALIZE_BORDER, packet, false);
+            f.player.checkManager.getWorldBorder().onInitializeBorder(event, f.player, packet);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.tickEnd();
+            Vec3 start = new Vec3(8.5, 72, 8.5);
+            f.place(start, new Vec3(.1, 0, 0));
+            f.input(NONE);
+            var result = f.tick(start.add(.1 + .014, 0, 0), false);
+            assertTrue(exact(result), describe(result));
+            assertEquals(
+                    ClientFluidTagOrder.WATER_FIRST,
+                    result.getSimulationContext().getFluidTagOrder());
+            assertNull(f.player.provenClientFluidTagOrder);
         }
     }
 

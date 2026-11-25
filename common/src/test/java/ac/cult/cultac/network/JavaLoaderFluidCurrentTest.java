@@ -13,9 +13,13 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.manager.player.SetbackFixtures;
+import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
+import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundInitializeBorder;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -162,6 +166,33 @@ class JavaLoaderFluidCurrentTest {
             }
             dx = dx * 0.8F + (pushed ? 0.0 : CURRENT);
             assertFlagged(f.tick(position.add(dx, 0.0, 0.0), true));
+        }
+    }
+
+    /**
+     * MovingBorderExtent#getMinX(0.0F) reads the size before or after WorldBorder#tick's last update: shrinking from 21
+     * to 5 over 2 ticks, one update count puts the wading player within twice its box of the east edge and the other
+     * more than its box outside it, so the first move's WorldBorder#isInsideCloseToBorder shows no build.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void forgeShowsNoBuildByAMoveWhoseBorderGatherIsEitherWay(boolean pushed) throws Exception {
+        try (var f = channel()) {
+            brand(f, "forge");
+            var packet = new ClientboundInitializeBorder(-10.0, 0.5, 21.0, 5.0, 2L, 29_999_984);
+            var event = new PacketSendEvent<>(
+                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.INITIALIZE_BORDER, packet, false);
+            f.player.checkManager.getWorldBorder().onInitializeBorder(event, f.player, packet);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.tickEnd();
+            f.place(WADING, Vec3.ZERO);
+            double dx = pushed ? CURRENT : 0.0;
+            Vec3 position = WADING.add(dx, 0.0, 0.0);
+            assertExact(f.tick(position, true));
+            assertNull(f.player.loaderFluids.known());
+            dx = dx * 0.8F + (pushed ? CURRENT : 0.0);
+            assertExact(f.tick(position.add(dx, 0.0, 0.0), true));
+            assertEquals(!pushed, f.player.loaderFluids.known());
         }
     }
 

@@ -14,9 +14,18 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderCenter;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderLerpSize;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderSize;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.nmsutil.Collisions;
 import java.util.function.IntConsumer;
 
 public class PacketWorldBorder extends CultProcessor implements CheckListener, ClientTickEndListener {
+    /** Minecraft#runTick runs at most this many client ticks a frame. */
+    private static final long FRAME_TICKS = 10L;
+    /**
+     * The most ticks DeltaTracker.Timer gives per millisecond of Util#getMillis: one per
+     * Minecraft#getTickTargetMillis, at least 50 ms, and under 2^-23 more from the rounding of its float sums.
+     */
+    private static final double TICKS_PER_MILLI = 1.0D / 50.0D + 0x1p-23;
+
     double centerX;
     double centerZ;
     // WorldBorder's initial client state before an initialize-border packet.
@@ -28,8 +37,15 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     long lerpDurationTicks;
     long lerpElapsedTicks;
     boolean tickBasedLerp;
-    // Until this transaction is answered, the client may hold the border before a packet sent without a flush proof.
+    // The first transaction the client answers after a border packet sent without a flush proof.
     private volatile int unprovenUntilTransaction;
+    // The transaction the client answers only after handling the clock lerp, and the client ticks ended since.
+    private int clockLerpProof;
+    private long clockLerpTicks;
+    /** The gather a prediction simulates where the border the client holds leaves it open. */
+    private boolean uncertainGather;
+    /** Whether a collision read {@link #uncertainGather} since {@link #watchUncertainGather}. */
+    private boolean uncertainGatherRead;
 
     public PacketWorldBorder(CultPlayer playerData) {
         super(playerData);
@@ -71,8 +87,17 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
         return CultMath.lerp(progress, oldDiameter, newDiameter);
     }
 
+    /** Whether the client may still run a MovingBorderExtent on its clock, as clients before 1.21.11 do. */
+    public boolean holdsClockLerp() {
+        return !tickBasedLerp && oldDiameter != newDiameter;
+    }
+
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
+        if (holdsClockLerp() && !event.isSynthetic() && player.lastTransactionReceived.get() >= clockLerpProof) {
+            clockLerpTicks++;
+            if (clockLerpEnded()) oldDiameter = newDiameter;
+        }
         // ClientLevel#tick advances the border only while world ticks run.
         if (player.packetStateData.serverTicksFrozen && player.packetStateData.serverFrozenTickStepsRemaining == 0)
             return;
@@ -83,6 +108,17 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
                 tickBasedLerp = false;
             }
         }
+    }
+
+    /**
+     * Whether the client's MovingBorderExtent has reached its target by the client's next tick. The client sets
+     * lerpBegin in one frame, before it answers {@link #clockLerpProof}. Apart from the ticks of that frame and the
+     * next, the ticks ended since, with the next one, follow Util#getMillis time after lerpBegin and less than one
+     * tick of residual that DeltaTracker.Timer carries in. {@link #getCurrentDiameter} must have reached it as well.
+     */
+    private boolean clockLerpEnded() {
+        return clockLerpTicks - 2L * FRAME_TICKS >= (endTime - startTime) * TICKS_PER_MILLI
+                && System.currentTimeMillis() >= endTime;
     }
 
     @CultPacketHandler
@@ -131,9 +167,16 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     /**
      * WorldBorder#isInsideCloseToBorder for an entity at {@code x}, {@code z} whose bounding box, expanded towards its
      * movement, gives a bbMax between {@code bbMaxLow} and {@code bbMaxHigh}, for every border the client can hold.
+     * While the client lerps the border on its clock, the answer follows {@link Collisions#addWorldBorder} for the query
+     * from the player's last position: UNKNOWN where it adds the border's planes, FALSE elsewhere.
      */
     public DesyncStatus isInsideCloseToBorder(double x, double z, double bbMaxLow, double bbMaxHigh) {
         if (player.lastTransactionReceived.get() < unprovenUntilTransaction) return DesyncStatus.UNKNOWN;
+        if (holdsClockLerp()) {
+            return Collisions.gathersBorderWithinSixteen(this, getCurrentDiameter(), player.lastX, player.lastZ)
+                    ? DesyncStatus.UNKNOWN
+                    : DesyncStatus.FALSE;
+        }
         double minDiameter;
         double maxDiameter;
         if (tickBasedLerp) {
@@ -143,9 +186,8 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             minDiameter = Math.min(updated, before);
             maxDiameter = Math.max(updated, before);
         } else {
-            // A clock lerp's size follows the client's clock.
-            minDiameter = Math.min(oldDiameter, newDiameter);
-            maxDiameter = Math.max(oldDiameter, newDiameter);
+            minDiameter = newDiameter;
+            maxDiameter = newDiameter;
         }
         // The distance to the border and the bounds both grow with the diameter.
         if (distanceToBorder(x, z, maxDiameter) < bbMaxLow * 2.0D && isWithinBounds(x, z, minDiameter, bbMaxLow)) {
@@ -155,6 +197,38 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             return DesyncStatus.FALSE;
         }
         return DesyncStatus.UNKNOWN;
+    }
+
+    /**
+     * Whether Entity#collectCollidersIgnoringWorldBorder and CollisionGetter#borderCollision add the border's shape
+     * for an entity at {@code x}, {@code z} querying a box whose larger horizontal size is {@code size}. Where the
+     * border the client holds leaves WorldBorder#isInsideCloseToBorder open, the gather the prediction simulates.
+     */
+    public boolean gathers(double x, double z, double size) {
+        double bbMax = Math.max(size, 1.0D);
+        DesyncStatus close = isInsideCloseToBorder(x, z, bbMax, bbMax);
+        if (close != DesyncStatus.UNKNOWN) return close == DesyncStatus.TRUE;
+        uncertainGatherRead = true;
+        return uncertainGather;
+    }
+
+    /** The gather {@link #gathers} gives where the client's border leaves it open. */
+    public boolean getUncertainGather() {
+        return uncertainGather;
+    }
+
+    public void setUncertainGather(boolean gather) {
+        uncertainGather = gather;
+    }
+
+    /** Starts watching for a collision whose gather the client's border leaves open. */
+    public void watchUncertainGather() {
+        uncertainGatherRead = false;
+    }
+
+    /** Whether {@link #gathers} gave the simulated gather since {@link #watchUncertainGather}. */
+    public boolean readUncertainGather() {
+        return uncertainGatherRead;
     }
 
     /** MovingBorderExtent#calculateSize after {@code updates} updates. */
@@ -203,18 +277,22 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             tickBasedLerp = false;
             lerpDurationTicks = 0L;
             lerpElapsedTicks = 0L;
+            uncertainGather = false;
         });
     }
 
     private void setLerp(int transaction, double oldDiameter, double newDiameter, long length) {
+        // Without a flush proof the client handles the packet by the answer to the next transaction sent.
+        int proof = Math.max(transaction, unprovenUntilTransaction);
         player.latencyUtils.addRealTimeTask(transaction, () -> {
-            this.oldDiameter = oldDiameter;
-            this.newDiameter = newDiameter;
             long clientLength = clientLerpDuration(
                     ClientVersion.fromProtocolVersion(
                             player.getObservedProtocol().protocol()),
                     player.getClientVersion(),
                     length);
+            // A MovingBorderExtent of no length has its target size from the start.
+            this.oldDiameter = clientLength > 0L ? oldDiameter : newDiameter;
+            this.newDiameter = newDiameter;
             this.tickBasedLerp = usesTickBasedLerp(player.getClientVersion(), oldDiameter, newDiameter, clientLength);
             if (this.tickBasedLerp) {
                 this.lerpDurationTicks = clientLength;
@@ -222,7 +300,10 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             } else {
                 this.startTime = System.currentTimeMillis();
                 this.endTime = this.startTime + Math.max(0L, clientLength);
+                this.clockLerpProof = proof;
+                this.clockLerpTicks = 0L;
             }
+            this.uncertainGather = false;
         });
     }
 

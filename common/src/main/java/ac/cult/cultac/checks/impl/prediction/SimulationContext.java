@@ -140,6 +140,10 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     @Setter
     boolean loaderBuildShown;
 
+    /** Whether this candidate's collisions read a border gather the client's border leaves open. */
+    @Setter
+    boolean openBorderGather;
+
     @Setter
     JavaPredictionCarry.PistonStart pistonStartState;
 
@@ -996,6 +1000,7 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         sb.append(", fluidTagOrder=").append(fluidTagOrder);
         sb.append(", loaderWithoutCurrent=").append(loaderWithoutCurrent);
         sb.append(", loaderBuildShown=").append(loaderBuildShown);
+        sb.append(", openBorderGather=").append(openBorderGather);
         sb.append(", pistonStartState=").append(pistonStartState);
         sb.append(", riptideLevel=").append(riptideLevel);
         sb.append(", riptideReleaseCertain=").append(riptideReleaseCertain);

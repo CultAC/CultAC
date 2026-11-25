@@ -2742,6 +2742,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             // A respawn constructs a new LocalPlayer, whose Entity#pistonDeltas start empty.
             this.pistonDeltas = ClientPistonDeltas.NONE;
             this.clearRecordedMoves();
+            this.player.checkManager.getWorldBorder().setUncertainGather(false);
         }
     }
 
@@ -2788,7 +2789,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         player.compensatedEntities.beginMovementPositionReads();
         scratch.openKeptHandlers();
         try {
-            return predict(
+            return predictBorderGathers(
                     player,
                     startingVel,
                     lastPrediction,
@@ -2890,6 +2891,70 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.debugUncertaintyOnTick = ThreadLocalRandom.current().nextDouble(100.0D) < chance;
         }
         return this.debugUncertaintyOnTick;
+    }
+
+    /**
+     * The prediction with the border gather the last prediction followed where the border the client holds leaves
+     * WorldBorder#isInsideCloseToBorder open, and with the other gather when that one fails. An accepted movement keeps
+     * its gather for the next predictions.
+     */
+    private PredictionResult predictBorderGathers(
+            CultPlayer player,
+            Set<Vec3> startingVel,
+            PredictionResult lastPrediction,
+            Vec3 target,
+            Vec3 start,
+            Vec3 end,
+            boolean testing,
+            float xRot,
+            float yRot,
+            AuthoredMovementFrame authoredMovementFrame,
+            MovementProfile movementProfile) {
+        var border = player.checkManager.getWorldBorder();
+        boolean preferred = border.getUncertainGather();
+        border.watchUncertainGather();
+        PredictionResult selected = predict(
+                player,
+                startingVel,
+                lastPrediction,
+                target,
+                start,
+                end,
+                testing,
+                xRot,
+                yRot,
+                authoredMovementFrame,
+                movementProfile);
+        if (!border.readUncertainGather()) return selected;
+        if (!selected.getFlags().isEmpty() && !selected.isExempt()) {
+            boolean chosen = preferred;
+            stepCollisionMemo.clear();
+            border.setUncertainGather(!preferred);
+            try {
+                PredictionResult other = predict(
+                        player,
+                        startingVel,
+                        lastPrediction,
+                        target,
+                        start,
+                        end,
+                        testing,
+                        xRot,
+                        yRot,
+                        authoredMovementFrame,
+                        movementProfile);
+                if (JavaMovementEngine.INSTANCE.isBetterCandidate(other, selected)) {
+                    selected = other;
+                    chosen = !preferred;
+                }
+            } finally {
+                border.setUncertainGather(!testing && selected.getFlags().isEmpty() ? chosen : preferred);
+            }
+        }
+        // A movement simulated on a gather the client's border leaves open shows no loader build.
+        selected.getSimulationContext().setLoaderBuildShown(false);
+        selected.getSimulationContext().setOpenBorderGather(true);
+        return selected;
     }
 
     /**

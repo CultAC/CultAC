@@ -271,8 +271,11 @@ public final class JavaMovementEngine implements MovementEngine {
             if (!failedChecks(result) && !result.isExempt() && result.getSimulationContext().isLoaderBuildShown())
                 player.loaderFluids.know(result.getSimulationContext().isLoaderWithoutCurrent());
             var commit = commitNextTick(player, result, lastPrediction, acceptedDiff, scratch);
-            if (!failedChecks(result)) proveMovementPatch(player, result);
+            // A movement simulated on a gather the client's border leaves open proves no patch or tag order.
+            boolean openGather = result.getSimulationContext().isOpenBorderGather();
+            if (!failedChecks(result) && !openGather) proveMovementPatch(player, result);
             if (!failedChecks(result)
+                    && !openGather
                     && player.provenClientFluidTagOrder == null
                     && commit.carry() instanceof JavaPredictionCarry carry
                     && !carry.states().isEmpty()) {

@@ -414,7 +414,24 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
      */
     private SimpleCollisionBox movementsBelowCollisionEpsilon(PredictionResult result, PacketEntity riding) {
         if (riding == null || player.isBedrockMovement()) return null;
-        List<PredictionResult> realities = result.getRealities();
+        return movementsBelowCollisionEpsilon(player, result.getRealities());
+    }
+
+    /**
+     * Whether Entity#move's onGround for a vehicle candidate depends on the size of the border the client lerps on its
+     * clock: {@link #movementsBelowCollisionEpsilon} holds for the candidate, its move may descend, and whether
+     * Entity#collide gathers a collider for that move depends on the size the border holds.
+     */
+    public static boolean groundFollowsClockLerpedBorder(CultPlayer player, PredictionResult candidate) {
+        if (player.isBedrockMovement() || !player.checkManager.getWorldBorder().holdsClockLerp()) return false;
+        SimpleCollisionBox moves = movementsBelowCollisionEpsilon(player, List.of(candidate));
+        return moves != null
+                && moves.minY < 0.0D
+                && VehicleColliderGather.gathers(player, candidate, moves) == DesyncStatus.UNKNOWN;
+    }
+
+    private static SimpleCollisionBox movementsBelowCollisionEpsilon(
+            CultPlayer player, List<PredictionResult> realities) {
         if (realities == null || realities.isEmpty()) return null;
         SimpleCollisionBox moves = null;
         for (int i = 0, size = realities.size(); i < size; i++) {
@@ -434,8 +451,9 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
 
     /**
      * Entity#move's onGround for a move {@link #movementsBelowCollisionEpsilon} holds for: verticalCollisionBelow, which
-     * a distance in (-1.0E-7, 0) sets whenever Entity#collide gathers a collider. The sign is exact only from a
-     * vertical deltaMovement the last tick's collision left at 0; {@code collision} is the result without the gather.
+     * a distance in (-1.0E-7, 0) sets whenever Entity#collide gathers a collider. With the gather and a vertical
+     * deltaMovement the last tick's collision left at 0, the sign of the valid distances gives it; {@code collision}
+     * is the result without the gather.
      */
     private static DesyncStatus groundBelowCollisionEpsilon(
             DesyncStatus collision, DesyncStatus gather, boolean zeroCarry, SimpleCollisionBox moves) {

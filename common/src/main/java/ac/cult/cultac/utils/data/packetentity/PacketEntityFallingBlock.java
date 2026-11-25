@@ -151,7 +151,9 @@ public final class PacketEntityFallingBlock extends PacketEntity {
                     false,
                     from.y,
                     JavaCollisionState.of(player, this, 0.0D),
-                    pool);
+                    pool,
+                    from.x,
+                    from.z);
             return Collisions.collideBoundingBoxLegacy(
                     delta, box, colliders, Collisions.getAxisStepOrder(delta));
         } finally {

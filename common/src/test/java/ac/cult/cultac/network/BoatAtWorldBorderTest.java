@@ -42,6 +42,79 @@ class BoatAtWorldBorderTest {
     private static final double FALLING_Y = 62.523264312744146;
     /** Water at y 63: floatBoat from rest moves by 1.1449174941446927E-16. */
     private static final double RISING_Y = 63.52326431274414;
+    /** 2.75 from the south edge of a border of 1598 + 2 / 600. */
+    private static final double CLOCK_Z = 799.0 + 1.0 / 600.0 - 2.75;
+
+    @Test
+    void aBoatIdleAwayFromTheBorderCannotClaimGround() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            initializeBorder(f, SIZE);
+            Vec3 seat = mount(f, 62, new Vec3(X, FALLING_Y, Z - 10.0));
+            f.rideTick(seat, true);
+            assertTrue(groundViolations(f) > 0);
+        }
+    }
+
+    /**
+     * Just outside twice the boat's width Entity#collide gathers nothing, so a boat at rest sends onGround false
+     * whichever way AbstractBoat#floatBoat moves it, at every water level and on 1.21.11 as on 26.3.
+     */
+    @Test
+    void aBoatAtRestJustOutsideTheBorderReachReportsNoGround() throws Exception {
+        for (int water : new int[] {0, 15, 62, 63, 127, 255}) {
+            atRestJustOutsideTheReach(ProtocolVersion.V26_3, ClientVersion.V_26_3, water);
+            atRestJustOutsideTheReach(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11, water);
+        }
+    }
+
+    private static void atRestJustOutsideTheReach(ProtocolVersion protocol, ClientVersion client, int water)
+            throws Exception {
+        try (var f = new JavaTickFixture(protocol, client)) {
+            initializeBorder(f, SIZE);
+            // AbstractBoat#getWaterLevelAbove's surface for a source block, less the boat's float height.
+            double y = (double) (water + 8.0F / 9.0F) - 0.365625;
+            Vec3 seat = mount(f, water, new Vec3(X, y, 800.0 - 2.75 - 1.0E-6));
+            for (int tick = 0; tick < 5; tick++) {
+                PredictionResult result = f.rideTick(seat, false);
+                assertTrue(result.getFlags().isEmpty(), client + " water " + water + " tick " + tick);
+            }
+            assertEquals(0.0, groundViolations(f), client + " water " + water);
+            f.rideTick(seat, true);
+            assertTrue(groundViolations(f) > 0, client + " water " + water);
+        }
+    }
+
+    /**
+     * Before 1.21.11 MovingBorderExtent#getSize follows the client's clock from when ClientPacketListener handled the
+     * border packet. Growing from 1598 to 1600 over ten minutes, the border passes twice the boat's width from a boat
+     * 2.75 from its edge 1 s after the client handled it: a move the client produced before then sends onGround true,
+     * one it produced after sends false, and neither is flagged. A boat 100 blocks inside the size the client holds
+     * gathers nothing, so it sends false and onGround true is flagged, by that lerp and by one shrinking the border to
+     * 400 over the same ten minutes.
+     */
+    @Test
+    void aBoatAtRestByAClockLerpedBorderFollowsTheClientsClock() throws Exception {
+        for (boolean claim : new boolean[] {false, true}) {
+            try (var f = new JavaTickFixture(ProtocolVersion.V1_21_9, ClientVersion.V_1_21_9)) {
+                initializeBorder(f, SIZE - 2.0, SIZE, 600_000L);
+                Vec3 seat = mount(f, 62, new Vec3(X, FALLING_Y, CLOCK_Z));
+                Thread.sleep(1_100L);
+                for (int tick = 0; tick < 4; tick++) {
+                    PredictionResult result = f.rideTick(seat, claim);
+                    assertTrue(result.getFlags().isEmpty(), claim + " tick " + tick);
+                }
+                assertEquals(0.0, groundViolations(f), String.valueOf(claim));
+            }
+        }
+        for (double[] lerp : new double[][] {{SIZE - 2.0, SIZE}, {SIZE, 400.0}}) {
+            try (var f = new JavaTickFixture(ProtocolVersion.V1_21_9, ClientVersion.V_1_21_9)) {
+                initializeBorder(f, lerp[0], lerp[1], 600_000L);
+                Vec3 seat = mount(f, 62, new Vec3(X, FALLING_Y, 800.0 - 100.0));
+                f.rideTick(seat, true);
+                assertTrue(groundViolations(f) > 0, lerp[0] + " to " + lerp[1]);
+            }
+        }
+    }
 
     @Test
     void aBoatRisingAgainstTheBorderStaysOffTheGround() throws Exception {
@@ -78,6 +151,14 @@ class BoatAtWorldBorderTest {
             f.rideTick(seat, true);
             assertEquals(0.0, groundViolations(f));
             f.rideTick(seat, false);
+            assertTrue(groundViolations(f) > 0);
+        }
+        try (var f = new JavaTickFixture()) {
+            initializeBorder(f, SIZE);
+            Vec3 seat = mount(f, 62, new Vec3(X, FALLING_Y, 800.0 - 2.75));
+            for (int tick = 0; tick < 3; tick++) f.rideTick(seat, false);
+            assertEquals(0.0, groundViolations(f));
+            f.rideTick(seat, true);
             assertTrue(groundViolations(f) > 0);
         }
     }
@@ -126,7 +207,11 @@ class BoatAtWorldBorderTest {
     }
 
     private static void initializeBorder(JavaTickFixture f, double size) {
-        var packet = new ClientboundInitializeBorder(0.0, 0.0, size, size, 0L, 29_999_984);
+        initializeBorder(f, size, size, 0L);
+    }
+
+    private static void initializeBorder(JavaTickFixture f, double from, double to, long length) {
+        var packet = new ClientboundInitializeBorder(0.0, 0.0, from, to, length, 29_999_984);
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.INITIALIZE_BORDER, packet, false);
         f.player.checkManager.getWorldBorder().onInitializeBorder(event, f.player, packet);
