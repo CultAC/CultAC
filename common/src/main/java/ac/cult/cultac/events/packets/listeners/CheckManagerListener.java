@@ -749,6 +749,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             Vec3 position,
             ServerboundMoveVehicle vehiclePacket,
             TeleportAcceptData teleportData) {
+        player.checkManager.getListener(VehiclePredictionRunner.class).dropZeroVerticalCarry();
         VehicleTeleportData vehicleTeleportData = teleportData.getVehicleTeleportData();
         if (vehicleTeleportData != null && vehicleTeleportData.getEntityId() == packetRoot.getEntityId()) {
             player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
