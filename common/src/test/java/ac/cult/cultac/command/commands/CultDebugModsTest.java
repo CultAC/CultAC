@@ -114,6 +114,13 @@ class CultDebugModsTest {
     }
 
     @Test
+    void aBrandWithNoncharactersIsShownAsWritten() throws Exception {
+        String brand = "\uFFFFprefix\uFFFF tail";
+        Component line = brandLine(components(null, false, brand));
+        assertTrue(PlainTextComponentSerializer.plainText().serialize(line).endsWith("Client brand: " + brand));
+    }
+
+    @Test
     void missingApolloExplainsScopeAndShowsObservedClientData() throws Exception {
         var lines = output(null);
         assertTrue(lines.stream().anyMatch(s -> s.contains("Apollo reports mods only for Lunar Client")));
