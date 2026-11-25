@@ -2015,6 +2015,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             case UNKNOWN -> state.onModifierPossiblyRestarted();
             case FALSE -> {}
         }
+        if (announcementImpossible(this.player, result)) state.onImpossibleAnnouncement();
         SetbackTeleportUtil setbacks = this.player.getSetbackTeleportUtil();
         if (setbacks.isPendingSetback() && setbacks.safePosition() != null) {
             state.restore(setbacks.safePosition().getSprintOutcomes());
@@ -2042,6 +2043,24 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
         if (cleared != null) return cleared;
         return JavaAiStepSprint.clearsModifierThisTick(player, result.getSimulationContext());
+    }
+
+    /**
+     * Whether every accepted candidate's tick leaves the announced sprint one its aiStep cannot have left set
+     * (JavaAiStepSprint#announcementImpossible); the committed candidate's when none was accepted.
+     */
+    private static boolean announcementImpossible(CultPlayer player, PredictionResult result) {
+        if (player.isBedrockMovement() || result == null || result.getSimulationContext() == null) return false;
+        boolean accepted = false;
+        if (result.getRealities() != null) {
+            for (PredictionResult reality : result.getRealities()) {
+                SimulationContext context = reality.getSimulationContext();
+                if (reality.getFlagSeverity() != 0.0 || context == null) continue;
+                if (!JavaAiStepSprint.announcementImpossible(player, context)) return false;
+                accepted = true;
+            }
+        }
+        return accepted || JavaAiStepSprint.announcementImpossible(player, result.getSimulationContext());
     }
 
     /** {@link #aiStepSprintClear} for 1.21.4's silent restart on a set flag (JavaAiStepSprint#restartsModifier). */
@@ -4010,6 +4029,31 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     @Generated
     public PredictionResult getLastPrediction() {
         return this.lastPrediction;
+    }
+
+    /** The shift key of the last committed client tick, which Player#isShiftKeyDown reads in the next aiStep. */
+    public boolean isLastSneaking() {
+        return this.lastSneaking;
+    }
+
+    /**
+     * Whether the next LocalPlayer#aiStep starts where the player is: no piston state of the last tick's pass and no
+     * shulker ticking before the player moves it first.
+     */
+    public boolean nextAiStepStartsAtPlayer() {
+        if (this.profileCarry instanceof JavaPredictionCarry carried
+                && carried.states().stream().anyMatch(state -> state.pistonStart() != null)) return false;
+        return this.player.compensatedEntities.shulkerPeekMoves(true).isEmpty();
+    }
+
+    /**
+     * Whether Entity#isInWater may hold at the next tick's Entity#updateSwimming: Entity#baseTick's
+     * updateInWaterStateAndDoFluidPushing finds water where the last client tick's travel left the player.
+     */
+    public boolean mayBeLastInWater() {
+        if (this.lastPrediction == null || this.lastPrediction.getSimulationContext() == null) return true;
+        Boolean touching = JavaMovementEngine.touchingWaterAfterTick(this.lastPrediction);
+        return touching == null || touching;
     }
 
     /** Whether a committed player eye cache can be in water at the next tick's underwater/swimming update. */

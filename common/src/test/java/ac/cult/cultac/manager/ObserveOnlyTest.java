@@ -41,6 +41,7 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
+import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -423,6 +424,7 @@ class ObserveOnlyTest {
             player.noModifyPacketPermission = mode[1];
             player.gamemode = GameMode.SURVIVAL;
             player.packetStateData = new PacketStateData();
+            set(player, "sprintState", new ClientSprintState());
             when(player.getSetbackTeleportUtil()).thenReturn(mock(SetbackTeleportUtil.class));
             when(player.getClientVersion()).thenReturn(ClientVersion.V_1_21_2);
             CompensatedEntities entities = mock(CompensatedEntities.class);

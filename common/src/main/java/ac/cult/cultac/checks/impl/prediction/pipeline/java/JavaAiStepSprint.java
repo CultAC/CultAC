@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -9,6 +10,7 @@ import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.nmsutil.ClientKeyInput;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
@@ -179,6 +181,77 @@ public final class JavaAiStepSprint {
         if (JavaTravelInputs.reportsKeys(player) && player.packetStateData.knownInput.forwardImpulse() <= 0)
             return DesyncStatus.FALSE;
         return DesyncStatus.UNKNOWN;
+    }
+
+    /**
+     * Whether a START_SPRINTING arriving now cannot follow a LocalPlayer#aiStep. Its flag ends set only through
+     * canStartSprinting, which needs ClientInput#hasForwardImpulse in every release, or as a flag the server set before
+     * aiStep that a swimming player's stop check keeps; PLAYER_INPUT precedes the command within the client tick.
+     * From 1.21.5 canStartSprinting also fails a player crouching out of water ({@link #crouchedAtStart}).
+     */
+    public static boolean startImpossible(CultPlayer player) {
+        if (!JavaTravelInputs.reportsKeys(player)) return false;
+        boolean serverFlag = player.sprintState.serverFlagApplied();
+        if (player.packetStateData.knownInput.forwardImpulse() <= 0) return !serverFlag || !maySwim(player);
+        return !serverFlag
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)
+                && !player.sprintState.announced()
+                && crouchedAtStart(player);
+    }
+
+    /**
+     * Whether Entity#updateSwimming may leave the player swimming before this tick's aiStep: a swimmer keeps the swim in
+     * water, and a set flag starts one with the eye in water where the previous tick left the player.
+     */
+    private static boolean maySwim(CultPlayer player) {
+        SimulationProcessor simulation = player.checkManager.getSimulationProcessor();
+        return player.swimState.swimming() && simulation.mayBeLastInWater() || simulation.isLastWorldEyeInWater();
+    }
+
+    /**
+     * LocalPlayer#crouching as this tick's aiStep set it before canStartSprinting, from the previous tick's shift and the
+     * place that tick left the player: the crouching box fits, and shift is held or the standing box does not fit. With
+     * the flag clear before aiStep, Entity#baseTick's updateSwimming left it not swimming; LocalPlayer#isUnderWater is
+     * the eye the previous tick's baseTick read. A shove before the travel leaves the place open.
+     */
+    private static boolean crouchedAtStart(CultPlayer player) {
+        SimulationProcessor simulation = player.checkManager.getSimulationProcessor();
+        return !simulation.isLastWorldEyeInWater()
+                && !FlightToggle.flyingBeforeAiStep(player)
+                && !player.inVehicle()
+                && simulation.nextAiStepStartsAtPlayer()
+                && player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, player.x, player.y, player.z)
+                && (simulation.isLastSneaking()
+                        || !player.isInBed
+                                && !player.canPlayerFitWithinBlocksAndEntitiesWhen(
+                                        Pose.STANDING, player.x, player.y, player.z));
+    }
+
+    /**
+     * Whether the sprint the client announced at the end of {@code context}'s tick is one its aiStep cannot have left
+     * set, as the tick's sendIsSprintingIfNeeded makes the announcement equal the flag after aiStep's stop checks.
+     *
+     * <ul>
+     *   <li>shouldStopRunSprinting ends a sprint without forward impulse; only a swimming player keeps it.
+     *   <li>From 1.21.5 a sprint aiStep started itself passed canStartSprinting, which a player moving slowly out of
+     *       water fails.
+     * </ul>
+     *
+     * A Java player on foot with reported keys.
+     */
+    public static boolean announcementImpossible(CultPlayer player, SimulationContext context) {
+        if (!player.sprintState.announced()
+                || context.getVehicle() != null
+                || player.inVehicle()
+                || !JavaTravelInputs.reportsKeys(player)) return false;
+        WorldData world = context.getWorldData();
+        if (player.packetStateData.knownInput.forwardImpulse() <= 0) return !world.isSwimming();
+        return context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)
+                && player.sprintState.aiStepStartedSprint()
+                && !world.isInWater()
+                && !world.isUnderwater()
+                && !world.isEyeInWater()
+                && ClientKeyInput.movingSlowly(player, context) == DesyncStatus.TRUE;
     }
 
     /** canStartSprinting and a start path, with {@code possible} the food and blindness gates. */

@@ -328,6 +328,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 }
             }
             player.sprintState.onClientTickEnd();
+            player.sprintState.onTickMovement();
             // LocalPlayer#sendPosition sends this tick's START/STOP_SPRINTING before its movement.
             onAiStepObserved(player);
         }
@@ -1235,6 +1236,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         player.blockActionReconciler.clientTickEnded();
         player.horseMountLook.clear();
         player.interpolationOptIn.clientTickEnded();
+        player.sprintState.onTickEndReceived();
         if (!event.isSynthetic()) {
             player.clientTickEndTimeout.onTickEnd(System.nanoTime());
             player.lastClientTickArrivedAt = System.nanoTime();

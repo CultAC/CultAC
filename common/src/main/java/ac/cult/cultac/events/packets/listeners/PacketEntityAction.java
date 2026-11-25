@@ -4,6 +4,7 @@ import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsQ;
 import ac.cult.cultac.checks.impl.elytra.ElytraA;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -34,13 +35,21 @@ public class PacketEntityAction {
         if (player.isBedrockMovement()) return;
         switch (packet.action()) {
             case START_SPRINTING:
+                // A start no LocalPlayer#aiStep announces stays from the server; the client's flag drives its travel.
+                if (JavaAiStepSprint.startImpossible(player) && !player.isObserveOnly()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
+                }
                 if (player.usesModernJavaItemUse()) player.clientItemUse.startedSprinting(player.getClientVersion());
                 player.isSprinting = true;
                 player.sprintClearedAsPassenger = false;
+                player.sprintState.onAnnouncedStart(
+                        player.compensatedEntities.vehicles.hasClientPlayerPassengerState());
                 player.vehicleData.camelSprintingState = SprintingState.STARTED;
                 break;
             case STOP_SPRINTING:
                 player.isSprinting = false;
+                player.sprintState.onAnnouncedStop();
                 player.vehicleData.camelSprintingState = SprintingState.STOPPED;
                 break;
             case START_FLYING_WITH_ELYTRA:

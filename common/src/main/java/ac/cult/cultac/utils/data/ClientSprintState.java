@@ -20,6 +20,7 @@ import org.jetbrains.annotations.Nullable;
  * last START/STOP_SPRINTING (CultPlayer#isSprinting) is LocalPlayer#wasSprinting.
  */
 public final class ClientSprintState {
+    // Entity#isSprinting as the client holds it: the server's applied flag or the one its latest aiStep left.
     private boolean flag;
     // The minecraft:sprinting movement_speed modifier the client holds: the server's until setSprinting replaces it.
     private @Nullable AttributeModifier modifier;
@@ -40,6 +41,23 @@ public final class ClientSprintState {
     private boolean flagUncertain;
     private boolean flagBeforeAiStep;
     private boolean aiStepReconciled;
+    // A set flag the server applied since the client's last announcement; no aiStep of the client set it.
+    private boolean serverFlag;
+    // The client's last START/STOP_SPRINTING, LocalPlayer#wasSprinting.
+    private boolean announced;
+    // The announced sprint is one no LocalPlayer#aiStep leaves set, until a STOP_SPRINTING or a clear server flag.
+    private boolean announcementImpossible;
+    // A START_SPRINTING since the last reconciled aiStep, and whether the latest reconciled aiStep announced one.
+    private boolean startAnnounced;
+    private boolean startedThisTick;
+    // The same for STOP_SPRINTING.
+    private boolean stopAnnounced;
+    private boolean stoppedThisTick;
+    // A START_SPRINTING that no CLIENT_TICK_END has closed yet, and whether a move of its tick followed it.
+    private boolean startSinceTickEnd;
+    private boolean startMoved;
+    // A movement packet since the last CLIENT_TICK_END packet.
+    private boolean movedSinceTickEnd;
 
     /** Whether Player#attack's causeExtraKnockback reached setSprinting(false). */
     public enum AttackReset {
@@ -67,6 +85,86 @@ public final class ClientSprintState {
     /** Entity shared flag 3 from self entity data, applied by its bundled proof. */
     public void onServerFlag(boolean sprinting) {
         flag = sprinting;
+        serverFlag = sprinting;
+        if (!sprinting) announcementImpossible = false;
+    }
+
+    /**
+     * Whether the client holds a set flag before this tick's aiStep that none of its own aiSteps set: the server's flag
+     * applied since the client's last announcement. ClientCommonPacketListenerImpl#handlePing answers the bundle that
+     * carries it before the tick that could announce it.
+     */
+    public boolean serverFlagApplied() {
+        return serverFlag;
+    }
+
+    /** The client's last START/STOP_SPRINTING: whether its flag was set after the aiStep that announced it. */
+    public boolean announced() {
+        return announced;
+    }
+
+    /** The client's tick ended with an announced sprint that its LocalPlayer#aiStep cannot have left set. */
+    public void onImpossibleAnnouncement() {
+        announcementImpossible = true;
+    }
+
+    /**
+     * START_SPRINTING: LocalPlayer#sendIsSprintingIfNeeded found the flag set after the tick's aiStep. On foot
+     * sendPosition sends it before the tick's movement; a client-steered vehicle's comes after the passenger Rot and
+     * MoveVehicle, as {@code riding} says.
+     */
+    public void onAnnouncedStart(boolean riding) {
+        startAnnounced = true;
+        startSinceTickEnd = true;
+        startMoved = riding;
+        announced = true;
+        serverFlag = false;
+    }
+
+    /** A LocalPlayer#tick movement packet: it carries the travel of the aiStep that announced an earlier start. */
+    public void onTickMovement() {
+        startMoved = true;
+        movedSinceTickEnd = true;
+    }
+
+    /**
+     * CLIENT_TICK_END: Minecraft#tick ended the tick whose tickEntities sent any START_SPRINTING before it. It closes a
+     * start its tick's movement followed, or one of a tick that sent no movement packet before this one, whose travel
+     * the tick end runs.
+     */
+    public void onTickEndReceived() {
+        if (startMoved || !movedSinceTickEnd) startSinceTickEnd = false;
+        movedSinceTickEnd = false;
+    }
+
+    /**
+     * Whether the client announced START_SPRINTING in a tick that has not ended with its travel. Minecraft#tick attacks
+     * from handleKeybinds before tickEntities runs LocalPlayer#tick, so no attack of that tick follows it.
+     */
+    public boolean startedSinceTickEnd() {
+        return startSinceTickEnd;
+    }
+
+    /**
+     * Whether the latest reconciled aiStep set the flag itself: its tick announced START_SPRINTING and no flag, the
+     * server's applied one included, preceded it. sendIsSprintingIfNeeded announces once per tick, so a STOP_SPRINTING
+     * in that tick claims the flag clear before the start.
+     */
+    public boolean aiStepStartedSprint() {
+        return startedThisTick && (!flagBeforeAiStep() || stoppedThisTick);
+    }
+
+    /** STOP_SPRINTING: the client announces the flag clear. */
+    public void onAnnouncedStop() {
+        stopAnnounced = true;
+        announcementImpossible = false;
+        announced = false;
+        serverFlag = false;
+    }
+
+    /** Whether the client's announced sprint is one no vanilla client holds now. */
+    public boolean announcementImpossible() {
+        return announcementImpossible;
     }
 
     /** The minecraft:sprinting modifier of the server's movement_speed snapshot, applied by its bundled proof. */
@@ -157,6 +255,10 @@ public final class ClientSprintState {
     public void onClientTick(boolean sprinting) {
         if (!aiStepReconciled) {
             flagBeforeAiStep = flag;
+            startedThisTick = startAnnounced;
+            startAnnounced = false;
+            stoppedThisTick = stopAnnounced;
+            stopAnnounced = false;
             aiStepReconciled = true;
         }
         // An attack reset that aiStep re-sprinted re-added the modifier.
@@ -254,9 +356,13 @@ public final class ClientSprintState {
      * data; a kept-attribute respawn copies its modifiers with AttributeInstance#replaceFrom.
      */
     public void onRespawn(boolean keepEntityData, boolean keepAttributeModifiers) {
+        announcementImpossible = false;
         if (!keepEntityData) {
             flag = false;
         }
+        // The new LocalPlayer's wasSprinting is the old isSprinting only for KEEP_ENTITY_DATA.
+        announced = keepEntityData && flag;
+        serverFlag = false;
         if (!keepAttributeModifiers) {
             modifier = null;
             onCertainEvent();
@@ -272,6 +378,16 @@ public final class ClientSprintState {
         aiStepReconciled = false;
         sprintResetThisTick = false;
         flagUncertain = false;
+        announcementImpossible = false;
+        startAnnounced = false;
+        startedThisTick = false;
+        stopAnnounced = false;
+        stoppedThisTick = false;
+        startSinceTickEnd = false;
+        startMoved = false;
+        movedSinceTickEnd = false;
+        serverFlag = false;
+        announced = false;
     }
 
     /** Entity#isSprinting as the client currently holds it. */

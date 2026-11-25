@@ -198,6 +198,15 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             return !isSwitchedOff();
         }
 
+        // Player#attack on the server reads the sprint the client announced; Minecraft#tick attacks before announcing.
+        if (player.sprintState.announcementImpossible()
+                || player.knowsActingPose() && player.sprintState.startedSinceTickEnd()) {
+            debug(() -> {
+                return "cancelled = sprint";
+            });
+            return !isSwitchedOff();
+        }
+
         // ServerGamePacketListenerImpl#handleAttack drops attacks until the client has loaded, and the LocalPlayer
         // they would be judged from has not ticked yet.
         if (!player.packetStateData.localPlayerTickedSinceSpawn) {
