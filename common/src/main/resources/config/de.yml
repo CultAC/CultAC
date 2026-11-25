@@ -58,6 +58,13 @@ disable-pong-cancelling: false
 # A change applies from a player's next join or server switch.
 linear-interpolation-opt-in: false
 
+# The plugin channels offered with linear-interpolation-opt-in, at most 8. A client that registers one of them back
+# uses vanilla's linear interpolation for living entities; registrations of these channels by other plugins are not
+# passed on. No usable entry means antistutter:linear_3. A change applies from a player's next join or server switch.
+# docs/linear-interpolation.md in CultAC's source describes the handshake a client implements.
+linear-interpolation-channels:
+  - antistutter:linear_3
+
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.

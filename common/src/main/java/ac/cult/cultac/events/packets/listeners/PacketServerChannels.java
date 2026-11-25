@@ -1,8 +1,10 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.PacketRouteBuilder;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
 import ac.cult.cultac.utils.latency.ClientInterpolationOptIn;
@@ -11,8 +13,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Keeps CultAC the only source of the {@link ClientInterpolationOptIn#CHANNEL} offer: register and unregister frames
- * from the proxy or a backend reach the client without the linear interpolation channels.
+ * Keeps CultAC the only source of the linear interpolation offer: register and unregister frames from the proxy or a
+ * backend reach the client without the configured channels, the session's channels and
+ * {@link ClientInterpolationOptIn#INTERPOLATION_FIX_CHANNEL}.
  */
 public final class PacketServerChannels {
     private PacketServerChannels() {}
@@ -29,12 +32,16 @@ public final class PacketServerChannels {
                 && !ClientboundPackets.UNREGISTER_CHANNEL.equals(channel)) {
             return;
         }
+        List<String> configured = CultAPI.INSTANCE.getConfigManager().getLinearInterpolationChannels();
+        CultPlayer player = event.getUser() == null ? null : event.getUser().getCultPlayer();
+        List<String> session = player == null ? null : player.interpolationOptIn.sessionChannelsIfFixed();
         String[] channels = new String(packet.data(), StandardCharsets.UTF_8).split("\0", -1);
         List<String> kept = new ArrayList<>(channels.length);
         boolean removed = false;
         boolean remaining = false;
         for (String listed : channels) {
-            if (ClientInterpolationOptIn.CHANNEL.equals(listed)
+            if (configured.contains(listed)
+                    || (session != null && session.contains(listed))
                     || ClientInterpolationOptIn.INTERPOLATION_FIX_CHANNEL.equals(listed)) {
                 removed = true;
                 continue;

@@ -26,6 +26,7 @@ import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.latency.ClientInterpolationOptIn;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
@@ -79,9 +80,9 @@ class EntityMoveSchedulingTest {
         try {
             player.interpolationOptIn.loginSent(true);
             player.interpolationOptIn.loginHandled(true);
-            player.interpolationOptIn.declare();
+            player.interpolationOptIn.channelChanged(ClientInterpolationOptIn.CHANNEL, true);
             FairReach fairReach = world(player);
-            player.interpolationOptIn.undeclare();
+            player.interpolationOptIn.channelChanged(ClientInterpolationOptIn.CHANNEL, false);
             fairReach.onAddEntity(
                     null, player, new ClientboundAddEntity(STEPPED, "minecraft:player", new Vec3d(0, 64, 0), 0, 0, 0));
             player.packetEntityReplication.addEntity(STEPPED, EntityTypeIds.PLAYER, new Vec3(0, 64, 0), 0, 0, 0, -1);
@@ -125,7 +126,7 @@ class EntityMoveSchedulingTest {
             send(player, turn(TARGET));
 
             acknowledge(player, loginProof);
-            player.interpolationOptIn.declare();
+            player.interpolationOptIn.channelChanged(ClientInterpolationOptIn.CHANNEL, true);
             acknowledge(player, spawnProof);
             assertTrue(player.compensatedEntities.getEntity(TARGET).usesLinearInterpolationHandler());
             acknowledge(player, player.lastTransactionSent.get() + 1);

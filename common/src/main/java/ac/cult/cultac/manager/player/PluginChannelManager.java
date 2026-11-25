@@ -11,7 +11,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
-import ac.cult.cultac.utils.latency.ClientInterpolationOptIn;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -88,7 +87,7 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         boolean play = event != null && event.getPhase() == ConnectionPhase.PLAY;
         if (isRegister(channelName)) {
             for (String channel : channelList(payload)) {
-                if (play && ClientInterpolationOptIn.CHANNEL.equals(channel) && player.interpolationOptIn.declare()) {
+                if (play && player.interpolationOptIn.channelChanged(channel, true)) {
                     player.compensatedEntities.useLinearInterpolationHandlers();
                 }
                 handleChannelRegistered(channel);
@@ -97,7 +96,7 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         }
         if (isUnregister(channelName)) {
             for (String channel : channelList(payload)) {
-                if (play && ClientInterpolationOptIn.CHANNEL.equals(channel)) player.interpolationOptIn.undeclare();
+                if (play) player.interpolationOptIn.channelChanged(channel, false);
                 handleChannelUnregistered(channel);
             }
             return;

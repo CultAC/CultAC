@@ -4,8 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.utils.latency.ClientInterpolationOptIn;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
@@ -22,12 +25,43 @@ class LinearInterpolationOptInUpgradeTest {
     void aV20ConfigGainsTheOptInOff() throws Exception {
         Map<String, Object> data = upgrade("disable-pong-cancelling: true\n");
         assertEquals(false, data.get("linear-interpolation-opt-in"));
+        assertEquals(List.of("antistutter:linear_3"), data.get("linear-interpolation-channels"));
         assertEquals(true, data.get("disable-pong-cancelling"));
     }
 
     @Test
     void anOperatorsOptInIsKept() throws Exception {
         assertEquals(true, upgrade("linear-interpolation-opt-in: true\n").get("linear-interpolation-opt-in"));
+    }
+
+    @Test
+    void noChannelsConfiguredMeansTheDefault() {
+        List<String> warnings = new ArrayList<>();
+        assertEquals(List.of("antistutter:linear_3"), ClientInterpolationOptIn.configuredChannels(null, warnings::add));
+        assertEquals(
+                List.of("antistutter:linear_3"), ClientInterpolationOptIn.configuredChannels(List.of(), warnings::add));
+        assertEquals(List.of(), warnings);
+    }
+
+    @Test
+    void channelsThatCannotBeOfferedAreLeftOutWithAWarningEach() {
+        List<String> entries = new ArrayList<>(List.of(
+                "lunar:linear_3",
+                "Not A Channel",
+                "nopath:",
+                "minecraft:linear_3",
+                "cultac:bridge",
+                "interpolationfix:linear_3"));
+        for (int i = 2; i <= 8; i++) entries.add("client" + i + ":linear_3");
+        entries.add("client9:linear_3");
+        List<String> warnings = new ArrayList<>();
+        List<String> channels = ClientInterpolationOptIn.configuredChannels(entries, warnings::add);
+        assertEquals(8, channels.size());
+        assertEquals("lunar:linear_3", channels.get(0));
+        assertEquals("client8:linear_3", channels.get(7));
+        assertEquals(6, warnings.size());
+        assertTrue(warnings.get(4).contains("interpolationfix:linear_3"));
+        assertTrue(warnings.get(5).contains("client9:linear_3"));
     }
 
     @ParameterizedTest
@@ -38,6 +72,7 @@ class LinearInterpolationOptInUpgradeTest {
             Map<String, Object> data = new Yaml().load(source);
             assertEquals(21, data.get("config-version"));
             assertEquals(false, data.get("linear-interpolation-opt-in"));
+            assertEquals(List.of("antistutter:linear_3"), data.get("linear-interpolation-channels"));
         }
     }
 

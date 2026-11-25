@@ -30,6 +30,24 @@ class ClientInterpolationOptInTest {
     }
 
     @Test
+    void anyConfiguredChannelDeclaresUntilTheLastIsUnregistered() throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = LinearInterpolationOfferTest.proxy(true)) {
+            LinearInterpolationOfferTest.configured("antistutter:linear_3", "lunar:linear_3");
+            var optIn = f.player.interpolationOptIn;
+            channels(f, ConnectionPhase.PLAY, "minecraft:register", "other:linear_3");
+            assertFalse(optIn.isDeclared());
+            channels(f, ConnectionPhase.PLAY, "minecraft:register", "lunar:linear_3");
+            assertTrue(optIn.isDeclared());
+            channels(f, ConnectionPhase.PLAY, "minecraft:register", "antistutter:linear_3");
+            channels(f, ConnectionPhase.PLAY, "minecraft:unregister", "antistutter:linear_3");
+            assertTrue(optIn.isDeclared());
+            channels(f, ConnectionPhase.PLAY, "minecraft:unregister", "lunar:linear_3");
+            assertFalse(optIn.isDeclared());
+        }
+    }
+
+    @Test
     void aConfigurationPhaseRegisterIsNoDeclaration() throws Exception {
         try (var f = new JavaTickFixture()) {
             channels(f, ConnectionPhase.CONFIGURATION, "minecraft:register", "antistutter:linear_3");

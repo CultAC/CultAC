@@ -116,7 +116,7 @@ public class PacketPlayerRespawn {
         final boolean interpolationOffered = ClientInterpolationOptIn.offeredAtLogin(player);
         player.interpolationOptIn.loginSent(interpolationOffered);
         if (interpolationOffered) {
-            event.getWritesBeforeSend().add(new CultWrite(ClientInterpolationOptIn.offer(), true));
+            event.getWritesBeforeSend().add(new CultWrite(player.interpolationOptIn.offer(), true));
         }
         final boolean newJavaLocalPlayer =
                 !player.isBedrockMovement() && !player.packetStateData.javaLocalPlayerPresent;

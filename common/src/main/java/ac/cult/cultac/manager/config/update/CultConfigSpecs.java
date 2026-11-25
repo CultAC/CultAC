@@ -89,7 +89,8 @@ public final class CultConfigSpecs {
      *
      * <p>v19 → v20: adds {@code cloud.uncaptured-servers}; default rewriting adds the key.
      *
-     * <p>v20 → v21: adds {@code linear-interpolation-opt-in}; default rewriting adds the key.
+     * <p>v20 → v21: adds {@code linear-interpolation-opt-in} and {@code linear-interpolation-channels}; default
+     * rewriting adds the keys.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
         return ConfigUpdater.Spec.builder("/config/", 21, ConfigUpdater.ConfigFlavor.V2)
