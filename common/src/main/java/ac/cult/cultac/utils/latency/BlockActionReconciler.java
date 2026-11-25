@@ -176,7 +176,8 @@ public final class BlockActionReconciler {
     /**
      * An entity interaction withheld from the server: the player storage slots the client can have changed get the
      * server's values once the server has handled every action forwarded before it. ServerPlayer#tick broadcasts menu
-     * changes once a tick, and these corrections are written at most once a tick; later ones wait for the tick's end.
+     * changes once a tick, and these corrections are written at most once a tick; later ones wait for the end of the
+     * server tick or of the client's, whichever comes first.
      */
     public void rejectInteract(Collection<Integer> storageSlots) {
         if (player.isBedrockMovement() || player.isObserveOnly() || storageSlots.isEmpty()) return;
@@ -186,6 +187,11 @@ public final class BlockActionReconciler {
 
     /** The server tick ended. */
     public void tickEnded() {
+        if (!rejectedInteractionSlots.isEmpty()) correctRejectedInteractions();
+    }
+
+    /** The client tick ended, which it also does while no server tick end reaches this player. */
+    public void clientTickEnded() {
         if (!rejectedInteractionSlots.isEmpty()) correctRejectedInteractions();
     }
 

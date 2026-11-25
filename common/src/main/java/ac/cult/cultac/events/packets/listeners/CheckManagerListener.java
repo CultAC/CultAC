@@ -301,6 +301,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             // Rot follows Entity#positionRider, which may have turned it since.
             if (packet.hasRotation() && !passengerRotation) player.lookPlaceRecheck.yawKnown(packet.yaw());
             player.lookPlaceRecheck.tickEnded();
+            player.blockActionReconciler.clientTickEnded();
             laterMovementThisClientTick = state.sentPositionCache.tickSentMovement()
                     && player.user.getCultConnection().runtime().supports(ServerboundPackets.CLIENT_TICK_END);
             // Before the pre-prediction checks: a setback they raise rejects this movement.
@@ -1230,6 +1231,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     public static void processClientTickEndReceive(PacketReceiveEvent<?> event, CultPlayer player) {
         if (event.getPhase() != ConnectionPhase.PLAY) return;
         player.lookPlaceRecheck.tickEnded();
+        player.blockActionReconciler.clientTickEnded();
         player.horseMountLook.clear();
         if (!event.isSynthetic()) {
             player.clientTickEndTimeout.onTickEnd(System.nanoTime());

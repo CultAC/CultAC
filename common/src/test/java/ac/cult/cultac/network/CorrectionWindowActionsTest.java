@@ -141,6 +141,20 @@ class CorrectionWindowActionsTest {
     }
 
     @Test
+    void aWithheldEntityInteractionIsCorrectedAtTheClientTickEndWhenNoServerTickEnds() throws Exception {
+        try (var s = new Setup()) {
+            s.holdBuckets(1);
+            assertTrue(s.move(.5, 64, 3.5).isCancelled());
+            setField(CultPlayer.class, s.player, "disabled", true);
+            s.output();
+            for (int i = 0; i < 2; i++) assertTrue(s.interact(InteractAction.INTERACT).isCancelled());
+            assertEquals(1, slots(s.output()).size());
+            s.endTick();
+            assertEquals(1, slots(s.output()).size());
+        }
+    }
+
+    @Test
     void theInteractionCorrectionFollowsTheServersHandlingOfEarlierActions() throws Exception {
         try (var s = new Setup()) {
             s.holdBuckets(1);
