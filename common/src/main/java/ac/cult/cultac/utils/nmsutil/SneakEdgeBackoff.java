@@ -87,7 +87,7 @@ public final class SneakEdgeBackoff {
             // Player#isStayingOnGroundSurface is false without shift: the delta moves whole.
             return released ? new double[4] : null;
         }
-        if (risesWhole(initial, context)) return new double[4];
+        if (risesWhole(initial, context) || fallsWhole(player, initial, context)) return new double[4];
         if (!appliesTo(player, start, context)
                 || !NO_STUCK_SPEED.equals(context.getLastStuckSpeed())
                 || context.getWorldData().getStuckSpeed().getUnknownStuckSpeedMultiplier() != null) {
@@ -366,6 +366,22 @@ public final class SneakEdgeBackoff {
                 && world.getInWater() == DesyncStatus.FALSE
                 && world.getInLava() == DesyncStatus.FALSE
                 && world.getClimbingAtStart() == DesyncStatus.FALSE;
+    }
+
+    /**
+     * Player#maybeBackOffFromEdge leaves the delta of a player off the ground whole when its fallDistance is at least
+     * maxUpStep or Player#isAboveGround finds nothing within maxUpStep less its fallDistance below the box.
+     */
+    private static boolean fallsWhole(CultPlayer player, PredVector initial, SimulationContext context) {
+        WorldData world = context.getWorldData();
+        return initial != null
+                && !initial.isKnockback()
+                && !initial.isTickSkip()
+                && world.getLastOnGround() == DesyncStatus.FALSE
+                && world.getInWater() == DesyncStatus.FALSE
+                && world.getInLava() == DesyncStatus.FALSE
+                && world.getClimbingAtStart() == DesyncStatus.FALSE
+                && !isAboveGround(player, initial, context);
     }
 
     private static boolean appliesTo(CultPlayer player, PredictionResult result, SimulationContext context) {
