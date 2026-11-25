@@ -227,6 +227,7 @@ class VersionedBlockActionConsumerTest {
                 setup.held("water_bucket", 1);
                 var player = setup.fixture.player;
                 player.isSneaking = true;
+                player.forwardedShift = true;
                 player.x = 3.5;
                 player.y = 64;
                 player.z = 1.5;

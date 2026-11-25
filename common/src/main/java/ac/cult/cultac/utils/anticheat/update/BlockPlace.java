@@ -204,7 +204,7 @@ public class BlockPlace {
 
     // I believe this is correct, although I'm using a method here just in case it's a tick off... I don't trust Mojang
     public boolean isSecondaryUse() {
-        return player.isSneaking;
+        return player.isServerShiftKeyDown();
     }
 
     public Direction getDirection() {

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
@@ -20,6 +21,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.buffer.ByteBuf;
 import java.util.ArrayList;
@@ -71,19 +73,42 @@ class PlayerInputPerClientTickTest {
     void otherPacketsOfTheTickPassTheHeldInput() throws Exception {
         try (var f = connect(new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11))) {
             f.place(START, Vec3.ZERO);
-            // Main hand on the floor's top face at its centre, outside the block and the world border.
-            ByteBuf use = f.fixture.id(ServerboundPackets.USE_ITEM_ON, "use_item_on");
-            Wire.writeVarInt(use, 0);
-            Wire.writeBlockPos(use, new BlockPos(0, FLOOR_Y - 1, 0));
-            Wire.writeVarInt(use, 1);
-            use.writeFloat(0.5F).writeFloat(1.0F).writeFloat(0.5F).writeBoolean(false).writeBoolean(false);
-            Wire.writeVarInt(use, f.player.compensatedWorld.clientPredictionSequence() + 1);
+            ByteBuf use = useOnTopFrame(f, new BlockPos(0, FLOOR_Y - 1, 0), 1.0F);
             ByteBuf swing = f.fixture.id(ServerboundPackets.SWING, "swing");
             Wire.writeVarInt(swing, 0);
             read(f, inputFrame(f, NONE), use, inputFrame(f, SNEAK), swing, standingFrame(f), tickEndFrame(f));
             assertEquals(
                     List.of("use_item_on", "swing", "player_input shift", "move_player", "client_tick_end"),
                     forwarded(f));
+        }
+    }
+
+    /**
+     * ServerPlayerGameMode#useItemOn skips the block's use while the server player's shift key is down and a hand holds
+     * an item: the key of the last input forwarded to it, not of an input still kept for the tick's movement.
+     */
+    @Test
+    void aUseOnABlockReadsTheShiftKeyOfTheLastInputTheServerReceived() throws Exception {
+        try (var f = connect(new JavaTickFixture())) {
+            f.place(START, Vec3.ZERO);
+            BlockPos sneakingUse = new BlockPos(0, FLOOR_Y, 2);
+            BlockPos standingUse = new BlockPos(-2, FLOOR_Y, 2);
+            f.player.compensatedWorld.updateBlock(sneakingUse, BlockIds.CHEST.defaultState());
+            f.player.compensatedWorld.updateBlock(standingUse, BlockIds.CHEST.defaultState());
+            f.player.getInventory().inventory.setHeldItem(ItemUtil.modelItems().stack("minecraft:stone", 64));
+            read(f, inputFrame(f, SNEAK), standingFrame(f), tickEndFrame(f));
+
+            read(f, inputFrame(f, NONE), useOnTopFrame(f, sneakingUse, 0.875F), standingFrame(f), tickEndFrame(f));
+            assertEquals(
+                    BlockIds.STONE.defaultState(),
+                    f.player.compensatedWorld.getBlockStateIdAt(sneakingUse.above()),
+                    "the server still has the shift key down and places the stone on the chest");
+
+            read(f, inputFrame(f, SNEAK), useOnTopFrame(f, standingUse, 0.875F), standingFrame(f), tickEndFrame(f));
+            assertEquals(
+                    BlockIds.AIR.defaultState(),
+                    f.player.compensatedWorld.getBlockStateIdAt(standingUse.above()),
+                    "the server has the shift key up and opens the chest");
         }
     }
 
@@ -174,6 +199,17 @@ class PlayerInputPerClientTickTest {
     private static ByteBuf standingFrame(JavaTickFixture f) {
         var packet = new ServerboundMovePlayer(START.x, START.y, START.z, 0.0F, 0.0F, true, false, true, true);
         return f.fixture.encode(ServerboundPackets.MOVE_PLAYER, packet);
+    }
+
+    /** A main-hand use_item_on on the block's top face at its centre, {@code height} above the block's base. */
+    private static ByteBuf useOnTopFrame(JavaTickFixture f, BlockPos pos, float height) {
+        ByteBuf use = f.fixture.id(ServerboundPackets.USE_ITEM_ON, "use_item_on");
+        Wire.writeVarInt(use, 0);
+        Wire.writeBlockPos(use, pos);
+        Wire.writeVarInt(use, 1);
+        use.writeFloat(0.5F).writeFloat(height).writeFloat(0.5F).writeBoolean(false).writeBoolean(false);
+        Wire.writeVarInt(use, f.player.compensatedWorld.clientPredictionSequence() + 1);
+        return use;
     }
 
     /** ServerboundPlayerInputPacket's Input flags byte. */

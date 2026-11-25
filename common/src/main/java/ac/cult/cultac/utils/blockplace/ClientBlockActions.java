@@ -275,7 +275,7 @@ public final class ClientBlockActions {
                 new Vec3(player.x, player.y, player.z),
                 yaw,
                 pitch,
-                player.isSneaking,
+                player.isServerShiftKeyDown(),
                 player.canInstabuild,
                 mode != SimPlayer.GameMode.ADVENTURE && mode != SimPlayer.GameMode.SPECTATOR,
                 player.canUseGameMasterBlocks(),
@@ -304,7 +304,7 @@ public final class ClientBlockActions {
                         player.compensatedEntities.getSelf().getBlockInteractionRange()),
                 new EntityCollisionContext(
                         player.boundingBox.minY,
-                        player.isSneaking,
+                        player.isServerShiftKeyDown(),
                         collision == null ? 0.0 : collision.fallDistance(),
                         player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS,
                         false),
