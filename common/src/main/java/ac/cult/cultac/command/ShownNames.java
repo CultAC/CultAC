@@ -1,16 +1,19 @@
 package ac.cult.cultac.command;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
+import ac.grim.grimac.api.storage.identity.NameResolver;
 import io.leangen.geantyref.TypeToken;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -21,11 +24,12 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Online players by the name a server lists them under, which can differ from their account name: the name the
- * sender's own client was given for a player, else the name a player here was given on their own client. A command
- * argument that names a player this way takes the account, and the sender is told which account matched.
+ * sender's own client was given for a player, else the name a player here was given on their own client. A name listed
+ * for several players matches none. A command argument that names a player this way takes the account, and the sender
+ * is told which account matched.
  */
 public final class ShownNames {
-    /** How long the sender's connection may take to answer. */
+    /** How long the sender's connection or the identity store may take to answer. */
     static final long WAIT_MILLIS = 1_000;
 
     static final CloudKey<List<Match>> MATCHES = CloudKey.of("cultac:shown-names", new TypeToken<>() {});
@@ -35,37 +39,54 @@ public final class ShownNames {
 
     private ShownNames() {}
 
-    /** The online account {@code sender} sees listed as {@code name}; null when none is, or it is listed by account. */
+    /**
+     * The online account {@code sender} sees listed as {@code name}; null when none or several are, or it is listed by
+     * account.
+     */
     public static CompletableFuture<@Nullable Match> find(Sender sender, String name) {
         if (name.isEmpty()) return CompletableFuture.completedFuture(null);
-        Match here = listedHere(CultAPI.INSTANCE.getPlayerDataManager().getEntries(), name);
-        if (here != null) return CompletableFuture.completedFuture(here);
+        List<Match> here = listedHere(CultAPI.INSTANCE.getPlayerDataManager().getEntries(), name);
+        return viewed(sender, name).thenApply(viewed -> choose(
+                viewed, here, name, id -> NetworkRouting.current().locate(id.toString()).orElse(null)));
+    }
+
+    /** The profiles the sender's own client was given under {@code name}; none for a sender not connected here. */
+    private static CompletableFuture<List<UUID>> viewed(Sender sender, String name) {
         CultPlayer viewer = sender.isPlayer()
                 ? CultAPI.INSTANCE.getPlayerDataManager().getPlayer(sender.getUniqueId())
                 : null;
-        if (viewer == null) return CompletableFuture.completedFuture(null);
-        CompletableFuture<@Nullable UUID> listed = new CompletableFuture<>();
+        if (viewer == null) return CompletableFuture.completedFuture(List.of());
+        CompletableFuture<List<UUID>> listed = new CompletableFuture<>();
         try {
             viewer.user.getCultConnection()
                     .execute(() -> listed.complete(viewer.compensatedEntities.clientPlayerModes.named(name)));
         } catch (RuntimeException closed) {
-            return CompletableFuture.completedFuture(null);
+            return CompletableFuture.completedFuture(List.of());
         }
-        return listed.completeOnTimeout(null, WAIT_MILLIS, TimeUnit.MILLISECONDS)
-                .thenApply(uuid -> uuid == null
-                        ? null
-                        : account(uuid, name, id -> NetworkRouting.current().locate(id.toString()).orElse(null)));
+        return listed.completeOnTimeout(List.of(), WAIT_MILLIS, TimeUnit.MILLISECONDS);
     }
 
-    /** The player in {@code players} whose own client lists them as {@code name}, other than their account name. */
-    static @Nullable Match listedHere(Collection<CultPlayer> players, String name) {
+    /**
+     * The match for {@code name}: the profile the sender's client lists under it when there is one, else the one player
+     * here whose own client lists them under it; null when the source that decides names several.
+     */
+    static @Nullable Match choose(
+            List<UUID> viewed, List<Match> here, String name, Function<UUID, @Nullable NetworkPlayer> online) {
+        if (viewed.size() > 1) return null;
+        if (viewed.size() == 1) return account(viewed.get(0), name, online);
+        return here.size() == 1 ? here.get(0) : null;
+    }
+
+    /** The players in {@code players} whose own client lists them as {@code name}, other than their account name. */
+    static List<Match> listedHere(Collection<CultPlayer> players, String name) {
+        List<Match> matches = new ArrayList<>(1);
         for (CultPlayer player : players) {
             String shown = player.shownName;
             String account = player.getName();
             if (shown != null && shown.equalsIgnoreCase(name) && account != null && !shown.equalsIgnoreCase(account))
-                return new Match(player.playerUUID, account, shown);
+                matches.add(new Match(player.playerUUID, account, shown));
         }
-        return null;
+        return matches;
     }
 
     /** {@code uuid}'s online account, when {@code shown} is not its name. */
@@ -74,6 +95,22 @@ public final class ShownNames {
         return player == null || player.name().equalsIgnoreCase(shown)
                 ? null
                 : new Match(uuid, player.name(), shown);
+    }
+
+    /** The stored account named {@code name}; empty without an identity store or when it does not answer in time. */
+    static CompletableFuture<Optional<UUID>> known(String name) {
+        DataStoreLifecycle lifecycle = CultAPI.INSTANCE.getDataStoreLifecycle();
+        if (lifecycle == null || !lifecycle.isLoaded()) return CompletableFuture.completedFuture(Optional.empty());
+        CompletableFuture<Optional<UUID>> known = new CompletableFuture<>();
+        try {
+            NameResolver resolver = lifecycle.nameResolver();
+            if (resolver == null) return CompletableFuture.completedFuture(Optional.empty());
+            resolver.resolveByName(name).whenComplete((uuid, failure) ->
+                    known.complete(failure == null && uuid != null ? uuid : Optional.empty()));
+        } catch (RuntimeException unavailable) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        return known.completeOnTimeout(Optional.empty(), WAIT_MILLIS, TimeUnit.MILLISECONDS);
     }
 
     /** Keeps {@code match} on {@code context}, to be told to the sender if the command runs. */

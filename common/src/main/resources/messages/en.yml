@@ -237,6 +237,10 @@ alerts-scope-local: "network-wide alerts are not enabled on this server"
 network-command-same-server: "&c%player% is on %location%; this command only works on the same server."
 # A typed player name matched the account of a player a server lists under another name.
 player-listed-as: "%prefix% &f%shown% &7is &f%player%"
+# A typed name is both a stored account and the name a server lists another online player under.
+player-name-ambiguous: "%prefix% &c%shown% is an account (%uuid%) and also what %player% is listed as. Type %player% or the UUID instead."
+# A typed name a server lists a player under, for a command that takes only their account name.
+player-listed-as-type-account: "%prefix% &f%shown% &7is &f%player%&7. Type &f%player% &7to run this on them."
 network-spectate-unreachable: "&c%player% is on %location%; spectating across servers needs CultAC on the proxy."
 network-command-stopped: "&cThe command could not be forwarded to %instance%: network routing stopped."
 network-command-not-forwarded: "&cThe command could not be forwarded to %instance%."

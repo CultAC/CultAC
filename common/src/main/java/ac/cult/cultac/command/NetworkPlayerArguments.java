@@ -1,5 +1,6 @@
 package ac.cult.cultac.command;
 
+import ac.cult.cultac.command.ShownNames.Match;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
@@ -12,8 +13,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import net.kyori.adventure.text.Component;
 import org.incendo.cloud.Command;
 import org.incendo.cloud.component.CommandComponent;
@@ -36,7 +41,8 @@ import org.jetbrains.annotations.Nullable;
  * on the same server.
  * Without a transport, a player who is not here fails as with the platform's parser. While a transport runs, player
  * suggestions of the commands that work across instances add the roster's names. A player typed by a name a server lists
- * them under rather than their account name matches that account ({@link ShownNames}).
+ * them under rather than their account name matches that account ({@link ShownNames}), unless the name is also the
+ * stored account of another player: the parse then fails with a {@link NameRefusedException} naming both.
  */
 public final class NetworkPlayerArguments implements CloudPlatformCommandArguments {
     static final int MAX_SUGGESTIONS = 25;
@@ -114,13 +120,16 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                     if (elsewhere != null) return ArgumentParseResult.failureFuture(elsewhere);
                     if (NetworkRouting.current().locate(name).isPresent())
                         return ArgumentParseResult.successFuture(name);
-                    return ShownNames.find(context.sender(), name).thenApply(match -> {
-                        if (match == null) return ArgumentParseResult.success(name);
-                        PlayerElsewhereException there = placed(context, match.account());
-                        if (there != null) return ArgumentParseResult.failure(there);
-                        ShownNames.remember(context, match);
-                        return ArgumentParseResult.success(match.account());
-                    });
+                    return listed(context.sender(), name, true, ShownNames::find, ShownNames::known)
+                            .thenApply(listed -> {
+                                if (listed.refused() != null) return ArgumentParseResult.failure(listed.refused());
+                                Match match = listed.match();
+                                if (match == null) return ArgumentParseResult.success(name);
+                                PlayerElsewhereException there = placed(context, match.account());
+                                if (there != null) return ArgumentParseResult.failure(there);
+                                ShownNames.remember(context, match);
+                                return ArgumentParseResult.success(match.account());
+                            });
                 }),
                 String.class);
     }
@@ -130,17 +139,60 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
      * {@link #playerName} it never sends the command elsewhere.
      */
     public static ParserDescriptor<Sender, String> shownAs(ParserDescriptor<Sender, String> base) {
+        return shownAs(base, true, ShownNames::find, ShownNames::known);
+    }
+
+    /**
+     * {@code base}, failing with a {@link NameRefusedException} that names the account for a name the sender sees
+     * listed for an online player of another account, for commands that change what is kept about the player.
+     */
+    public static ParserDescriptor<Sender, String> typedAccount(ParserDescriptor<Sender, String> base) {
+        return shownAs(base, false, ShownNames::find, ShownNames::known);
+    }
+
+    static ParserDescriptor<Sender, String> shownAs(
+            ParserDescriptor<Sender, String> base,
+            boolean substitute,
+            BiFunction<Sender, String, CompletableFuture<@Nullable Match>> find,
+            Function<String, CompletableFuture<Optional<UUID>>> known) {
         return ParserDescriptor.of(
                 base.parser().flatMapSuccess((context, name) -> {
                     if (NetworkRouting.current().locate(name).isPresent())
                         return ArgumentParseResult.successFuture(name);
-                    return ShownNames.find(context.sender(), name).thenApply(match -> {
-                        if (match == null) return ArgumentParseResult.success(name);
-                        ShownNames.remember(context, match);
-                        return ArgumentParseResult.success(match.account());
+                    return listed(context.sender(), name, substitute, find, known).thenApply(listed -> {
+                        if (listed.refused() != null) return ArgumentParseResult.failure(listed.refused());
+                        if (listed.match() == null) return ArgumentParseResult.success(name);
+                        ShownNames.remember(context, listed.match());
+                        return ArgumentParseResult.success(listed.match().account());
                     });
                 }),
                 String.class);
+    }
+
+    /** What a typed name is listed for: the account it matched, the reason it is refused, or neither. */
+    private record Listed(@Nullable Match match, @Nullable NameRefusedException refused) {
+        static final Listed NONE = new Listed(null, null);
+    }
+
+    /**
+     * The account {@code find} gives {@code name}, refused when {@code known} gives a stored account of another player
+     * by that name, or when {@code substitute} is off.
+     */
+    private static CompletableFuture<Listed> listed(
+            Sender sender,
+            String name,
+            boolean substitute,
+            BiFunction<Sender, String, CompletableFuture<@Nullable Match>> find,
+            Function<String, CompletableFuture<Optional<UUID>>> known) {
+        return find.apply(sender, name).thenCompose(match -> {
+            if (match == null) return CompletableFuture.completedFuture(Listed.NONE);
+            return known.apply(name).thenApply(stored -> {
+                UUID account = stored.orElse(null);
+                if (account != null && !account.equals(match.uuid()))
+                    return new Listed(null, NameRefusedException.ambiguous(match, account));
+                return substitute ? new Listed(match, null) : new Listed(null, NameRefusedException.listed(match));
+            });
+        });
     }
 
     /** {@code name} on another instance or held by another engine generation here; null otherwise. */
@@ -249,8 +301,12 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
      * Other parse failures go on to the next handler.
      */
     static void handle(ExceptionContext<Sender, ArgumentParseException> context) throws Throwable {
-        if (!(context.exception().getCause() instanceof PlayerElsewhereException elsewhere)) throw context.exception();
         Sender sender = context.context().sender();
+        if (context.exception().getCause() instanceof NameRefusedException refused) {
+            sender.sendMessage(refused.message(sender));
+            return;
+        }
+        if (!(context.exception().getCause() instanceof PlayerElsewhereException elsewhere)) throw context.exception();
         NetworkPlayer where = elsewhere.where();
         String line = line(context.context());
         if (!routed(line)) {
@@ -331,6 +387,41 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
 
         public NetworkPlayer where() {
             return where;
+        }
+    }
+
+    /** A typed name a command does not take for the account it is listed for; {@link #handle} tells the sender why. */
+    public static final class NameRefusedException extends IllegalArgumentException {
+        private final String key;
+        private final String fallback;
+        private final transient Map<String, String> placeholders;
+
+        private NameRefusedException(String key, String fallback, Map<String, String> placeholders) {
+            super("Player name is ambiguous: " + placeholders.get("shown"));
+            this.key = key;
+            this.fallback = fallback;
+            this.placeholders = placeholders;
+        }
+
+        /** {@code match}'s name is also the stored account {@code account}. */
+        static NameRefusedException ambiguous(Match match, UUID account) {
+            return new NameRefusedException(
+                    "player-name-ambiguous",
+                    "%prefix% &c%shown% is an account (%uuid%) and also what %player% is listed as. "
+                            + "Type %player% or the UUID instead.",
+                    Map.of("shown", match.shown(), "player", match.account(), "uuid", account.toString()));
+        }
+
+        /** {@code match}'s name, for a command that takes only the account. */
+        static NameRefusedException listed(Match match) {
+            return new NameRefusedException(
+                    "player-listed-as-type-account",
+                    "%prefix% &f%shown% &7is &f%player%&7. Type &f%player% &7to run this on them.",
+                    Map.of("shown", match.shown(), "player", match.account()));
+        }
+
+        public Component message(Sender sender) {
+            return MessageUtil.getParsedComponent(sender, key, fallback, placeholders);
         }
     }
 }

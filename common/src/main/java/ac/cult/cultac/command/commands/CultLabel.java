@@ -57,7 +57,7 @@ public class CultLabel implements BuildableCommand {
                 .optional("reason", StringParser.greedyStringParser())
                 .handler(this::handleRevoke));
         commandManager.command(note(confidence(label(commandManager)
-                        .required("player", NetworkPlayerArguments.shownAs(StringParser.stringParser()), CloudArguments.players())
+                        .required("player", NetworkPlayerArguments.typedAccount(StringParser.stringParser()), CloudArguments.players())
                         .literal("clean")))
                 .handler(context -> handleLabel(
                         context,
@@ -65,7 +65,7 @@ public class CultLabel implements BuildableCommand {
                                 context.get("confidence"),
                                 context.<String>optional("note").orElse(null)))));
         commandManager.command(chosen(label(commandManager)
-                        .required("player", NetworkPlayerArguments.shownAs(StringParser.stringParser()), CloudArguments.players())
+                        .required("player", NetworkPlayerArguments.typedAccount(StringParser.stringParser()), CloudArguments.players())
                         .required(
                                 "cheat",
                                 StringParser.stringParser(),
@@ -78,7 +78,7 @@ public class CultLabel implements BuildableCommand {
                                 context.get("span"),
                                 context.<String>optional("note").orElse(null)))));
         commandManager.command(label(commandManager)
-                .required("player", NetworkPlayerArguments.shownAs(StringParser.stringParser()), CloudArguments.players())
+                .required("player", NetworkPlayerArguments.typedAccount(StringParser.stringParser()), CloudArguments.players())
                 .handler(this::handleMenu));
     }
 

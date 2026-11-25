@@ -6,6 +6,7 @@ import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import io.netty.buffer.Unpooled;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,12 +25,13 @@ public final class ClientPlayerModes {
         return profiles.get(id);
     }
 
-    /** The profile listed under {@code name}, ignoring case; null without one. */
-    public @Nullable UUID named(String name) {
+    /** The profiles listed under {@code name}, ignoring case. */
+    public List<UUID> named(String name) {
+        List<UUID> named = new ArrayList<>(1);
         for (Map.Entry<UUID, Entry> profile : profiles.entrySet()) {
-            if (name.equalsIgnoreCase(profile.getValue().name())) return profile.getKey();
+            if (name.equalsIgnoreCase(profile.getValue().name())) named.add(profile.getKey());
         }
-        return null;
+        return named;
     }
 
     public void remove(List<UUID> ids) {
