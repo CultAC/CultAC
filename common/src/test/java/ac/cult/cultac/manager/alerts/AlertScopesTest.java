@@ -130,6 +130,10 @@ class AlertScopesTest {
         assertEquals(AlertScope.GLOBAL, scopes.chosen(player));
         assertEquals(Map.of(), settings);
 
+        scopes.choose(player, AlertScope.SERVER);
+        scopes.adopt(player, AlertScope.GLOBAL);
+        assertEquals(AlertScope.SERVER, scopes.chosen(player));
+
         scopes.forget(player);
         scopes.adopt(player, AlertScope.GLOBAL);
         assertNull(scopes.chosen(player));
