@@ -82,6 +82,9 @@ public class BaseConfigManager {
     @Getter
     private boolean disablePongCancelling;
 
+    @Getter
+    private boolean linearInterpolationOptIn;
+
     private boolean launchFailOpen = true;
 
     @Getter
@@ -195,6 +198,7 @@ public class BaseConfigManager {
                 "disconnect.error",
                 "<red>An error occurred whilst processing packets. Please contact the administrators.");
         disablePongCancelling = config.getBooleanElse("disable-pong-cancelling", false);
+        linearInterpolationOptIn = config.getBooleanElse("linear-interpolation-opt-in", false);
         launchFailOpen = config.getBooleanElse("launch-safety.fail-open", true);
         maxPingKnockback = config.getIntElse("cult.prediction.max-knockback-ping-ms", 1000);
         maxPendingPingMs = config.getIntElse("max-pending-ping-ms", 0);

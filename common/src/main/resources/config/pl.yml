@@ -52,6 +52,12 @@ launch-safety:
 # Nie włączaj tej opcji, jeśli nie masz pewności, co robisz.
 disable-pong-cancelling: false
 
+# Na proxy Velocity oferuje klientom liniową interpolację bytów w stylu 26.2, której używają AntiStutter
+# i Interpolation Fix, przez kanał antistutter:linear_3.
+# Cult jest jedynym komponentem, który ją oferuje: rejestracje tego kanału przez inne pluginy nie są przekazywane.
+# Zmiana obowiązuje od następnego wejścia gracza lub zmiany serwera.
+linear-interpolation-opt-in: false
+
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
@@ -443,4 +449,4 @@ cult:
 check-name-version: 3
 
 config-flavor: V2
-config-version: 20
+config-version: 21

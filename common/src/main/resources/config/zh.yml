@@ -54,6 +54,11 @@ launch-safety:
 # 在你不知道你在干什么的情况下，不要启用。
 disable-pong-cancelling: false
 
+# 在 Velocity 代理上，通过 antistutter:linear_3 频道向客户端提供 AntiStutter 和 Interpolation Fix 使用的 26.2 风格实体线性插值。
+# Cult 是唯一提供该频道的组件：其他插件对该频道的注册不会转发给客户端。
+# 更改从玩家下次进入或切换服务器时生效。
+linear-interpolation-opt-in: false
+
 # How many inventory clicks should we allow per server tick?
 # Any clicks after this threshold is reached will be cancelled.
 # Set to -1 to disable.
@@ -450,4 +455,4 @@ cult:
 check-name-version: 3
 
 config-flavor: V2
-config-version: 20
+config-version: 21

@@ -4,11 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.ClientInterpolationOptIn;
+import ac.cult.cultac.utils.math.Vec3;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
@@ -72,6 +75,39 @@ class ClientInterpolationOptInTest {
             assertFalse(optIn.isOffered());
             assertFalse(optIn.isDeclared());
             assertFalse(optIn.linearForNewEntities());
+        }
+    }
+
+    @Test
+    void theOfferIsFixedForThePlaySessionAtItsLogin() throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = LinearInterpolationOfferTest.proxy(true)) {
+            var optIn = f.player.interpolationOptIn;
+            LinearInterpolationOfferTest.login(f);
+            LinearInterpolationOfferTest.key(false);
+            channels(f, ConnectionPhase.PLAY, "minecraft:register", "antistutter:linear_3");
+            assertTrue(optIn.linearForNewEntities());
+            f.player.compensatedEntities.addEntity(100, EntityTypeIds.ZOMBIE, new Vec3(0.5, 64, 0.5), 0, 0, 0);
+            assertTrue(f.player.compensatedEntities.getEntity(100).usesLinearInterpolationHandler());
+            LinearInterpolationOfferTest.reconfigure(f);
+            LinearInterpolationOfferTest.login(f);
+            channels(f, ConnectionPhase.PLAY, "minecraft:register", "antistutter:linear_3");
+            assertFalse(optIn.isOffered());
+            assertFalse(optIn.linearForNewEntities());
+        }
+    }
+
+    @Test
+    void withTheKeyOffEntitiesStaySteppedWhateverIsDeclared() throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = LinearInterpolationOfferTest.proxy(false)) {
+            LinearInterpolationOfferTest.login(f);
+            channels(f, ConnectionPhase.PLAY, "minecraft:register", "antistutter:linear_3\0interpolationfix:linear_3");
+            assertTrue(f.player.interpolationOptIn.isDeclared());
+            f.player.compensatedEntities.addEntity(100, EntityTypeIds.ZOMBIE, new Vec3(0.5, 64, 0.5), 0, 0, 0);
+            PacketEntity zombie = f.player.compensatedEntities.getEntity(100);
+            assertFalse(zombie.usesLinearInterpolationHandler());
+            assertTrue(zombie.newPacketLocation.usesSteppedInterpolation());
         }
     }
 

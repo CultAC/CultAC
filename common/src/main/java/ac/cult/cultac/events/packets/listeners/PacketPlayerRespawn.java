@@ -21,6 +21,7 @@ import ac.cult.cultac.events.packets.RegistryGenerationAlerts;
 import ac.cult.cultac.manager.player.ActionManager;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
+import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -37,6 +38,7 @@ import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.latency.ClientInterpolationOptIn;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import org.jetbrains.annotations.Nullable;
@@ -111,6 +113,11 @@ public class PacketPlayerRespawn {
         // handles transaction split between JOIN_GAME and server teleport
 
         player.packetStateData.showsDeathScreen = packet.showDeathScreen();
+        final boolean interpolationOffered = ClientInterpolationOptIn.offeredAtLogin(player);
+        player.interpolationOptIn.loginSent(interpolationOffered);
+        if (interpolationOffered) {
+            event.getWritesBeforeSend().add(new CultWrite(ClientInterpolationOptIn.offer(), true));
+        }
         final boolean newJavaLocalPlayer =
                 !player.isBedrockMovement() && !player.packetStateData.javaLocalPlayerPresent;
         event.getTasksAfterSend().add(() -> {
@@ -185,6 +192,7 @@ public class PacketPlayerRespawn {
                 player.compensatedWorld.initializeClientChunkCache(packet.chunkRadius());
                 player.compensatedWorld.clearPistonLikeState();
                 player.compensatedEntities.clearClientLevel();
+                player.interpolationOptIn.loginHandled(interpolationOffered);
                 // ClientPacketListener#handleLogin's LocalPlayer#resetPos zeroes the new player's velocity.
                 player.compensatedWorld.isRaining = false;
                 player.checkManager.getListener(BadPacketsA.class).resetCarriedIndex();

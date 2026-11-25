@@ -38,7 +38,7 @@ class UncapturedServersUpgradeTest {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/config/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(20, data.get("config-version"));
+            assertEquals(21, data.get("config-version"));
             assertEquals(List.of(), cloud(data).get("uncaptured-servers"));
         }
     }
@@ -51,7 +51,7 @@ class UncapturedServersUpgradeTest {
                 .update(file.toFile(), CultConfigSpecs.mainConfig())
                 .migrated);
         Map<String, Object> data = new Yaml().load(Files.readString(file));
-        assertEquals(20, data.get("config-version"));
+        assertEquals(21, data.get("config-version"));
         return data;
     }
 

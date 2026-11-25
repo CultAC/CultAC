@@ -17,7 +17,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.yaml.snakeyaml.Yaml;
 
 class LegacyCultFileTest {
-    private static final String CONFIG = "alerts:\n  print-to-console: false\nconfig-flavor: V2\nconfig-version: 20\n";
+    private static final String CONFIG = "alerts:\n  print-to-console: false\nconfig-flavor: V2\nconfig-version: 21\n";
     private static final String LEGACY = "cult:\n  exempt-java-players: true\nconfig-version: 3\n";
 
     @TempDir
