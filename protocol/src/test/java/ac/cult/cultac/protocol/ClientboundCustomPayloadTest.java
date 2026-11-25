@@ -93,6 +93,27 @@ class ClientboundCustomPayloadTest {
     }
 
     @Test
+    void registerAndUnregisterKeepTheirBytesAndOtherChannelsAreSkipped() {
+        CodecFixture connection = new CodecFixture(ProtocolRuntime.create(DATA));
+        connection.phase(ConnectionPhase.PLAY);
+        int id = DATA.packets(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND).id("minecraft:custom_payload");
+        byte[] channels = {'a', ':', 'b', 0, 'c', ':', 'd'};
+        for (String channel : new String[] {"minecraft:register", "minecraft:unregister", "minecraft:brand"}) {
+            ByteBuf bytes = Unpooled.buffer();
+            try {
+                Wire.writeString(bytes, channel, 32767);
+                bytes.writeBytes(channels);
+                var decoded = connection.read(ClientboundPackets.CUSTOM_PAYLOAD, id, bytes);
+                assertEquals(channel, decoded.channel());
+                if (channel.equals("minecraft:brand")) assertSame(ClientboundCustomPayloadCodec.SKIPPED, decoded.data());
+                else assertArrayEquals(channels, decoded.data());
+            } finally {
+                bytes.release();
+            }
+        }
+    }
+
+    @Test
     void emptyPayloadOnAnyChannelIsStillWritable() {
         CodecFixture connection = new CodecFixture(ProtocolRuntime.create(DATA));
         connection.phase(ConnectionPhase.PLAY);
