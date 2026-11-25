@@ -140,13 +140,14 @@ public class PunishmentManager implements ConfigReloadable {
         String original = command.alertFormat != null
                 ? command.alertFormat
                 : command.command.replace("[alert]", alertString).replace("[proxy]", proxyAlertString);
-        String replaced = MessageUtil.replacePlaceholders(
-                player,
-                original.replace("%check_name%", check.getDisplayName())
-                        .replace("%experimental%", check.isExperimental() ? experimentalSymbol : "")
-                        .replace("%vl%", Integer.toString(vl))
-                        .replace("%description%", check.getDescription())
-                        .replace("%stable_key%", check.getStableKey()));
+        String filled = original.replace("%check_name%", check.getDisplayName())
+                .replace("%experimental%", check.isExperimental() ? experimentalSymbol : "")
+                .replace("%vl%", Integer.toString(vl))
+                .replace("%description%", check.getDescription())
+                .replace("%stable_key%", check.getStableKey());
+        String replaced = command.action().equals("[alert]") || command.action().equals("[proxy]")
+                ? MessageUtil.replacePlaceholdersForMiniMessage(player, filled)
+                : MessageUtil.replacePlaceholders(player, filled);
         if (!replaced.contains("%verbose%")) return replaced;
         return replaced.replace("%verbose%", MessageUtil.miniMessageSafe(safeGet(verbose)));
     }
