@@ -62,6 +62,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
+import ac.cult.cultac.utils.latency.ClientInterpolationOptIn;
 import ac.cult.cultac.utils.latency.CompensatedCameraEntity;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.latency.CompensatedFireworks;
@@ -286,6 +287,7 @@ public class CultPlayer implements GrimUser {
     // LocalPlayer#sendIsSprintingIfNeeded ends it.
     public boolean sprintClearedAsPassenger;
     public final ClientSprintState sprintState = new ClientSprintState();
+    public final ClientInterpolationOptIn interpolationOptIn = new ClientInterpolationOptIn();
     public final ClientSwimState swimState = new ClientSwimState();
     public final ClientAttackStrength attackStrength = new ClientAttackStrength();
     public final ClientCombatAttributes combatAttributes = new ClientCombatAttributes();

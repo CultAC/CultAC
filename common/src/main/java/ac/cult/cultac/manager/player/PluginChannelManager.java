@@ -8,7 +8,10 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.ClientClassification;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
+import ac.cult.cultac.utils.latency.ClientInterpolationOptIn;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,6 +59,11 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         handle(channel, event.getPacket().data(), event);
     }
 
+    @CultPacketHandler("serverbound.configuration_acknowledged")
+    public void onConfigurationAcknowledged(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        player.interpolationOptIn.configurationAcknowledged();
+    }
+
     public void handle(String channelName, byte[] payload, PacketReceiveEvent event) {
         if (SmoketestControlBridge.enabled()) {
             if (SmoketestControlBridge.handle(player, channelName, payload)) {
@@ -77,12 +85,19 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
             player.onPacketCancel();
             return;
         }
+        boolean play = event != null && event.getPhase() == ConnectionPhase.PLAY;
         if (isRegister(channelName)) {
-            for (String channel : channelList(payload)) handleChannelRegistered(channel);
+            for (String channel : channelList(payload)) {
+                if (play && ClientInterpolationOptIn.CHANNEL.equals(channel)) player.interpolationOptIn.declare();
+                handleChannelRegistered(channel);
+            }
             return;
         }
         if (isUnregister(channelName)) {
-            for (String channel : channelList(payload)) handleChannelUnregistered(channel);
+            for (String channel : channelList(payload)) {
+                if (play && ClientInterpolationOptIn.CHANNEL.equals(channel)) player.interpolationOptIn.undeclare();
+                handleChannelUnregistered(channel);
+            }
             return;
         }
         if (!isBrand(channelName) && !handlePayloadChannel(channelName)) {

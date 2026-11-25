@@ -19,12 +19,14 @@ import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerWindow;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
+import ac.cult.cultac.events.packets.listeners.PacketServerChannels;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.events.packets.listeners.PlayerInfoListener;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.PacketRouteBuilder;
 import ac.cult.cultac.network.event.PacketListenerPriority;
+import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 
@@ -39,6 +41,9 @@ public class PacketManager implements StartableInitable {
         networkManager.lifecycleHooks(new PlayerLoginHooks());
 
         networkManager.dispatcher().registerOwn(PacketManager::registerListeners);
+        if (CultAPI.INSTANCE.getPlatform() == Platform.VELOCITY) {
+            networkManager.dispatcher().registerOwn(PacketServerChannels::register);
+        }
     }
 
     /** Every packet listener, in the order a priority shares between them. */

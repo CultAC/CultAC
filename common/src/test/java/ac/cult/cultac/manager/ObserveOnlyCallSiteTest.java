@@ -204,6 +204,9 @@ class ObserveOnlyCallSiteTest {
             events/packets/listeners/PacketServerTeleport.java#onAcceptTeleportation(PacketReceiveEvent,CultPlayer,ServerboundAcceptTeleportation) setCancelled
             manager/player/PluginChannelManager.java#handle(String,byte[],PacketReceiveEvent) setCancelled
             utils/latency/CompensatedInventory.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) setCancelled
+            [] CultAC stays the only source of the linear interpolation channel it offers
+            events/packets/listeners/PacketServerChannels.java#onCustomPayload(PacketSendEvent,ClientboundCustomPayload) cancelFinally
+            events/packets/listeners/PacketServerChannels.java#onCustomPayload(PacketSendEvent,ClientboundCustomPayload) replace
             [] README: a non-finite rotation from the server is sent as 0
             events/packets/PacketServerPlayerRotation.java#onPlayerRotation(PacketSendEvent,CultPlayer,ClientboundPlayerRotation) replace
             [] README: the self pose strip; the health spoof breaks out on isObserveOnly() first

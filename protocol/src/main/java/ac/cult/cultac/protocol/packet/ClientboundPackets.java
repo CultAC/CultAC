@@ -107,8 +107,12 @@ import java.util.Set;
  * that version's protocol data; {@code since} marks codecs verified only from a version onward.
  */
 public final class ClientboundPackets {
-    /** The CultAC proxy-to-backend bridge channel, the only clientbound payload channel handlers read. */
+    /** The CultAC proxy-to-backend bridge channel. */
     public static final String BRIDGE_CHANNEL = "cultac:bridge";
+    /** The channels a server declares; with the bridge and unregister, the only clientbound payloads decoded. */
+    public static final String REGISTER_CHANNEL = "minecraft:register";
+    /** The channels a server withdraws. */
+    public static final String UNREGISTER_CHANNEL = "minecraft:unregister";
 
     private static final PacketCatalog C = PacketCatalog.clientbound();
     private static final PacketCatalog.Scope PLAY = C.in(ConnectionPhase.PLAY);
@@ -131,7 +135,7 @@ public final class ClientboundPackets {
     public static final PacketType<ClientboundCustomPayload> CUSTOM_PAYLOAD = COMMON.add(
             "custom_payload",
             ClientboundCustomPayload.class,
-            new ClientboundCustomPayloadCodec(Set.of(BRIDGE_CHANNEL)));
+            new ClientboundCustomPayloadCodec(Set.of(BRIDGE_CHANNEL, REGISTER_CHANNEL, UNREGISTER_CHANNEL)));
     public static final PacketType<ClientboundShowDialog> SHOW_DIALOG =
             PLAY.add("show_dialog", ClientboundShowDialog.class, new ShowDialogCodec());
     public static final PacketType<Opaque> CLEAR_DIALOG = PLAY.writableEmpty("clear_dialog");
