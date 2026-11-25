@@ -432,9 +432,9 @@ public class CultDebug implements BuildableCommand {
 
     private static final Pattern LINE_PLACEHOLDER = Pattern.compile("%[a-z_]+%");
 
-    /** The configured line for {@code key} about {@code target}; client-supplied values cannot inject tags. */
+    /** The configured line for {@code key} about {@code target}; client-supplied values show as written. */
     private static Component line(CultPlayer target, String key, String fallback, String... values) {
-        String message = MessageUtil.replacePlaceholders(
+        String message = MessageUtil.replacePlaceholdersForMiniMessage(
                 target, CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse(key, fallback));
         var replacements = new HashMap<String, String>();
         for (int i = 0; i + 1 < values.length; i += 2) replacements.put(values[i], values[i + 1]);
@@ -444,9 +444,7 @@ public class CultDebug implements BuildableCommand {
         while (matcher.find()) {
             String value = replacements.get(matcher.group());
             matcher.appendReplacement(
-                    replaced,
-                    Matcher.quoteReplacement(
-                            value == null ? matcher.group() : MessageUtil.miniMessageSafe(value)));
+                    replaced, Matcher.quoteReplacement(value == null ? matcher.group() : MessageUtil.plainText(value)));
         }
         return MessageUtil.miniMessage(matcher.appendTail(replaced).toString());
     }

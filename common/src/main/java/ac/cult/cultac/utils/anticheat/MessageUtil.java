@@ -7,6 +7,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDisconnect;
 import ac.grim.grimac.api.GrimUser;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -26,6 +27,7 @@ public class MessageUtil {
     private static final Pattern STRIP_COLOR_PATTERN = Pattern.compile("(?i)" + '§' + "[0-9A-FK-ORX]");
     private final Pattern HEX_PATTERN = Pattern.compile("([&§]#[A-Fa-f0-9]{6})|([&§]x([&§][A-Fa-f0-9]){6})");
     private final char PLACEHOLDER_ESCAPE_CHAR = '\uFFFF'; // this specific character holds no significance
+    private final char AMPERSAND_ESCAPE_CHAR = '\uFFFE';
 
     /** Preserve Cult's existing disconnect conversion: plain text or an argument-free key. */
     public ClientboundDisconnect disconnectPacket(Component reason) {
@@ -38,7 +40,13 @@ public class MessageUtil {
 
     @Contract("_, null -> null; _, !null -> !null")
     public @Nullable String replacePlaceholders(@Nullable CultPlayer player, @Nullable String string) {
-        return replacePlaceholders(player, player == null ? null : player.platformPlayer, string);
+        return replacePlaceholders(player, player == null ? null : player.platformPlayer, string, false);
+    }
+
+    /** As {@link #replacePlaceholders(CultPlayer, String)} for a {@link #miniMessage} template: client text stays text. */
+    @Contract("_, null -> null; _, !null -> !null")
+    public @Nullable String replacePlaceholdersForMiniMessage(@Nullable CultPlayer player, @Nullable String string) {
+        return replacePlaceholders(player, player == null ? null : player.platformPlayer, string, true);
     }
 
     @Contract("_, null -> null; _, !null -> !null")
@@ -51,14 +59,21 @@ public class MessageUtil {
         return replacePlaceholders(
                 player == null ? null : CultAPI.INSTANCE.getPlayerDataManager().getPlayer(player.getUniqueId()),
                 player,
-                string);
+                string,
+                false);
     }
 
     private static final Pattern UNIFIED_PLACEHOLDER_PATTERN = Pattern.compile("%([a-zA-Z0-9_]+)%");
 
+    /** The variables whose values the client chooses. */
+    private static final Set<String> CLIENT_TEXT_VARIABLES = Set.of("%player%", "%brand%");
+
     @Contract("_, _, null -> null; _, _, !null -> !null")
     private @Nullable String replacePlaceholders(
-            @Nullable CultPlayer cultPlayer, @Nullable PlatformPlayer platformPlayer, @Nullable String string) {
+            @Nullable CultPlayer cultPlayer,
+            @Nullable PlatformPlayer platformPlayer,
+            @Nullable String string,
+            boolean clientTextAsText) {
         if (string == null) return null;
 
         // Without a '%' there is nothing to replace, so skip all allocation.
@@ -100,6 +115,8 @@ public class MessageUtil {
                 final Function<GrimUser, String> func = variableReplacements.get(keyWithPercent);
                 if (func != null) {
                     value = func.apply(cultPlayer);
+                    if (clientTextAsText && value != null && CLIENT_TEXT_VARIABLES.contains(keyWithPercent))
+                        value = plainText(value);
                 }
             }
 
@@ -116,10 +133,10 @@ public class MessageUtil {
 
         String cultReplaced = sb.toString();
 
-        return CultAPI.INSTANCE
-                .getMessagePlaceHolderManager()
-                .replacePlaceholders(platformPlayer, cultReplaced)
-                .replace(PLACEHOLDER_ESCAPE_CHAR, '%');
+        String replaced =
+                CultAPI.INSTANCE.getMessagePlaceHolderManager().replacePlaceholders(platformPlayer, cultReplaced);
+        // miniMessage restores the escaped '%' after the template's own placeholders.
+        return clientTextAsText ? replaced : replaced.replace(PLACEHOLDER_ESCAPE_CHAR, '%');
     }
 
     public @NotNull Component replacePlaceholders(@NotNull CultPlayer player, @NotNull Component component) {
@@ -172,7 +189,9 @@ public class MessageUtil {
                 .replace("§l", "<bold>")
                 .replace("§m", "<strikethrough>")
                 .replace("§n", "<underlined>")
-                .replace("§o", "<italic>");
+                .replace("§o", "<italic>")
+                .replace(AMPERSAND_ESCAPE_CHAR, '&')
+                .replace(PLACEHOLDER_ESCAPE_CHAR, '%');
 
         return MiniMessage.miniMessage().deserialize(string, resolvers).compact();
     }
@@ -180,6 +199,15 @@ public class MessageUtil {
     @Contract("null -> !null; !null -> !null")
     public @NotNull String miniMessageSafe(@Nullable String string) {
         return string == null ? "" : MiniMessage.miniMessage().escapeTags(string);
+    }
+
+    /** {@code string} for a {@link #miniMessage} template, shown as written: no tags, colour codes or placeholders. */
+    @Contract("null -> !null; !null -> !null")
+    public @NotNull String plainText(@Nullable String string) {
+        if (string == null) return "";
+        return miniMessageSafe(stripColor(string))
+                .replace('&', AMPERSAND_ESCAPE_CHAR)
+                .replace('%', PLACEHOLDER_ESCAPE_CHAR);
     }
 
     public Component getParsedComponent(Sender sender, String key, String fallbackText) {
@@ -194,7 +222,7 @@ public class MessageUtil {
         String message = CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse(key, fallbackText);
         // Before the shared placeholders, which would take a name such as %player% for the sender.
         for (Map.Entry<String, String> value : values.entrySet())
-            message = message.replace("%" + value.getKey() + "%", miniMessageSafe(value.getValue()));
+            message = message.replace("%" + value.getKey() + "%", plainText(value.getValue()));
         return MessageUtil.miniMessage(MessageUtil.replacePlaceholders(sender, message));
     }
 
