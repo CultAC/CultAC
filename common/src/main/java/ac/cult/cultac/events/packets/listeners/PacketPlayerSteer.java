@@ -5,10 +5,8 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.utils.data.KnownInput;
-import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 
@@ -16,23 +14,15 @@ public class PacketPlayerSteer {
     // LOW
 
     /**
-     * LocalPlayer#tick (26.3: LocalPlayer#sendChanges) sends at most one player_input per client tick, before
-     * Minecraft#tick's client_tick_end. A further one before that tick end is not forwarded and sets no keys, so the
-     * server's keys only change with the input the tick's movement is judged by.
+     * LocalPlayer#tick (26.3: LocalPlayer#sendChanges) sends the tick's player_input right before the tick's movement,
+     * or else Minecraft#tick's client_tick_end. The input waits for that packet and a later one replaces it, so the
+     * server's keys change only with the movement or tick end judged by the keys the proxy last read.
      */
     public void onPlayerInputArrival(
             PacketReceiveEvent<ServerboundPlayerInput> event, CultPlayer player, ServerboundPlayerInput packet) {
-        // Clients before 1.21.2 send no tick end, and their translated inputs keep no per-tick count.
+        // Clients before 1.21.2 send no tick end to release the input.
         if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return;
-        PacketStateData state = player.packetStateData;
-        // In observe-only the codec forwards a cancelled packet, so the server applies every input.
-        if (state.playerInputThisClientTick && !player.isObserveOnly()) event.cancelFinally();
-        state.playerInputThisClientTick = true;
-    }
-
-    /** Every client_tick_end the client sent closes its input tick, also one a later handler rejects. */
-    public void onClientTickEndArrival(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        player.packetStateData.playerInputThisClientTick = false;
+        if (!player.isObserveOnly()) player.user.getCultConnection().forwardHold().markTickInput();
     }
 
     @CultPacketHandler

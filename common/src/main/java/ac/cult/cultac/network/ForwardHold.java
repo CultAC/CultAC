@@ -12,8 +12,9 @@ import org.jetbrains.annotations.Nullable;
  * Serverbound packets the decoder has processed and not yet passed to the server, in receipt order. A gated packet
  * waits until it is settled, then is forwarded or dropped; every packet received after it waits behind it, so the
  * server receives the client's order without the dropped packets. Processing stays at receipt: only the forwarding
- * waits. A hold past {@link #MAX_PACKETS} packets or {@link #MAX_BYTES} bytes settles its gates as dropped. Owner loop
- * only.
+ * waits. A hold past {@link #MAX_PACKETS} packets or {@link #MAX_BYTES} bytes settles its gates as dropped. The tick
+ * input waits apart from that order: a later one replaces it, and it is forwarded right before the packet that
+ * releases it. Owner loop only.
  */
 @ApiStatus.Internal
 public final class ForwardHold {
@@ -66,6 +67,44 @@ public final class ForwardHold {
     private final List<Gate> open = new ArrayList<>();
     private @Nullable Gate receiving;
     private int heldBytes;
+    private boolean receivingTickInput;
+    private @Nullable Held tickInput;
+
+    /** The packet being received is the client tick's input: if forwarded, it waits for {@link #releaseTickInput}. */
+    public void markTickInput() {
+        receivingTickInput = true;
+    }
+
+    /** Takes the mark {@link #markTickInput} put on the packet being received. */
+    public boolean takeTickInputMark() {
+        boolean marked = receivingTickInput;
+        receivingTickInput = false;
+        return marked;
+    }
+
+    /** Keeps the forwarded tick input until {@link #releaseTickInput}; it replaces a tick input still kept. */
+    public void keepTickInput(ByteBuf frame, @Nullable PacketType<?> type, @Nullable Object packet) {
+        if (tickInput != null) tickInput.frame.release();
+        tickInput = new Held(frame, type, packet, null);
+    }
+
+    /** Forwards the kept tick input, behind every packet still held and ahead of the packet being received. */
+    public void releaseTickInput(Sink sink) {
+        Held input = tickInput;
+        if (input == null) return;
+        tickInput = null;
+        if (held.isEmpty()) {
+            sink.send(input.frame, input.type, input.packet);
+            return;
+        }
+        held.addLast(input);
+        heldBytes += input.frame.readableBytes();
+    }
+
+    /** Whether a packet waits: a held one, a gate, or the kept tick input. */
+    public boolean keepsAny() {
+        return holds() || tickInput != null;
+    }
 
     /** Gates the packet being received: it and everything after it wait until {@link #settle}. */
     public void gate() {
@@ -135,12 +174,16 @@ public final class ForwardHold {
     public void forwardAll(Sink sink) {
         settle(true);
         drain(sink);
+        releaseTickInput(sink);
     }
 
     /** Releases every held packet of a connection the server no longer reads. */
     public void discard() {
         open.clear();
         receiving = null;
+        receivingTickInput = false;
+        if (tickInput != null) tickInput.frame.release();
+        tickInput = null;
         heldBytes = 0;
         Held next;
         while ((next = held.pollFirst()) != null) next.frame.release();

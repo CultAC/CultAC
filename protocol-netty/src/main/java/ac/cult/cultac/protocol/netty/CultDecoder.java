@@ -78,7 +78,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) {
         ForwardHold hold = connection.forwardHold();
-        if (!hold.holds()) return;
+        if (!hold.keepsAny()) return;
         if (!ctx.channel().isActive()) {
             hold.discard();
             return;
@@ -172,10 +172,12 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             readType = null;
             boolean forwards = process(frame, this);
             ForwardHold hold = connection.forwardHold();
+            boolean tickInput = hold.takeTickInputMark();
             if (!forwards) {
                 hold.notForwarded();
                 // A use whose rejected tick end no check judged does not reach the server
                 if (endsHold(readType)) hold.settle(readType != ServerboundPackets.CLIENT_TICK_END);
+                if (releasesTickInput(readType)) hold.releaseTickInput(this);
                 hold.drain(this);
                 return;
             }
@@ -185,6 +187,11 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             forwardFrame = null;
             forwardType = null;
             forwardPacket = null;
+            if (tickInput) {
+                hold.keepTickInput(output, type, packet);
+                return;
+            }
+            if (releasesTickInput(readType)) hold.releaseTickInput(this);
             if (!hold.holds()) {
                 send(output, type, packet);
                 return;
@@ -222,6 +229,11 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
         return type == ServerboundPackets.CLIENT_TICK_END
                 || type == ServerboundPackets.CONFIGURATION_ACKNOWLEDGED
                 || connection.phase(PacketDirection.SERVERBOUND) != ConnectionPhase.PLAY;
+    }
+
+    /** LocalPlayer sends the tick's movement, or else Minecraft#tick its tick end, right after the tick's input. */
+    private boolean releasesTickInput(PacketType<?> type) {
+        return endsHold(type) || type == ServerboundPackets.MOVE_PLAYER || type == ServerboundPackets.MOVE_VEHICLE;
     }
 
     /** Consumes the input on every path; false means it was cancelled or discarded, else {@code output} holds it. */
