@@ -1721,6 +1721,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     ? MovementEngines.requireForProfile(movementProfile)
                             .commitNextTick(this.player, result, this.lastPrediction, diff, this.profileCarry)
                     : preparedCommit;
+            PredictionCarry carryBefore = this.profileCarry;
+            int eyeContactBefore = this.lastWorldEyeFluidContact;
             this.applyProfileCommit(commit);
             if (!this.player.isBedrockMovement()) {
                 this.worldStageBuilder.commitJavaNetherPortalContact(this.player, result);
@@ -1776,7 +1778,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.player.swimState.onClientTick(result.getSimulationContext().getWorldData().isSwimming());
             }
             JavaPassAfterTravel posePass = JavaMovementEngine.passAfterTravel(result);
-            this.commitSwimExit(result, posePass, possibleAttackReset);
+            this.commitSwimExit(result, posePass, possibleAttackReset, carryBefore, eyeContactBefore);
             if (posePass == null) this.player.refreshPlayerPose();
             else this.player.refreshPlayerPose(posePass.pose());
         } else {
@@ -1790,7 +1792,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
      * until an updateSwimming finds it sprinting, LocalPlayer#isUnderWater and in water at Entity#blockPosition.
      */
     private void commitSwimExit(
-            PredictionResult result, @Nullable JavaPassAfterTravel posePass, boolean possibleAttackReset) {
+            PredictionResult result,
+            @Nullable JavaPassAfterTravel posePass,
+            boolean possibleAttackReset,
+            @Nullable PredictionCarry carryBefore,
+            int eyeContactBefore) {
         ClientSwimState swim = this.player.swimState;
         SimulationContext context = result.getSimulationContext();
         if (context.getVehicle() != null
@@ -1802,7 +1808,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         Pose exit = swim.exitPose();
         if (exit == null) {
             if (possibleAttackReset) {
-                swim.onPossibleExit(this.exitPose(context, posePass, this.player.pose), this.isLastWorldEyeInWater());
+                swim.onPossibleExit(this.exitPose(context, posePass, this.player.pose), true, false, false);
             }
             return;
         }
@@ -1811,7 +1817,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         boolean resumes = !possibleAttackReset
                 && this.player.sprintState.flagBeforeAiStep()
                 && (swim.exitSwimming()
-                        || swim.exitUnderwater()
+                        || swim.exitUnderwaterInEvery(this.wasUnderwater(result, carryBefore, eyeContactBefore, true))
                                 && ClientFluidQueries.is(
                                         this.player,
                                         ClientFluidQueries.fluidAt(
@@ -1827,7 +1833,30 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 new SimpleCollisionBox(), from.x, from.y, from.z, exit.width * scale, exit.height * scale);
         swim.onPossibleExit(
                 this.exitPose(context, posePass, exit),
+                false,
+                true,
                 ClientFluidQueries.eyesInWater(this.player, body, from, from.y + exit.eyeHeight * scale));
+    }
+
+    /**
+     * LocalPlayer#isUnderWater as the committed tick's Entity#updateSwimming read it, in any or in {@code every} state
+     * the engine's client started that tick from.
+     */
+    private boolean wasUnderwater(
+            PredictionResult result, @Nullable PredictionCarry carryBefore, int eyeContactBefore, boolean every) {
+        SimulationContext context = result.getSimulationContext();
+        boolean committed = context.getWorldData().isUnderwater();
+        if (!every) return committed || ClientFluidQueries.eyeContactInWater(this.player, eyeContactBefore);
+        if (!committed) return false;
+        if (context.getVersion().isNewerThanOrEquals(ClientVersion.V_26_1)
+                && carryBefore instanceof JavaPredictionCarry carried
+                && !carried.states().isEmpty()) {
+            for (JavaPredictionCarry.State state : carried.states()) {
+                if (!ClientFluidQueries.eyeContactInWater(this.player, state.playerEyeFluidContact())) return false;
+            }
+            return true;
+        }
+        return ClientFluidQueries.eyeContactInWater(this.player, eyeContactBefore);
     }
 
     // Player#updatePlayerPose out of the swim; without room to swim it keeps the pose the tick started in.

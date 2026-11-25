@@ -19,6 +19,10 @@ public final class ClientSwimState {
     private boolean swimming;
     // The pose of the ticks where a possible attack reset cleared Entity#isSwimming, while that client stays out.
     private @Nullable Pose exitPose;
+    // A client left the swim in the latest such tick, from the engine's pose and so with the engine's eye.
+    private boolean exitLeft;
+    // A client already out of the swim stayed out, with its own eye.
+    private boolean exitStayed;
     private boolean exitUnderwater;
     // The flag the server's shared flags gave the client out of the swim; Player#updatePlayerPose has not read it yet.
     private boolean exitSwimming;
@@ -33,13 +37,16 @@ public final class ClientSwimState {
     }
 
     /**
-     * A committed tick the engine swims in, where Player#causeExtraKnockback's setSprinting(false) may have run before
-     * Entity#baseTick's updateSwimming, or that follows such a tick: the client out of the swim ended it in
-     * {@code pose}, and its eye was {@code underwater} at the tick's start, which LocalPlayer#isUnderWater reads next.
+     * A committed tick the engine swims in ends with a client out of the swim in {@code pose}: one that
+     * Player#causeExtraKnockback's setSprinting(false) took out of it before Entity#baseTick's updateSwimming
+     * ({@code left}), or one already out that stayed out ({@code stayed}), whose eye was {@code underwater} at the
+     * tick's start. LocalPlayer#isUnderWater reads that eye next.
      */
-    public void onPossibleExit(Pose pose, boolean underwater) {
+    public void onPossibleExit(Pose pose, boolean left, boolean stayed, boolean underwater) {
         exitPose = pose;
-        exitUnderwater = underwater;
+        exitLeft = left;
+        exitStayed = stayed;
+        exitUnderwater = stayed && underwater;
         exitSwimming = false;
     }
 
@@ -53,9 +60,17 @@ public final class ClientSwimState {
         return exitPose;
     }
 
-    /** LocalPlayer#isUnderWater of the client out of the swim, for its next Entity#updateSwimming. */
-    public boolean exitUnderwater() {
-        return exitUnderwater;
+    /**
+     * Whether LocalPlayer#isUnderWater holds, for its next Entity#updateSwimming, in some client out of the swim, given
+     * whether it holds in any state the engine's client started that tick from.
+     */
+    public boolean exitUnderwaterInAny(boolean engineInAny) {
+        return exitLeft && engineInAny || exitStayed && exitUnderwater;
+    }
+
+    /** Whether it holds in every client out of the swim, given whether it holds in every state of the engine's. */
+    public boolean exitUnderwaterInEvery(boolean engineInEvery) {
+        return (!exitLeft || engineInEvery) && (!exitStayed || exitUnderwater);
     }
 
     /** Entity#isSwimming of the client out of the swim, for its next Entity#updateSwimming. */

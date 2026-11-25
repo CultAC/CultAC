@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerAttack;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -26,7 +28,9 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -78,6 +82,43 @@ class JavaSwimExitEyeTest {
             sharedFlags(f, (byte) 0);
             assertEquals(List.of(SWIM, STAND), f.player.getPossibleEyeHeights());
         }
+    }
+
+    @Test
+    void theStandingEyeStaysWhileAnyCarriedEyeLeavesTheClientOutOfTheSwim() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 velocity = attacked(f, swim(f));
+            SimulationProcessor processor = f.player.checkManager.getSimulationProcessor();
+            Field carried = SimulationProcessor.class.getDeclaredField("profileCarry");
+            carried.setAccessible(true);
+            JavaPredictionCarry carry = (JavaPredictionCarry) carried.get(processor);
+            List<JavaPredictionCarry.State> states = new ArrayList<>(carry.states());
+            for (JavaPredictionCarry.State state : carry.states()) states.add(dryEye(state));
+            carried.set(processor, new JavaPredictionCarry(carry.actor(), carry.fallDistance(), states));
+
+            // LocalPlayer#aiStep stops the sprint of the client whose eye is out of the water.
+            f.command(PlayerCommandAction.STOP_SPRINTING);
+            Vec3 delta = velocity.add(input(f));
+            position = position.add(delta.x, 0.0, delta.z);
+            PredictionResult next = f.tick(position, false);
+            assertTrue(exact(next), describe(next));
+            assertEquals(List.of(SWIM, STAND), f.player.getPossibleEyeHeights());
+        }
+    }
+
+    private static JavaPredictionCarry.State dryEye(JavaPredictionCarry.State state) {
+        return new JavaPredictionCarry.State(
+                state.velocity(),
+                state.fallDistance(),
+                state.stuckSpeed(),
+                state.movementPatch(),
+                state.pistonStart(),
+                state.powderContact(),
+                0,
+                state.fluidTagOrder(),
+                state.spinRebound(),
+                state.fallDistanceMax(),
+                state.vanillaMath());
     }
 
     /** The tick of a possible attack reset; the velocity carried into the next tick. */
