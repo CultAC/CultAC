@@ -18,6 +18,7 @@ import java.util.*;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.jetbrains.annotations.Nullable;
 
 public class PunishmentManager implements ConfigReloadable {
@@ -135,8 +136,12 @@ public class PunishmentManager implements ConfigReloadable {
         return name == null ? null : name.toLowerCase(Locale.ROOT);
     }
 
-    /** {@code original} with its placeholders filled; {@code verbose} is rendered only for a %verbose% in it. */
-    private String replaceAlertPlaceholders(ParsedCommand command, int vl, Check check, Supplier<String> verbose) {
+    /**
+     * {@code original} with its placeholders filled, client values and {@code verbose} as text for {@link
+     * MessageUtil#miniMessage} when {@code asText}; {@code verbose} is rendered only for a %verbose% in it.
+     */
+    private String replaceAlertPlaceholders(
+            ParsedCommand command, int vl, Check check, Supplier<String> verbose, boolean asText) {
         String original = command.alertFormat != null
                 ? command.alertFormat
                 : command.command.replace("[alert]", alertString).replace("[proxy]", proxyAlertString);
@@ -145,13 +150,12 @@ public class PunishmentManager implements ConfigReloadable {
                 .replace("%vl%", Integer.toString(vl))
                 .replace("%description%", check.getDescription())
                 .replace("%stable_key%", check.getStableKey());
-        boolean shown = command.action().equals("[alert]") || command.action().equals("[proxy]");
-        String replaced = shown
+        String replaced = asText
                 ? MessageUtil.replacePlaceholdersForMiniMessage(player, filled)
                 : MessageUtil.replacePlaceholders(player, filled);
         if (!replaced.contains("%verbose%")) return replaced;
         String text = safeGet(verbose);
-        return replaced.replace("%verbose%", shown ? MessageUtil.plainText(text) : MessageUtil.miniMessageSafe(text));
+        return replaced.replace("%verbose%", asText ? MessageUtil.plainText(text) : MessageUtil.miniMessageSafe(text));
     }
 
     public boolean handleAlert(CultPlayer player, String verbose, Check check) {
@@ -185,7 +189,7 @@ public class PunishmentManager implements ConfigReloadable {
                             && CultAPI.INSTANCE.getAlertManager().hasVerboseListeners(player)) {
                         sentDebug = true;
                         try {
-                            String listenerCmd = replaceAlertPlaceholders(command, vl, check, verbose);
+                            String listenerCmd = replaceAlertPlaceholders(command, vl, check, verbose, true);
                             verboseListeners = CultAPI.INSTANCE
                                     .getAlertManager()
                                     .sendVerbose(
@@ -203,7 +207,7 @@ public class PunishmentManager implements ConfigReloadable {
                         if (shouldRun) {
                             Supplier<String> text = command.command.equals("[log]") ? logVerbose : verbose;
                             Supplier<String> shown = () -> safeGet(text);
-                            String cmd = replaceAlertPlaceholders(command, vl, check, shown);
+                            String cmd = replaceAlertPlaceholders(command, vl, check, shown, false);
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
                             boolean withheld = (player.isObserveOnly() || player.isPunishmentsPaused())
@@ -238,11 +242,20 @@ public class PunishmentManager implements ConfigReloadable {
                                                     .recordFlagFromCheck(player, check, vl, verboseWithoutGl);
                                         }
                                     }
+                                    // Every version of the receiving server reads the line as MiniMessage.
                                     case "[proxy]" ->
-                                        CultAPI.INSTANCE.getAlertManager().forwardAlert(cmd);
+                                        CultAPI.INSTANCE
+                                                .getAlertManager()
+                                                .forwardAlert(MiniMessage.miniMessage()
+                                                        .serialize(MessageUtil.miniMessage(
+                                                                replaceAlertPlaceholders(
+                                                                        command, vl, check, shown, true))));
                                     case "[alert]" -> {
                                         sentDebug = true;
-                                        Component message = CheckNameLink.link(MessageUtil.miniMessage(cmd), check);
+                                        Component message = CheckNameLink.link(
+                                                MessageUtil.miniMessage(
+                                                        replaceAlertPlaceholders(command, vl, check, shown, true)),
+                                                check);
                                         if (testMode) { // secret test mode
                                             if (verboseListeners == null
                                                     || verboseListeners
