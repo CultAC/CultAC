@@ -68,11 +68,9 @@ public class FairReach extends Check implements CheckListener {
     private final SentRidingGraph riding = new SentRidingGraph();
     // Counts the client levels replaced so far.
     private int level;
-    // Counts the sent changes getControllingPassenger can read for the attacker's root, then the last applied here
-    // and the last its client answered; while one applied here is unanswered the server alone decides control.
-    private int controlChanges;
-    private int controlApplied;
-    private int controlAnswered;
+    // The transaction of the last sent change getControllingPassenger reads for the attacker's root applied here; until
+    // its client answers it the server alone decides control.
+    private int controlAppliedAt;
     private final SimpleCollisionBox seatBox = new SimpleCollisionBox();
     private final SimpleCollisionBox seat = new SimpleCollisionBox();
 
@@ -287,9 +285,7 @@ public class FairReach extends Check implements CheckListener {
     }
 
     private void controlChange() {
-        int change = ++controlChanges;
-        schedule(new PendingControl(change));
-        player.latencyUtils.addRealTimeTaskNext(() -> controlAnswered = change);
+        schedule(new PendingControl(player.lastTransactionSent.get() + 1));
     }
 
     private void trackVehicle(int vehicleId) {
@@ -407,7 +403,7 @@ public class FairReach extends Check implements CheckListener {
     private boolean drivesItself(PacketEntity vehicle) {
         if (vehicle == null || vehicle.getRiding() != null) return false;
         int vehicleId = vehicle.getEntityId();
-        return controlAnswered >= controlApplied
+        return player.lastTransactionReceived.get() >= controlAppliedAt
                 && riding.vehicleOf(player.entityID) == vehicleId
                 && !riding.rides(vehicleId)
                 && riding.passengersOf(vehicleId)[0] == player.entityID
@@ -530,15 +526,15 @@ public class FairReach extends Check implements CheckListener {
     }
 
     private final class PendingControl extends PendingChange {
-        private final int change;
+        private final int transaction;
 
-        private PendingControl(int change) {
-            this.change = change;
+        private PendingControl(int transaction) {
+            this.transaction = transaction;
         }
 
         @Override
         void apply() {
-            controlApplied = change;
+            controlAppliedAt = transaction;
         }
     }
 
