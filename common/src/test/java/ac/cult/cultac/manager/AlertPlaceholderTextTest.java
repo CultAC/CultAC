@@ -126,7 +126,7 @@ class AlertPlaceholderTextTest {
 
     @Test
     void aBrandInAnAlertIsShownAsWritten() throws ReflectiveOperationException {
-        String brand = "<click:run_command:'/cult debug channels Steve'><insert:x>&cvanilla %verbose%";
+        String brand = "<click:run_command:'/x'><insert:x>&cvanilla %verbose%";
         Component alert = alert("Steve", brand);
         assertTrue(PlainTextComponentSerializer.plainText().serialize(alert).endsWith(" " + brand));
         List<String> insertions = new ArrayList<>();
@@ -157,7 +157,7 @@ class AlertPlaceholderTextTest {
 
     @Test
     void aBrandInsideAQuotedHoverArgumentStaysInsideIt() throws ReflectiveOperationException {
-        String brand = "'><click:run_command:'/cult observe on";
+        String brand = "'><click:run_command:'/x";
         Component alert = alert("&f<hover:show_text:'Brand: %brand%'>%player%</hover>", "Steve", brand, "verbose");
         List<String> insertions = new ArrayList<>();
         List<ClickEvent> clicks = new ArrayList<>();
