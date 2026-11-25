@@ -81,6 +81,29 @@ class VelocitySetbackTest {
         });
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("handlers")
+    void anExemptMoveBeforeAPendingCorrectionRecordsNoFlag(
+            String configName, Function<CultPlayer, PacketModHandler> handler) {
+        run(handler, (rig, check) -> {
+            doReturn(true).when(rig.setbacks).isPendingSetback();
+            rig.velocityTick(check, IGNORED_OFFSET, false, true);
+            assertEquals(0, check.violations);
+            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
+            verify(rig.setbacks, never()).executeViolationSetback();
+        });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("handlers")
+    void anExemptMoveWithoutAPendingCorrectionFlags(String configName, Function<CultPlayer, PacketModHandler> handler) {
+        run(handler, (rig, check) -> {
+            rig.velocityTick(check, IGNORED_OFFSET, false, true);
+            assertEquals(1, check.violations);
+            verify(rig.setbacks, times(1)).executeViolationSetback(same(check));
+        });
+    }
+
     private static void run(
             Function<CultPlayer, PacketModHandler> handler, BiConsumer<Rig, PacketModHandler> scenario) {
         OfflineCultTestBootstrap.installConfig();
@@ -118,11 +141,17 @@ class VelocitySetbackTest {
 
         /** As {@link #velocityTick(PacketModHandler, double)}; {@code setback}: a setback sent the velocity. */
         void velocityTick(PacketModHandler check, double offset, boolean setback) {
+            velocityTick(check, offset, setback, false);
+        }
+
+        /** As {@link #velocityTick(PacketModHandler, double, boolean)}; {@code exempt}: the movement is exempt. */
+        void velocityTick(PacketModHandler check, double offset, boolean setback, boolean exempt) {
             var velocity = new TransactionVel(new Vec3(0, 0.4, 0), 1, true, setback);
             velocity.addOffset(offset);
             check.secondBread = velocity;
             var result = mock(PredictionResult.class);
             when(result.getInitialStartingVel()).thenReturn(mock(PredVector.class));
+            when(result.isExempt()).thenReturn(exempt);
             check.onPredictionComplete(new PredictionComplete(result));
         }
     }
