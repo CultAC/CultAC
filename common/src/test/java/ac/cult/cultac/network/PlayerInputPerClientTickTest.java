@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.manager.init.start.PacketManager;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -109,6 +110,17 @@ class PlayerInputPerClientTickTest {
                     BlockIds.AIR.defaultState(),
                     f.player.compensatedWorld.getBlockStateIdAt(standingUse.above()),
                     "the server has the shift key up and opens the chest");
+        }
+    }
+
+    @Test
+    void anInputKeptWhenObserveOnlyStartsReachesTheServerFirst() throws Exception {
+        try (var f = connect(new JavaTickFixture())) {
+            f.place(START, Vec3.ZERO);
+            read(f, inputFrame(f, SNEAK));
+            JavaTickFixture.setField(CultPlayer.class, f.player, "observeOnlySet", true);
+            read(f, inputFrame(f, NONE), standingFrame(f), tickEndFrame(f));
+            assertEquals(List.of("player_input shift", "player_input", "move_player", "client_tick_end"), forwarded(f));
         }
     }
 
