@@ -145,6 +145,29 @@ class PunishmentThresholdsTest {
     }
 
     @Test
+    void aCommandAvailableAgainAfterItsWindowCountsOnlyLaterFlags() throws Exception {
+        List<String> ran = new ArrayList<>();
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        try (var ignored = platform(ran, new AtomicBoolean(true))) {
+            PunishmentManager first = punishments("3:0 ban probe");
+            for (int i = 0; i < 3; i++) flag(first);
+            now += 100_000;
+            flag(first);
+            flag(first);
+            first.release();
+
+            now += 201_000;
+            PunishmentManager second = punishments("3:0 ban probe");
+            flag(second);
+            flag(second);
+            assertEquals(List.of("ban probe"), ran);
+            flag(second);
+
+            assertEquals(List.of("ban probe", "ban probe"), ran);
+        }
+    }
+
+    @Test
     void overlappingConnectionsCountInOneWindowAndRunACommandOnce() throws Exception {
         List<String> ran = new ArrayList<>();
         when(player.getUniqueId()).thenReturn(UUID.randomUUID());

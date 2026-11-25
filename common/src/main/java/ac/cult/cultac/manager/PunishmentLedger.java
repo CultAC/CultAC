@@ -94,6 +94,7 @@ final class PunishmentLedger {
                     if (command.interval > 0 || command.executeCount == 0) continue;
                     if (now - command.usedAt > removeViolationsAfter) {
                         command.executeCount = 0;
+                        command.withheldThrough = violations.added();
                     } else {
                         holds = true;
                     }

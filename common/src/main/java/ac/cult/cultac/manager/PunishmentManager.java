@@ -370,7 +370,7 @@ public class PunishmentManager implements ConfigReloadable {
 
     /**
      * Whether {@code command} runs for the flag that brought the group to {@code violationCount}. A recurring command
-     * moves to its next boundary here; a one-time command counts only the flags after its last withheld run.
+     * moves to its next boundary here; a one-time command counts only the flags after its window mark.
      */
     private static boolean due(PunishGroup group, ParsedCommand command, int violationCount) {
         synchronized (group.violations) {
@@ -550,7 +550,7 @@ class ParsedCommand {
     public long usedAt;
     // For M=0, a run of this command is on its way to the platform.
     public boolean claimed;
-    // For M=0, the window mark its last withheld run ends at; only later flags count toward it.
+    // For M=0, only the flags added after this window mark count toward it.
     public long withheldThrough;
     // For M=0, the run that waits for a server able to run it.
     public @Nullable Delivery waiting;
