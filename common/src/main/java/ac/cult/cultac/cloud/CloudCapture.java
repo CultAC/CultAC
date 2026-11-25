@@ -854,7 +854,6 @@ public final class CloudCapture implements PlayerObserver {
         if (ended.uncaptured) idle = false;
         actions.forget();
         if (ended.timeout != null) ended.timeout.cancel(false);
-        if (ended.profileChecks != null) ended.profileChecks.cancel(false);
         if (ended.uncaptured) return;
         if (ended.uplink == null) {
             stream.reset();
@@ -871,8 +870,9 @@ public final class CloudCapture implements PlayerObserver {
         PredictionDiagnostics.INSTANCE.ended(player);
     }
 
-    /** The segment's socket is let go after its LEAVE. */
+    /** The segment's socket is let go after its LEAVE, and its profile checks with it. */
     private void leaveUplink(Segment owner) {
+        stopProfiles(owner);
         mirror();
         owner.uplink.diagnostics().left(player.getUniqueId());
         owner.uplink.unregister(player.getUniqueId(), owner.registration);
@@ -991,8 +991,7 @@ public final class CloudCapture implements PlayerObserver {
 
     /** The client profile goes out when the socket takes it, then is checked every {@link ProfileUploads#CHECK_NANOS}. */
     private void profiles(Segment owner, Uplink uplink, long generation) {
-        if (owner.profileChecks != null) owner.profileChecks.cancel(false);
-        owner.profileChecks = null;
+        stopProfiles(owner);
         owner.profiles.reset();
         Channel tapped = channel;
         if (tapped == null || !uplink.profiles(generation)) return;
@@ -1003,6 +1002,11 @@ public final class CloudCapture implements PlayerObserver {
                         ProfileUploads.CHECK_NANOS,
                         ProfileUploads.CHECK_NANOS,
                         TimeUnit.NANOSECONDS);
+    }
+
+    private static void stopProfiles(Segment owner) {
+        if (owner.profileChecks != null) owner.profileChecks.cancel(false);
+        owner.profileChecks = null;
     }
 
     private void sendProfile(Segment owner, long generation) {

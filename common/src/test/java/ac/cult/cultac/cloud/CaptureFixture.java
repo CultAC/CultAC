@@ -177,6 +177,8 @@ final class CaptureFixture implements AutoCloseable {
     static final class FakeUplinks implements CloudCapture.Uplinks {
         final Map<String, FakeUplink> sockets = new LinkedHashMap<>();
         boolean enabled = true;
+        /** Whether a socket opens while the upload is on. */
+        boolean opens = true;
         boolean connect = true;
         boolean profiles;
         CloudConnection.Terms terms = CloudConnection.Terms.sections(0, 0);
@@ -190,7 +192,7 @@ final class CaptureFixture implements AutoCloseable {
 
         @Override
         public FakeUplink open(String serverName) {
-            if (!enabled) return null;
+            if (!enabled || !opens) return null;
             opened++;
             return sockets.computeIfAbsent(serverName, name -> new FakeUplink(name, this));
         }

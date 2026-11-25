@@ -14,9 +14,11 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -151,5 +153,37 @@ class CloudCaptureJoinTest {
             assertEquals(fixture.player.getVersionName(), profile.getVersion());
             assertFalse(profile.hasHorizontalSensitivity());
         }
+    }
+
+    @Test
+    void theProfileChecksStopWhenTheSegmentEndsOrLosesItsSocket() throws ReflectiveOperationException {
+        for (boolean socketLost : new boolean[] {false, true}) {
+            try (CaptureFixture fixture = new CaptureFixture(Host.SERVER, false)) {
+                CloudCapture.segmentBinder((player, bind, playing) -> bind.accept("a"));
+                fixture.uplinks.profiles = true;
+                fixture.install();
+                Future<?> checks = profileChecks(fixture);
+                assertNotNull(checks);
+                assertFalse(checks.isDone());
+                if (socketLost) {
+                    fixture.uplinks.opens = false;
+                    fixture.install();
+                } else {
+                    fixture.capture.configurationStarted();
+                    fixture.channel.runPendingTasks();
+                }
+                assertTrue(checks.isCancelled(), "socket lost: " + socketLost);
+            }
+        }
+    }
+
+    /** The open segment's scheduled profile checks. */
+    private static Future<?> profileChecks(CaptureFixture fixture) throws ReflectiveOperationException {
+        Field segment = CloudCapture.class.getDeclaredField("segment");
+        segment.setAccessible(true);
+        Object open = segment.get(fixture.capture);
+        Field checks = open.getClass().getDeclaredField("profileChecks");
+        checks.setAccessible(true);
+        return (Future<?>) checks.get(open);
     }
 }
