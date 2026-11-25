@@ -6,6 +6,7 @@ import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
@@ -106,6 +107,50 @@ class JavaSwimExitEyeTest {
         }
     }
 
+    @Test
+    void atTheSurfaceAPossibleAttackResetWithoutASprintStopKeepsTheSwimEye() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 velocity = attacked(f, surface(f));
+            assertEquals(List.of(SWIM), f.player.getPossibleEyeHeights());
+
+            Vec3 delta = velocity.add(input(f));
+            position = position.add(delta.x, 0.0, delta.z);
+            PredictionResult next = f.tick(position, false);
+            assertTrue(exact(next), describe(next));
+            assertEquals(List.of(SWIM), f.player.getPossibleEyeHeights());
+        }
+    }
+
+    @Test
+    void atTheSurfaceAPossibleAttackResetWithASprintStopActsFromEitherEye() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 velocity = surface(f);
+            // LocalPlayer#aiStep cannot sprint again out of the swim with the eye out of the water.
+            f.command(PlayerCommandAction.STOP_SPRINTING);
+            attacked(f, velocity);
+            assertEquals(List.of(SWIM, STAND), f.player.getPossibleEyeHeights());
+        }
+    }
+
+    /** A sprint-swim whose water then ends below the swimming eye, and one tick there; the velocity carried on. */
+    private Vec3 surface(JavaTickFixture f) {
+        Vec3 velocity = swim(f, FLOOR_Y + 1.6);
+        for (int x = -8; x <= 8; x++) {
+            for (int y = FLOOR_Y + 2; y <= FLOOR_Y + 3; y++) {
+                for (int z = -4; z <= 8; z++) {
+                    f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), BlockIds.AIR.defaultState());
+                }
+            }
+        }
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        Vec3 delta = velocity.add(input(f));
+        position = position.add(delta.x, 0.0, delta.z);
+        PredictionResult result = f.tick(position, false);
+        assertTrue(exact(result), describe(result));
+        assertTrue(f.player.swimState.swimming());
+        return slowed(delta);
+    }
+
     private static JavaPredictionCarry.State dryEye(JavaPredictionCarry.State state) {
         return new JavaPredictionCarry.State(
                 state.velocity(),
@@ -156,10 +201,14 @@ class JavaSwimExitEyeTest {
      * velocity carried into the next tick.
      */
     private Vec3 swim(JavaTickFixture f) {
+        return swim(f, FLOOR_Y + 1);
+    }
+
+    private Vec3 swim(JavaTickFixture f, double y) {
         f.water(new BlockPos(-8, FLOOR_Y, -4), new BlockPos(8, FLOOR_Y + 3, 8));
         f.player.xRot = YAW;
         f.player.yRot = 0.0F;
-        position = new Vec3(0.5, FLOOR_Y + 1, 0.5);
+        position = new Vec3(0.5, y, 0.5);
         f.place(position, Vec3.ZERO);
         f.command(PlayerCommandAction.START_SPRINTING);
         f.input(SPRINT);

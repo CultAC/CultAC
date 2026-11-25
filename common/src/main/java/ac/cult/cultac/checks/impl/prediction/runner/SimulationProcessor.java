@@ -1788,8 +1788,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     /**
      * Player#causeExtraKnockback's setSprinting(false) may have run before Entity#baseTick's updateSwimming, which then
-     * left the swim, and LocalPlayer#aiStep re-sprinted without a STOP_SPRINTING. That client stays out of the swim
-     * until an updateSwimming finds it sprinting, LocalPlayer#isUnderWater and in water at Entity#blockPosition.
+     * left the swim. That client stays out of the swim until an updateSwimming finds it sprinting,
+     * LocalPlayer#isUnderWater and in water at Entity#blockPosition. Out of the swim in water with its eye out of it,
+     * LocalPlayer#aiStep cannot keep or start a sprint, so the client ends such a tick with STOP_SPRINTING announced.
      */
     private void commitSwimExit(
             PredictionResult result,
@@ -1805,37 +1806,45 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             swim.endExit();
             return;
         }
+        boolean sprintAnnounced = this.player.isSprinting;
+        boolean left = possibleAttackReset
+                && (!sprintAnnounced || this.wasUnderwater(result, carryBefore, eyeContactBefore, false));
         Pose exit = swim.exitPose();
-        if (exit == null) {
-            if (possibleAttackReset) {
-                swim.onPossibleExit(this.exitPose(context, posePass, this.player.pose), true, false, false);
-            }
-            return;
-        }
+        boolean stayed = false;
         Vec3 from = context.getStart();
-        // A swimming client's updateSwimming needs only isInWater, which its taller box has wherever the engine swims.
-        boolean resumes = !possibleAttackReset
-                && this.player.sprintState.flagBeforeAiStep()
-                && (swim.exitSwimming()
-                        || swim.exitUnderwaterInEvery(this.wasUnderwater(result, carryBefore, eyeContactBefore, true))
-                                && ClientFluidQueries.is(
-                                        this.player,
-                                        ClientFluidQueries.fluidAt(
-                                                this.player.compensatedWorld,
-                                                BlockPos.containing(from.x, from.y, from.z)),
-                                        FluidTags.WATER));
-        if (resumes) {
+        if (exit != null) {
+            // A swimming client's updateSwimming needs only isInWater, which its taller box has where the engine swims.
+            boolean resumable = !possibleAttackReset
+                    && this.player.sprintState.flagBeforeAiStep()
+                    && (swim.exitSwimming()
+                            || ClientFluidQueries.is(
+                                    this.player,
+                                    ClientFluidQueries.fluidAt(
+                                            this.player.compensatedWorld,
+                                            BlockPos.containing(from.x, from.y, from.z)),
+                                    FluidTags.WATER));
+            stayed = resumable
+                    ? !swim.exitSwimming()
+                            && !sprintAnnounced
+                            && !swim.exitUnderwaterInEvery(
+                                    this.wasUnderwater(result, carryBefore, eyeContactBefore, true))
+                    : !sprintAnnounced
+                            || swim.exitUnderwaterInAny(
+                                    this.wasUnderwater(result, carryBefore, eyeContactBefore, false));
+        }
+        if (!left && !stayed) {
             swim.endExit();
             return;
         }
-        float scale = this.player.dimensionScale;
-        SimpleCollisionBox body = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                new SimpleCollisionBox(), from.x, from.y, from.z, exit.width * scale, exit.height * scale);
+        boolean underwater = false;
+        if (stayed) {
+            float scale = this.player.dimensionScale;
+            SimpleCollisionBox body = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                    new SimpleCollisionBox(), from.x, from.y, from.z, exit.width * scale, exit.height * scale);
+            underwater = ClientFluidQueries.eyesInWater(this.player, body, from, from.y + exit.eyeHeight * scale);
+        }
         swim.onPossibleExit(
-                this.exitPose(context, posePass, exit),
-                false,
-                true,
-                ClientFluidQueries.eyesInWater(this.player, body, from, from.y + exit.eyeHeight * scale));
+                this.exitPose(context, posePass, stayed ? exit : this.player.pose), left, stayed, underwater);
     }
 
     /**
