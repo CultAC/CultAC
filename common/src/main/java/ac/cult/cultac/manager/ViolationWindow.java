@@ -1,10 +1,12 @@
 package ac.cult.cultac.manager;
 
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayDeque;
 
 /** The flags a punishment group counts, oldest first; each flag counts once until it is older than the window. */
 final class ViolationWindow {
     private final ArrayDeque<Run> runs = new ArrayDeque<>();
+    private final Object2IntOpenHashMap<String> counts = new Object2IntOpenHashMap<>();
     private int size;
     private long added;
 
@@ -16,6 +18,7 @@ final class ViolationWindow {
         } else {
             runs.addLast(new Run(now, checkKey));
         }
+        counts.addTo(checkKey, 1);
         size++;
         added++;
     }
@@ -35,6 +38,7 @@ final class ViolationWindow {
         Run first;
         while ((first = runs.peekFirst()) != null && now - first.time > windowMillis) {
             size -= first.count;
+            if (counts.addTo(first.checkKey, -first.count) == first.count) counts.removeInt(first.checkKey);
             runs.pollFirst();
         }
     }
@@ -46,11 +50,7 @@ final class ViolationWindow {
 
     /** The flags in the window of the check with {@code checkKey}. */
     int count(String checkKey) {
-        int count = 0;
-        for (Run run : runs) {
-            if (run.checkKey.equals(checkKey)) count += run.count;
-        }
-        return count;
+        return counts.getInt(checkKey);
     }
 
     /** Consecutive flags of one check at one instant. */
