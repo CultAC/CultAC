@@ -1288,13 +1288,12 @@ public final class GeyserBedrockBridgeRuntime {
             connection.sendUpstreamPacket(packet);
         }
 
-        // BlockBreakHandler#handleAbortBreaking: the server ends the dig Geyser started for the client.
-        private void abortTranslatedDig() {
+        // BlockBreakHandler#handleAbortBreaking: the server ends the dig Geyser started for the client at this block.
+        private void abortTranslatedDig(Vector3i block) {
             BlockBreakHandler breaking = connection.getBlockBreakHandler();
-            Vector3i open = breaking.getCurrentBlockPos();
-            if (open == null) return;
+            if (!block.equals(breaking.getCurrentBlockPos())) return;
             connection.sendDownstreamGamePacket(
-                    new ServerboundPlayerActionPacket(PlayerAction.CANCEL_DIGGING, open, Direction.DOWN, 0));
+                    new ServerboundPlayerActionPacket(PlayerAction.CANCEL_DIGGING, block, Direction.DOWN, 0));
             breaking.reset();
         }
 
@@ -1318,7 +1317,7 @@ public final class GeyserBedrockBridgeRuntime {
                                     resolved.getPosition(),
                                     packet.getPlayerActions(),
                                     local -> {
-                                        abortTranslatedDig();
+                                        abortTranslatedDig(local);
                                         BlockUtils.sendBedrockStopBlockBreak(connection, local.toFloat());
                                         BlockUtils.restoreCorrectBlock(
                                                 connection,
@@ -1327,6 +1326,12 @@ public final class GeyserBedrockBridgeRuntime {
                                     });
                         }
                     });
+            // BlockBreakHandler#tick continues the dig Geyser holds open on each input it handles.
+            Vector3i open = connection.getBlockBreakHandler().getCurrentBlockPos();
+            if (open != null && !player.isObserveOnly() && player.getSetbackTeleportUtil().withholdsClientActions()) {
+                abortTranslatedDig(open);
+                BlockUtils.sendBedrockStopBlockBreak(connection, open.toFloat());
+            }
             // Recovery must run even when the pending teleport rejects movement before Geyser's translator.
             var recoveryAdapter = GFP_ADAPTERS.get(connection);
             teleportRecovery.input(
