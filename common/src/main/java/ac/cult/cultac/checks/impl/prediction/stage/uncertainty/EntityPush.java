@@ -1,16 +1,20 @@
 package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.BlockProperties;
 
 public class EntityPush implements UncertaintyHandler {
     private static final double MAX_HORIZONTAL_IMPULSE_PER_ENTITY = Math.sqrt(2.0D) * 0.05D;
+    private static final float DEFAULT_FRICTION = 0.6F;
 
     @Override
     public PredVector handleUncertainty(
@@ -88,6 +92,45 @@ public class EntityPush implements UncertaintyHandler {
         // colliding entity. Entity#push clamps each horizontal component to
         // at most 0.05, so the tight horizontal vector bound is sqrt(2)*0.05.
         return collidingEntities * MAX_HORIZONTAL_IMPULSE_PER_ENTITY;
+    }
+
+    /**
+     * Entity#push on the player at {@code position} from a pushable entity of the player's size standing where the
+     * player started this tick and ticking after it, or zero.
+     */
+    public static Vec3 trailingPush(CultPlayer player, SimulationContext context, Vec3 position) {
+        if (player.isBedrockMovement()
+                || context.getVehicle() != null
+                || context.isGliding()
+                || !KnownInput.DEFAULT.equals(context.getKeys())) {
+            return Vec3.ZERO;
+        }
+        WorldData world = context.getWorldData();
+        if (world == null
+                || !world.isPushable()
+                || world.getNumPushing() > 0
+                || world.getLastOnGround() != DesyncStatus.TRUE
+                || world.isInWater()
+                || world.isInLava()) {
+            return Vec3.ZERO;
+        }
+        Vec3 from = context.getStart();
+        double x = from.x - position.x;
+        double z = from.z - position.z;
+        double absMax = Math.max(Math.abs(x), Math.abs(z));
+        // AABB#intersects of two boxes of the player's size, one tick apart.
+        if (absMax < 0.01F
+                || absMax >= context.getPose().width * context.getScale()
+                || Math.abs(from.y - position.y) >= context.getPose().height * context.getScale()) {
+            return Vec3.ZERO;
+        }
+        if (BlockProperties.getFriction(player, context.getLastTickMainSupportingBlockData(), from)
+                != DEFAULT_FRICTION) {
+            return Vec3.ZERO;
+        }
+        double root = Math.sqrt(absMax);
+        double scale = Math.min(1.0D, 1.0D / root);
+        return new Vec3(-(x / root * scale * 0.05F), 0.0D, -(z / root * scale * 0.05F));
     }
 
     /** Java carries late entity ticks before the next tick's packet handlers, on every protocol. */

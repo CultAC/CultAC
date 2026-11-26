@@ -11,6 +11,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientEntityTeams;
 import ac.cult.cultac.utils.latency.ClientRavagerRoars;
+import ac.cult.cultac.utils.latency.ClientTeamCollision;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -73,7 +74,11 @@ public final class JavaEntityVelocityTicks {
     public static List<Vec3> afterPlayerTick(
             CultPlayer player, SimulationContext context, PredVector candidate, Vec3 end, Vec3 velocity) {
         var branches = branches(player, context, end, false);
-        if (branches.size() == 1) return afterPlayerTick(player, context, candidate, branches.getFirst(), velocity);
+        if (branches.size() == 1) {
+            Vec3 trailing = trailingPush(player, context, end, branches.getFirst());
+            if (trailing == null) return afterPlayerTick(player, context, candidate, branches.getFirst(), velocity);
+            return List.of(velocity, trailingPushed(player, candidate, velocity, trailing));
+        }
         var moved = new ArrayList<Vec3>();
         for (List<Tick> ticks : branches) moved.addAll(afterPlayerTick(player, context, candidate, ticks, velocity));
         return moved;
@@ -87,10 +92,14 @@ public final class JavaEntityVelocityTicks {
             CultPlayer player, SimulationContext context, PredVector candidate, Vec3 end, List<Vec3> velocities) {
         if (velocities.isEmpty()) return List.of();
         var branches = branches(player, context, end, false);
+        Vec3 trailing = branches.size() == 1 ? trailingPush(player, context, end, branches.getFirst()) : null;
         var moved = new ArrayList<List<Vec3>>(velocities.size());
         for (Vec3 velocity : velocities) {
             if (branches.size() == 1) {
-                moved.add(afterPlayerTick(player, context, candidate, branches.getFirst(), velocity));
+                moved.add(
+                        trailing == null
+                                ? afterPlayerTick(player, context, candidate, branches.getFirst(), velocity)
+                                : List.of(velocity, trailingPushed(player, candidate, velocity, trailing)));
                 continue;
             }
             var outcomes = new ArrayList<Vec3>();
@@ -111,6 +120,24 @@ public final class JavaEntityVelocityTicks {
         if (!(velocity instanceof PredVector ranged) || ranged.getVelocityRange() == null) return List.of(moved);
         // A carried velocity range moves with the velocity.
         return List.of(withScaledRange(ranged.with(moved, "entities after player"), rangeScale(ticks)));
+    }
+
+    /** {@link EntityPush#trailingPush} at {@code end} after {@code ticks}, or null when there is none. */
+    private static @Nullable Vec3 trailingPush(
+            CultPlayer player, SimulationContext context, Vec3 end, List<Tick> ticks) {
+        if (!ticks.isEmpty()) return null;
+        Vec3 push = EntityPush.trailingPush(player, context, end);
+        if (push.equals(Vec3.ZERO)
+                || !JavaLivingEntityPushes.playerPushable(player, context, end, false, false)
+                || ClientTeamCollision.neverPushed(
+                        context.getEntities().teamCollision.teamOf(player.getName()))) return null;
+        return push;
+    }
+
+    private static Vec3 trailingPushed(CultPlayer player, PredVector candidate, Vec3 velocity, Vec3 push) {
+        Vec3 moved = JavaMovementMath.calculate(player, candidate, () -> velocity.add(push));
+        if (!(velocity instanceof PredVector ranged) || ranged.getVelocityRange() == null) return moved;
+        return ranged.with(moved, "entities after player");
     }
 
     /**

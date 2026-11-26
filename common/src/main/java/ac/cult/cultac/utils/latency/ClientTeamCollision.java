@@ -46,6 +46,11 @@ public final class ClientTeamCollision {
         return name == null ? null : membership.get(name);
     }
 
+    /** Whether EntitySelector#pushableBy rejects every pusher of an entity on team {@code target}. */
+    public static boolean neverPushed(@Nullable Team target) {
+        return target != null && target.collision.equals("never");
+    }
+
     public boolean allows(String pusher, String player) {
         return allows(membership.get(pusher), membership.get(player));
     }

@@ -3949,6 +3949,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         context.setWaterMovementEfficiency(getWaterMovementEfficiency(traveller, contextLastOnGround));
         // AbstractBoat#controlBoat reads the keys stored on the boat itself.
         if (riding != null) context.setBoatInputs(riding.boatInput);
+        context.setKeys(player.packetStateData.knownInput);
         // LivingEntity#travelRidden runs Camel#tickRidden after getRiddenInput and before travel. LocalPlayer#aiStep
         // set zza from the keys this tick's root reads.
         if (riding instanceof PacketEntityCamel camel
