@@ -5,6 +5,8 @@ import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsQ;
 import ac.cult.cultac.checks.impl.elytra.ElytraA;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint.SprintBlock;
+import ac.cult.cultac.checks.impl.sprint.SprintI;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -36,9 +38,17 @@ public class PacketEntityAction {
         switch (packet.action()) {
             case START_SPRINTING:
                 // A start no LocalPlayer#aiStep announces stays from the server; the client's flag drives its travel.
-                if (JavaAiStepSprint.startImpossible(player) && !player.isObserveOnly()) {
-                    event.setCancelled(true);
-                    player.onPacketCancel();
+                SprintBlock blocked = JavaAiStepSprint.startBlock(player);
+                if (blocked != null) {
+                    // A forced crouch is reported only where the place the previous tick left the player is certain.
+                    if (blocked != SprintBlock.CROUCHING || JavaAiStepSprint.crouchCertain(player)) {
+                        player.checkManager.getCheck(SprintI.class).onStartBlocked(blocked);
+                        player.sprintState.onStartReported();
+                    }
+                    if (!player.isObserveOnly()) {
+                        event.setCancelled(true);
+                        player.onPacketCancel();
+                    }
                 }
                 if (player.usesModernJavaItemUse()) player.clientItemUse.startedSprinting(player.getClientVersion());
                 player.isSprinting = true;

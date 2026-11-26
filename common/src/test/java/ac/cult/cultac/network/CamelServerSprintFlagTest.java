@@ -3,12 +3,14 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.sprint.SprintI;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -82,6 +84,9 @@ class CamelServerSprintFlagTest {
     @Test
     void aRiderHoldingSprintSprintsAgainAfterTheServersStop() throws Exception {
         try (var f = new JavaTickFixture()) {
+            SprintI check = f.player.checkManager.getCheck(SprintI.class);
+            check.setEnabled(true);
+            check.reload();
             mountAtRest(f, FORWARD_SPRINT, true);
             sharedFlags(f, (byte) 0);
 
@@ -91,6 +96,7 @@ class CamelServerSprintFlagTest {
             velocity = velocity * GROUND_FRICTION + forwardInput(SPRINT);
             z += velocity;
             assertExact(ride(f, 0F, 0F, 0F, new Vec3(REST.x, REST.y, z)));
+            assertEquals(0, check.violations);
         }
     }
 

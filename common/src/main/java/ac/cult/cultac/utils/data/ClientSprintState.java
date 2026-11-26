@@ -47,6 +47,8 @@ public final class ClientSprintState {
     private boolean announced;
     // The announced sprint is one no LocalPlayer#aiStep leaves set, until a STOP_SPRINTING or a clear server flag.
     private boolean announcementImpossible;
+    // The announced sprint's START_SPRINTING was reported as one no aiStep sends; it ends with announcementImpossible.
+    private boolean startReported;
     // A START_SPRINTING since the last reconciled aiStep, and whether the latest reconciled aiStep announced one.
     private boolean startAnnounced;
     private boolean startedThisTick;
@@ -86,7 +88,10 @@ public final class ClientSprintState {
     public void onServerFlag(boolean sprinting) {
         flag = sprinting;
         serverFlag = sprinting;
-        if (!sprinting) announcementImpossible = false;
+        if (!sprinting) {
+            announcementImpossible = false;
+            startReported = false;
+        }
     }
 
     /**
@@ -158,6 +163,7 @@ public final class ClientSprintState {
     public void onAnnouncedStop() {
         stopAnnounced = true;
         announcementImpossible = false;
+        startReported = false;
         announced = false;
         serverFlag = false;
     }
@@ -165,6 +171,16 @@ public final class ClientSprintState {
     /** Whether the client's announced sprint is one no vanilla client holds now. */
     public boolean announcementImpossible() {
         return announcementImpossible;
+    }
+
+    /** A START_SPRINTING reported as one no LocalPlayer#aiStep sends; the announcement it opens is not judged again. */
+    public void onStartReported() {
+        startReported = true;
+    }
+
+    /** Whether the announced sprint's START_SPRINTING was reported, until the announcement ends. */
+    public boolean startReported() {
+        return startReported;
     }
 
     /** The minecraft:sprinting modifier of the server's movement_speed snapshot, applied by its bundled proof. */
@@ -357,6 +373,7 @@ public final class ClientSprintState {
      */
     public void onRespawn(boolean keepEntityData, boolean keepAttributeModifiers) {
         announcementImpossible = false;
+        startReported = false;
         if (!keepEntityData) {
             flag = false;
         }
@@ -379,6 +396,7 @@ public final class ClientSprintState {
         sprintResetThisTick = false;
         flagUncertain = false;
         announcementImpossible = false;
+        startReported = false;
         startAnnounced = false;
         startedThisTick = false;
         stopAnnounced = false;

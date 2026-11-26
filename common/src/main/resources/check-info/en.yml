@@ -171,6 +171,9 @@ checks:
   SprintH:
     summary: "Sprinted with an inventory open"
     details: "You can't start or keep sprinting with an inventory or chest open. InvMove cheats let the player keep running around while a menu is open."
+  SprintI:
+    summary: "Started sprinting without being able to"
+    details: "You can only start sprinting while moving forward, and in newer versions not while crouching or crawling. Letting go of forward ends the sprint unless you're swimming. Their game said it was sprinting when it couldn't have been."
   Strafe:
     summary: "Changed direction or sped up in midair"
     details: "Once you're in the air, you only have limited control over where you go. Strafe and Speed cheats let the player turn sharply or speed up mid-jump."

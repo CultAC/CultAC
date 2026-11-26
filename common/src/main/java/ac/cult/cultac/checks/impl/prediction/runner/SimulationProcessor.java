@@ -40,6 +40,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint.SprintBlock;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
@@ -67,6 +68,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
+import ac.cult.cultac.checks.impl.sprint.SprintI;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PositionListener;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
@@ -2015,7 +2017,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             case UNKNOWN -> state.onModifierPossiblyRestarted();
             case FALSE -> {}
         }
-        if (announcementImpossible(this.player, result)) state.onImpossibleAnnouncement();
+        SprintBlock blocked = announcementBlock(this.player, result);
+        if (blocked != null) {
+            if (!state.announcementImpossible() && !state.startReported() && acceptsAny(result))
+                this.player.checkManager.getCheck(SprintI.class).onImpossibleAnnouncement(blocked);
+            state.onImpossibleAnnouncement();
+        }
         SetbackTeleportUtil setbacks = this.player.getSetbackTeleportUtil();
         if (setbacks.isPendingSetback() && setbacks.safePosition() != null) {
             state.restore(setbacks.safePosition().getSprintOutcomes());
@@ -2046,21 +2053,32 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     /**
-     * Whether every accepted candidate's tick leaves the announced sprint one its aiStep cannot have left set
-     * (JavaAiStepSprint#announcementImpossible); the committed candidate's when none was accepted.
+     * Why every accepted candidate's tick leaves the announced sprint one its aiStep cannot have left set
+     * (JavaAiStepSprint#announcementBlock), the first accepted candidate's reason; the committed candidate's when none
+     * was accepted. Null when any accepted candidate's aiStep can have left it set.
      */
-    private static boolean announcementImpossible(CultPlayer player, PredictionResult result) {
-        if (player.isBedrockMovement() || result == null || result.getSimulationContext() == null) return false;
-        boolean accepted = false;
+    private static @Nullable SprintBlock announcementBlock(CultPlayer player, PredictionResult result) {
+        if (player.isBedrockMovement() || result == null || result.getSimulationContext() == null) return null;
+        SprintBlock first = null;
         if (result.getRealities() != null) {
             for (PredictionResult reality : result.getRealities()) {
                 SimulationContext context = reality.getSimulationContext();
                 if (reality.getFlagSeverity() != 0.0 || context == null) continue;
-                if (!JavaAiStepSprint.announcementImpossible(player, context)) return false;
-                accepted = true;
+                SprintBlock blocked = JavaAiStepSprint.announcementBlock(player, context);
+                if (blocked == null) return null;
+                if (first == null) first = blocked;
             }
         }
-        return accepted || JavaAiStepSprint.announcementImpossible(player, result.getSimulationContext());
+        return first != null ? first : JavaAiStepSprint.announcementBlock(player, result.getSimulationContext());
+    }
+
+    /** Whether {@code result} carries an accepted candidate's context. */
+    private static boolean acceptsAny(PredictionResult result) {
+        if (result.getRealities() == null) return false;
+        for (PredictionResult reality : result.getRealities()) {
+            if (reality.getFlagSeverity() == 0.0 && reality.getSimulationContext() != null) return true;
+        }
+        return false;
     }
 
     /** {@link #aiStepSprintClear} for 1.21.4's silent restart on a set flag (JavaAiStepSprint#restartsModifier). */

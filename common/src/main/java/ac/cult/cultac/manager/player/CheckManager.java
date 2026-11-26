@@ -509,6 +509,7 @@ public class CheckManager {
                 new SprintF(player),
                 new SprintG(player),
                 new SprintH(player),
+                new SprintI(player),
                 new JavaAutoJump(player),
                 new ElytraA(player),
                 new ElytraB(player),

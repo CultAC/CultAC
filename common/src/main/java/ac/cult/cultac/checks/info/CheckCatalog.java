@@ -184,6 +184,7 @@ import ac.cult.cultac.checks.impl.sprint.SprintE;
 import ac.cult.cultac.checks.impl.sprint.SprintF;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.checks.impl.sprint.SprintH;
+import ac.cult.cultac.checks.impl.sprint.SprintI;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.impl.vehicle.VehicleD;
 import ac.cult.cultac.checks.impl.vehicle.VehicleE;
@@ -301,6 +302,7 @@ public final class CheckCatalog {
             check(SprintF.class, MOVEMENT),
             check(SprintG.class, MOVEMENT),
             check(SprintH.class, MOVEMENT),
+            check(SprintI.class, MOVEMENT),
             check(Strafe.INFO, MOVEMENT),
             check(TickTimer.class, MOVEMENT),
             check(TimerCheck.INFO, MOVEMENT),

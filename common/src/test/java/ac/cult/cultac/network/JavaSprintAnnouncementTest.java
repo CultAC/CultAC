@@ -3,6 +3,7 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -12,6 +13,7 @@ import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.sprint.SprintI;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
@@ -72,10 +74,14 @@ class JavaSprintAnnouncementTest {
                 Vec3 at = new Vec3(0.5, FLOOR_Y, 0.5);
                 f.input(held);
                 for (int tick = 0; tick < 3; tick++) assertTrue(exact(f.tick(at, true)), "warmup " + tick);
+                SprintI check = sprintI(f);
                 assertTrue(command(f, PlayerCommandAction.START_SPRINTING).isCancelled(), "start with " + held);
+                assertEquals(1, check.violations, "the start with " + held);
                 PredictionResult result = f.tick(at, true);
                 assertTrue(exact(result), describe(result));
                 assertTrue(attack(f).isCancelled(), "attack with " + held);
+                f.tick(at, true);
+                assertEquals(1, check.violations, "the start and its tick with " + held);
             }
         }
     }
@@ -110,6 +116,7 @@ class JavaSprintAnnouncementTest {
     void releasingForwardEndsTheSprint() throws Exception {
         for (boolean stopAnnounced : new boolean[] {false, true}) {
             try (var f = fixture()) {
+                SprintI check = sprintI(f);
                 Vec3[] state = {new Vec3(0.5, FLOOR_Y, 0.5), Vec3.ZERO};
                 groundTick(f, state, FORWARD, 1.0F, WALK);
                 assertFalse(command(f, PlayerCommandAction.START_SPRINTING).isCancelled());
@@ -119,10 +126,13 @@ class JavaSprintAnnouncementTest {
                 if (stopAnnounced) command(f, PlayerCommandAction.STOP_SPRINTING);
                 groundTick(f, state, NONE, 1.0F, SPRINT);
                 assertTrue(attack(f).isCancelled() != stopAnnounced, "stop announced: " + stopAnnounced);
+                assertEquals(stopAnnounced ? 0 : 1, check.violations, "stop announced: " + stopAnnounced);
                 // A new press of forward starts the next sprint.
                 f.input(FORWARD);
-                if (stopAnnounced)
+                if (stopAnnounced) {
                     assertFalse(command(f, PlayerCommandAction.START_SPRINTING).isCancelled());
+                    assertEquals(0, check.violations, "the next start");
+                }
             }
         }
     }
@@ -131,6 +141,7 @@ class JavaSprintAnnouncementTest {
     void aCrouchingPlayerCannotStartASprintButKeepsOne() throws Exception {
         for (boolean sprintFirst : new boolean[] {false, true}) {
             try (var f = fixture()) {
+                SprintI check = sprintI(f);
                 Vec3[] state = {new Vec3(0.5, FLOOR_Y, 0.5), Vec3.ZERO};
                 groundTick(f, state, FORWARD, 1.0F, WALK);
                 if (sprintFirst) {
@@ -144,9 +155,11 @@ class JavaSprintAnnouncementTest {
                 if (!sprintFirst) {
                     // The crouch comes from the previous tick's keys, so the start is decided before the move.
                     assertTrue(command(f, PlayerCommandAction.START_SPRINTING).isCancelled());
+                    assertEquals(1, check.violations, "the crouched start");
                     groundTick(f, state, SNEAK_FORWARD, 0.3F, SPRINT);
                 }
                 assertTrue(attack(f).isCancelled() != sprintFirst, "sprint first: " + sprintFirst);
+                assertEquals(sprintFirst ? 0 : 1, check.violations, "sprint first: " + sprintFirst);
             }
         }
     }
@@ -169,11 +182,13 @@ class JavaSprintAnnouncementTest {
         for (boolean swimming : new boolean[] {false, true}) {
             try (var f = fixture()) {
                 if (swimming) f.water(new BlockPos(-8, FLOOR_Y, -8), new BlockPos(8, FLOOR_Y + 2, 8));
+                SprintI check = sprintI(f);
                 f.input(NONE);
                 sharedFlags(f, swimming ? (byte) (SPRINTING | SWIMMING) : SPRINTING, true);
                 assertTrue(
                         command(f, PlayerCommandAction.START_SPRINTING).isCancelled() != swimming,
                         "swimming: " + swimming);
+                assertEquals(swimming ? 0 : 1, check.violations, "swimming: " + swimming);
             }
         }
     }
@@ -184,8 +199,10 @@ class JavaSprintAnnouncementTest {
             Vec3 at = new Vec3(0.5, FLOOR_Y, 0.5);
             f.input(NONE);
             assertTrue(exact(f.tick(at, true)));
+            SprintI check = sprintI(f);
             sharedFlags(f, (byte) (SPRINTING | SWIMMING), true);
             assertTrue(command(f, PlayerCommandAction.START_SPRINTING).isCancelled());
+            assertEquals(1, check.violations);
         }
     }
 
@@ -224,11 +241,13 @@ class JavaSprintAnnouncementTest {
             wall(f);
             f.place(new Vec3(0.5, FLOOR_Y, 0.7), Vec3.ZERO);
             f.input(FORWARD);
+            SprintI check = sprintI(f);
             // The tick into the wall reports the collision; LocalPlayer#sendPosition sends nothing for the next one.
             f.statusTick(true, true);
             assertFalse(command(f, PlayerCommandAction.START_SPRINTING).isCancelled());
             f.tickEnd();
             assertFalse(attack(f).isCancelled());
+            assertEquals(0, check.violations);
         }
     }
 
@@ -270,13 +289,16 @@ class JavaSprintAnnouncementTest {
             for (int tick = 0; tick < 2; tick++) groundTick(f, state, FORWARD, 0.3F, WALK);
             assertFalse(attack(f).isCancelled(), "a crouching hit");
             // A ceiling without shift crouches in aiStep, so its canStartSprinting fails.
+            SprintI check = sprintI(f);
             command(f, PlayerCommandAction.START_SPRINTING);
             groundTick(f, state, FORWARD, 0.3F, SPRINT);
             assertTrue(attack(f).isCancelled(), "after the start");
+            assertEquals(1, check.violations, "the start");
             command(f, PlayerCommandAction.STOP_SPRINTING);
             command(f, PlayerCommandAction.START_SPRINTING);
             groundTick(f, state, FORWARD, 0.3F, SPRINT);
             assertTrue(attack(f).isCancelled(), "after the stop and start");
+            assertEquals(2, check.violations, "the stop and start");
         }
     }
 
@@ -326,6 +348,7 @@ class JavaSprintAnnouncementTest {
                 groundTick(f, state, FORWARD, 1.0F, WALK);
                 assertFalse(command(f, PlayerCommandAction.START_SPRINTING).isCancelled());
                 groundTick(f, state, FORWARD, 1.0F, SPRINT);
+                SprintI check = sprintI(f);
                 respawn(f, ClientboundRespawn.KEEP_ENTITY_DATA);
                 f.player.packetStateData.playerLoadedIntoLevel = true;
                 Vec3 at = new Vec3(0.5, FLOOR_Y, 0.5);
@@ -339,8 +362,17 @@ class JavaSprintAnnouncementTest {
                     assertTrue(exact(result), describe(result));
                 }
                 assertTrue(attack(f).isCancelled() != stopAnnounced, "stop announced: " + stopAnnounced);
+                assertEquals(stopAnnounced ? 0 : 1, check.violations, "stop announced: " + stopAnnounced);
             }
         }
+    }
+
+    private static SprintI sprintI(JavaTickFixture f) {
+        SprintI check = f.player.checkManager.getCheck(SprintI.class);
+        check.setEnabled(true);
+        check.reload();
+        check.violations = 0;
+        return check;
     }
 
     private static JavaTickFixture fixture() throws Exception {
