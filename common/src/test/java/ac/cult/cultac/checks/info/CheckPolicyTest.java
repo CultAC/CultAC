@@ -15,6 +15,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class CheckPolicyTest {
+    private static final CheckCatalog.Entry SPRINT_B = CheckCatalog.find("SprintB");
     private static final CheckCatalog.Entry SPRINT_D = CheckCatalog.find("SprintD");
     private static final CheckCatalog.Entry KEEP_SPRINT = CheckCatalog.find("KeepSprint");
     private static final CheckCatalog.Entry ANTI_KB = CheckCatalog.find("AntiKB");
@@ -130,7 +131,7 @@ class CheckPolicyTest {
     @Test
     void aCheckThatIsNotRunningIsOffEvenWithABan() {
         CheckPolicy policy = policy(group(List.of("Sprint"), "1:0 ban %player%"));
-        assertEquals(Handling.OFF, policy.status(SPRINT_D).handling(false));
+        assertEquals(Handling.OFF, policy.status(SPRINT_B).handling(false));
     }
 
     @ParameterizedTest

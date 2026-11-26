@@ -15,8 +15,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
         name = "SprintD",
         stableKey = "cult.sprint.blindness",
         description = "Started sprinting while having blindness",
-        setback = 5,
-        experimental = true)
+        setback = 5)
 public class SprintD extends Check implements PostPredictionListener {
     public boolean startedSprintingBeforeBlind = false;
 
