@@ -457,12 +457,12 @@ public class PunishmentManager implements ConfigReloadable {
                             check,
                             delivery.violations(),
                             delivery.verbose());
-                } catch (RuntimeException e) {
+                } catch (RuntimeException | LinkageError e) {
                     logDeliveryFailure(command, check, e);
                 }
                 settle(group, command, delivery, delivered);
             });
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | LinkageError e) {
             settle(group, command, delivery, true);
             logDeliveryFailure(command, check, e);
         }
