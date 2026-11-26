@@ -803,21 +803,29 @@ public class PacketEntity {
     }
 
     /**
-     * Where a packet without a position interpolates this entity. The codec base stands in for an ordinary entity,
-     * which the running target or a completed interpolation leaves on it. A replayed rider's codec base never
-     * follows the seat Entity#positionRider gives it, so ClientPacketListener#handleMoveEntity's own target applies:
+     * Where a packet without a position interpolates this entity: ClientPacketListener#handleMoveEntity's own target,
      * LivingEntity#lerpTargetX through 1.21.4 and InterpolationHandler#position from 1.21.9 (the running target, else
-     * the entity's position), and Entity#position from 1.21.5 through 1.21.8.
+     * the entity's position), and Entity#position from 1.21.5 through 1.21.8. On 1.21.11 and 26.2 every entity
+     * takes it: a far sync's Entity#snapTo moves the codec base without ending the interpolation, which can then
+     * finish elsewhere. Other clients take it for a replayed rider, whose codec base never follows the seat
+     * Entity#positionRider gives it, and the codec base for an ordinary entity, which the running target or a
+     * completed interpolation leaves on it.
      */
     private Vec3 rotationOnlyTarget(CultPlayer player) {
-        if (riderInterpolation == null || !riderInterpolation.running() || player.isBedrockMovement())
-            return desyncClientPos;
+        if (player.isBedrockMovement()) return desyncClientPos;
         ClientVersion version = player.getClientVersion();
+        boolean everyEntity = version == ClientVersion.V_1_21_11 || version == ClientVersion.V_26_2;
+        if (!everyEntity && (riderInterpolation == null || !riderInterpolation.running())) return desyncClientPos;
         boolean keepsRunningTarget =
                 version.isOlderThan(ClientVersion.V_1_21_5) || version.isNewerThanOrEquals(ClientVersion.V_1_21_9);
-        return keepsRunningTarget && newPacketLocation != null && newPacketLocation.hasActiveInterpolationTarget()
-                ? newPacketLocation.targetPosition()
-                : clientPhysicalPosition;
+        if (!keepsRunningTarget || newPacketLocation == null || !newPacketLocation.hasActiveInterpolationTarget()) {
+            return clientPhysicalPosition;
+        }
+        ReachInterpolationData target = newPacketLocation;
+        return target.targetCenterX() == desyncClientPos.x && target.targetMinY() == desyncClientPos.y
+                        && target.targetCenterZ() == desyncClientPos.z
+                ? desyncClientPos
+                : target.targetPosition();
     }
 
     private void applyEntityPositionUpdate(boolean relative, boolean hasPos, double relX, double relY, double relZ) {
