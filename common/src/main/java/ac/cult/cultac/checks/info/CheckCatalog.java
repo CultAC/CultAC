@@ -546,6 +546,21 @@ public final class CheckCatalog {
         return found != null && found.name().equals(query.latestName()) ? query.name() : query.latestName();
     }
 
+    /** The checks whose name, config name or alternative name in {@code nameVersion} is {@code query}, in order. */
+    public static List<Entry> withName(String query, int nameVersion) {
+        List<Entry> named = new ArrayList<>();
+        for (Entry entry : ENTRIES) {
+            if (hasName(entry, query, nameVersion)) named.add(entry);
+        }
+        return named;
+    }
+
+    private static boolean hasName(Entry entry, String query, int nameVersion) {
+        return entry.name(nameVersion).equalsIgnoreCase(query)
+                || entry.configName(nameVersion).equalsIgnoreCase(query)
+                || (hasAltName(entry) && entry.altName().equalsIgnoreCase(query));
+    }
+
     private static boolean hasAltName(Entry entry) {
         return entry.altName() != null && !entry.altName().equals(CheckData.NO_ALTERNATIVE_NAME);
     }

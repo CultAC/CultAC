@@ -47,9 +47,9 @@ public class CultInfo implements BuildableCommand {
         CheckCatalog.Entry entry = view.find(query);
         CheckCategory category = CheckCategory.byId(query);
         // Elytra and Cloud are both a check and a group; each subcommand prefers its own kind.
-        if (argument.equals("check") && entry != null) send(sender, CheckInfoLines.check(sender, view, entry));
+        if (argument.equals("check") && entry != null) send(sender, CheckInfoLines.check(sender, view, entry, query));
         else if (category != null) send(sender, CheckInfoLines.group(sender, view, category));
-        else if (entry != null) send(sender, CheckInfoLines.check(sender, view, entry));
+        else if (entry != null) send(sender, CheckInfoLines.check(sender, view, entry, query));
         else send(sender, CheckInfoLines.unknown(sender, view, query));
     }
 
