@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 
 class CheckInfoLinesTest {
     private static final CheckCatalog.Entry SPRINT_A = CheckCatalog.find("SprintA");
+    private static final CheckCatalog.Entry SPRINT_B = CheckCatalog.find("SprintB");
     private static final CheckCatalog.Entry SPRINT_D = CheckCatalog.find("SprintD");
     private static final CheckCatalog.Entry TIMER = CheckCatalog.find("Timer");
 
@@ -90,18 +91,18 @@ class CheckInfoLinesTest {
     @Test
     void anExperimentalCheckIsOffWhileExperimentalChecksAreOff() {
         assertEquals(
-                "None, experimental checks are off", CheckInfoLines.punishments(view(false, "5:5 [alert]"), SPRINT_D));
+                "None, experimental checks are off", CheckInfoLines.punishments(view(false, "5:5 [alert]"), SPRINT_B));
     }
 
     @Test
     void aGroupListsItsChecksByHandling() {
         CheckInfoLines.View view = view(false, "20:0 ban %player%");
         Map<Handling, List<CheckCatalog.Entry>> byHandling =
-                CheckInfoLines.byHandling(view, List.of(TIMER, SPRINT_D, SPRINT_A));
+                CheckInfoLines.byHandling(view, List.of(TIMER, SPRINT_B, SPRINT_A));
         assertEquals(List.of(Handling.AUTOMATIC, Handling.NONE, Handling.OFF), List.copyOf(byHandling.keySet()));
         assertEquals(List.of(SPRINT_A), byHandling.get(Handling.AUTOMATIC));
         assertEquals(List.of(TIMER), byHandling.get(Handling.NONE));
-        assertEquals(List.of(SPRINT_D), byHandling.get(Handling.OFF));
+        assertEquals(List.of(SPRINT_B), byHandling.get(Handling.OFF));
     }
 
     @Test
@@ -117,9 +118,9 @@ class CheckInfoLinesTest {
     void didYouMeanLeavesOutTheExperimentalMark() {
         ConfigManager config = config();
         when(config.getStringElse(eq("info-unknown"), anyString())).thenReturn("&cUnknown check: &f%query%");
-        List<Component> lines = CheckInfoLines.unknown(mock(Sender.class), view(config), "sprintd");
+        List<Component> lines = CheckInfoLines.unknown(mock(Sender.class), view(config), "sprintb");
         assertEquals(
-                "Did you mean: SprintD",
+                "Did you mean: SprintB",
                 PlainTextComponentSerializer.plainText().serialize(lines.get(1)));
     }
 
