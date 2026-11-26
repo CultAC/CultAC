@@ -211,6 +211,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     /** Called after all click checks for a click forwarded to the server. */
     public void onClickForwarded(InventoryClick click) {
         if (player.isBedrockMovement() || click.windowId() != observedWindowId) return;
+        if (serverIgnoresClickedSlot(click)) return;
         // ServerGamePacketListenerImpl#handleContainerClick records the client's claimed slots as the
         // remote state and corrects only differences, so a click it accepts is never echoed back.
         boolean known = lastClickMirrored && click.windowId() == openWindowID;
@@ -221,6 +222,16 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             observeServerSlot(container, index, target.getSlot(index), claimed == null ? null : claimed.getItem());
         }
         serverView.carried(known ? menu.getCarried() : null);
+    }
+
+    /**
+     * CraftBukkit's ServerGamePacketListenerImpl#handleContainerClick returns without clicking or correcting anything
+     * when the slot is below -1 and not outside the window. The vanilla client sends only a menu slot, -1 or -999.
+     */
+    private boolean serverIgnoresClickedSlot(InventoryClick click) {
+        if (click.windowId() != observedWindowId) return false;
+        int slot = click.slot();
+        return slot < -1 && slot != -999;
     }
 
     private void deferServerInventoryTask(PacketSendEvent<?> event, Runnable task) {
@@ -517,9 +528,12 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     @CultPacketHandler
     public void onContainerClick(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
+        boolean ignoredByServer = false;
         if (player.isBedrockMovement()) {
             if (event.isCancelled()) return;
         } else {
+            ignoredByServer = serverIgnoresClickedSlot(packet);
+            if (ignoredByServer) event.setCancelled(true);
             int currentTick = ac.cult.cultac.CultAPI.INSTANCE.getTickManager().currentTick;
             if (lastClickServerTick != currentTick) {
                 clicksThisServerTick = 0;
@@ -534,6 +548,10 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                             || packet.button() != 0)) {
                 clicksThisServerTick++;
             }
+        }
+        if (ignoredByServer) {
+            lastClickMirrored = false;
+            return;
         }
         // MultiPlayerGameMode#handleContainerInput applies the click before sending it.
         // Cancelling server processing does not undo that local prediction. Keep validating
