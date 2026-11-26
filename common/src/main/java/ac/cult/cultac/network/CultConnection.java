@@ -66,6 +66,8 @@ public final class CultConnection
     /** A movement was forwarded since the last forwarded tick end, for a client that ends its ticks. Owner only. */
     private boolean midClientTick;
 
+    private final ForwardHold forwardHold = new ForwardHold();
+
     private final List<Runnable> afterClientTick = new ArrayList<>();
 
     private volatile User user;
@@ -627,6 +629,11 @@ public final class CultConnection
      */
     public boolean midClientTick() {
         return midClientTick && owner == channel.eventLoop();
+    }
+
+    /** The serverbound tick input processed and not yet forwarded. On the owner. */
+    public ForwardHold forwardHold() {
+        return forwardHold;
     }
 
     /** Runs {@code task} once, right after the next tick end is forwarded or the client leaves play. On the owner. */

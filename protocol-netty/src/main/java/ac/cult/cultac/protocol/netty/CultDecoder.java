@@ -3,8 +3,10 @@ package ac.cult.cultac.protocol.netty;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
+import ac.cult.cultac.network.ForwardHold;
 import ac.cult.cultac.network.PacketDispatcher;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.DroppedPacketException;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
@@ -73,6 +75,30 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
     }
 
     @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) {
+        ForwardHold hold = connection.forwardHold();
+        if (!hold.keepsAny()) return;
+        if (!ctx.channel().isActive()) {
+            hold.discard();
+            return;
+        }
+        ModelRead read = new ModelRead();
+        read.ctx = ctx;
+        try {
+            connection.runInModel(() -> hold.forwardAll(read));
+        } catch (Throwable failure) {
+            CultNetworkManager.reportFailure("held packet release", failure);
+            try {
+                hold.forwardAll(read);
+            } catch (Throwable again) {
+                CultNetworkManager.reportFailure("held packet release", again);
+            } finally {
+                hold.discard();
+            }
+        }
+    }
+
+    @Override
     public void channelRead(ChannelHandlerContext ctx, Object message) {
         // An empty frame is a packet a handler ahead of cultac cancelled (PacketEvents leaves one); vanilla skips it.
         if (!(message instanceof ByteBuf frame) || !frame.isReadable()) {
@@ -109,10 +135,12 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
     }
 
     /** The model-context work of one {@link #channelRead}, held by at most one read at a time. */
-    private final class ModelRead implements Runnable {
+    private final class ModelRead implements Runnable, ForwardHold.Sink {
         ChannelHandlerContext ctx;
         ByteBuf frame;
         boolean consumed;
+        // Set by process when it reads a routed packet.
+        PacketType<?> readType;
         // Set by process when it returns true.
         ByteBuf forwardFrame;
         PacketType<?> forwardType;
@@ -121,13 +149,30 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
         @Override
         public void run() {
             consumed = true;
-            if (!process(frame, this)) return;
+            readType = null;
+            boolean forwards = process(frame, this);
+            ForwardHold hold = connection.forwardHold();
+            boolean tickInput = hold.takeTickInputMark();
+            if (!forwards) {
+                if (releasesTickInput(readType)) hold.releaseTickInput(this);
+                return;
+            }
             ByteBuf output = forwardFrame;
             PacketType<?> type = forwardType;
             Object packet = forwardPacket;
             forwardFrame = null;
             forwardType = null;
             forwardPacket = null;
+            if (tickInput) {
+                hold.keepTickInput(output, type, packet);
+                return;
+            }
+            if (releasesTickInput(readType)) hold.releaseTickInput(this);
+            send(output, type, packet);
+        }
+
+        @Override
+        public void send(ByteBuf output, PacketType<?> type, Object packet) {
             // beginLogin can install its codec and resume LocalChannel reads before
             // the handshake listener returns. Its next frame already belongs to LOGIN.
             boolean handshake = type == ServerboundPackets.INTENTION;
@@ -147,6 +192,15 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             forwardPacket = packet;
             return true;
         }
+    }
+
+    /** LocalPlayer sends the tick's movement, or else Minecraft#tick its tick end, right after the tick's input. */
+    private boolean releasesTickInput(PacketType<?> type) {
+        return type == ServerboundPackets.CLIENT_TICK_END
+                || type == ServerboundPackets.CONFIGURATION_ACKNOWLEDGED
+                || connection.phase(PacketDirection.SERVERBOUND) != ConnectionPhase.PLAY
+                || type == ServerboundPackets.MOVE_PLAYER
+                || type == ServerboundPackets.MOVE_VEHICLE;
     }
 
     /** Consumes the input on every path; false means it was cancelled or discarded, else {@code output} holds it. */
@@ -173,6 +227,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                 var original = (ServerboundPacket) value;
                 originalType = type;
                 originalPacket = original;
+                output.readType = valueType;
                 var pausing = connection.player();
                 // A debug interaction pause discards before Cult or the server sees the packet.
                 if (pausing != null && pausing.discardsPausedInteraction(original)) return false;
