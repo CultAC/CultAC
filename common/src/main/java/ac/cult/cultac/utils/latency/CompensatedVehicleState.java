@@ -403,15 +403,15 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     /**
-     * Control passes to the client while the root still follows a stepped server path. The client stops reading server
+     * Control passes to the client while the root still follows a server path. The client stops reading server
      * moves for a root it controls (ClientPacketListener#handleMoveEntity), so that path ends after its queued ticks.
      */
     private void startSaddleHandOver(PacketEntity vehicle) {
-        if (!hasActiveSteppedInterpolation(vehicle)) {
+        if (!hasActiveServerPath(vehicle)) {
             return;
         }
         int lastClientTick =
-                player.packetStateData.acceptedClientTick + vehicle.newPacketLocation.remainingSteppedTicks();
+                player.packetStateData.acceptedClientTick + vehicle.newPacketLocation.remainingPathTicks();
         if (isSaddleHandOverActiveFor(vehicle) && saddleHandOverLastClientTick >= lastClientTick) {
             return;
         }
@@ -424,7 +424,7 @@ public final class CompensatedVehicleState implements Debuggable {
      * move sent during the hand-over carries the interpolation target's rotation.
      */
     public float saddleHandOverTravelYaw(@Nullable PacketEntity vehicle, float reportedYaw) {
-        return isSaddleHandOverActiveFor(vehicle) && hasActiveSteppedInterpolation(vehicle) ? player.xRot : reportedYaw;
+        return isSaddleHandOverActiveFor(vehicle) && hasActiveServerPath(vehicle) ? player.xRot : reportedYaw;
     }
 
     /** The pitch a living root's tickRidden turns it to before travel: getRiddenRotation's half of the rider's. */
@@ -450,7 +450,7 @@ public final class CompensatedVehicleState implements Debuggable {
      */
     private void acceptSaddleHandOverMove(PredictionResult result, @Nullable PacketEntity vehicle) {
         if (!isSaddleHandOverActiveFor(vehicle)
-                || !hasActiveSteppedInterpolation(vehicle)
+                || !hasActiveServerPath(vehicle)
                 || result.getSimulationContext().getStart() == null) {
             return;
         }
@@ -960,7 +960,11 @@ public final class CompensatedVehicleState implements Debuggable {
         return vehicle.newPacketLocation != null && vehicle.newPacketLocation.hasActiveInterpolationTarget();
     }
 
-    private boolean hasActiveSteppedInterpolation(PacketEntity vehicle) {
-        return hasActiveInterpolationTarget(vehicle) && vehicle.newPacketLocation.usesSteppedInterpolation();
+    /** Whether the root still follows a server path that its living entity's handler keeps stepping under a rider. */
+    private boolean hasActiveServerPath(PacketEntity vehicle) {
+        return hasActiveInterpolationTarget(vehicle)
+                && (vehicle.newPacketLocation.usesSteppedInterpolation()
+                        || (vehicle.usesLinearInterpolationHandler()
+                                && vehicle.newPacketLocation.followsInterpolationHandler()));
     }
 }

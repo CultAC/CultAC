@@ -1087,7 +1087,7 @@ public class PacketEntity {
     /**
      * Entity#commonTick for the root of a client tick's ServerboundMoveVehiclePacket, whether or not the server accepts
      * that packet: InterpolationHandler#interpolate advances the server path the root still follows before
-     * LivingEntity#aiStep reaches travelRidden. Covers 26.3's stepped interpolation and a boat's LinearInterpolationHandler.
+     * LivingEntity#aiStep reaches travelRidden. Covers 26.3's stepped interpolation and LinearInterpolationHandler.
      */
     public void interpolateBeforeLocalTravel(CultPlayer player) {
         if (!hasActiveLocalRootInterpolation()) {
@@ -1106,7 +1106,7 @@ public class PacketEntity {
 
     private boolean hasActiveLocalRootInterpolation() {
         return hasActiveSteppedInterpolation()
-                || (boat
+                || ((boat || linearInterpolationHandler)
                         && newPacketLocation != null
                         && newPacketLocation.followsInterpolationHandler()
                         && newPacketLocation.hasActiveInterpolationTarget());

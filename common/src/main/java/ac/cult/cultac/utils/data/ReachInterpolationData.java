@@ -886,6 +886,15 @@ public class ReachInterpolationData {
         return interpolationQueue == null || interpolationQueue.isEmpty() ? 0 : (int) Math.ceil(remainingTicks);
     }
 
+    /**
+     * Client ticks the path can still take: {@link #remainingSteppedTicks()} for a stepped path, else the most lerp
+     * steps left to the target, as InterpolationHandler#interpolate takes one per client tick.
+     */
+    public int remainingPathTicks() {
+        if (interpolationQueue != null) return remainingSteppedTicks();
+        return hasActiveInterpolationTarget() ? getInterpolationSteps() - interpolationStepsLowBound : 0;
+    }
+
     public SimpleCollisionBox getTargetLocation() {
         return targetLocation.copy();
     }
