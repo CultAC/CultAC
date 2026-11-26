@@ -148,6 +148,7 @@ public class MovementModifiers {
             start.add(PredVector.fromStartingVector(vector));
         }
 
+        EntityPush.addTrailingPushCandidates(player, start, unrebounded, state, lastResult);
         EntityPush.addVehiclePushCandidates(player, start, state, lastResult);
         addFireworkBoosts(player, start, state);
 

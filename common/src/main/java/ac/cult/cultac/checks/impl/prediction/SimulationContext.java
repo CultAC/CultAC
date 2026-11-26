@@ -135,6 +135,10 @@ public class SimulationContext implements DebugText.Recordable {
     @Setter
     KnownInput boatInputs = KnownInput.DEFAULT;
 
+    /** The keys of the last PLAYER_INPUT the client sent before this tick's movement. */
+    @Setter
+    KnownInput keys = KnownInput.DEFAULT;
+
     MainSupportingBlockData lastTickMainSupportingBlockData;
     Pose pose;
     float scale;
@@ -757,6 +761,7 @@ public class SimulationContext implements DebugText.Recordable {
         sb.append(", lastStuckSpeed=").append(lastStuckSpeed);
         sb.append(", horseInputs=").append(horseInputs);
         sb.append(", boatInputs=").append(boatInputs);
+        sb.append(", keys=").append(keys);
         sb.append(", lastTickMainSupportingBlockData=").append(lastTickMainSupportingBlockData);
         sb.append(", pose=").append(pose);
         sb.append(", scale=").append(scale);

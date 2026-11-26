@@ -71,7 +71,8 @@ public final class RootVehicleInterpolationCollision {
         return new Vec3(player.x, player.y, player.z);
     }
 
-    private static boolean localPlayerIsPushable(CultPlayer player, Vec3 position) {
+    /** LivingEntity#isPushable of the local player at {@code position}. */
+    public static boolean localPlayerIsPushable(CultPlayer player, Vec3 position) {
         return !player.compensatedEntities.getSelf().isDead
                 && player.gamemode != GameMode.SPECTATOR
                 && !Collisions.onClimbable(player, position.x, position.y, position.z);

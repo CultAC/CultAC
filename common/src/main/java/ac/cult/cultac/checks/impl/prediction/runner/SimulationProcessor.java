@@ -2587,6 +2587,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         PacketEntity traveller = riding == null ? player.compensatedEntities.getSelf() : riding;
         context.setWaterMovementEfficiency(getWaterMovementEfficiency(traveller, contextLastOnGround));
         context.setBoatInputs(player.boatData.vehicleKeys);
+        context.setKeys(player.packetStateData.knownInput);
         context.setRiptideReleaseCertain(player.packetStateData.riptideReleaseCertain);
         context.setProfileCarry(this.profileCarry);
         context.setBedrockTeleport(player.isBedrockMovement() ? this.bedrockTeleport : null);

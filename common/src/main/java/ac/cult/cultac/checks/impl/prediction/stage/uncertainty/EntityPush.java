@@ -1,20 +1,27 @@
 package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 public class EntityPush implements UncertaintyHandler {
     private static final double MAX_HORIZONTAL_IMPULSE_PER_ENTITY = Math.sqrt(2.0D) * 0.05D;
+    private static final String TRAILING_PUSH = "trailing entity push";
+    private static final float DEFAULT_FRICTION = 0.6F;
 
     @Override
     public PredVector handleUncertainty(
@@ -190,6 +197,66 @@ public class EntityPush implements UncertaintyHandler {
         }
         start.clear();
         start.addAll(transformed);
+    }
+
+    /**
+     * Adds to {@code start} each of {@code carried} plus Entity#push from a pushable entity of the player's size
+     * standing where the player stood one tick earlier and ticking after it: LivingEntity#pushEntities of that entity
+     * pushes the player after its travel, so the push lands in this tick's start.
+     */
+    public static void addTrailingPushCandidates(
+            CultPlayer player,
+            List<PredVector> start,
+            Set<Vec3> carried,
+            SimulationContext state,
+            PredictionResult lastResult) {
+        if (lastResult == null
+                || lastResult.isTeleport()
+                || carried.isEmpty()
+                || state.getVehicle() != null
+                || player.isBedrockMovement()
+                || state.getWorldData().getNumPushing() > 0) {
+            return;
+        }
+        SimulationContext last = lastResult.getSimulationContext();
+        if (last == null
+                || last.getVehicle() != null
+                || last.isGliding()
+                || !KnownInput.DEFAULT.equals(last.getKeys())) {
+            return;
+        }
+        WorldData lastWorld = last.getWorldData();
+        if (lastWorld == null
+                || !lastWorld.isPushable()
+                || lastWorld.getLastOnGround() != DesyncStatus.TRUE
+                || lastWorld.getInWater() != DesyncStatus.FALSE
+                || lastWorld.getInLava() != DesyncStatus.FALSE) {
+            return;
+        }
+        Vec3 from = last.getStart();
+        Vec3 to = state.getStart();
+        double x = from.x - to.x;
+        double z = from.z - to.z;
+        double absMax = Math.max(Math.abs(x), Math.abs(z));
+        // AABB#intersects of two boxes of the player's size, one tick apart.
+        if (absMax < 0.01F
+                || absMax >= last.getPose().width * last.getScale()
+                || Math.abs(from.y - to.y) >= last.getPose().height * last.getScale()) {
+            return;
+        }
+        if (!RootVehicleInterpolationCollision.localPlayerIsPushable(player, to)) {
+            return;
+        }
+        if (BlockProperties.getFriction(player, last.getLastTickMainSupportingBlockData(), from) != DEFAULT_FRICTION) {
+            return;
+        }
+        double root = Math.sqrt(absMax);
+        double scale = Math.min(1.0D, 1.0D / root);
+        double pushX = -(x / root * scale * 0.05F);
+        double pushZ = -(z / root * scale * 0.05F);
+        for (Vec3 vector : carried) {
+            start.add(PredVector.fromStartingVector(vector).add(pushX, 0.0D, pushZ, TRAILING_PUSH));
+        }
     }
 
     private static List<SimpleCollisionBox> getBoatPushCollisionCandidatesForNextTick(PacketEntity boat) {
