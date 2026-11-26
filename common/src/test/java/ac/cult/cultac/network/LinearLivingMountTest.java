@@ -46,6 +46,7 @@ class LinearLivingMountTest {
     private static final Vec3 START = new Vec3(0.5, FLOOR_Y, 0.5);
     private static final short STEP = 600;
     private static final double PATH = STEP / 4096.0;
+    private static final double SIDEWAYS = 0.25;
 
     @Test
     void aSaddledLinearMountFinishesTheServerPath() throws Exception {
@@ -118,6 +119,74 @@ class LinearLivingMountTest {
             z += velocity;
             assertExactTick(f, new Vec3(START.x + PATH, START.y, z), true, "tick 3");
             assertEquals(0, badPackets.violations);
+        }
+    }
+
+    /**
+     * The rider's forward key walks the mount along z while ServerboundMoveVehiclePacket#fromEntity reports the
+     * handler's target: the first controlled tick reports the path end, the mount's own travel reaching the target only
+     * on the next tick, which lands the mount on it and ends the path.
+     */
+    @Test
+    void aRiderHoldingForwardReportsTheTargetUntilThePathEnds() throws Exception {
+        try (var f = ridden()) {
+            Check offset = enabled(f, VehicleOffset.class);
+            Check simulation = enabled(f, OffsetHandler.class);
+            BadPacketsVehicle badPackets = enabled(f, BadPacketsVehicle.class);
+            move(f, STEP);
+            f.input(new ServerboundPlayerInput(true, false, false, false, false, false, false));
+            f.rideTick();
+            saddle(f);
+
+            // AbstractHorse#getRiddenInput: the 0.98F forward input at the donkey's movement_speed of 0.175.
+            double input = 0.98F;
+            float speed = 0.175F;
+            float blockFriction = 0.6F;
+            double onGround = input * (speed * (0.21600002F / (blockFriction * blockFriction * blockFriction)));
+            double inAir = input * (speed * 0.1F);
+            float groundFriction = blockFriction * 0.91F;
+            float airFriction = 0.91F;
+            double target = START.x + PATH;
+
+            double velocity = onGround;
+            double z = START.z + velocity;
+            assertTrue(controls(f), "tick 1");
+            PredictionResult reported = f.rideTick(new Vec3(target, START.y, START.z), false);
+            assertTrue(reported.getFlags().isEmpty(), "tick 1: " + describe(reported));
+            velocity = velocity * groundFriction + inAir;
+            z += velocity;
+            assertExactTick(f, new Vec3(target, START.y, z), true, "tick 2");
+            velocity = velocity * airFriction + onGround;
+            z += velocity;
+            assertExactTick(f, new Vec3(target, START.y, z), true, "tick 3");
+            assertEquals(0, offset.violations);
+            assertEquals(0, simulation.violations);
+            assertEquals(0, badPackets.violations);
+            assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
+        }
+    }
+
+    /** A controlled report that leaves the path sideways is set back onto the path. */
+    @Test
+    void aReportSidewaysOffTheServerPathIsSetBackOntoIt() throws Exception {
+        try (var f = ridden()) {
+            enabled(f, VehicleOffset.class);
+            move(f, STEP);
+            f.rideTick();
+            saddle(f);
+
+            assertTrue(controls(f));
+            PredictionResult sideways = f.rideTick(START.add(PATH * 2 / 3, 0, SIDEWAYS), true);
+            assertTrue(sideways.hasFlag(VehicleOffset.class), describe(sideways));
+            assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), describe(sideways));
+            Vec3 setback = f.player
+                    .getSetbackTeleportUtil()
+                    .getRequiredSetBack()
+                    .getTeleportData()
+                    .getLocation();
+            assertTrue(setback.x > START.x && setback.x <= START.x + PATH, "setback " + setback);
+            assertEquals(START.y, setback.y, 1.0E-9);
+            assertEquals(START.z, setback.z, 1.0E-9);
         }
     }
 
