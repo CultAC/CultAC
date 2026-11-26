@@ -125,6 +125,13 @@ info-check:
     - "%buttons%"
     - "&7======================"
 info-experimental: " &7(експериментальна)"
+# Під рядком з назвою перевірки: її назви в інших версіях назв перевірок (check-name-version у config.yml).
+# %names% перелічує їх як info-name-versions, старіші назви в першому рядку, новіші — в другому.
+info-former-names: "&7Раніше %names%"
+info-later-names: "&7Перейменована на %names%"
+info-name-versions: "&f%names% &8(назви перевірок %versions%)"
+# Назва, що в інших версіях назв перевірок означає інші перевірки; %checks% — їхні назви тут.
+info-name-elsewhere: "&f%name% &8(назви перевірок %versions%)&7 тут — це %checks%"
 # %punishments% перелічує сповіщення та кожну команду з punishments.yml, від найменшої кількості спрацювань, кожну один раз.
 # Команда, що містить "ban" або "kick", показується як info-punishment-ban або -kick; будь-яка інша — як /команда.
 info-punishment: "%action% на %count%-му спрацюванні"

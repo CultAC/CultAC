@@ -132,6 +132,13 @@ info-check:
     - "%buttons%"
     - "&7======================"
 info-experimental: " &7(experimental)"
+# Below the line naming the check: its names in other check name versions (check-name-version in config.yml).
+# %names% lists them as info-name-versions, older names on the first line and newer ones on the second.
+info-former-names: "&7Formerly %names%"
+info-later-names: "&7Renamed %names%"
+info-name-versions: "&f%names% &8(check names %versions%)"
+# A name that names other checks in other check name versions; %checks% are their names here.
+info-name-elsewhere: "&f%name% &8(check names %versions%)&7 is %checks% here"
 # %punishments% lists the alert and each command from punishments.yml, lowest flag count first, each once.
 # A command containing "ban" or "kick" shows as info-punishment-ban or -kick; any other shows as /command.
 info-punishment: "%action% at %count% flags"

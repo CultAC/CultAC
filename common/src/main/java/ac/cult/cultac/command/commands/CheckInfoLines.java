@@ -12,9 +12,12 @@ import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -86,7 +89,7 @@ final class CheckInfoLines {
 
     private CheckInfoLines() {}
 
-    static List<Component> check(Sender sender, View view, CheckCatalog.Entry entry) {
+    static List<Component> check(Sender sender, View view, CheckCatalog.Entry entry, @Nullable String query) {
         CheckTexts.Text text = view.text(entry);
         String category = view.texts().label(entry.category());
         Component buttons = Component.join(
@@ -123,11 +126,110 @@ final class CheckInfoLines {
                 buttons);
         List<String> template = view.config().getStringList("info-check");
         if (template.isEmpty()) template = EnglishDefaults.stringList("messages", "info-check");
+        List<Component> names = names(sender, view, entry, query);
         List<Component> lines = new ArrayList<>();
         for (String line : template) {
-            if (line != null) lines.add(render(sender, line, values));
+            if (line == null) continue;
+            lines.add(render(sender, line, values));
+            // The name lines follow the template line that names the check.
+            if (line.contains("%check%")) {
+                lines.addAll(names);
+                names = List.of();
+            }
         }
         return lines;
+    }
+
+    /**
+     * The names {@code entry} has in the other name versions, and the checks its name, or the {@code query} it was
+     * found by where that names no check in the name version of {@code config.yml}, names in other versions.
+     */
+    static List<Component> names(Sender sender, View view, CheckCatalog.Entry entry, @Nullable String query) {
+        int nameVersion = view.nameVersion();
+        String name = entry.name(nameVersion);
+        Map<String, List<Integer>> earlier = new LinkedHashMap<>();
+        Map<String, List<Integer>> later = new LinkedHashMap<>();
+        for (CheckCatalog.Entry named : CheckCatalog.ENTRIES) {
+            if (!named.name(nameVersion).equals(name)) continue;
+            for (int version = CheckNames.FIRST; version <= CheckNames.LATEST; version++) {
+                String other = named.name(version);
+                if (other.equalsIgnoreCase(name)) continue;
+                List<Integer> versions =
+                        (version < nameVersion ? earlier : later).computeIfAbsent(other, ignored -> new ArrayList<>());
+                if (!versions.contains(version)) versions.add(version);
+            }
+        }
+        List<Component> lines = new ArrayList<>();
+        if (!earlier.isEmpty()) {
+            lines.add(render(
+                    sender, view.template("info-former-names"), Map.of("names", byVersions(sender, view, earlier))));
+        }
+        if (!later.isEmpty()) {
+            lines.add(render(
+                    sender, view.template("info-later-names"), Map.of("names", byVersions(sender, view, later))));
+        }
+        String meant = query != null
+                        && CheckCatalog.withName(query, nameVersion).isEmpty()
+                        && !view.displayName(entry).equalsIgnoreCase(query)
+                ? query
+                : name;
+        List<CheckCatalog.Entry> here = CheckCatalog.withName(meant, nameVersion);
+        Map<List<CheckCatalog.Entry>, List<Integer>> elsewhere = new LinkedHashMap<>();
+        for (int version = CheckNames.FIRST; version <= CheckNames.LATEST; version++) {
+            List<CheckCatalog.Entry> there = CheckCatalog.withName(meant, version);
+            if (!there.isEmpty() && !there.equals(here)) {
+                elsewhere.computeIfAbsent(there, ignored -> new ArrayList<>()).add(version);
+            }
+        }
+        for (Map.Entry<List<CheckCatalog.Entry>, List<Integer>> each : elsewhere.entrySet()) {
+            Set<String> checks = new LinkedHashSet<>();
+            for (CheckCatalog.Entry named : each.getKey()) checks.add(named.name(nameVersion));
+            lines.add(render(
+                    sender,
+                    view.template("info-name-elsewhere"),
+                    Map.of(
+                            "name", meant,
+                            "versions", versions(each.getValue()),
+                            "checks", joined(sender, view, checks))));
+        }
+        return lines;
+    }
+
+    private static Component byVersions(Sender sender, View view, Map<String, List<Integer>> names) {
+        Map<List<Integer>, List<String>> byVersions = new LinkedHashMap<>();
+        for (Map.Entry<String, List<Integer>> name : names.entrySet()) {
+            byVersions.computeIfAbsent(name.getValue(), ignored -> new ArrayList<>()).add(name.getKey());
+        }
+        List<Component> parts = new ArrayList<>();
+        for (Map.Entry<List<Integer>, List<String>> each : byVersions.entrySet()) {
+            parts.add(render(
+                    sender,
+                    view.template("info-name-versions"),
+                    Map.of("names", joined(sender, view, each.getValue()), "versions", versions(each.getKey()))));
+        }
+        return Component.join(JoinConfiguration.separator(separator(sender, view)), parts);
+    }
+
+    private static Component joined(Sender sender, View view, Collection<String> names) {
+        List<Component> parts = new ArrayList<>();
+        for (String name : names) parts.add(Component.text(name));
+        return Component.join(JoinConfiguration.separator(separator(sender, view)), parts);
+    }
+
+    /** Ascending {@code versions} as runs: {@code 1-2, 4}. */
+    private static String versions(List<Integer> versions) {
+        List<String> runs = new ArrayList<>();
+        for (int i = 0; i < versions.size(); ) {
+            int first = versions.get(i);
+            int last = first;
+            while (++i < versions.size() && versions.get(i) == last + 1) last = versions.get(i);
+            runs.add(first == last ? Integer.toString(first) : first + "-" + last);
+        }
+        return String.join(", ", runs);
+    }
+
+    private static Component separator(Sender sender, View view) {
+        return render(sender, view.template("info-entry-separator"));
     }
 
     static List<Component> overview(Sender sender, View view) {

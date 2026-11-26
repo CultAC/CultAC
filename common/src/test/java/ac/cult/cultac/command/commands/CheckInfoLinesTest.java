@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.CheckNames;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.checks.info.CheckCategory;
 import ac.cult.cultac.checks.info.CheckPolicy;
@@ -140,6 +141,52 @@ class CheckInfoLinesTest {
         assertEquals(
                 "Unknown check: " + query,
                 PlainTextComponentSerializer.plainText().serialize(lines.getFirst()));
+    }
+
+    @Test
+    void aMergedCheckListsEachFormerName() {
+        CheckInfoLines.View view = view(stamped(3));
+        assertEquals(
+                List.of("Formerly MultiActionsI, MultiActionsJ, MultiActionsK, MultiActionsL, MultiActionsS"
+                        + " (check names 1-2)"),
+                nameLines(view, view.find("InventoryD"), "InventoryD"));
+    }
+
+    @Test
+    void aNameOfAnotherVersionFindsTheCheckAndSaysItsNameHere() {
+        CheckInfoLines.View view = view(stamped(3));
+        CheckCatalog.Entry entry = view.find("MultiActionsH");
+        assertEquals(
+                List.of(
+                        "Formerly MultiActionsH (check names 1-2)",
+                        "MultiActionsH (check names 1-2) is InventoryC here"),
+                nameLines(view, entry, "MultiActionsH"));
+    }
+
+    @Test
+    void aNameOfThisVersionSaysItMeantAnotherCheckElsewhere() {
+        CheckInfoLines.View view = view(stamped(3));
+        CheckCatalog.Entry entry = view.find("MultiActionsC");
+        assertEquals("MultiActionsE", entry.name(1));
+        assertEquals(
+                List.of(
+                        "Formerly MultiActionsE (check names 1-2)",
+                        "MultiActionsC (check names 1-2) is InventoryA here"),
+                nameLines(view, entry, "MultiActionsC"));
+    }
+
+    private static List<String> nameLines(CheckInfoLines.View view, CheckCatalog.Entry entry, String query) {
+        List<String> lines = new ArrayList<>();
+        for (Component line : CheckInfoLines.names(mock(Sender.class), view, entry, query)) {
+            lines.add(PlainTextComponentSerializer.plainText().serialize(line));
+        }
+        return lines;
+    }
+
+    private static ConfigManager stamped(int nameVersion) {
+        ConfigManager config = config();
+        when(config.<Object>getElse(CheckNames.CONFIG_KEY, null)).thenReturn(nameVersion);
+        return config;
     }
 
     private static List<String> groupLines() {

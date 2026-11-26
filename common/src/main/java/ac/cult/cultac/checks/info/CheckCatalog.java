@@ -561,7 +561,7 @@ public final class CheckCatalog {
     }
 
     /** The checks whose name, config name or alternative name in {@code nameVersion} is {@code query}, in order. */
-    private static List<Entry> withName(String query, int nameVersion) {
+    public static List<Entry> withName(String query, int nameVersion) {
         List<Entry> named = new ArrayList<>();
         for (Entry entry : ENTRIES) {
             if (hasName(entry, query, nameVersion)) named.add(entry);
