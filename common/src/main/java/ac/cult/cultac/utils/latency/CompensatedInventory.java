@@ -476,13 +476,24 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         SimItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
                 ? beforeSlots.get(click.slot())
                 : SimItemStack.EMPTY;
+        int swapStorageSlot = swapStorageSlot(click);
+        int swapMenuSlot = swapStorageSlot < 0 ? -1 : menuSlotOf(swapStorageSlot);
         for (Map.Entry<Integer, SimItemStack> entry : click.changedSlots().entrySet()) {
             int slot = entry.getKey();
             if (slot < 0 || slot >= afterSlots.size()) {
                 return null;
             }
+            // AbstractContainerMenu#doClick's SWAP moves the button's Inventory item into the clicked slot and the
+            // clicked slot's item into the button's; the swapped stack is the claim's first source.
+            SimItemStack swapped = SimItemStack.EMPTY;
+            if (swapStorageSlot >= 0 && slot == click.slot()) {
+                swapped = inventory.getInventoryStorage().getItem(swapStorageSlot);
+            } else if (swapMenuSlot >= 0 && slot == swapMenuSlot) {
+                swapped = clickedSource;
+            }
             SimItemStack resolved = resolveClaimedStack(
                     entry.getValue(),
+                    swapped,
                     beforeSlots.get(slot),
                     beforeSlots,
                     clickedSource,
@@ -492,6 +503,24 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             afterSlots.set(slot, resolved);
         }
         return afterSlots;
+    }
+
+    /** The Inventory slot a SWAP click's button names: a hotbar slot, or the offhand for button 40. */
+    private static int swapStorageSlot(InventoryClick click) {
+        if (click.clickType() != WindowClickType.SWAP || click.slot() < 0) return -1;
+        int button = click.button();
+        if (button == NMS_OFFHAND_SWAP_BUTTON) return Inventory.SLOT_OFFHAND;
+        return button >= 0 && button < 9 ? Inventory.HOTBAR_OFFSET + button : -1;
+    }
+
+    /** The open menu's slot backed by {@code storageSlot} of the player's Inventory, or -1 if it exposes none. */
+    private int menuSlotOf(int storageSlot) {
+        List<Slot> slots = menu.getSlots();
+        for (int index = 0; index < slots.size(); index++) {
+            Slot slot = slots.get(index);
+            if (slot.isBackedBy(inventory.getInventoryStorage()) && slot.getContainerSlot() == storageSlot) return index;
+        }
+        return -1;
     }
 
     private SimItemStack resolveAfterCarried(
@@ -504,6 +533,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 : SimItemStack.EMPTY;
         return resolveClaimedStack(
                 click.carriedItem(),
+                SimItemStack.EMPTY,
                 beforeCarried,
                 beforeSlots,
                 clickedSource,
@@ -513,6 +543,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     private SimItemStack resolveClaimedStack(
             SimItemStack claim,
+            SimItemStack swapped,
             SimItemStack previous,
             List<SimItemStack> beforeSlots,
             SimItemStack primarySource,
@@ -522,7 +553,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return SimItemStack.EMPTY;
         }
 
-        for (SimItemStack candidate : new SimItemStack[] {previous, primarySource, secondarySource}) {
+        for (SimItemStack candidate : new SimItemStack[] {swapped, previous, primarySource, secondarySource}) {
             SimItemStack resolved = copyWithAmountIfMaterialMatches(candidate, claim.getItem(), claim.getCount());
             if (!resolved.isEmpty() && matches.test(resolved)) {
                 return resolved;
