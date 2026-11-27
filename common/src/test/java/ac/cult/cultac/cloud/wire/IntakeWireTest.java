@@ -1162,4 +1162,73 @@ class IntakeWireTest {
         assertEquals(1, frame.getRecords(1).getPingKindValue());
         assertEquals(-1, frame.getRecords(2).getTickDelta());
     }
+
+    @Test
+    void aFrameIsTheBytesCodedOutputStreamWritesForIt() throws IOException {
+        int[] kinds = {
+            IntakeWire.SERVERBOUND,
+            IntakeWire.CLIENTBOUND,
+            IntakeWire.SECTION,
+            IntakeWire.PING_MARKER,
+            IntakeWire.PONG_MARKER
+        };
+        long[] advances = {0, 1, 127, 128, 16_384, Integer.MAX_VALUE + 1L, Long.MAX_VALUE, -1};
+        int[] values = {0, 1, -1, 63, 64, 127, 128, 300, Integer.MAX_VALUE, Integer.MIN_VALUE};
+        Random random = new Random(11);
+        for (long seq : new long[] {0, 1, 300, Long.MAX_VALUE, -1}) {
+            for (long serverTick : new long[] {-1, 0, 123_456_789_012L}) {
+                IntakeWire.FrameBuilder builder = new IntakeWire.FrameBuilder();
+                ByteArrayOutputStream records = new ByteArrayOutputStream();
+                CodedOutputStream frame = CodedOutputStream.newInstance(records);
+                frame.writeTag(1, 2);
+                frame.writeUInt32NoTag(16);
+                frame.writeFixed64NoTag(Long.reverseBytes(PLAYER.getMostSignificantBits()));
+                frame.writeFixed64NoTag(Long.reverseBytes(PLAYER.getLeastSignificantBits()));
+                if (seq != 0) frame.writeUInt64(2, seq);
+                for (int i = 0; i < 300; i++) {
+                    int kind = kinds[random.nextInt(kinds.length)];
+                    long sinceLast = advances[random.nextInt(advances.length)];
+                    int tickDelta = values[random.nextInt(values.length)];
+                    int pingKind = values[random.nextInt(values.length)];
+                    int skipped = values[random.nextInt(values.length)];
+                    int length = kind == IntakeWire.PING_MARKER ? 0 : random.nextInt(300);
+                    int offset = random.nextInt(4);
+                    byte[] payload = new byte[offset + length + random.nextInt(4)];
+                    random.nextBytes(payload);
+                    builder.add(kind, sinceLast, payload, offset, length, tickDelta, pingKind, skipped);
+
+                    ByteArrayOutputStream body = new ByteArrayOutputStream();
+                    CodedOutputStream record = CodedOutputStream.newInstance(body);
+                    if (kind == IntakeWire.PING_MARKER) {
+                        record.writeEnum(IntakeWire.PING_MARKER, pingKind);
+                    } else {
+                        record.writeTag(kind, 2);
+                        record.writeUInt32NoTag(length);
+                        record.writeRawBytes(payload, offset, length);
+                    }
+                    if (sinceLast != 0) record.writeUInt64(15, sinceLast);
+                    if (tickDelta != 0) record.writeSInt32(13, tickDelta);
+                    if (pingKind != 0 && kind != IntakeWire.PING_MARKER) record.writeEnum(17, pingKind);
+                    if (skipped != 0) record.writeUInt32(18, skipped);
+                    record.flush();
+                    frame.writeByteArray(3, body.toByteArray());
+                }
+                if (serverTick >= 0) {
+                    builder.serverTick(serverTick);
+                    frame.writeUInt64(4, serverTick);
+                }
+                frame.flush();
+                ByteArrayOutputStream message = new ByteArrayOutputStream();
+                CodedOutputStream nested = CodedOutputStream.newInstance(message);
+                nested.writeByteArray(3, records.toByteArray());
+                nested.flush();
+                ByteArrayOutputStream intake = new ByteArrayOutputStream();
+                CodedOutputStream outer = CodedOutputStream.newInstance(intake);
+                outer.writeByteArray(1, message.toByteArray());
+                outer.flush();
+
+                assertArrayEquals(intake.toByteArray(), builder.build(PLAYER, seq));
+            }
+        }
+    }
 }

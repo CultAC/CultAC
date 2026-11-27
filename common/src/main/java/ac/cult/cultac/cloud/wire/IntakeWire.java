@@ -38,6 +38,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -449,6 +450,32 @@ public final class IntakeWire {
         at = putUInt32(out, at, CodedOutputStream.encodeZigZag32(y));
         out[at++] = (byte) (3 << 3 | WireFormat.WIRETYPE_VARINT);
         return putUInt32(out, at, CodedOutputStream.encodeZigZag32(z));
+    }
+
+    /** A field's tag, as {@link CodedOutputStream#writeTag} writes it. */
+    private static int putTag(byte[] out, int at, int field, int wireType) {
+        return putUInt32(out, at, field << 3 | wireType);
+    }
+
+    /** {@code value} as {@link CodedOutputStream#writeInt32NoTag} writes it: a negative one sign-extended. */
+    private static int putInt32(byte[] out, int at, int value) {
+        return value >= 0 ? putUInt32(out, at, value) : putUInt64(out, at, value);
+    }
+
+    /** {@code value} as an unsigned varint, as {@link CodedOutputStream#writeUInt64NoTag} writes it. */
+    private static int putUInt64(byte[] out, int at, long value) {
+        while ((value & ~0x7FL) != 0) {
+            out[at++] = (byte) (value & 0x7F | 0x80);
+            value >>>= 7;
+        }
+        out[at++] = (byte) value;
+        return at;
+    }
+
+    /** {@code value}'s bytes most significant first, as {@code writeFixed64NoTag(Long.reverseBytes(value))}. */
+    private static int putBigEndian(byte[] out, int at, long value) {
+        for (int shift = 56; shift >= 0; shift -= 8) out[at++] = (byte) (value >>> shift);
+        return at;
     }
 
     /** {@code value} as an unsigned varint, as {@link CodedOutputStream#writeUInt32NoTag} writes it. */
@@ -1068,37 +1095,42 @@ public final class IntakeWire {
         public void build(UUID player, long seq, byte[] out) {
             int frame = frameBytes(seq);
             int message = nested(FRAME, frame);
-            CodedOutputStream stream = CodedOutputStream.newInstance(out, 0, nested(MESSAGES, message));
-            try {
-                stream.writeTag(MESSAGES, 2);
-                stream.writeUInt32NoTag(message);
-                stream.writeTag(FRAME, 2);
-                stream.writeUInt32NoTag(frame);
-                stream.writeTag(FRAME_PLAYER, 2);
-                stream.writeUInt32NoTag(16);
-                stream.writeFixed64NoTag(Long.reverseBytes(player.getMostSignificantBits()));
-                stream.writeFixed64NoTag(Long.reverseBytes(player.getLeastSignificantBits()));
-                if (seq != 0) stream.writeUInt64(FRAME_SEQ, seq);
-                for (int i = 0; i < count; i++) {
-                    stream.writeTag(FRAME_RECORDS, 2);
-                    stream.writeUInt32NoTag(sizes[i]);
-                    if (kinds[i] == PING_MARKER) {
-                        stream.writeEnum(PING_MARKER, pingKinds[i]);
-                    } else {
-                        stream.writeTag(kinds[i], 2);
-                        stream.writeUInt32NoTag(lengths[i]);
-                        stream.writeRawBytes(payloads[i], offsets[i], lengths[i]);
-                    }
-                    if (sinceLast[i] != 0) stream.writeUInt64(ADVANCE_NANOS, sinceLast[i]);
-                    if (tickDeltas[i] != 0) stream.writeSInt32(TICK_DELTA, tickDeltas[i]);
-                    if (pingKinds[i] != 0 && kinds[i] != PING_MARKER) stream.writeEnum(PING_KIND, pingKinds[i]);
-                    if (skips[i] != 0) stream.writeUInt32(SKIPPED_PINGS, skips[i]);
+            int end = nested(MESSAGES, message);
+            Objects.checkFromIndexSize(0, end, out.length);
+            int at = putTag(out, 0, MESSAGES, WireFormat.WIRETYPE_LENGTH_DELIMITED);
+            at = putUInt32(out, at, message);
+            at = putTag(out, at, FRAME, WireFormat.WIRETYPE_LENGTH_DELIMITED);
+            at = putUInt32(out, at, frame);
+            at = putTag(out, at, FRAME_PLAYER, WireFormat.WIRETYPE_LENGTH_DELIMITED);
+            at = putUInt32(out, at, 16);
+            at = putBigEndian(out, at, player.getMostSignificantBits());
+            at = putBigEndian(out, at, player.getLeastSignificantBits());
+            if (seq != 0) at = putUInt64(out, putTag(out, at, FRAME_SEQ, WireFormat.WIRETYPE_VARINT), seq);
+            for (int i = 0; i < count; i++) {
+                at = putTag(out, at, FRAME_RECORDS, WireFormat.WIRETYPE_LENGTH_DELIMITED);
+                at = putUInt32(out, at, sizes[i]);
+                if (kinds[i] == PING_MARKER) {
+                    at = putInt32(out, putTag(out, at, PING_MARKER, WireFormat.WIRETYPE_VARINT), pingKinds[i]);
+                } else {
+                    at = putTag(out, at, kinds[i], WireFormat.WIRETYPE_LENGTH_DELIMITED);
+                    at = putUInt32(out, at, lengths[i]);
+                    System.arraycopy(payloads[i], offsets[i], out, at, lengths[i]);
+                    at += lengths[i];
                 }
-                if (serverTick >= 0) stream.writeUInt64(FRAME_SERVER_TICK, serverTick);
-                stream.checkNoSpaceLeft();
-            } catch (IOException impossible) {
-                throw new UncheckedIOException(impossible);
+                if (sinceLast[i] != 0)
+                    at = putUInt64(out, putTag(out, at, ADVANCE_NANOS, WireFormat.WIRETYPE_VARINT), sinceLast[i]);
+                if (tickDeltas[i] != 0) {
+                    at = putTag(out, at, TICK_DELTA, WireFormat.WIRETYPE_VARINT);
+                    at = putUInt32(out, at, CodedOutputStream.encodeZigZag32(tickDeltas[i]));
+                }
+                if (pingKinds[i] != 0 && kinds[i] != PING_MARKER)
+                    at = putInt32(out, putTag(out, at, PING_KIND, WireFormat.WIRETYPE_VARINT), pingKinds[i]);
+                if (skips[i] != 0)
+                    at = putUInt32(out, putTag(out, at, SKIPPED_PINGS, WireFormat.WIRETYPE_VARINT), skips[i]);
             }
+            if (serverTick >= 0)
+                at = putUInt64(out, putTag(out, at, FRAME_SERVER_TICK, WireFormat.WIRETYPE_VARINT), serverTick);
+            if (at != end) throw new IllegalStateException("Did not write as much data as expected.");
         }
 
         private int frameBytes(long seq) {
