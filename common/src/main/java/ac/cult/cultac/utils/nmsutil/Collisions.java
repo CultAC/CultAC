@@ -531,14 +531,16 @@ public class Collisions {
         double maxX = Math.ceil(CultMath.clamp(centerX + size, -absoluteMaxSize, absoluteMaxSize));
         double maxZ = Math.ceil(CultMath.clamp(centerZ + size, -absoluteMaxSize, absoluteMaxSize));
 
+        boolean inside = entityX > minX && entityX < maxX && entityZ > minZ && entityZ < maxZ;
         // Entity#collectCollidersIgnoringWorldBorder gathers the border by the queried box; Bedrock, and a border the
-        // client may still lerp on its clock, reach 16 blocks.
+        // client may still lerp on its clock, reach 16 blocks. WorldBorder#isInsideCloseToBorder admits an entity up
+        // to bbMax outside the edge, which collides with the shape outside the border box; a collision check still
+        // reads the planes only from inside.
         if (player.isBedrockMovement() || border.holdsClockLerp()
                 ? gathersBorderWithinSixteen(border, diameter, entityX, entityZ)
-                : entityX > minX
-                        && entityX < maxX
-                        && entityZ > minZ
-                        && entityZ < maxZ
+                : (inside
+                                || !onlyCheckCollide
+                                        && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11))
                         && border.gathers(
                                 entityX,
                                 entityZ,
@@ -579,18 +581,15 @@ public class Collisions {
                                         wantedBB));
             }
 
+            // From beyond a line, the cell past it is filled only outside the border's range on the other axis.
             // South border
-            listOfBlocks.add(new SimpleCollisionBox(
-                    minX - 10, Double.NEGATIVE_INFINITY, maxZ, maxX + 10, Double.POSITIVE_INFINITY, maxZ, false));
+            addBorderLine(listOfBlocks, false, maxZ, minX, maxX, entityZ > maxZ);
             // North border
-            listOfBlocks.add(new SimpleCollisionBox(
-                    minX - 10, Double.NEGATIVE_INFINITY, minZ, maxX + 10, Double.POSITIVE_INFINITY, minZ, false));
+            addBorderLine(listOfBlocks, false, minZ, minX, maxX, entityZ < minZ);
             // East border
-            listOfBlocks.add(new SimpleCollisionBox(
-                    maxX, Double.NEGATIVE_INFINITY, minZ - 10, maxX, Double.POSITIVE_INFINITY, maxZ + 10, false));
+            addBorderLine(listOfBlocks, true, maxX, minZ, maxZ, entityX > maxX);
             // West border
-            listOfBlocks.add(new SimpleCollisionBox(
-                    minX, Double.NEGATIVE_INFINITY, minZ - 10, minX, Double.POSITIVE_INFINITY, maxZ + 10, false));
+            addBorderLine(listOfBlocks, true, minX, minZ, maxZ, entityX < minX);
 
             if (onlyCheckCollide) {
                 for (SimpleCollisionBox box : listOfBlocks) {
@@ -599,6 +598,31 @@ public class Collisions {
             }
         }
         return false;
+    }
+
+    /**
+     * A plane of the border at {@code at} on the X axis ({@code xLine}) or the Z axis, spanning {@code from} to
+     * {@code to} on the other axis and 10 past each end; {@code beyond} leaves out the span from {@code from} to
+     * {@code to}.
+     */
+    private static void addBorderLine(
+            List<SimpleCollisionBox> listOfBlocks, boolean xLine, double at, double from, double to, boolean beyond) {
+        if (beyond) {
+            addBorderLineSpan(listOfBlocks, xLine, at, from - 10, from);
+            addBorderLineSpan(listOfBlocks, xLine, at, to, to + 10);
+        } else {
+            addBorderLineSpan(listOfBlocks, xLine, at, from - 10, to + 10);
+        }
+    }
+
+    private static void addBorderLineSpan(
+            List<SimpleCollisionBox> listOfBlocks, boolean xLine, double at, double from, double to) {
+        listOfBlocks.add(
+                xLine
+                        ? new SimpleCollisionBox(
+                                at, Double.NEGATIVE_INFINITY, from, at, Double.POSITIVE_INFINITY, to, false)
+                        : new SimpleCollisionBox(
+                                from, Double.NEGATIVE_INFINITY, at, to, Double.POSITIVE_INFINITY, at, false));
     }
 
     /** {@link SimpleCollisionBox#isIntersected} for a box with these bounds against {@code other}. */
