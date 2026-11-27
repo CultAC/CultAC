@@ -60,7 +60,7 @@ final class OcclusionProofs {
         return null;
     }
 
-    private static boolean covers(Vec3 eye, SimpleCollisionBox target, SimpleCollisionBox blocker) {
+    static boolean covers(Vec3 eye, SimpleCollisionBox target, SimpleCollisionBox blocker) {
         for (int axis = 0; axis < 3; axis++) {
             double origin = coordinate(eye, axis);
             Interval distance;
