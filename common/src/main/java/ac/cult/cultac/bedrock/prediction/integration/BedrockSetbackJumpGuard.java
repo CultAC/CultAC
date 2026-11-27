@@ -36,7 +36,8 @@ public final class BedrockSetbackJumpGuard {
         // This is Java's narrow pre-movement support check, not a movement
         // candidate or a recomputation of the client's retained collision flags.
         // ClientBlockShapes supplies compensated Bedrock shapes to Collisions.
-        return Collisions.collide(player, box, 0.0D, -1.0E-7D, 0.0D, List.of(Collisions.Axis.Y), false).y == 0.0D;
+        return Collisions.collide(player, box, 0.0D, -1.0E-7D, 0.0D, List.of(Collisions.Axis.Y), false, false).y
+                == 0.0D;
     }
 
     private static BedrockPredVector candidate(PredictionResult result) {

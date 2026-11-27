@@ -2686,7 +2686,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (this.lastMovementWasSetback && result.getInitialStartingVel().isJump()) {
             boolean onGround = this.player.isBedrockMovement()
                     ? BedrockSetbackJumpGuard.hasSupportAtStart(this.player, result)
-                    : Collisions.collide(this.player, 0.0, -1.0E-7, 0.0).y == 0.0;
+                    : Collisions.collide(this.player, 0.0, -1.0E-7, 0.0, false).y == 0.0;
             if (!onGround) {
                 this.logDesyncTrace("T0");
                 return true;

@@ -82,7 +82,7 @@ class JavaVoxelCollisionTest {
                 // Official Entity.collide, world-oracle frame 12: no intersecting
                 // collider means the sub-epsilon request stays nonzero/unclipped.
                 var outside = SimpleCollisionBox.between(5 + 5E-8, 64.1, 4.2, 5.6, 65.9, 4.8);
-                assertEquals(5E-8, Collisions.collide(player, outside, 5E-8, 0, 0).x, 0, client.toString());
+                assertEquals(5E-8, Collisions.collide(player, outside, 5E-8, 0, 0, false).x, 0, client.toString());
                 var boxes = new ArrayList<SimpleCollisionBox>();
                 Collisions.getCollisionBoxes(player, outside, boxes, false, outside.minY);
                 assertTrue(boxes.isEmpty(), client.toString());
@@ -92,7 +92,11 @@ class JavaVoxelCollisionTest {
                 var above = SimpleCollisionBox.between(4.2, 65 + 5E-8, 4.2, 4.8, 66.8, 4.8);
                 var query = above.copy().expandToCoordinate(0, -1E-7, 0);
                 assertFalse(Collisions.isEmpty(player, query, above.minY), client.toString());
-                assertEquals(65 - above.minY, Collisions.collide(player, above, 0, -1E-7, 0).y, 0, client.toString());
+                assertEquals(
+                        65 - above.minY,
+                        Collisions.collide(player, above, 0, -1E-7, 0, false).y,
+                        0,
+                        client.toString());
             }
         }
     }

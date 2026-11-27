@@ -74,7 +74,7 @@ public final class Riptide {
     /** How far the grounded lift moves {@code box}, scaled by a consumed stuck multiplier's {@code stuckY}. */
     public static double groundLift(CultPlayer player, SimpleCollisionBox box, double stuckY) {
         double attempted = LIFT * stuckY;
-        double lift = Collisions.collide(player, box, 0, attempted, 0).y;
+        double lift = Collisions.collide(player, box, 0, attempted, 0, false).y;
         // Entity#move retains even a tiny move when collision removed less than its squared-length threshold.
         return lift * lift > 1.0E-7 || attempted * attempted - lift * lift < 1.0E-7 ? lift : 0;
     }

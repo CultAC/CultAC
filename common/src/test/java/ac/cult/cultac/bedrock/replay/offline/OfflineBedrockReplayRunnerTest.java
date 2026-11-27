@@ -862,7 +862,7 @@ public final class OfflineBedrockReplayRunnerTest {
         player.lastTickXRot = frame.getPitch();
         player.lastTickYRot = frame.getYaw();
         player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, position.x, position.y, position.z);
-        boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0).y == 0;
+        boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0, false).y == 0;
         player.onGround = onGround;
         player.lastOnGround = onGround;
     }
@@ -1670,7 +1670,7 @@ public final class OfflineBedrockReplayRunnerTest {
             player.lastY = groundPos.y;
             player.lastZ = groundPos.z;
             player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, groundPos.x, groundPos.y, groundPos.z);
-            boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0).y == 0;
+            boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0, false).y == 0;
             player.onGround = onGround;
             player.lastOnGround = onGround;
 
@@ -1770,7 +1770,7 @@ public final class OfflineBedrockReplayRunnerTest {
             player.lastY = groundPos.y;
             player.lastZ = groundPos.z;
             player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, groundPos.x, groundPos.y, groundPos.z);
-            boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0).y == 0;
+            boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0, false).y == 0;
             player.onGround = onGround;
             player.lastOnGround = onGround;
 
@@ -1850,7 +1850,7 @@ public final class OfflineBedrockReplayRunnerTest {
             player.lastY = groundPos.y;
             player.lastZ = groundPos.z;
             player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, groundPos.x, groundPos.y, groundPos.z);
-            boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0).y == 0;
+            boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0, false).y == 0;
             player.onGround = onGround;
             player.lastOnGround = onGround;
             // The client holds the level around its spawn once it answers the spawn teleport.

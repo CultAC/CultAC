@@ -131,9 +131,14 @@ public final class CorrectionBuilder {
                 && simulateNext
                 && lastPrediction != null
                 && !player.compensatedEntities.getSelf().inVehicle();
+        // Entity#collide and LivingEntity#travelInAir read Entity#onGround as the correction tick starts.
+        boolean startOnGround =
+                onFootTick && lastPrediction.getSimulationContext().getLastOnGround().determineOptimistically();
         // We don't want to make it IMPOSSIBLE for high ping players to play after taking knockback
         // If the player isn't really moving at all, don't bother
-        if (onFootTick && request.ignoreUnchanged() && SetbackPhysics.barelyMoves(player, position, clientVel)) {
+        if (onFootTick
+                && request.ignoreUnchanged()
+                && SetbackPhysics.barelyMoves(player, position, clientVel, startOnGround)) {
             return null;
         }
         // Use Java's correction tick for both platforms. The caller owns whether
@@ -160,7 +165,7 @@ public final class CorrectionBuilder {
                 // Entity#move multiplies the movement by the stuck speed before Entity#collide.
                 if (stuckSpeedMultiplier != null) clientVel = clientVel.multiply(stuckSpeedMultiplier);
 
-                Vec3 collide = Collisions.collide(player, clientVel.x, clientVel.y, clientVel.z);
+                Vec3 collide = Collisions.collide(player, clientVel.x, clientVel.y, clientVel.z, startOnGround);
                 // Entity#move's verticalCollisionBelow for the correction tick.
                 expectedOnGround = clientVel.y < 0.0D && clientVel.y != collide.y;
 
@@ -203,7 +208,7 @@ public final class CorrectionBuilder {
                         context.getWorldData().mayBeInWater(),
                         context.getWorldData().mayBeInLava(),
                         context.usesFallFlyingMovement(),
-                        context.getLastOnGround().determineOptimistically(),
+                        startOnGround,
                         stuckSpeedMultiplier != null,
                         context);
             } finally {

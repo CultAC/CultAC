@@ -141,8 +141,10 @@ public final class SneakEdgeBackoff {
         Vec3 backedOff = backOff(player, box, delta, player.getMaxUpStep());
         if (backedOff.x == delta.x && backedOff.z == delta.z) return null;
 
-        // Entity#move skips setPos for a collided move shorter than 1e-7 that the backoff left.
-        Vec3 movement = Collisions.collide(player, box, backedOff.x, backedOff.y, backedOff.z);
+        // Entity#collide steps from Entity#onGround at the move's start, and Entity#move skips setPos for a collided
+        // move shorter than 1e-7 that the backoff left.
+        boolean onGround = context.getWorldData().getLastOnGround() == DesyncStatus.TRUE;
+        Vec3 movement = Collisions.collide(player, box, backedOff.x, backedOff.y, backedOff.z, onGround);
         double movementLength = movement.lengthSqr();
         boolean moved = movementLength > 1.0E-7 || backedOff.lengthSqr() - movementLength < 1.0E-7;
         Vec3 position = moved ? movement : Vec3.ZERO;

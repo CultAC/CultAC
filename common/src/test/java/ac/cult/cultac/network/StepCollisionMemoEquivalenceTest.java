@@ -159,7 +159,7 @@ class StepCollisionMemoEquivalenceTest {
         boolean saved = player.lastOnGround;
         player.lastOnGround = onGround;
         try {
-            boolean fresh = Collisions.collide(player, box, 0.0D, -SimpleCollisionBox.COLLISION_EPSILON, 0.0D).y
+            boolean fresh = Collisions.collide(player, box, 0.0D, -SimpleCollisionBox.COLLISION_EPSILON, 0.0D, false).y
                     != -SimpleCollisionBox.COLLISION_EPSILON;
             return fresh == (Boolean) memoised ? null : "below " + box + " " + memoised + " != " + fresh;
         } finally {

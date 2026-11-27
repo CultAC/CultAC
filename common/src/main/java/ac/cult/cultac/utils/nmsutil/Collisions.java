@@ -44,13 +44,10 @@ public class Collisions {
     private static final Vec3 SWEET_BERRY_BUSH_STUCK_SPEED = new Vec3(0.800000011920929, 0.75, 0.800000011920929);
     private static final Vec3 POWDER_SNOW_STUCK_SPEED = new Vec3(0.8999999761581421, 1.5, 0.8999999761581421);
 
-    public static Vec3 collide(CultPlayer player, double desiredX, double desiredY, double desiredZ) {
-        return collide(player, player.boundingBox, desiredX, desiredY, desiredZ);
-    }
-
+    /** {@link #collide(CultPlayer, SimpleCollisionBox, double, double, double, boolean)} from the player's box. */
     public static Vec3 collide(
-            CultPlayer player, SimpleCollisionBox box, double desiredX, double desiredY, double desiredZ) {
-        return collide(player, box, desiredX, desiredY, desiredZ, getAxisStepOrder(desiredX, desiredZ), true);
+            CultPlayer player, double desiredX, double desiredY, double desiredZ, boolean onGroundForStep) {
+        return collide(player, player.boundingBox, desiredX, desiredY, desiredZ, onGroundForStep);
     }
 
     /** {@code onGroundForStep} is Entity#onGround at the move's start, which lets Entity#collide step upwards. */
@@ -102,25 +99,6 @@ public class Collisions {
             double desiredX,
             double desiredY,
             double desiredZ,
-            List<SimpleCollisionBox> additionalCollisionBoxes) {
-        return collide(
-                player,
-                box,
-                desiredX,
-                desiredY,
-                desiredZ,
-                getAxisStepOrder(desiredX, desiredZ),
-                true,
-                box.minY,
-                additionalCollisionBoxes);
-    }
-
-    public static Vec3 collideWithAdditionalCollisionBoxes(
-            CultPlayer player,
-            SimpleCollisionBox box,
-            double desiredX,
-            double desiredY,
-            double desiredZ,
             List<Axis> order,
             boolean allowStepping,
             List<SimpleCollisionBox> additionalCollisionBoxes,
@@ -145,43 +123,10 @@ public class Collisions {
             double desiredY,
             double desiredZ,
             List<Axis> order,
-            boolean allowStepping) {
-        return collide(player, box, desiredX, desiredY, desiredZ, order, allowStepping, box.minY);
-    }
-
-    private static Vec3 collide(
-            CultPlayer player,
-            SimpleCollisionBox box,
-            double desiredX,
-            double desiredY,
-            double desiredZ,
-            List<Axis> order,
             boolean allowStepping,
-            double entityBottom) {
-        return collide(player, box, desiredX, desiredY, desiredZ, order, allowStepping, entityBottom, null);
-    }
-
-    private static Vec3 collide(
-            CultPlayer player,
-            SimpleCollisionBox box,
-            double desiredX,
-            double desiredY,
-            double desiredZ,
-            List<Axis> order,
-            boolean allowStepping,
-            double entityBottom,
-            List<SimpleCollisionBox> additionalCollisionBoxes) {
+            boolean onGroundForStep) {
         return collide(
-                player,
-                box,
-                desiredX,
-                desiredY,
-                desiredZ,
-                order,
-                allowStepping,
-                entityBottom,
-                additionalCollisionBoxes,
-                player.lastOnGround);
+                player, box, desiredX, desiredY, desiredZ, order, allowStepping, box.minY, null, onGroundForStep);
     }
 
     private static Vec3 collide(

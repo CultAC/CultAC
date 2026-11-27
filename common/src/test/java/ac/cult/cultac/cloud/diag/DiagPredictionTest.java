@@ -784,7 +784,7 @@ class DiagPredictionTest {
         player.xRot = player.lastTickXRot = mover.yaw;
         player.yRot = player.lastTickYRot = mover.pitch;
         player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, mover.x, mover.y, mover.z);
-        boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0).y == 0;
+        boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0, false).y == 0;
         player.onGround = onGround;
         player.lastOnGround = onGround;
         player.checkManager.getSimulationProcessor().seedStartingVelocity(Vec3.ZERO);

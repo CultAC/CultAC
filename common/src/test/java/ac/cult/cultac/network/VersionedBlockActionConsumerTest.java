@@ -345,7 +345,7 @@ class VersionedBlockActionConsumerTest {
         }
 
         Vec3 collide(SimpleCollisionBox box, double dx, double dy, double dz) {
-            return Collisions.collide(fixture.player, box, dx, dy, dz, AXES, false);
+            return Collisions.collide(fixture.player, box, dx, dy, dz, AXES, false, false);
         }
 
         public void close() throws Exception {

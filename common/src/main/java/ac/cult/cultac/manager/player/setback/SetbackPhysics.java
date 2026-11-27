@@ -62,15 +62,18 @@ public final class SetbackPhysics {
         return VelocityTransformer.applyMovementThreshold(new PredVector(simulated), player.getClientVersion(), true);
     }
 
-    /** Whether one tick of {@code velocity} from {@code position} leaves the player where it is. */
-    public static boolean barelyMoves(CultPlayer player, Vec3 position, Vec3 velocity) {
+    /**
+     * Whether one tick of {@code velocity} from {@code position}, starting {@code onGround}, leaves the player where it
+     * is.
+     */
+    public static boolean barelyMoves(CultPlayer player, Vec3 position, Vec3 velocity, boolean onGround) {
         SimpleCollisionBox oldBB = player.boundingBox;
         try {
             player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, position.x, position.y, position.z);
             Vec3 moved = VelocityTransformer.applyMovementThreshold(
                             Collections.singletonList(new PredVector(velocity)), player.getClientVersion())
                     .get(0);
-            return Collisions.collide(player, moved.x, moved.y, moved.z).lengthSqr() < 0.001 * 0.001;
+            return Collisions.collide(player, moved.x, moved.y, moved.z, onGround).lengthSqr() < 0.001 * 0.001;
         } finally {
             player.boundingBox = oldBB;
         }

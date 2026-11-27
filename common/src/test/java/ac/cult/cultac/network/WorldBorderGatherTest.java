@@ -67,7 +67,7 @@ class WorldBorderGatherTest {
                 Vec3 at = new Vec3(0.5, JavaTickFixture.FLOOR_Y + 8.0, 4.0);
                 f.place(at, Vec3.ZERO);
                 SimpleCollisionBox box = box(at, width);
-                Vec3 moved = Collisions.collide(f.player, box, 0.0, 0.0, 1.5);
+                Vec3 moved = Collisions.collide(f.player, box, 0.0, 0.0, 1.5, false);
                 assertEquals(5.0 - box.maxZ, moved.z, String.valueOf(width));
             }
         }
@@ -218,7 +218,7 @@ class WorldBorderGatherTest {
     private static double fall(JavaTickFixture f, double z, double towards, double width) {
         Vec3 at = new Vec3(0.5, JavaTickFixture.FLOOR_Y + 8.0, z);
         f.place(at, Vec3.ZERO);
-        return Collisions.collide(f.player, box(at, width), 0.0, SUB_EPSILON, towards).y;
+        return Collisions.collide(f.player, box(at, width), 0.0, SUB_EPSILON, towards, false).y;
     }
 
     private static SimpleCollisionBox box(Vec3 at, double width) {

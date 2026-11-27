@@ -38,7 +38,7 @@ public final class StepCollisionMemo {
 
     boolean collidesDirectlyBelow(CultPlayer player, SimpleCollisionBox box) {
         if (!open) return collidesDirectlyBelowUncached(player, box);
-        int found = find(BELOW | (player.lastOnGround ? ON_GROUND : 0L), box, 0.0D, 0.0D, 0.0D);
+        int found = find(BELOW, box, 0.0D, 0.0D, 0.0D);
         if (found >= 0) return (Boolean) values[found];
         boolean below = collidesDirectlyBelowUncached(player, box);
         int entry = insert(-found - 1);
@@ -59,7 +59,7 @@ public final class StepCollisionMemo {
     }
 
     static boolean collidesDirectlyBelowUncached(CultPlayer player, SimpleCollisionBox box) {
-        return Collisions.collide(player, box, 0.0D, -SimpleCollisionBox.COLLISION_EPSILON, 0.0D).y
+        return Collisions.collide(player, box, 0.0D, -SimpleCollisionBox.COLLISION_EPSILON, 0.0D, false).y
                 != -SimpleCollisionBox.COLLISION_EPSILON;
     }
 
