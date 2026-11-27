@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.math.OptifineFastMath;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -143,6 +144,25 @@ public class HorizontalAnalyzerTest {
                             narrow, farCorner(narrow), new Vec3(0.09, 0, 0.01), 0, version),
                     1.0E-6);
         }
+    }
+
+    /** Entity#getInputVector of a 1.21.11 client indexes Mth's table by a double-scaled angle. */
+    @Test
+    public void aClippedInputIsMeasuredInTheClientsTable() {
+        float yaw = 1206.134033203125f;
+        float radians = yaw * (float) (Math.PI / 180.0);
+        float sin = (float) Math.sin((int) ((long) (radians * 10430.378350470453D) & 65535L) / 10430.378350470453D);
+        float cos = (float)
+                Math.sin((int) ((long) (radians * 10430.378350470453D + 16384.0D) & 65535L) / 10430.378350470453D);
+        double input = 0.0294;
+        double residualX = input * cos - input * sin;
+        double residualZ = input * cos + input * sin;
+        CollideAxisData.CollideResult free = new CollideAxisData.CollideResult(false, 0);
+        CollideAxisData collide = CollideAxisData.immutable(free, free, free, free);
+        Vec3 target = new Vec3(residualX * 3, 0, residualZ * 3);
+        double axis = HorizontalAnalyzer.minimumClippedInputAxis(
+                residualX, residualZ, yaw, ClientVersion.V_1_21_11, collide, target, Vec3.ZERO);
+        assertEquals(input, axis, 1.0E-12);
     }
 
     private static Vec3 farCorner(SimpleCollisionBox box) {

@@ -183,6 +183,7 @@ public class HorizontalAnalyzer implements EngineCheck {
                             horizDiffX,
                             horizDiffZ,
                             result.getSimulationContext().getXRot(),
+                            result.getSimulationContext().getVersion(),
                             result.getCollideAxisData(),
                             target,
                             preCollisionMovement(result),
@@ -456,10 +457,11 @@ public class HorizontalAnalyzer implements EngineCheck {
             double residualX,
             double residualZ,
             float yaw,
+            ClientVersion version,
             CollideAxisData collide,
             Vec3 target,
             Vec3 preCollisionMovement) {
-        return minimumClippedInputAxis(residualX, residualZ, yaw, collide, target, preCollisionMovement, 0, 0);
+        return minimumClippedInputAxis(residualX, residualZ, yaw, version, collide, target, preCollisionMovement, 0, 0);
     }
 
     /** {@code touchedX} and {@code touchedZ} are {@link #touchedFaces} on axes the probe gives no side. */
@@ -467,13 +469,23 @@ public class HorizontalAnalyzer implements EngineCheck {
             double residualX,
             double residualZ,
             float yaw,
+            ClientVersion version,
             CollideAxisData collide,
             Vec3 target,
             Vec3 preCollisionMovement,
             int touchedX,
             int touchedZ) {
         return minimumClippedInput(
-                residualX, residualZ, yaw, collide, target, preCollisionMovement, touchedX, touchedZ, MAX_INPUT_AXIS);
+                residualX,
+                residualZ,
+                yaw,
+                version,
+                collide,
+                target,
+                preCollisionMovement,
+                touchedX,
+                touchedZ,
+                MAX_INPUT_AXIS);
     }
 
     /** {@link #minimumClippedInputAxis} for any input cost, from the result's accepted movement and collisions. */
@@ -492,6 +504,7 @@ public class HorizontalAnalyzer implements EngineCheck {
                 target.x - closest.x,
                 target.z - closest.z,
                 result.getSimulationContext().getXRot(),
+                result.getSimulationContext().getVersion(),
                 result.getCollideAxisData(),
                 target,
                 preCollisionMovement,
@@ -567,6 +580,7 @@ public class HorizontalAnalyzer implements EngineCheck {
             double residualX,
             double residualZ,
             float yaw,
+            ClientVersion version,
             CollideAxisData collide,
             Vec3 target,
             Vec3 preCollisionMovement,
@@ -587,7 +601,7 @@ public class HorizontalAnalyzer implements EngineCheck {
         double best = Double.MAX_VALUE;
         float radians = yaw * 0.017453292f;
         float[][] tables = {
-            {VanillaMath.sin(radians), VanillaMath.cos(radians)},
+            {VanillaMath.sin(version, radians), VanillaMath.cos(version, radians)},
             {OptifineFastMath.sin(radians), OptifineFastMath.cos(radians)}
         };
         for (float[] table : tables) {
