@@ -198,6 +198,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private Set<Vec3> startingVelsBeforeRide;
     /** Whether a dismount after a passenger tick precedes the next prediction. */
     private boolean rideTicksSinceLastPrediction;
+    /** Whether the last prediction was a Java LocalPlayer that a login or respawn has since replaced. */
+    private boolean lastPredictionOfReplacedPlayer;
 
     private final PassengerRideTick passengerRideTick = new PassengerRideTick();
 
@@ -1752,6 +1754,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         .reduce(0, (a, b) -> a | b);
             this.carriedPush = CarriedPush.IDENTITY;
             this.rideTicksSinceLastPrediction = false;
+            this.lastPredictionOfReplacedPlayer = false;
             this.pushesWhileLoadingLevel = null;
             this.ticksWhileLoadingLevel = 0;
             this.lastXRot = xRot;
@@ -2774,6 +2777,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (!this.player.isBedrockMovement()) {
             this.bedrockSleepingStateObserved = false;
             this.profileCarry = null;
+            // Entity#stuckSpeedMultiplier starts at Vec3.ZERO on the new LocalPlayer.
+            this.lastPredictionOfReplacedPlayer =
+                    this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11);
             // Respawn constructs a fresh LocalPlayer, even when its synchronized entity data is retained.
             this.lastWorldEyeFluidContact = 0;
             // A respawn constructs a new LocalPlayer, whose Entity#pistonDeltas start empty.
@@ -3757,7 +3763,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     private boolean shouldCarryLastRequiredStuckSpeed(PredictionResult lastPrediction) {
-        if (this.rideTicksSinceLastPrediction) {
+        if (this.rideTicksSinceLastPrediction || this.lastPredictionOfReplacedPlayer) {
             return false;
         } else if (lastPrediction != null && lastPrediction.getSimulationContext() != null) {
             PacketEntity lastVehicle = lastPrediction.getSimulationContext().getVehicle();
