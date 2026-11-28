@@ -2067,7 +2067,8 @@ public class CompensatedWorld {
     }
 
     private void preservePendingPredictions(CachedChunk chunk, int chunkX, int chunkZ) {
-        if (originalServerBlocks.isEmpty()) {
+        // ClientChunkCache#replaceWithPacketData shows the chunk's block and leaves the retained server state as is.
+        if (originalServerBlocks.isEmpty() || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
             return;
         }
 
